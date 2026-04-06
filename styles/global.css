@@ -1,0 +1,182 @@
+/* Extracted from index.html to avoid Vite HTML inline-css proxy issues */
+@import './components/loader.css';
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-wuxia-gold));
+  border-radius: 0px;
+  opacity: 0.5;
+}
+
+/* Hide Scrollbar but keep functionality */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Utilities */
+.vertical-text {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+}
+
+/* P5 Style Clip Paths */
+.clip-trapezoid {
+  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0% 100%);
+}
+.clip-shard {
+  clip-path: polygon(0 0, 100% 0, 95% 100%, 5% 100%);
+}
+.clip-message-left {
+  clip-path: polygon(0 0, 100% 0, 100% 85%, 95% 100%, 0 100%);
+}
+.clip-message-right {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 5% 100%, 0 85%);
+}
+.clip-path-polygon {
+  clip-path: polygon(10% 0, 100% 0, 100% 70%, 90% 100%, 0 100%, 0 30%);
+}
+
+/* Noise Overlay */
+.bg-noise {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 50;
+  background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22 opacity=%220.07%22/%3E%3C/svg%3E');
+}
+/* Avatar Border UI */
+.avatar-container-card {
+  position: relative;
+  width: 126px;
+  height: 126px;
+  border-radius: 14px;
+  z-index: 10;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s ease;
+}
+
+.avatar-container-card:hover {
+  border-color: rgba(230, 200, 110, 0.7);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.7);
+}
+
+.avatar-card-bg {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 118px;
+  height: 118px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(24px);
+  border-radius: 10px;
+  overflow: hidden;
+  outline: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-card-blob {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background-color: #A31818; /* wuxia-red */
+  opacity: 0.6;
+  filter: blur(16px);
+  animation: avatar-blob-bounce 8s infinite ease;
+}
+
+@keyframes avatar-blob-bounce {
+  0% {
+    transform: translate(-100%, -100%) translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate(-100%, -100%) translate3d(100%, 0, 0);
+  }
+  50% {
+    transform: translate(-100%, -100%) translate3d(100%, 100%, 0);
+  }
+  75% {
+    transform: translate(-100%, -100%) translate3d(0, 100%, 0);
+  }
+  100% {
+    transform: translate(-100%, -100%) translate3d(0, 0, 0);
+  }
+}
+
+/* Wuxia Progress Bar Flow Animation */
+.animate-wuxia-flow {
+  animation: wuxia-flow 3s linear infinite;
+}
+
+@keyframes wuxia-flow {
+  0% {
+    transform: skewX(-45deg) translateX(-200%);
+  }
+  100% {
+    transform: skewX(-45deg) translateX(200%);
+  }
+}
+
+/* Music Disc Animations */
+@keyframes wuxia-music-disc-rotation {
+  from { transform: translateY(-20%) rotate(0deg); }
+  to { transform: translateY(-20%) rotate(360deg); }
+}
+
+.animate-wuxia-music-disc-rotation {
+  animation: wuxia-music-disc-rotation 6s linear infinite !important;
+}
+
+@keyframes wuxia-spin-only {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-cd-edge-flow {
+  position: absolute;
+  inset: -2px;
+  background: conic-gradient(from 0deg, transparent, #e6c86e 10%, transparent 25%);
+  animation: wuxia-spin-only 4s linear infinite;
+  pointer-events: none;
+  z-index: 20;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 80%, black 82%);
+  mask: radial-gradient(circle, transparent 80%, black 82%);
+}
+
+@keyframes sweep {
+  0% {
+    transform: translate(-100%, -50%) rotate(35deg);
+  }
+  100% {
+    transform: translate(100%, -50%) rotate(35deg);
+  }
+}
+
+.animate-sweep {
+  animation: sweep 3s infinite;
+}

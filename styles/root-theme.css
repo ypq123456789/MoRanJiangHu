@@ -1,0 +1,10 @@
+:root {
+  /* RGB Values for opacity support */
+  --c-ink-black: 14 13 11;
+  --c-ink-gray: 26 26 26;
+  --c-wuxia-gold: 230 200 110;
+  --c-wuxia-gold-dark: 138 114 54;
+  --c-wuxia-cyan: 68 170 170;
+  --c-wuxia-red: 163 24 24;
+  --c-paper-white: 230 230 230;
+}

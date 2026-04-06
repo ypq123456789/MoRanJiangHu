@@ -1,0 +1,179 @@
+/* From Uiverse.io by Nawsome - Adapted for WuXia Theme */ 
+.wuxia-book-loader {
+  --background: linear-gradient(135deg, rgb(var(--c-wuxia-gold-dark)), rgb(var(--c-wuxia-gold)));
+  --shadow: rgba(var(--c-wuxia-gold), 0.15);
+  --text: rgb(var(--c-wuxia-gold));
+  --page: rgba(var(--c-paper-white), 0.5);
+  --page-fold: rgba(var(--c-paper-white), 0.7);
+  --duration: 3s;
+  width: 160px;
+  height: 110px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.wuxia-book-loader:before, .wuxia-book-loader:after {
+  --r: -6deg;
+  content: "";
+  position: absolute;
+  bottom: 8px;
+  width: 100px;
+  top: 80%;
+  box-shadow: 0 16px 12px var(--shadow);
+  transform: rotate(var(--r));
+}
+
+.wuxia-book-loader:before {
+  left: 4px;
+}
+
+.wuxia-book-loader:after {
+  --r: 6deg;
+  right: 4px;
+}
+
+.wuxia-book-loader .book-body {
+  width: 140px;
+  height: 100px;
+  border-radius: 8px;
+  position: relative;
+  z-index: 1;
+  perspective: 600px;
+  box-shadow: 0 4px 6px var(--shadow);
+  background-image: var(--background);
+  opacity: 0.85;
+}
+
+.wuxia-book-loader .book-body ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+}
+
+.wuxia-book-loader .book-body ul li {
+  --r: 180deg;
+  --o: 0;
+  --c: var(--page);
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  transform-origin: 100% 50%;
+  color: var(--c);
+  opacity: var(--o);
+  transform: rotateY(var(--r));
+  animation: var(--duration) ease infinite;
+}
+
+.wuxia-book-loader .book-body ul li:nth-child(2) {
+  --c: var(--page-fold);
+  animation-name: wuxia-page-2;
+}
+
+.wuxia-book-loader .book-body ul li:nth-child(3) {
+  --c: var(--page-fold);
+  animation-name: wuxia-page-3;
+}
+
+.wuxia-book-loader .book-body ul li:nth-child(4) {
+  --c: var(--page-fold);
+  animation-name: wuxia-page-4;
+}
+
+.wuxia-book-loader .book-body ul li:nth-child(5) {
+  --c: var(--page-fold);
+  animation-name: wuxia-page-5;
+}
+
+.wuxia-book-loader .book-body ul li svg {
+  width: 65px;
+  height: 85px;
+  display: block;
+}
+
+.wuxia-book-loader .book-body ul li:first-child {
+  --r: 0deg;
+  --o: 1;
+}
+
+.wuxia-book-loader .book-body ul li:last-child {
+  --o: 1;
+}
+
+.wuxia-book-loader .loader-text {
+  display: block;
+  margin-top: 15px;
+  text-align: center;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  opacity: 0.8;
+}
+
+@keyframes wuxia-page-2 {
+  0% {
+    transform: rotateY(180deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  35%, 100% {
+    opacity: 0;
+  }
+  50%, 100% {
+    transform: rotateY(0deg);
+  }
+}
+
+@keyframes wuxia-page-3 {
+  15% {
+    transform: rotateY(180deg);
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0;
+  }
+  65%, 100% {
+    transform: rotateY(0deg);
+  }
+}
+
+@keyframes wuxia-page-4 {
+  30% {
+    transform: rotateY(180deg);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  65%, 100% {
+    opacity: 0;
+  }
+  80%, 100% {
+    transform: rotateY(0deg);
+  }
+}
+
+@keyframes wuxia-page-5 {
+  45% {
+    transform: rotateY(180deg);
+    opacity: 0;
+  }
+  65% {
+    opacity: 1;
+  }
+  80%, 100% {
+    opacity: 0;
+  }
+  95%, 100% {
+    transform: rotateY(0deg);
+  }
+}
