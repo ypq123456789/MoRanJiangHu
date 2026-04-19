@@ -73,7 +73,7 @@ const NovelDecompositionWorkbenchModal = 创建可预加载懒组件(() => impor
 
 const 懒加载占位: React.FC = () => (
     <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/45 px-6 py-10 text-center backdrop-blur-[2px]">
-        <div className="rounded-2xl border border-wuxia-gold/25 bg-black/78 px-6 py-5 text-xs tracking-[0.22em] text-wuxia-gold/85 shadow-[0_0_36px_rgba(0,0,0,0.52)]">
+        <div className="rounded-2xl border border-wuxia-gold/25 bg-black/78 px-6 py-5 text-sm tracking-[0.22em] text-wuxia-gold/85 shadow-[0_0_36px_rgba(0,0,0,0.52)]">
             卷轴展开中…
         </div>
     </div>
@@ -839,7 +839,7 @@ const App: React.FC = () => {
                             </div>
                             {sceneQuickGenToastVisible && (
                                 <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
-                                    <div className="rounded-xl border border-emerald-400/40 bg-black/75 px-4 py-2 text-xs font-semibold tracking-[0.18em] text-emerald-100 shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur">
+                                    <div className="rounded-xl border border-emerald-400/40 bg-black/75 px-4 py-2 text-sm font-semibold tracking-[0.18em] text-emerald-100 shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur">
                                         已提交场景生图请求
                                     </div>
                                 </div>
@@ -893,7 +893,7 @@ const App: React.FC = () => {
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0">
                                             <div className="text-sm font-semibold">{toast.title}</div>
-                                            <div className="mt-1 text-xs leading-5 opacity-90">{toast.message}</div>
+                                            <div className="mt-1 text-sm leading-5 opacity-90">{toast.message}</div>
                                         </div>
                                         <button
                                             type="button"
@@ -919,7 +919,7 @@ const App: React.FC = () => {
                     />
 
                     {!hideBottomTicker && (
-                        <div className="md:hidden shrink-0 h-[32px] bg-ink-black/90 border-t border-wuxia-gold/20 flex items-center text-[10px] font-mono text-wuxia-gold-dark relative mx-1 mb-1 overflow-hidden pb-[env(safe-area-inset-bottom)]">
+                        <div className="md:hidden shrink-0 h-[32px] bg-ink-black/90 border-t border-wuxia-gold/20 flex items-center text-xs font-mono text-wuxia-gold-dark relative mx-1 mb-1 overflow-hidden pb-[env(safe-area-inset-bottom)]">
                             <div className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-wider">
                                 世界大事
                             </div>
@@ -929,7 +929,7 @@ const App: React.FC = () => {
                                 {tickerEvents && tickerEvents.length > 0 ? (
                                     <div className="w-full overflow-hidden">
                                         <div
-                                            className="flex items-center gap-8 whitespace-nowrap min-w-max animate-marquee-linear text-[10px] text-wuxia-gold/70 tracking-wide"
+                                            className="flex items-center gap-8 whitespace-nowrap min-w-max animate-marquee-linear text-xs text-wuxia-gold/70 tracking-wide"
                                             style={{ ['--marquee-duration' as any]: '28s' }}
                                         >
                                             <div className="flex items-center gap-8">
@@ -941,7 +941,7 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="w-full text-center text-[10px] text-gray-700 tracking-wider">
+                                    <div className="w-full text-center text-xs text-gray-700 tracking-wider">
                                         江湖平静，暂无大事发生...
                                     </div>
                                 )}
@@ -962,7 +962,7 @@ const App: React.FC = () => {
                                 {tickerEvents && tickerEvents.length > 0 ? (
                                     <div className="w-full overflow-hidden">
                                         <div
-                                            className="flex items-center gap-10 whitespace-nowrap min-w-max animate-marquee-linear text-[10px] text-wuxia-gold/70 font-mono tracking-wider"
+                                            className="flex items-center gap-10 whitespace-nowrap min-w-max animate-marquee-linear text-xs text-wuxia-gold/70 font-mono tracking-wider"
                                             style={{ ['--marquee-duration' as any]: '36s' }}
                                         >
                                             <div className="flex items-center gap-10">
@@ -974,7 +974,7 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="w-full text-center text-[10px] text-gray-700 font-mono tracking-widest">
+                                    <div className="w-full text-center text-xs text-gray-700 font-mono tracking-widest">
                                         江湖平静，暂无大事发生...
                                     </div>
                                 )}

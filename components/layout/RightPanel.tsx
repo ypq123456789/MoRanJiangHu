@@ -45,7 +45,7 @@ const RightPanel: React.FC<Props> = ({
 }) => {
     const { enabled, currentLyric } = useMusic();
     const areaStyle = 构建区域文字样式(visualConfig, '右侧栏');
-    const 字号缩放 = (ratio: number, min = 9) => `${Math.max(min, Math.round((Number(areaStyle.fontSize) || 13) * ratio))}px`;
+    const 字号缩放 = (ratio: number, min = 11) => `${Math.max(min, Math.round((Number(areaStyle.fontSize) || 13) * ratio))}px`;
     
     const MENU_ITEMS = [
         { label: '战斗', action: onOpenBattle, color: 'primary' },
@@ -90,14 +90,14 @@ const RightPanel: React.FC<Props> = ({
             ) : (
                 <div className="mb-4 text-center border-b border-gray-800 pb-4 relative h-[80px] flex flex-col justify-center shrink-0">
                     <h1 className="font-black tracking-[0.5em] opacity-90 drop-shadow-md" style={{ ...areaStyle, color: areaStyle.color || '#e6c86e', fontSize: 字号缩放(1.85, 20) }}>天机</h1>
-                    <div className="text-gray-600 tracking-[0.3em] mt-1 uppercase" style={{ fontSize: 字号缩放(0.7, 9), lineHeight: 1.2 }}>System Menu</div>
+                    <div className="text-gray-600 tracking-[0.3em] mt-1 uppercase" style={{ fontSize: 字号缩放(0.92, 12), lineHeight: 1.2 }}>System Menu</div>
                     <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-wuxia-gold/50 to-transparent"></div>
                 </div>
             )}
 
             {enabled && currentLyric && (
                 <div className="mb-2 -mt-1 text-center overflow-hidden animate-in fade-in duration-700 h-8 flex items-center justify-center">
-                    <p className="text-[10px] text-wuxia-gold/90 italic tracking-wider leading-tight px-2 line-clamp-2 drop-shadow-[0_0_3px_rgba(230,200,110,0.3)]">
+                    <p className="text-wuxia-gold/90 italic tracking-wider leading-tight px-2 line-clamp-2 drop-shadow-[0_0_3px_rgba(230,200,110,0.3)]" style={{ fontSize: 字号缩放(0.92, 12) }}>
                         {currentLyric}
                     </p>
                 </div>
@@ -130,7 +130,7 @@ const RightPanel: React.FC<Props> = ({
                         key={item.label}
                         onClick={item.action}
                         className="w-full text-center transition-all py-1.5 uppercase tracking-wider border border-transparent hover:border-gray-800 hover:bg-white/5 rounded-sm"
-                        style={{ ...areaStyle, fontSize: 字号缩放(0.77, 10), color: 'rgba(107,114,128,1)' }}
+                        style={{ ...areaStyle, fontSize: 字号缩放(0.92, 12), color: 'rgba(107,114,128,1)' }}
                     >
                         [ {item.label} ]
                     </button>

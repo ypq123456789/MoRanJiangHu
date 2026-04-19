@@ -308,13 +308,13 @@ const TurnItem: React.FC<Props> = ({
                 <div className="shrink-0 flex flex-col items-center min-w-0 max-w-[46vw] sm:max-w-none">
                     {可切换原文优化视图 ? (
                         <button type="button" onClick={handleToggleBodyView} className="bg-black/40 border border-wuxia-gold/15 px-2.5 sm:px-5 py-1 sm:py-1.5 rounded-lg backdrop-blur-sm shadow-md min-w-[96px] sm:min-w-[136px] max-w-full text-center transition-all hover:border-wuxia-gold/40 hover:bg-black/60 hover:scale-[1.02] group/turnbtn active:scale-95" title={`点击切换到${showOriginalBody ? '优化' : '原文'}视图`}>
-                            <span className="text-[10px] sm:text-[11px] text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate">{turnDisplay}</span>
-                            <span className="text-[7px] sm:text-[8px] text-amber-300/40 tracking-[0.04em] sm:tracking-[0.1em] block mt-0.5 group-hover/turnbtn:text-amber-300/80 transition-colors uppercase leading-none font-sans truncate">{`${优化标识文本} · ${当前正文来源提示}`}</span>
+                            <span className="text-[12px] sm:text-[13px] text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate">{turnDisplay}</span>
+                            <span className="text-[9px] sm:text-[10px] text-amber-300/40 tracking-[0.04em] sm:tracking-[0.1em] block mt-0.5 group-hover/turnbtn:text-amber-300/80 transition-colors uppercase leading-none font-sans truncate">{`${优化标识文本} · ${当前正文来源提示}`}</span>
                         </button>
                     ) : (
                         <div className="bg-black/40 border border-wuxia-gold/15 px-2.5 sm:px-5 py-1 sm:py-1.5 rounded-lg backdrop-blur-sm shadow-md min-w-[96px] sm:min-w-[136px] max-w-full text-center">
-                            <span className="text-[10px] sm:text-[11px] text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate">{turnDisplay}</span>
-                            {已优化正文 && <span className="text-[7px] sm:text-[8px] text-amber-300/40 tracking-[0.06em] sm:tracking-[0.15em] block mt-0.5 uppercase leading-none font-sans truncate">{优化标识文本}</span>}
+                            <span className="text-[12px] sm:text-[13px] text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate">{turnDisplay}</span>
+                            {已优化正文 && <span className="text-[9px] sm:text-[10px] text-amber-300/40 tracking-[0.06em] sm:tracking-[0.15em] block mt-0.5 uppercase leading-none font-sans truncate">{优化标识文本}</span>}
                         </div>
                     )}
 
@@ -359,26 +359,26 @@ const TurnItem: React.FC<Props> = ({
                 </div>
                 {(hasInputTokens || hasDuration || hasOutputTokens) && (
                     <div className="mt-1.5 flex justify-center">
-                        <div className="inline-flex items-center gap-1.5 sm:gap-2.5 px-1.5 sm:px-2.5 py-0.5 rounded-full bg-black/40 border border-white/5 shadow-sm scale-[0.8] sm:scale-90 origin-top max-w-full">
+                        <div className="inline-flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/40 border border-white/5 shadow-sm max-w-full">
                             <div className="flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5 text-violet-300 opacity-60">
                                     <path fillRule="evenodd" d="M10 18a.75.75 0 0 1-.75-.75V7.56L6.53 10.28a.75.75 0 1 1-1.06-1.06l4-4a.75.75 0 0 1 1.06 0l4 4a.75.75 0 1 1-1.06 1.06l-2.72-2.72v9.69A.75.75 0 0 1 10 18Z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-[9px] font-mono text-violet-200/85 font-bold">{上传Token文本}</span>
+                                <span className="text-[11px] font-mono text-violet-200/85 font-bold">{上传Token文本}</span>
                             </div>
                             <div className="w-px h-2 bg-white/5"></div>
                             <div className="flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5 text-wuxia-cyan opacity-50">
                                     <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-[9px] font-mono text-wuxia-cyan/80 font-bold">{hasDuration ? Math.floor(responseDurationSec!) : 0}s</span>
+                                <span className="text-[11px] font-mono text-wuxia-cyan/80 font-bold">{hasDuration ? Math.floor(responseDurationSec!) : 0}s</span>
                             </div>
                             <div className="w-px h-2 bg-white/5"></div>
                             <div className="flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5 text-amber-500 opacity-50">
                                     <path fillRule="evenodd" d="M10 2a.75.75 0 0 1 .75.75v9.69l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 1 1 1.06-1.06l2.72 2.72V2.75A.75.75 0 0 1 10 2Z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-[9px] font-mono text-amber-500/80 font-bold">{hasOutputTokens ? 输出Token文本 : '0'}</span>
+                                <span className="text-[11px] font-mono text-amber-500/80 font-bold">{hasOutputTokens ? 输出Token文本 : '0'}</span>
                             </div>
                         </div>
                     </div>
@@ -525,8 +525,8 @@ const TurnItem: React.FC<Props> = ({
             )}
 
             <div className="mt-2 flex justify-between items-center opacity-0 group-hover/turn:opacity-100 transition-opacity duration-300 gap-4">
-                <span className="text-[9px] text-gray-600">中文计数: {中文计数}字</span>
-                {response.shortTerm && <span className="text-[9px] text-gray-600 max-w-[200px] truncate" title={response.shortTerm}>记忆: {response.shortTerm}</span>}
+                <span className="text-[11px] text-gray-600">中文计数: {中文计数}字</span>
+                {response.shortTerm && <span className="text-[11px] text-gray-600 max-w-[200px] truncate" title={response.shortTerm}>记忆: {response.shortTerm}</span>}
             </div>
             <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-16 h-px bg-gray-800"></div>
         </div>

@@ -116,7 +116,9 @@ const novelAiDevProxyPlugin = (): Plugin => ({
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const productionBase = '/MoRanJiangHu/';
   return {
+    base: mode === 'production' ? productionBase : '/',
     server: {
       port: 3000,
       host: '0.0.0.0'
