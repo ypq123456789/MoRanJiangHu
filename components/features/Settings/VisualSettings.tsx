@@ -480,7 +480,7 @@ const VisualSettings: React.FC<Props> = ({ settings, onSave }) => {
                                             label="字号"
                                             description="使用纯前端按钮与刻度控制，不使用浏览器原生滑杆 UI。"
                                             min={12}
-                                            max={36}
+                                            max={52}
                                             step={1}
                                             value={Number(activeAreaStyle.字号) || 16}
                                             suffix="px"
@@ -529,7 +529,7 @@ const VisualSettings: React.FC<Props> = ({ settings, onSave }) => {
                             description="这里同步映射到“聊天正文”区域，兼容旧存档结构。"
                         >
                             <div className="space-y-4">
-                                <FrontSlider label="正文字号" min={12} max={32} step={1} value={Number(normalizedSettings.字体大小) || 16} suffix="px" onChange={(value) => 更新区域样式('聊天', { 字号: value })} />
+                                <FrontSlider label="正文字号" min={12} max={52} step={1} value={Number(normalizedSettings.字体大小) || 16} suffix="px" onChange={(value) => 更新区域样式('聊天', { 字号: value })} />
                                 <FrontSlider label="段落行间距" min={1.2} max={2.4} step={0.1} value={Number(normalizedSettings.段落间距) || 1.6} onChange={(value) => 更新区域样式('聊天', { 行高: value })} />
                             </div>
                         </SectionCard>
@@ -612,7 +612,7 @@ const VisualSettings: React.FC<Props> = ({ settings, onSave }) => {
                                             onChange={(value) => 更新UI文字样式(activeUiToken, { 字形: value as 'normal' | 'italic' })}
                                         />
                                         <ColorPickerPanel value={activeUiStyle.字体颜色} onChange={(value) => 更新UI文字样式(activeUiToken, { 字体颜色: value })} />
-                                        <FrontSlider label="字号" min={10} max={36} step={1} value={Number(activeUiStyle.字号) || 14} suffix="px" onChange={(value) => 更新UI文字样式(activeUiToken, { 字号: value })} />
+                                        <FrontSlider label="字号" min={10} max={48} step={1} value={Number(activeUiStyle.字号) || 14} suffix="px" onChange={(value) => 更新UI文字样式(activeUiToken, { 字号: value })} />
                                         <FrontSlider label="行高" min={1.1} max={2.2} step={0.1} value={Number(activeUiStyle.行高) || 1.5} onChange={(value) => 更新UI文字样式(activeUiToken, { 行高: value })} />
                                     </div>
                                 </div>
