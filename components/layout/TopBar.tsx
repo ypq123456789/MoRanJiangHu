@@ -196,7 +196,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     const month = parsedTime?.month ?? null;
     const day = parsedTime?.day ?? null;
     const topBarStyle = 构建区域文字样式(visualConfig, '顶部栏');
-    const 顶栏基础字号 = Number(topBarStyle.fontSize) || 14;
+    const 顶栏基础字号 = parseFloat(String(topBarStyle.fontSize ?? '')) || 14;
     const 顶栏字号 = (ratio: number, min = 13) => `${Math.max(min, Math.round(顶栏基础字号 * ratio))}px`;
 
     const numericTime = parsedTime
