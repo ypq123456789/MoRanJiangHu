@@ -38,6 +38,7 @@ export async function onRequestPost({ request }: any): Promise<Response> {
     try {
         const token = request.headers.get('X-GitHub-Token')?.trim() || '';
         const uploadUrl = request.headers.get('X-GitHub-Upload-Url')?.trim() || '';
+        const contentType = request.headers.get('Content-Type')?.trim() || 'application/octet-stream';
 
         if (!token) {
             return buildJsonResponse({ error: 'Missing X-GitHub-Token header' }, 400);
@@ -56,11 +57,10 @@ export async function onRequestPost({ request }: any): Promise<Response> {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/zip',
+                'Content-Type': contentType,
                 'Accept': 'application/vnd.github+json',
                 'X-GitHub-Api-Version': '2022-11-28',
-                'User-Agent': 'WuXia-Cloud-Sync',
-                'Content-Length': String(zipBuffer.byteLength)
+                'User-Agent': 'WuXia-Cloud-Sync'
             },
             body: zipBuffer
         });
