@@ -459,7 +459,7 @@ const InputArea: React.FC<Props> = ({
                                 key={idx}
                                 onClick={() => handleOptionClick(opt)}
                                 disabled={loading}
-                                className="shrink-0 whitespace-nowrap px-6 py-2 bg-white/5 border border-wuxia-gold/30 text-gray-300 rounded hover:bg-wuxia-gold hover:text-ink-black hover:border-wuxia-gold transition-all text-xs tracking-wider shadow-sm min-w-[120px] text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="shrink-0 whitespace-nowrap px-6 py-2.5 bg-white/5 border border-wuxia-gold/30 text-gray-300 rounded hover:bg-wuxia-gold hover:text-ink-black hover:border-wuxia-gold transition-all text-sm tracking-wider shadow-sm min-w-[132px] text-center disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                  {opt}
                             </button>
@@ -622,7 +622,7 @@ const InputArea: React.FC<Props> = ({
                 <div className={`flex-1 min-w-0 bg-black/40 border border-gray-700/50 rounded-lg h-10 flex items-center px-3 transition-all shadow-inner sm:rounded-xl sm:h-12 sm:px-4 ${busy ? 'opacity-50 cursor-not-allowed' : 'focus-within:border-wuxia-gold/50 focus-within:bg-black/60'}`}>
                     <input
                         type="text"
-                        className="w-full bg-transparent text-[13px] sm:text-[15px] text-paper-white font-serif placeholder-gray-600 focus:outline-none"
+                        className="w-full bg-transparent text-[14px] sm:text-[16px] text-paper-white font-serif placeholder-gray-600 focus:outline-none"
                         placeholder={busy ? "等待处理中..." : "输入你的行动..."}
                         value={content}
                         onChange={(e) => setContent(e.target.value)}

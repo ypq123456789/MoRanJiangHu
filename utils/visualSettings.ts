@@ -190,7 +190,29 @@ export const 构建UI文字样式 = (settings: 视觉设置结构 | undefined, t
 
 export const 构建UI文字CSS变量 = (settings: 视觉设置结构 | undefined): React.CSSProperties => {
     const normalized = 规范化视觉设置(settings);
-    return UI文字令牌列表.reduce<React.CSSProperties>((acc, item) => {
+    const bodyStyle = 获取UI文字样式(normalized, '正文');
+    const assistStyle = 获取UI文字样式(normalized, '辅助文本');
+    const labelStyle = 获取UI文字样式(normalized, '标签');
+    const buttonStyle = 获取UI文字样式(normalized, '按钮');
+    const monoStyle = 获取UI文字样式(normalized, '等宽信息');
+    const digitStyle = 获取UI文字样式(normalized, '数字');
+    const compactFontSize = Math.max(
+        12,
+        Math.round(Math.max(Number(bodyStyle.字号) * 0.92, Number(assistStyle.字号) || 0))
+    );
+    const microFontSize = Math.max(
+        12,
+        Math.round(Math.max(Number(labelStyle.字号) || 0, compactFontSize * 0.94))
+    );
+    const compactButtonFontSize = Math.max(
+        12,
+        Math.round(Math.max(Number(buttonStyle.字号) || 0, compactFontSize))
+    );
+    const compactMonoFontSize = Math.max(
+        12,
+        Math.round(Math.max(Number(monoStyle.字号) || 0, Number(digitStyle.字号) || 0, compactFontSize))
+    );
+    const vars = UI文字令牌列表.reduce<React.CSSProperties>((acc, item) => {
         const style = 获取UI文字样式(normalized, item.key);
         const font = 获取字体资源(normalized, style.字体ID);
         const tokenKey = item.key;
@@ -201,6 +223,11 @@ export const 构建UI文字CSS变量 = (settings: 视觉设置结构 | undefined
         acc[`--ui-${tokenKey}-font-style` as any] = style.字形;
         return acc;
     }, {});
+    vars['--ui-compact-font-size' as any] = `${compactFontSize}px`;
+    vars['--ui-micro-font-size' as any] = `${microFontSize}px`;
+    vars['--ui-compact-button-font-size' as any] = `${compactButtonFontSize}px`;
+    vars['--ui-compact-mono-font-size' as any] = `${compactMonoFontSize}px`;
+    return vars;
 };
 
 export const 构建区域文字样式 = (settings: 视觉设置结构 | undefined, area: 可用视觉区域): React.CSSProperties => {

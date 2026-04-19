@@ -72,8 +72,9 @@ const FlatBar: React.FC<{ label: string; current: number; max: number; type: 'st
     
     const pct = Math.min((current / (max || 1)) * 100, 100);
     const areaStyle = 构建区域文字样式(visualConfig, '左侧栏');
-    const 标题字号 = Math.max(10, Math.round((Number(areaStyle.fontSize) || 13) * 0.77));
-    const 数值字号 = Math.max(9, Math.round((Number(areaStyle.fontSize) || 13) * 0.7));
+    const 基础字号 = Number(areaStyle.fontSize) || 13;
+    const 标题字号 = Math.max(14, Math.round(基础字号 * 1.02));
+    const 数值字号 = Math.max(13, Math.round(基础字号 * 0.98));
 
     return (
         <div className="mb-2 group last:mb-0">
@@ -93,8 +94,9 @@ const MiniBodyPart: React.FC<{ name: string; current: number; max: number; statu
     const pct = (current / (max || 1)) * 100;
     const color = '#b91c1c'; // wuxia-red (red-700)
     const areaStyle = 构建区域文字样式(visualConfig, '左侧栏');
-    const 名称字号 = Math.max(10, Math.round((Number(areaStyle.fontSize) || 13) * 0.77));
-    const 数值字号 = Math.max(9, Math.round((Number(areaStyle.fontSize) || 13) * 0.7));
+    const 基础字号 = Number(areaStyle.fontSize) || 13;
+    const 名称字号 = Math.max(13, Math.round(基础字号 * 0.96));
+    const 数值字号 = Math.max(13, Math.round(基础字号 * 0.92));
 
     return (
         <div className="flex items-center justify-between gap-2 w-full h-[22px] border-b border-gray-800/20 last:border-0 hover:bg-white/5 transition-colors px-1 group/part">
@@ -102,7 +104,7 @@ const MiniBodyPart: React.FC<{ name: string; current: number; max: number; statu
             <div className="flex-1 self-center">
                 <WuxiaProgressBar pct={pct} baseColor={color} height="4px" showGlow={false} />
             </div>
-            <span className="font-mono w-[30px] text-right leading-none scale-90 group-hover/part:text-wuxia-red transition-colors" style={{ color: 'rgba(156,163,175,0.8)', fontSize: `${数值字号}px` }}>{current}</span>
+            <span className="font-mono w-[30px] text-right leading-none group-hover/part:text-wuxia-red transition-colors" style={{ color: 'rgba(156,163,175,0.8)', fontSize: `${数值字号}px` }}>{current}</span>
         </div>
     );
 };
@@ -115,7 +117,7 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onUploadAvatar, v
     const 启用修炼体系 = gameConfig?.启用修炼体系 !== false;
     const areaStyle = 构建区域文字样式(visualConfig, '左侧栏');
     const 基础字号 = Number(areaStyle.fontSize) || 13;
-    const 缩放字号 = (ratio: number, min = 9) => `${Math.max(min, Math.round(基础字号 * ratio))}px`;
+    const 缩放字号 = (ratio: number, min = 13) => `${Math.max(min, Math.round(基础字号 * ratio))}px`;
     const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
     const 玩家头像地址 = React.useMemo(() => {
         const archive = 角色?.图片档案;
@@ -185,7 +187,7 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onUploadAvatar, v
             <div className="mb-4 h-[152px] border-b border-gray-800/50 pb-4 shrink-0 flex flex-col items-center justify-center">
                 <div className="w-full flex items-center justify-between gap-3">
                     <div className="min-w-0 flex flex-col items-center justify-center flex-1">
-                        <div className="w-full text-wuxia-gold/70 italic text-center leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: 缩放字号(0.7, 9) }}>{角色.称号 || '无称号'}</div>
+                        <div className="w-full text-wuxia-gold/70 italic text-center leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: 缩放字号(1, 14) }}>{角色.称号 || '无称号'}</div>
                         <button
                             type="button"
                             onClick={onOpenCharacter}
@@ -197,12 +199,12 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onUploadAvatar, v
                             <div className="absolute top-0 right-0 w-0.5 h-0.5 bg-wuxia-gold"></div>
                             <div className="absolute bottom-0 left-0 w-0.5 h-0.5 bg-wuxia-gold"></div>
                             <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-wuxia-gold"></div>
-                            <div className="text-wuxia-gold font-bold tracking-[0.3em] vertical-text text-center select-none drop-shadow-md min-h-[80px] flex items-center justify-center w-full leading-none" style={{ fontFamily: areaStyle.fontFamily, fontStyle: areaStyle.fontStyle, fontSize: 缩放字号(1.38, 18) }}>
+                            <div className="text-wuxia-gold font-bold tracking-[0.3em] vertical-text text-center select-none drop-shadow-md min-h-[80px] flex items-center justify-center w-full leading-none" style={{ fontFamily: areaStyle.fontFamily, fontStyle: areaStyle.fontStyle, fontSize: 缩放字号(1.5, 22) }}>
                                 {角色.姓名}
                             </div>
                         </button>
                         {启用修炼体系 && (
-                            <div className="mt-2 bg-wuxia-red/90 border border-red-800/50 text-white px-2 py-0.5 rounded-sm whitespace-nowrap shadow-sm scale-90" style={{ fontSize: 缩放字号(0.7, 9) }}>{角色.境界}</div>
+                            <div className="mt-2 bg-wuxia-red/90 border border-red-800/50 text-white px-2 py-0.5 rounded-sm whitespace-nowrap shadow-sm" style={{ fontSize: 缩放字号(1, 14) }}>{角色.境界}</div>
                         )}
                     </div>
                     <div className="mx-2 h-[122px] w-px shrink-0 self-center bg-gradient-to-b from-transparent via-wuxia-gold/55 to-transparent"></div>
@@ -222,10 +224,10 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onUploadAvatar, v
                                 />
                             ) : (
                                 <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-white/5 to-black/50 text-wuxia-gold/70 rounded-[8px]">
-                                    <div className="font-bold tracking-[0.16em] opacity-90" style={{ fontSize: 缩放字号(1.08, 14) }}>
+                                    <div className="font-bold tracking-[0.16em] opacity-90" style={{ fontSize: 缩放字号(1.12, 16) }}>
                                         {(角色.姓名 || '侠').slice(0, 1)}
                                     </div>
-                                    <div className="mt-1 uppercase tracking-[0.2em] text-gray-500" style={{ fontSize: 缩放字号(0.54, 7) }}>
+                                    <div className="mt-1 uppercase tracking-[0.2em] text-gray-500" style={{ fontSize: 缩放字号(0.94, 13) }}>
                                         上传头像
                                     </div>
                                 </div>
@@ -248,14 +250,14 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onUploadAvatar, v
                 )}
                 <FlatBar label="经验" current={角色.当前经验} max={角色.升级经验} type="exp" visualConfig={visualConfig} />
             </div>
-            <div className="mb-3 shrink-0 border border-gray-800/60 bg-black/30 px-2 py-1.5 flex items-center justify-between font-mono" style={{ color: 'rgba(209,213,219,1)', fontSize: 缩放字号(0.7, 9) }}>
+            <div className="mb-3 shrink-0 border border-gray-800/60 bg-black/30 px-2 py-1.5 flex items-center justify-between font-mono" style={{ color: 'rgba(209,213,219,1)', fontSize: 缩放字号(1, 14) }}>
                 <span className="text-gray-500">钱财</span>
                 <span>元宝 {金钱.金元宝} / 银 {金钱.银子} / 铜 {金钱.铜钱}</span>
             </div>
 
             <div className="shrink-0 flex flex-col mb-2">
                 <div className="border border-gray-800 bg-white/5 p-2 flex flex-col relative group hover:border-gray-700 transition-colors">
-                    <h3 className="text-wuxia-gold/70 mb-2 uppercase tracking-[0.2em] text-center bg-black/80 -mt-4 mx-auto px-2 w-fit border border-gray-900 shadow-sm" style={{ fontSize: 缩放字号(0.77, 10) }}>身躯</h3>
+                    <h3 className="text-wuxia-gold/70 mb-2 uppercase tracking-[0.2em] text-center bg-black/80 -mt-4 mx-auto px-2 w-fit border border-gray-900 shadow-sm" style={{ fontSize: 缩放字号(1.02, 14) }}>身躯</h3>
                     <div className="flex-col pr-1 space-y-0.5">
                         {bodyParts.map((part) => (
                             <MiniBodyPart key={part.name} name={part.name} current={part.current} max={part.max} status={part.status} visualConfig={visualConfig} />
@@ -266,15 +268,15 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onUploadAvatar, v
 
             {玩家BUFF列表.length > 0 && (
                 <div className="mb-3 shrink-0 border border-gray-800 bg-white/5 p-2">
-                    <h3 className="text-wuxia-cyan/80 mb-2 uppercase tracking-[0.2em] text-center" style={{ fontSize: 缩放字号(0.77, 10) }}>玩家BUFF</h3>
+                    <h3 className="text-wuxia-cyan/80 mb-2 uppercase tracking-[0.2em] text-center" style={{ fontSize: 缩放字号(1.02, 14) }}>玩家BUFF</h3>
                     <div className="space-y-1.5">
                         {玩家BUFF列表.map((buff, i) => (
                             <div key={`${buff.索引}-${i}`} className="border border-wuxia-cyan/20 bg-black/40 px-2 py-1">
-                                <div className="flex items-center justify-between gap-2" style={{ fontSize: 缩放字号(0.7, 9) }}>
+                                <div className="flex items-center justify-between gap-2" style={{ fontSize: 缩放字号(1, 14) }}>
                                     <span className="text-wuxia-cyan truncate">{buff.名称 || `BUFF${i + 1}`}</span>
-                                    <span className="text-gray-400 whitespace-nowrap" style={{ fontSize: 缩放字号(0.62, 8) }}>{buff.结束时间 || '常驻'}</span>
+                                    <span className="text-gray-400 whitespace-nowrap" style={{ fontSize: 缩放字号(0.94, 13) }}>{buff.结束时间 || '常驻'}</span>
                                 </div>
-                                {buff.效果 && <div className="text-gray-300 mt-0.5 leading-tight" style={{ fontSize: 缩放字号(0.62, 8) }}>{buff.效果}</div>}
+                                {buff.效果 && <div className="text-gray-300 mt-0.5 leading-tight" style={{ fontSize: 缩放字号(0.94, 13) }}>{buff.效果}</div>}
                             </div>
                         ))}
                     </div>
@@ -282,10 +284,10 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onUploadAvatar, v
             )}
 
             <div className="shrink-0 pt-2 border-t border-gray-800/50 flex-1 overflow-y-auto no-scrollbar">
-                <h3 className="text-wuxia-gold/70 mb-2 uppercase tracking-[0.2em] text-center" style={{ fontSize: 缩放字号(0.77, 10) }}>行头</h3>
+                <h3 className="text-wuxia-gold/70 mb-2 uppercase tracking-[0.2em] text-center" style={{ fontSize: 缩放字号(1.02, 14) }}>行头</h3>
                 <div className="space-y-1">
                     {equipmentOrder.map((item) => (
-                        <div key={item.key} className="flex justify-between items-center group cursor-help border-b border-gray-800/30 pb-0.5 last:border-0 hover:bg-white/5 px-1" style={{ fontSize: 缩放字号(0.7, 9) }}>
+                        <div key={item.key} className="flex justify-between items-center group cursor-help border-b border-gray-800/30 pb-0.5 last:border-0 hover:bg-white/5 px-1" style={{ fontSize: 缩放字号(1, 14) }}>
                             <span className="text-gray-500 group-hover:text-wuxia-gold transition-colors w-8">{item.label}</span>
                             <span className="truncate text-right flex-1" title={getEquipName(item.key)} style={{ color: areaStyle.color }}>{getEquipName(item.key)}</span>
                         </div>

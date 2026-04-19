@@ -52,6 +52,9 @@ const TurnItem: React.FC<Props> = ({
     const [polishError, setPolishError] = useState<string | null>(null);
     const [showOriginalBody, setShowOriginalBody] = useState(false);
     const chatStyle = 构建区域文字样式(visualConfig, '聊天');
+    const 紧凑字号 = 'var(--ui-compact-font-size, 14px)';
+    const 微字号 = 'var(--ui-micro-font-size, 12px)';
+    const 紧凑等宽字号 = 'var(--ui-compact-mono-font-size, 12px)';
 
     type 思考阶段 = 'pre' | 'post';
     type 思考分组 = { id: string; label: string; phase: 思考阶段; keys: Array<keyof GameResponse> };
@@ -253,8 +256,8 @@ const TurnItem: React.FC<Props> = ({
     if (isEditing) {
         return (
             <div className="w-full bg-black/80 border border-wuxia-gold p-4 my-4 relative z-50">
-                <h4 className="text-wuxia-gold mb-2 font-mono text-xs">{canEditRaw ? '/// DEBUG: EDIT RESPONSE RAW TEXT ///' : '/// DEBUG: VIEW RESPONSE RAW TEXT ///'}</h4>
-                <textarea className={`w-full h-96 bg-gray-900 text-green-400 font-mono text-xs p-4 outline-none border resize-y ${canEditRaw ? 'border-gray-700' : 'border-gray-800 opacity-90'}`} value={editValue} onChange={(e) => setEditValue(e.target.value)} readOnly={!canEditRaw} />
+                <h4 className="text-wuxia-gold mb-2 font-mono" style={{ fontSize: 紧凑等宽字号 }}>{canEditRaw ? '/// DEBUG: EDIT RESPONSE RAW TEXT ///' : '/// DEBUG: VIEW RESPONSE RAW TEXT ///'}</h4>
+                <textarea className={`w-full h-96 bg-gray-900 text-green-400 font-mono p-4 outline-none border resize-y ${canEditRaw ? 'border-gray-700' : 'border-gray-800 opacity-90'}`} style={{ fontSize: 紧凑等宽字号 }} value={editValue} onChange={(e) => setEditValue(e.target.value)} readOnly={!canEditRaw} />
                 {!canEditRaw && <div className="text-amber-300 text-xs mt-2">较早回合仅支持查看原文；只有最新回合支持编辑并重新解析。</div>}
                 {parseError && <div className="text-red-500 text-xs mt-2">Error: {parseError}</div>}
                 <div className="flex justify-end gap-2 mt-2">
@@ -308,13 +311,13 @@ const TurnItem: React.FC<Props> = ({
                 <div className="shrink-0 flex flex-col items-center min-w-0 max-w-[46vw] sm:max-w-none">
                     {可切换原文优化视图 ? (
                         <button type="button" onClick={handleToggleBodyView} className="bg-black/40 border border-wuxia-gold/15 px-2.5 sm:px-5 py-1 sm:py-1.5 rounded-lg backdrop-blur-sm shadow-md min-w-[96px] sm:min-w-[136px] max-w-full text-center transition-all hover:border-wuxia-gold/40 hover:bg-black/60 hover:scale-[1.02] group/turnbtn active:scale-95" title={`点击切换到${showOriginalBody ? '优化' : '原文'}视图`}>
-                            <span className="text-[10px] sm:text-[11px] text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate">{turnDisplay}</span>
-                            <span className="text-[7px] sm:text-[8px] text-amber-300/40 tracking-[0.04em] sm:tracking-[0.1em] block mt-0.5 group-hover/turnbtn:text-amber-300/80 transition-colors uppercase leading-none font-sans truncate">{`${优化标识文本} · ${当前正文来源提示}`}</span>
+                            <span className="text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate" style={{ fontSize: 紧凑字号 }}>{turnDisplay}</span>
+                            <span className="text-amber-300/40 tracking-[0.04em] sm:tracking-[0.1em] block mt-0.5 group-hover/turnbtn:text-amber-300/80 transition-colors uppercase leading-none font-sans truncate" style={{ fontSize: 微字号 }}>{`${优化标识文本} · ${当前正文来源提示}`}</span>
                         </button>
                     ) : (
                         <div className="bg-black/40 border border-wuxia-gold/15 px-2.5 sm:px-5 py-1 sm:py-1.5 rounded-lg backdrop-blur-sm shadow-md min-w-[96px] sm:min-w-[136px] max-w-full text-center">
-                            <span className="text-[10px] sm:text-[11px] text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate">{turnDisplay}</span>
-                            {已优化正文 && <span className="text-[7px] sm:text-[8px] text-amber-300/40 tracking-[0.06em] sm:tracking-[0.15em] block mt-0.5 uppercase leading-none font-sans truncate">{优化标识文本}</span>}
+                            <span className="text-wuxia-gold/80 font-serif font-bold tracking-[0.14em] sm:tracking-[0.3em] uppercase block text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] truncate" style={{ fontSize: 紧凑字号 }}>{turnDisplay}</span>
+                            {已优化正文 && <span className="text-amber-300/40 tracking-[0.06em] sm:tracking-[0.15em] block mt-0.5 uppercase leading-none font-sans truncate" style={{ fontSize: 微字号 }}>{优化标识文本}</span>}
                         </div>
                     )}
 
@@ -359,26 +362,26 @@ const TurnItem: React.FC<Props> = ({
                 </div>
                 {(hasInputTokens || hasDuration || hasOutputTokens) && (
                     <div className="mt-1.5 flex justify-center">
-                        <div className="inline-flex items-center gap-1.5 sm:gap-2.5 px-1.5 sm:px-2.5 py-0.5 rounded-full bg-black/40 border border-white/5 shadow-sm scale-[0.8] sm:scale-90 origin-top max-w-full">
+                        <div className="inline-flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/40 border border-white/5 shadow-sm max-w-full">
                             <div className="flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5 text-violet-300 opacity-60">
                                     <path fillRule="evenodd" d="M10 18a.75.75 0 0 1-.75-.75V7.56L6.53 10.28a.75.75 0 1 1-1.06-1.06l4-4a.75.75 0 0 1 1.06 0l4 4a.75.75 0 1 1-1.06 1.06l-2.72-2.72v9.69A.75.75 0 0 1 10 18Z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-[9px] font-mono text-violet-200/85 font-bold">{上传Token文本}</span>
+                                <span className="font-mono text-violet-200/85 font-bold" style={{ fontSize: 紧凑等宽字号 }}>{上传Token文本}</span>
                             </div>
                             <div className="w-px h-2 bg-white/5"></div>
                             <div className="flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5 text-wuxia-cyan opacity-50">
                                     <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-[9px] font-mono text-wuxia-cyan/80 font-bold">{hasDuration ? Math.floor(responseDurationSec!) : 0}s</span>
+                                <span className="font-mono text-wuxia-cyan/80 font-bold" style={{ fontSize: 紧凑等宽字号 }}>{hasDuration ? Math.floor(responseDurationSec!) : 0}s</span>
                             </div>
                             <div className="w-px h-2 bg-white/5"></div>
                             <div className="flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5 text-amber-500 opacity-50">
                                     <path fillRule="evenodd" d="M10 2a.75.75 0 0 1 .75.75v9.69l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 1 1 1.06-1.06l2.72 2.72V2.75A.75.75 0 0 1 10 2Z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-[9px] font-mono text-amber-500/80 font-bold">{hasOutputTokens ? 输出Token文本 : '0'}</span>
+                                <span className="font-mono text-amber-500/80 font-bold" style={{ fontSize: 紧凑等宽字号 }}>{hasOutputTokens ? 输出Token文本 : '0'}</span>
                             </div>
                         </div>
                     </div>
@@ -388,20 +391,20 @@ const TurnItem: React.FC<Props> = ({
             {/* 展开面板区域：居中展开，不使用绝对定位，避免移动端溢出并保证清晰度 */}
             <div className="px-4 space-y-4 mb-6">
                 {showCommandChanges && isLatest && commands.length > 0 && (
-                    <div className="mx-auto w-[min(100%,720px)] p-4 bg-[#121417] border-y border-emerald-500/30 text-xs text-gray-300 font-mono leading-relaxed shadow-xl animate-in fade-in slide-in-from-top-2 duration-300 relative overflow-hidden">
+                    <div className="mx-auto w-[min(100%,720px)] p-4 bg-[#121417] border-y border-emerald-500/30 text-gray-300 font-mono leading-relaxed shadow-xl animate-in fade-in slide-in-from-top-2 duration-300 relative overflow-hidden" style={{ fontSize: 紧凑等宽字号 }}>
                         <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500/40"></div>
                         <div className="flex items-center justify-between gap-3 mb-4 pb-2 border-b border-white/5">
                             <div className="flex flex-col">
                                 <div className="text-emerald-300 font-bold tracking-[0.2em] flex items-center gap-2 uppercase">
                                     {commandPanelTitle}
                                 </div>
-                                <div className="text-[10px] text-emerald-500/60 mt-0.5 tracking-tighter">
+                                <div className="text-emerald-500/60 mt-0.5 tracking-tighter" style={{ fontSize: 微字号 }}>
                                     COUNT: {commands.length} | SET:{commandStats.set} ADD:{commandStats.add} PUSH:{commandStats.push} DEL:{commandStats.delete}
                                 </div>
                             </div>
                             <div className="flex items-center gap-1 bg-black/40 p-1 rounded-md border border-white/5">
-                                <button onClick={() => setCommandViewMode('compact')} className={`px-2 py-0.5 text-[9px] rounded transition-all ${commandViewMode === 'compact' ? 'bg-emerald-500/30 text-emerald-100 border border-emerald-500/40' : 'text-gray-600 hover:text-gray-400'}`}>简约</button>
-                                <button onClick={() => setCommandViewMode('full')} className={`px-2 py-0.5 text-[9px] rounded transition-all ${commandViewMode === 'full' ? 'bg-emerald-500/30 text-emerald-100 border border-emerald-500/40' : 'text-gray-600 hover:text-gray-400'}`}>详情</button>
+                                <button onClick={() => setCommandViewMode('compact')} className={`px-2 py-0.5 rounded transition-all ${commandViewMode === 'compact' ? 'bg-emerald-500/30 text-emerald-100 border border-emerald-500/40' : 'text-gray-600 hover:text-gray-400'}`} style={{ fontSize: 微字号 }}>简约</button>
+                                <button onClick={() => setCommandViewMode('full')} className={`px-2 py-0.5 rounded transition-all ${commandViewMode === 'full' ? 'bg-emerald-500/30 text-emerald-100 border border-emerald-500/40' : 'text-gray-600 hover:text-gray-400'}`} style={{ fontSize: 微字号 }}>详情</button>
                             </div>
                         </div>
                         <div className="max-h-[50vh] overflow-y-auto custom-scrollbar-thin space-y-2 pr-1">
@@ -414,11 +417,11 @@ const TurnItem: React.FC<Props> = ({
                                     <div key={`${cmd.action}-${cmd.key}-${idx}`} className={`rounded border transition-all ${isCompact ? 'border-white/5 bg-black/20 hover:bg-black/40' : 'border-emerald-500/10 bg-black/40'}`}>
                                         <div className="flex items-center justify-between p-2 flex-wrap gap-2">
                                             <div className="flex items-center gap-2">
-                                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-black tracking-tighter uppercase ${命令样式映射[cmd.action]}`}>{命令标签映射[cmd.action]}</span>
-                                                <span className="font-mono text-[11px] text-gray-200 font-bold">{cmd.key}</span>
+                                                <span className={`inline-flex px-1.5 py-0.5 rounded font-black tracking-tighter uppercase ${命令样式映射[cmd.action]}`} style={{ fontSize: 微字号 }}>{命令标签映射[cmd.action]}</span>
+                                                <span className="font-mono text-gray-200 font-bold" style={{ fontSize: 紧凑等宽字号 }}>{cmd.key}</span>
                                             </div>
                                             {isCompact && cmd.action !== 'delete' && (
-                                                <div className="text-[10px] flex items-center gap-1.5">
+                                                <div className="flex items-center gap-1.5" style={{ fontSize: 微字号 }}>
                                                     <span className="opacity-30 text-emerald-500/50">{cmd.action === 'set' ? '→' : cmd.action === 'add' ? 'Δ' : '≫'}</span>
                                                     <span className={cmd.action === 'add' ? 'text-emerald-400 font-bold' : 'text-emerald-400/80'}>{cmd.action === 'add' && !compactValueText.startsWith('-') ? `+${compactValueText}` : compactValueText}</span>
                                                 </div>
@@ -426,11 +429,11 @@ const TurnItem: React.FC<Props> = ({
                                         </div>
                                         {!isCompact && cmd.action !== 'delete' && (
                                             <div className="px-2 pb-2">
-                                                <pre className="rounded bg-black/60 border border-white/5 p-2 text-[10px] leading-relaxed text-emerald-100/90 whitespace-pre-wrap break-words">{valueText}</pre>
+                                                <pre className="rounded bg-black/60 border border-white/5 p-2 leading-relaxed text-emerald-100/90 whitespace-pre-wrap break-words" style={{ fontSize: 微字号 }}>{valueText}</pre>
                                             </div>
                                         )}
                                         {cmd.action === 'delete' && (
-                                            <div className="px-2 pb-2 text-[9px] text-rose-500/40 italic flex items-center gap-1">
+                                            <div className="px-2 pb-2 text-rose-500/40 italic flex items-center gap-1" style={{ fontSize: 微字号 }}>
                                                 <span className="not-italic">✕</span> 已移除
                                             </div>
                                         )}
@@ -442,26 +445,26 @@ const TurnItem: React.FC<Props> = ({
                 )}
 
                 {showCalibrationDetails && hasCalibrationRecord && (
-                    <div className="mx-auto w-[min(100%,720px)] p-4 bg-[#0f1216] border-y border-sky-500/30 text-xs text-gray-300 leading-relaxed shadow-xl animate-in fade-in slide-in-from-top-2 duration-300 relative overflow-hidden">
+                    <div className="mx-auto w-[min(100%,720px)] p-4 bg-[#0f1216] border-y border-sky-500/30 text-gray-300 leading-relaxed shadow-xl animate-in fade-in slide-in-from-top-2 duration-300 relative overflow-hidden" style={{ fontSize: 紧凑字号 }}>
                         <div className="absolute top-0 left-0 w-1.5 h-full bg-sky-500/40"></div>
                         <div className="flex items-center justify-between gap-3 mb-4 pb-2 border-b border-white/5">
                             <div className="flex flex-col">
                                 <div className="text-sky-300 font-bold tracking-[0.2em] flex items-center gap-2 uppercase">
                                     变量生成报告
                                 </div>
-                                <div className="text-[10px] text-sky-500/60 mt-0.5 tracking-tighter">
+                                <div className="text-sky-500/60 mt-0.5 tracking-tighter" style={{ fontSize: 微字号 }}>
                                     {response.variable_calibration_model ? `ENGINE: ${response.variable_calibration_model}` : 'UNKNOWN ENGINE'}
                                 </div>
                             </div>
-                            <button onClick={() => setShowCalibrationDetails(false)} className="px-2 py-0.5 text-[9px] rounded border border-white/10 text-gray-500 hover:text-white transition-all uppercase">CLOSE</button>
+                            <button onClick={() => setShowCalibrationDetails(false)} className="px-2 py-0.5 rounded border border-white/10 text-gray-500 hover:text-white transition-all uppercase" style={{ fontSize: 微字号 }}>CLOSE</button>
                         </div>
                         <div className="max-h-[50vh] overflow-y-auto custom-scrollbar-thin pr-1">
                             {calibrationReports.length > 0 && (
                                 <div className="mb-6">
-                                    <div className="text-[9px] font-black text-sky-400/50 mb-2 uppercase tracking-widest border-b border-sky-500/10 pb-1">Summary</div>
+                                    <div className="font-black text-sky-400/50 mb-2 uppercase tracking-widest border-b border-sky-500/10 pb-1" style={{ fontSize: 微字号 }}>Summary</div>
                                     <div className="space-y-2">
                                         {calibrationReports.map((report, index) => (
-                                            <div key={`report-${index}`} className="p-3 bg-black/40 border border-sky-500/10 text-[11px] text-gray-200">
+                                            <div key={`report-${index}`} className="p-3 bg-black/40 border border-sky-500/10 text-gray-200" style={{ fontSize: 紧凑字号 }}>
                                                 {report}
                                             </div>
                                         ))}
@@ -470,7 +473,7 @@ const TurnItem: React.FC<Props> = ({
                             )}
                             {calibrationCommands.length > 0 && (
                                 <div>
-                                    <div className="text-[9px] font-black text-sky-400/50 mb-2 uppercase tracking-widest border-b border-sky-500/10 pb-1">
+                                    <div className="font-black text-sky-400/50 mb-2 uppercase tracking-widest border-b border-sky-500/10 pb-1" style={{ fontSize: 微字号 }}>
                                         Supplements（补充命令） · {calibrationCommands.length}
                                     </div>
                                     <div className="space-y-2.5 font-mono">
@@ -478,11 +481,11 @@ const TurnItem: React.FC<Props> = ({
                                             <div key={`cal-${cmd.action}-${cmd.key}-${idx}`} className="rounded border border-sky-500/10 bg-black/40 p-2">
                                                 <div className="flex items-center justify-between mb-1.5">
                                                     <div className="flex items-center gap-2">
-                                                        <span className={`inline-flex px-1 py-0.5 rounded text-[8px] font-black tracking-tighter uppercase ${命令样式映射[cmd.action]}`}>{命令标签映射[cmd.action]}</span>
-                                                        <span className="font-mono text-[11px] text-sky-100/90 font-bold">{cmd.key}</span>
+                                                        <span className={`inline-flex px-1 py-0.5 rounded font-black tracking-tighter uppercase ${命令样式映射[cmd.action]}`} style={{ fontSize: 微字号 }}>{命令标签映射[cmd.action]}</span>
+                                                        <span className="font-mono text-sky-100/90 font-bold" style={{ fontSize: 紧凑等宽字号 }}>{cmd.key}</span>
                                                     </div>
                                                 </div>
-                                                <pre className="rounded bg-black/60 border border-white/5 p-2 text-[10px] leading-relaxed text-sky-100/70 whitespace-pre-wrap break-words italic">{生成简约值文本(cmd?.value)}</pre>
+                                                <pre className="rounded bg-black/60 border border-white/5 p-2 leading-relaxed text-sky-100/70 whitespace-pre-wrap break-words italic" style={{ fontSize: 微字号 }}>{生成简约值文本(cmd?.value)}</pre>
                                             </div>
                                         ))}
                                     </div>
@@ -525,8 +528,8 @@ const TurnItem: React.FC<Props> = ({
             )}
 
             <div className="mt-2 flex justify-between items-center opacity-0 group-hover/turn:opacity-100 transition-opacity duration-300 gap-4">
-                <span className="text-[9px] text-gray-600">中文计数: {中文计数}字</span>
-                {response.shortTerm && <span className="text-[9px] text-gray-600 max-w-[200px] truncate" title={response.shortTerm}>记忆: {response.shortTerm}</span>}
+                <span className="text-[11px] text-gray-600">中文计数: {中文计数}字</span>
+                {response.shortTerm && <span className="text-[11px] text-gray-600 max-w-[200px] truncate" title={response.shortTerm}>记忆: {response.shortTerm}</span>}
             </div>
             <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-16 h-px bg-gray-800"></div>
         </div>

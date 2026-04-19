@@ -38,6 +38,9 @@ const TopItem: React.FC<{
 }> = ({ label, value, highlight, visualConfig, isExpanded, onClick, onLongPress, onMouseEnter, onMouseLeave }) => {
     const areaStyle = 构建区域文字样式(visualConfig, '顶部栏');
     const labelColor = 颜色转透明度(areaStyle.color as string | undefined, 0.62, 'rgba(230, 200, 110, 0.62)');
+    const baseFontSize = Number(areaStyle.fontSize) || 14;
+    const labelFontSize = `${Math.max(13, Math.round(baseFontSize * 0.96))}px`;
+    const valueFontSize = `${Math.max(16, Math.round(baseFontSize * 1.14))}px`;
     
     // Long press logic
     const timerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -75,10 +78,10 @@ const TopItem: React.FC<{
             onContextMenu={(e) => isLongPressActive.current && e.preventDefault()} // Block context menu on long press
         >
             <div className={`absolute -inset-1.5 border-x border-wuxia-gold/0 group-hover:border-wuxia-gold/20 transition-all duration-500 scale-y-50 group-hover:scale-y-100 ${isExpanded ? 'border-wuxia-gold/40 scale-y-100' : ''}`}></div>
-            <div className="text-[8px] md:text-[9px] tracking-[0.18em] mb-0.5" style={{ ...areaStyle, color: labelColor, fontSize: undefined as any, lineHeight: undefined as any }}>
+            <div className="tracking-[0.18em] mb-0.5" style={{ ...areaStyle, color: labelColor, fontSize: labelFontSize, lineHeight: 1.1 }}>
                 {label}
             </div>
-            <div className={`whitespace-nowrap text-xs md:text-sm drop-shadow-md transition-transform ${highlight ? 'font-bold animate-pulse scale-[1.03]' : 'group-hover:scale-[1.03]'} ${isExpanded ? 'text-wuxia-gold font-bold' : ''}`} style={areaStyle}>
+            <div className={`whitespace-nowrap drop-shadow-md transition-transform ${highlight ? 'font-bold animate-pulse scale-[1.03]' : 'group-hover:scale-[1.03]'} ${isExpanded ? 'text-wuxia-gold font-bold' : ''}`} style={{ ...areaStyle, fontSize: valueFontSize, lineHeight: 1.15 }}>
                 {value}
             </div>
         </div>
@@ -193,6 +196,8 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     const month = parsedTime?.month ?? null;
     const day = parsedTime?.day ?? null;
     const topBarStyle = 构建区域文字样式(visualConfig, '顶部栏');
+    const 顶栏基础字号 = Number(topBarStyle.fontSize) || 14;
+    const 顶栏字号 = (ratio: number, min = 13) => `${Math.max(min, Math.round(顶栏基础字号 * ratio))}px`;
 
     const numericTime = parsedTime
         ? `${parsedTime.hour.toString().padStart(2, '0')}:${parsedTime.minute.toString().padStart(2, '0')}`
@@ -348,8 +353,8 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                         {(环境.环境变量 || []).map((ev, i) => (
                                             <div key={i} className="border-l-2 border-wuxia-gold/20 pl-2">
                                                 <div className="font-bold text-wuxia-gold">{ev.名称}</div>
-                                                <div className="text-xs opacity-80 mt-1">{ev.描述}</div>
-                                                {ev.效果 && <div className="text-[10px] text-green-400/80 mt-1 italic">{ev.效果}</div>}
+                                                <div className="opacity-80 mt-1" style={{ fontSize: 顶栏字号(1, 14) }}>{ev.描述}</div>
+                                                {ev.效果 && <div className="text-green-400/80 mt-1 italic" style={{ fontSize: 顶栏字号(0.94, 13) }}>{ev.效果}</div>}
                                             </div>
                                         ))}
                                         {(!环境.环境变量 || 环境.环境变量.length === 0) && <p>风平浪静，并无特殊环境。</p>}
@@ -385,7 +390,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                             </div>
                                             <div>
                                                 <p className="text-lg font-bold">{weatherDisplay}</p>
-                                                <p className="text-xs text-wuxia-gold/60">预计结束：{weatherEnd}</p>
+                                                <p className="text-wuxia-gold/60" style={{ fontSize: 顶栏字号(0.96, 13) }}>预计结束：{weatherEnd}</p>
                                             </div>
                                         </div>
                                     }
@@ -414,8 +419,8 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                             {(环境.环境变量 || []).map((ev, i) => (
                                                 <div key={i} className="border-l-2 border-wuxia-gold/20 pl-2">
                                                     <div className="font-bold text-wuxia-gold">{ev.名称}</div>
-                                                    <div className="text-xs opacity-80 mt-1">{ev.描述}</div>
-                                                    {ev.效果 && <div className="text-[10px] text-green-400/80 mt-1 italic">{ev.效果}</div>}
+                                                    <div className="opacity-80 mt-1" style={{ fontSize: 顶栏字号(1, 14) }}>{ev.描述}</div>
+                                                    {ev.效果 && <div className="text-green-400/80 mt-1 italic" style={{ fontSize: 顶栏字号(0.94, 13) }}>{ev.效果}</div>}
                                                 </div>
                                             ))}
                                             {(!环境.环境变量 || 环境.环境变量.length === 0) && <p>风平浪静，并无特殊环境。</p>}
@@ -437,16 +442,16 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                         <div className="absolute top-1 right-1 w-2 h-2 border-t border-r border-wuxia-gold/50"></div>
                         <div className="absolute bottom-1 left-1 w-2 h-2 border-b border-l border-wuxia-gold/50"></div>
                         <div className="absolute bottom-1 right-1 w-2 h-2 border-b border-r border-wuxia-gold/50"></div>
-                        <div className="hidden md:block tracking-[0.08em] md:tracking-[0.1em] text-shadow" style={{ ...topBarStyle, fontWeight: 700, fontSize: 'clamp(1rem,1.2vw,1.25rem)', lineHeight: 1.3 }}>
+                        <div className="hidden md:block tracking-[0.08em] md:tracking-[0.1em] text-shadow" style={{ ...topBarStyle, fontWeight: 700, fontSize: 顶栏字号(1.24, 20), lineHeight: 1.3 }}>
                             {fullDateStr}
                         </div>
                         <div className="md:hidden text-shadow text-center leading-tight" style={{ color: topBarStyle.color }}>
-                            <div style={{ ...topBarStyle, fontSize: '10px', lineHeight: 1.2 }}>{mobileDateStr}</div>
-                            <div style={{ ...topBarStyle, fontSize: '1rem', fontWeight: 700, letterSpacing: '0.12em' }}>{mobileClockStr}</div>
+                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(0.98, 13), lineHeight: 1.2 }}>{mobileDateStr}</div>
+                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(1.16, 17), fontWeight: 700, letterSpacing: '0.12em' }}>{mobileClockStr}</div>
                         </div>
                         <div
-                            className="absolute -bottom-2.5 md:-bottom-3 bg-wuxia-red text-[8px] md:text-[10px] px-2 md:px-3 py-[1px] md:py-[2px] rounded border border-wuxia-gold/30 shadow-md flex items-center gap-1 z-30 font-bold tracking-widest max-w-[220px] md:max-w-[460px]"
-                            style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}
+                            className="absolute -bottom-2.5 md:-bottom-3 bg-wuxia-red px-2 md:px-3 py-[1px] md:py-[2px] rounded border border-wuxia-gold/30 shadow-md flex items-center gap-1 z-30 font-bold tracking-widest max-w-[220px] md:max-w-[460px]"
+                            style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle, fontSize: 顶栏字号(0.96, 13), lineHeight: 1.15 }}
                         >
                             <span className="md:hidden opacity-90 truncate" title={mobileLocationBadge}>{mobileLocationBadge}</span>
                             <span className="hidden md:inline opacity-90 truncate" title={locationBadge}>{locationBadge}</span>
@@ -474,11 +479,11 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                 content={
                                     <div className="space-y-2">
                                         <div className="text-lg font-bold text-wuxia-gold">{festivalDisplay}</div>
-                                        <div className="text-xs italic opacity-80">{环境.节日?.简介 || (currentFestival?.描述) || '正是寻常好时节。'}</div>
+                                        <div className="italic opacity-80" style={{ fontSize: 顶栏字号(1, 14) }}>{环境.节日?.简介 || (currentFestival?.描述) || '正是寻常好时节。'}</div>
                                         {(环境.节日?.效果 || currentFestival?.效果) && (
                                             <div className="mt-3 p-2 bg-wuxia-gold/5 border border-wuxia-gold/10 rounded">
-                                                <div className="text-[10px] text-wuxia-gold/60 mb-1">时节影响</div>
-                                                <div className="text-xs text-wuxia-gold">{环境.节日?.效果 || currentFestival?.效果}</div>
+                                                <div className="text-wuxia-gold/60 mb-1" style={{ fontSize: 顶栏字号(0.9, 13) }}>时节影响</div>
+                                                <div className="text-wuxia-gold" style={{ fontSize: 顶栏字号(1, 14) }}>{环境.节日?.效果 || currentFestival?.效果}</div>
                                             </div>
                                         )}
                                     </div>
@@ -507,11 +512,11 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                     content={
                                         <div className="space-y-2">
                                             <div className="text-lg font-bold text-wuxia-gold">{festivalDisplay}</div>
-                                            <div className="text-xs italic opacity-80">{环境.节日?.简介 || (currentFestival?.描述) || '正是寻常好时节。'}</div>
+                                            <div className="italic opacity-80" style={{ fontSize: 顶栏字号(1, 14) }}>{环境.节日?.简介 || (currentFestival?.描述) || '正是寻常好时节。'}</div>
                                             {(环境.节日?.效果 || currentFestival?.效果) && (
                                                 <div className="mt-3 p-2 bg-wuxia-gold/5 border border-wuxia-gold/10 rounded">
-                                                    <div className="text-[10px] text-wuxia-gold/60 mb-1">时节影响</div>
-                                                    <div className="text-xs text-wuxia-gold">{环境.节日?.效果 || currentFestival?.效果}</div>
+                                                    <div className="text-wuxia-gold/60 mb-1" style={{ fontSize: 顶栏字号(0.9, 13) }}>时节影响</div>
+                                                    <div className="text-wuxia-gold" style={{ fontSize: 顶栏字号(1, 14) }}>{环境.节日?.效果 || currentFestival?.效果}</div>
                                                 </div>
                                             )}
                                         </div>
