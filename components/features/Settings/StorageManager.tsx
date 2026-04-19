@@ -370,18 +370,19 @@ const StorageManager: React.FC<Props> = ({ requestConfirm }) => {
     };
 
     const getPercent = (val: number) => Math.min((val / (info.usage || 1)) * 100, 100);
+    const renderNotice = () => notice ? (
+        <div className={`text-xs px-3 py-2 border rounded ${
+            notice.type === 'success'
+                ? 'border-green-500/40 bg-green-900/20 text-green-300'
+                : 'border-wuxia-red/40 bg-red-900/20 text-red-300'
+        }`}>
+            {notice.text}
+        </div>
+    ) : null;
 
     return (
         <div className="space-y-6 h-full flex flex-col">
-            {notice && (
-                <div className={`text-xs px-3 py-2 border rounded ${
-                    notice.type === 'success'
-                        ? 'border-green-500/40 bg-green-900/20 text-green-300'
-                        : 'border-wuxia-red/40 bg-red-900/20 text-red-300'
-                }`}>
-                    {notice.text}
-                </div>
-            )}
+            {renderNotice()}
 
             <div className="bg-black/30 p-5 border border-gray-700/50 rounded-lg">
                 <div className="flex justify-between items-end mb-3">
@@ -559,6 +560,7 @@ const StorageManager: React.FC<Props> = ({ requestConfirm }) => {
                 <div className="text-xs text-gray-400">
                     导出/导入用于研发迁移的轻量设置模板，仅包含功能开关、模型/API 与文生图相关配置，不包含提示词池和默认提示词文本。
                 </div>
+                {renderNotice()}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     <GameButton
                         onClick={() => { void handleExportDevSettingsTemplate(); }}

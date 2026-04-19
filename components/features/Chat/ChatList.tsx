@@ -69,6 +69,9 @@ const 解析流式草稿显示 = (content: string): 流式草稿显示结构 => 
 const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistory, onPolishTurn, visualConfig, socialList, playerProfile, renderCount = 10, suppressAutoScrollToken, forceScrollToken }) => {
     const normalizedRenderCount = Number.isFinite(renderCount) ? Math.max(1, Math.floor(renderCount)) : 10;
     const chatStyle = 构建区域文字样式(visualConfig, '聊天');
+    const 紧凑字号 = 'var(--ui-compact-font-size, 14px)';
+    const 微字号 = 'var(--ui-micro-font-size, 12px)';
+    const 紧凑等宽字号 = 'var(--ui-compact-mono-font-size, 12px)';
     const 底部判定阈值 = 120;
     const [接近底部, set接近底部] = React.useState(true);
     const [显示快速置底, set显示快速置底] = React.useState(false);
@@ -239,7 +242,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
 
                 {hiddenCount > 0 && (
                     <div className="w-full text-center py-4">
-                        <div className="inline-block px-4 py-1 rounded-full bg-white/5 border border-gray-700 text-xs text-gray-500 font-serif italic">
+                        <div className="inline-block px-4 py-1 rounded-full bg-white/5 border border-gray-700 text-gray-500 font-serif italic" style={{ fontSize: 紧凑字号 }}>
                             已隐藏早期 {hiddenTurns} 回合 / {hiddenCount} 条记录 (请在设置-互动历史中查看)
                         </div>
                     </div>
@@ -282,7 +285,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                                     <p className="whitespace-pre-wrap leading-relaxed text-base sm:text-lg">
                                         {msg.content}
                                     </p>
-                                    <div className="text-[9px] text-gray-500 mt-2 text-right font-mono">
+                                    <div className="text-gray-500 mt-2 text-right font-mono" style={{ fontSize: 微字号 }}>
                                         PLAYER ACTION
                                     </div>
                                 </div>
@@ -302,13 +305,13 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                             <div key={absoluteIdx} className="flex w-full justify-center animate-slide-in mb-6">
                                 <div className="w-full max-w-3xl px-1 md:px-4">
                                     <div className="relative mx-auto max-w-[94%] md:max-w-[88%] rounded-2xl border border-wuxia-cyan/40 bg-gradient-to-b from-wuxia-cyan/10 via-black/55 to-black/65 px-4 py-3 shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
-                                        <span className="block text-[10px] tracking-[0.2em] text-wuxia-cyan/90 font-mono mb-2">
+                                        <span className="block tracking-[0.2em] text-wuxia-cyan/90 font-mono mb-2" style={{ fontSize: 微字号 }}>
                                             流式草稿
                                         </span>
 
                                         {shouldCollapseThinking && streamDisplay.是否思考中 && (
                                             <div className="mb-3 flex items-center gap-2 rounded-xl border border-wuxia-gold/30 bg-black/35 px-3 py-2 text-wuxia-gold/90 shadow-[inset_0_0_18px_rgba(255,215,110,0.08)]">
-                                                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono tracking-[0.18em] uppercase">
+                                                <span className="inline-flex items-center gap-1.5 font-mono tracking-[0.18em] uppercase" style={{ fontSize: 紧凑等宽字号 }}>
                                                     <span className="relative flex h-2.5 w-2.5">
                                                         <span className="absolute inline-flex h-full w-full rounded-full bg-wuxia-gold/40 animate-ping"></span>
                                                         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-wuxia-gold/80"></span>
@@ -322,7 +325,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                                             {displayText || (shouldCollapseThinking && streamDisplay.是否思考中 ? '...' : '...')}
                                         </p>
                                         <div className="mt-2 flex items-center justify-between">
-                                            <span className="text-[9px] text-wuxia-cyan/75 font-mono tracking-[0.12em]">STREAMING</span>
+                                            <span className="text-wuxia-cyan/75 font-mono tracking-[0.12em]" style={{ fontSize: 微字号 }}>STREAMING</span>
                                             <span className="inline-flex items-center gap-1 text-wuxia-cyan/70">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-wuxia-cyan/70 animate-pulse"></span>
                                                 <span className="w-1.5 h-1.5 rounded-full bg-wuxia-cyan/55 animate-pulse [animation-delay:120ms]"></span>
@@ -339,7 +342,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                     if (msg.role === 'system') {
                         return (
                             <div key={absoluteIdx} className="flex w-full justify-center mb-4 opacity-90">
-                                <div className="bg-black/40 text-wuxia-gold/90 text-xs px-4 py-2 border border-wuxia-gold/30 font-mono rounded">
+                                <div className="bg-black/40 text-wuxia-gold/90 px-4 py-2 border border-wuxia-gold/30 font-mono rounded" style={{ fontSize: 紧凑等宽字号 }}>
                                     {msg.content}
                                 </div>
                             </div>
@@ -349,7 +352,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                     // 5. Fallback for unknown role
                     return (
                         <div key={absoluteIdx} className="flex w-full justify-center mb-4 opacity-70">
-                            <div className="bg-red-900/20 text-red-400 text-xs px-4 py-1 border border-red-900/50 font-mono">
+                            <div className="bg-red-900/20 text-red-400 px-4 py-1 border border-red-900/50 font-mono" style={{ fontSize: 紧凑等宽字号 }}>
                                 [{(msg.role as string).toUpperCase()}] {msg.content}
                             </div>
                         </div>
