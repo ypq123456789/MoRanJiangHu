@@ -302,6 +302,8 @@ export const 执行主剧情发送工作流 = async (
     }
 
     const mainRequestStartedAt = Date.now();
+    const controller = new AbortController();
+    deps.abortControllerRef.current = controller;
     const recallConfig = currentState.apiConfig?.功能模型占位 || ({} as any);
     const recallFeatureEnabled = Boolean(recallConfig.剧情回忆独立模型开关);
     const recallMinRound = Math.max(1, Number(recallConfig.剧情回忆最早触发回合) || 10);
@@ -313,18 +315,6 @@ export const 执行主剧情发送工作流 = async (
     let recallTag = extracted.recallTag;
     let attachedRecallPreview = '';
 
-    const recallRuntimeGameConfig = 规范化游戏设置(currentState.gameConfig);
-    const recallExtraPrompt = [
-        typeof recallRuntimeGameConfig.额外提示词 === 'string'
-            ? recallRuntimeGameConfig.额外提示词.trim()
-            : ''
-    ]
-        .filter(Boolean)
-        .join('\n\n');
-    const recallCotPseudoPrompt = recallRuntimeGameConfig.启用COT伪装注入 !== false
-        ? 构建COT伪装提示词(recallRuntimeGameConfig)
-        : '';
-
     if (recallFeatureEnabled && recallRoundReady && !recallTag) {
         try {
             options?.onRecallProgress?.({ phase: 'start', text: '正在检索剧情回忆...' });
@@ -333,14 +323,14 @@ export const 执行主剧情发送工作流 = async (
                 normalizedMemBeforeSend,
                 currentState.apiConfig,
                 {
-                    extraPrompt: recallExtraPrompt,
-                    cotPseudoHistoryPrompt: recallCotPseudoPrompt,
+                    signal: controller.signal,
                     onDelta: (_delta, accumulated) => {
                         options?.onRecallProgress?.({ phase: 'stream', text: accumulated });
                     }
                 }
             );
             if (!recalled) {
+                deps.abortControllerRef.current = null;
                 alert('已开启剧情回忆模型，但未配置可用接口。');
                 deps.setShowSettings(true);
                 return { cancelled: true };
@@ -349,6 +339,7 @@ export const 执行主剧情发送工作流 = async (
             options?.onRecallProgress?.({ phase: 'done', text: recalled.previewText });
             const silentConfirm = Boolean(currentState.apiConfig?.功能模型占位?.剧情回忆静默确认);
             if (!silentConfirm) {
+                deps.abortControllerRef.current = null;
                 return {
                     cancelled: true,
                     attachedRecallPreview: recalled.previewText,
@@ -360,12 +351,14 @@ export const 执行主剧情发送工作流 = async (
         } catch (error: any) {
             console.error('剧情回忆检索失败', error);
             options?.onRecallProgress?.({ phase: 'error', text: error?.message || '剧情回忆检索失败' });
+            deps.abortControllerRef.current = null;
             alert(`剧情回忆检索失败：${error?.message || '未知错误'}`);
             return { cancelled: true };
         }
     }
 
     if (!sendInput.trim()) {
+        deps.abortControllerRef.current = null;
         return { cancelled: true };
     }
 
@@ -415,8 +408,6 @@ export const 执行主剧情发送工作流 = async (
     deps.设置历史记录(updatedDisplayHistory);
     deps.setLoading(true);
 
-    const controller = new AbortController();
-    deps.abortControllerRef.current = controller;
     const 独立阶段自动重试已启用 = deps.游戏设置启用自动重试(规范化游戏设置(currentState.gameConfig));
     const 请求独立阶段失败决策 = async (params: 独立阶段失败决策参数): Promise<独立阶段失败决策> => {
         const message = [
