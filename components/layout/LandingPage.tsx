@@ -52,7 +52,7 @@ interface Props {
 
 const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorldbookManager, onNovelDecomposition, onSettings, hasSave }) => {
     return (
-        <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden bg-black z-40 rounded-xl">
+        <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden bg-black z-40 rounded-xl px-4 pt-[max(env(safe-area-inset-top),12px)] pb-[calc(env(safe-area-inset-bottom)+16px)]">
             {/* Background Effects */}
             <div className="absolute inset-0 bg-black"></div>
             
@@ -65,8 +65,8 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
             <button
                 type="button"
                 onClick={requestBrowserFullscreen}
-                className="absolute right-4 top-4 z-20 border border-wuxia-gold/40 bg-black/50 px-3 py-1 text-xs md:text-sm font-serif tracking-[0.2em] text-wuxia-gold hover:bg-black/70 transition-colors"
-                style={{
+                className="absolute right-3 md:right-4 z-20 min-h-[40px] border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs md:text-sm font-serif tracking-[0.2em] text-wuxia-gold hover:bg-black/80 transition-colors"
+                style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
                     fontFamily: 'var(--ui-按钮-font-family, inherit)',
                     fontSize: 'var(--ui-按钮-font-size, 14px)',
                     lineHeight: 'var(--ui-按钮-line-height, 1.2)'
@@ -137,7 +137,7 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
             </div>
 
             {/* Footer */}
-            <div className="absolute bottom-8 text-[10px] text-gray-600 font-mono tracking-[0.3em] opacity-60" style={{ fontFamily: 'var(--ui-等宽信息-font-family, inherit)', fontSize: 'var(--ui-等宽信息-font-size, 12px)', lineHeight: 'var(--ui-等宽信息-line-height, 1.45)' }}>
+            <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+12px)] text-[10px] text-gray-600 font-mono tracking-[0.3em] opacity-60" style={{ fontFamily: 'var(--ui-等宽信息-font-family, inherit)', fontSize: 'var(--ui-等宽信息-font-size, 12px)', lineHeight: 'var(--ui-等宽信息-line-height, 1.45)' }}>
                 VER 0.0.1 ALPHA
             </div>
             

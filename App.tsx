@@ -61,6 +61,7 @@ const StoryModal = 创建可预加载懒组件(() => import('./components/featur
 const MobileStory = 创建可预加载懒组件(() => import('./components/features/Story/MobileStory'));
 const HeroinePlanModal = 创建可预加载懒组件(() => import('./components/features/Story/HeroinePlanModal'));
 const MobileHeroinePlanModal = 创建可预加载懒组件(() => import('./components/features/Story/MobileHeroinePlanModal'));
+const NovelExportModal = 创建可预加载懒组件(() => import('./components/features/Story/NovelExportModal'));
 const MemoryModal = 创建可预加载懒组件(() => import('./components/features/Memory/MemoryModal'));
 const MobileMemory = 创建可预加载懒组件(() => import('./components/features/Memory/MobileMemory'));
 const MemorySummaryFlowModal = 创建可预加载懒组件(() => import('./components/features/Memory/MemorySummaryFlowModal'));
@@ -93,6 +94,7 @@ const App: React.FC = () => {
     const [showImageManager, setShowImageManager] = React.useState(false);
     const [showWorldbookManager, setShowWorldbookManager] = React.useState(false);
     const [showNovelDecompositionWorkbench, setShowNovelDecompositionWorkbench] = React.useState(false);
+    const [showNovelExport, setShowNovelExport] = React.useState(false);
     const [showMobileMusic, setShowMobileMusic] = React.useState(false);
     const [chatContentHidden, setChatContentHidden] = React.useState(false);
     const [sceneQuickGenHint, setSceneQuickGenHint] = React.useState(false);
@@ -238,6 +240,7 @@ const App: React.FC = () => {
                 MobileSocial,
                 MobileTask,
                 MobileStory,
+                NovelExportModal,
                 MobileSettingsModal,
                 MobileMemory,
                 MobileWorldModal,
@@ -250,6 +253,7 @@ const App: React.FC = () => {
                 SocialModal,
                 TaskModal,
                 StoryModal,
+                NovelExportModal,
                 SettingsModal,
                 MemoryModal,
                 WorldModal,
@@ -456,6 +460,7 @@ const App: React.FC = () => {
         state.showStory ? '剧情' :
         state.showHeroinePlan ? '规划' :
         state.showMemory ? '记忆' :
+        showNovelExport ? '导出小说' :
         showImageManager ? '图册' :
         showNovelDecompositionWorkbench ? '小说分解' :
         state.showSaveLoad.show ? (state.showSaveLoad.mode === 'save' ? '保存' : '读取') :
@@ -479,6 +484,7 @@ const App: React.FC = () => {
         setters.setShowStory(false);
         setters.setShowHeroinePlan(false);
         setters.setShowMemory(false);
+        setShowNovelExport(false);
         setShowImageManager(false);
         setShowNovelDecompositionWorkbench(false);
         setters.setShowSaveLoad({ show: false, mode: 'save' });
@@ -505,10 +511,12 @@ const App: React.FC = () => {
     const openStory = React.useCallback(() => setters.setShowStory(true), [setters]);
     const openHeroinePlan = React.useCallback(() => setters.setShowHeroinePlan(true), [setters]);
     const openMemory = React.useCallback(() => setters.setShowMemory(true), [setters]);
+    const openNovelExport = React.useCallback(() => setShowNovelExport(true), []);
     const openSave = React.useCallback(() => setters.setShowSaveLoad({ show: true, mode: 'save' }), [setters]);
     const openLoad = React.useCallback(() => setters.setShowSaveLoad({ show: true, mode: 'load' }), [setters]);
     const closeSettings = React.useCallback(() => setters.setShowSettings(false), [setters]);
     const closeNovelDecompositionWorkbench = React.useCallback(() => setShowNovelDecompositionWorkbench(false), []);
+    const closeNovelExport = React.useCallback(() => setShowNovelExport(false), []);
     const closeSaveLoad = React.useCallback(() => setters.setShowSaveLoad({ show: false, mode: 'save' }), [setters]);
     const closeWorldbookManager = React.useCallback(() => setShowWorldbookManager(false), []);
     const closeMobileMusic = React.useCallback(() => setShowMobileMusic(false), []);
@@ -552,6 +560,11 @@ const App: React.FC = () => {
         actions.handleReturnToHome();
         setters.setShowSettings(false);
     }, [actions, requestConfirm, setters]);
+    const openPolishSettings = React.useCallback(() => {
+        closeAllPanels();
+        setters.setActiveTab('polish');
+        setters.setShowSettings(true);
+    }, [closeAllPanels, setters]);
 
     const openImageManagerWithCheck = React.useCallback(async () => {
         const imageApi = 获取文生图接口配置(state.apiConfig);
@@ -643,6 +656,9 @@ const App: React.FC = () => {
                 break;
             case '记忆':
                 setters.setShowMemory(true);
+                break;
+            case '导出小说':
+                setShowNovelExport(true);
                 break;
             case '图册':
                 void openImageManagerWithCheck();
@@ -870,6 +886,7 @@ const App: React.FC = () => {
                                 onOpenStory={openStory}
                                 onOpenHeroinePlan={openHeroinePlan}
                                 onOpenMemory={openMemory}
+                                onOpenNovelExport={openNovelExport}
                                 onOpenImageManager={openImageManagerWithCheck}
                                 onOpenNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
                                 worldEvolutionEnabled={meta.worldEvolutionEnabled}
@@ -1595,6 +1612,18 @@ const App: React.FC = () => {
                                     onClose={() => setters.setShowStory(false)}
                                 />
                             )}
+                        </懒加载边界>
+                    )}
+
+                    {showNovelExport && (
+                        <懒加载边界>
+                            <NovelExportModal
+                                isOpen={showNovelExport}
+                                onClose={closeNovelExport}
+                                history={state.历史记录}
+                                apiSettings={state.apiConfig}
+                                onOpenPolishSettings={openPolishSettings}
+                            />
                         </懒加载边界>
                     )}
 

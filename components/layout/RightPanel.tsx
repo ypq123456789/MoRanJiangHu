@@ -1,7 +1,5 @@
 import React from 'react';
 import GameButton from '../ui/GameButton';
-import { 视觉设置结构 } from '../../types';
-import { 构建区域文字样式 } from '../../utils/visualSettings';
 import { useMusic } from '../features/Music/MusicProvider';
 import MusicPlayerUI from '../features/Music/MusicPlayerUI';
 
@@ -21,6 +19,7 @@ interface Props {
     onOpenStory: () => void;
     onOpenHeroinePlan: () => void;
     onOpenMemory: () => void;
+    onOpenNovelExport?: () => void;
     onOpenImageManager?: () => void;
     onOpenNovelDecomposition?: () => void;
     worldEvolutionEnabled?: boolean;
@@ -29,76 +28,92 @@ interface Props {
     enableKungfu?: boolean;
     onSave: () => void;
     onLoad: () => void;
-    visualConfig?: 视觉设置结构;
+    visualConfig?: any;
 }
 
 const RightPanel: React.FC<Props> = ({
-    onOpenSettings, onOpenInventory, onOpenEquipment, onOpenBattle, onOpenTeam,
-    onOpenSocial, onOpenKungfu, onOpenWorld, onOpenMap, onOpenSect,
-    onOpenTask, onOpenAgreement, onOpenStory, onOpenHeroinePlan, onOpenMemory, onOpenImageManager,
+    onOpenSettings,
+    onOpenInventory,
+    onOpenEquipment,
+    onOpenBattle,
+    onOpenTeam,
+    onOpenSocial,
+    onOpenKungfu,
+    onOpenWorld,
+    onOpenMap,
+    onOpenSect,
+    onOpenTask,
+    onOpenAgreement,
+    onOpenStory,
+    onOpenHeroinePlan,
+    onOpenMemory,
+    onOpenNovelExport,
+    onOpenImageManager,
     onOpenNovelDecomposition,
     worldEvolutionEnabled = false,
     worldEvolutionUpdating = false,
     enableHeroinePlan = false,
     enableKungfu = true,
-    onSave, onLoad, visualConfig
+    onSave,
+    onLoad,
+    visualConfig
 }) => {
     const { enabled, currentLyric } = useMusic();
-    const areaStyle = 构建区域文字样式(visualConfig, '右侧栏');
-    const 基础字号 = Number(areaStyle.fontSize) || 13;
-    const 字号缩放 = (ratio: number, min = 13) => `${Math.max(min, Math.round(基础字号 * ratio))}px`;
-    
-    const MENU_ITEMS = [
-        { label: '战斗', action: onOpenBattle, color: 'primary' },
-        { label: '装备', action: onOpenEquipment, color: 'primary' },
-        { label: '背包', action: onOpenInventory, color: 'primary' },
-        { label: '队伍', action: onOpenTeam, color: 'primary' },
-        { label: '社交', action: onOpenSocial, color: 'primary' },
-        ...(enableKungfu ? [{ label: '功法', action: onOpenKungfu, color: 'primary' }] : []),
+    const baseFontSize = Number(visualConfig?.['右侧栏']?.fontSize || visualConfig?.fontSize) || 13;
+    const scaleFont = (ratio: number, min = 13) => `${Math.max(min, Math.round(baseFontSize * ratio))}px`;
+
+    const menuItems = [
+        { label: '鎴樻枟', action: onOpenBattle, color: 'primary' as const },
+        { label: '瑁呭', action: onOpenEquipment, color: 'primary' as const },
+        { label: '鑳屽寘', action: onOpenInventory, color: 'primary' as const },
+        { label: '闃熶紞', action: onOpenTeam, color: 'primary' as const },
+        { label: '绀句氦', action: onOpenSocial, color: 'primary' as const },
+        ...(enableKungfu ? [{ label: '鍔熸硶', action: onOpenKungfu, color: 'primary' as const }] : []),
         {
-            label: worldEvolutionUpdating ? '世界·更新中' : '世界',
+            label: worldEvolutionUpdating ? '涓栫晫路鏇存柊涓?' : '涓栫晫',
             action: onOpenWorld,
-            color: worldEvolutionUpdating ? 'secondary' : 'primary',
+            color: worldEvolutionUpdating ? 'secondary' as const : 'primary' as const,
             className: worldEvolutionEnabled && worldEvolutionUpdating
                 ? 'animate-pulse shadow-[0_0_18px_rgba(90,220,220,0.35)]'
                 : ''
         },
-        { label: '地图', action: onOpenMap, color: 'primary' },
-        { label: '门派', action: onOpenSect, color: 'primary' },
-        { label: '任务', action: onOpenTask, color: 'primary' },
-        { label: '约定', action: onOpenAgreement, color: 'primary' },
-        { label: '剧情', action: onOpenStory, color: 'primary' },
-        ...(enableHeroinePlan ? [{ label: '规划', action: onOpenHeroinePlan, color: 'primary' }] : []),
-        { label: '记忆', action: onOpenMemory, color: 'primary' },
-        ...(onOpenImageManager ? [{ label: '图册', action: onOpenImageManager, color: 'secondary' }] : []),
-        ...(onOpenNovelDecomposition ? [{ label: '小说分解', action: onOpenNovelDecomposition, color: 'secondary' }] : []),
+        { label: '鍦板浘', action: onOpenMap, color: 'primary' as const },
+        { label: '闂ㄦ淳', action: onOpenSect, color: 'primary' as const },
+        { label: '浠诲姟', action: onOpenTask, color: 'primary' as const },
+        { label: '绾﹀畾', action: onOpenAgreement, color: 'primary' as const },
+        { label: '鍓ф儏', action: onOpenStory, color: 'primary' as const },
+        ...(enableHeroinePlan ? [{ label: '瑙勫垝', action: onOpenHeroinePlan, color: 'primary' as const }] : []),
+        { label: '璁板繂', action: onOpenMemory, color: 'primary' as const },
+        ...(onOpenNovelExport ? [{ label: '瀵煎嚭灏忚', action: onOpenNovelExport, color: 'secondary' as const }] : []),
+        ...(onOpenImageManager ? [{ label: '鍥惧唽', action: onOpenImageManager, color: 'secondary' as const }] : []),
+        ...(onOpenNovelDecomposition ? [{ label: '灏忚鍒嗚В', action: onOpenNovelDecomposition, color: 'secondary' as const }] : []),
     ];
 
-    const SYSTEM_ITEMS = [
-        { label: '保存进度', action: onSave },
-        { label: '读取进度', action: onLoad },
-        { label: '江湖设置', action: onOpenSettings },
+    const systemItems = [
+        { label: '淇濆瓨杩涘害', action: onSave },
+        { label: '璇诲彇杩涘害', action: onLoad },
+        { label: '姹熸箹璁剧疆', action: onOpenSettings },
     ];
 
     return (
-        <div className="h-full flex flex-col p-3 border-l border-wuxia-gold/20 relative bg-transparent" style={areaStyle}>
+        <div className="h-full flex flex-col p-3 border-l border-wuxia-gold/20 relative bg-transparent">
             <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-700 via-black to-black"></div>
-            
+
             {enabled ? (
                 <div className="mb-4 pb-4 border-b border-gray-800 shrink-0">
                     <MusicPlayerUI />
                 </div>
             ) : (
                 <div className="mb-4 text-center border-b border-gray-800 pb-4 relative h-[80px] flex flex-col justify-center shrink-0">
-                    <h1 className="font-black tracking-[0.5em] opacity-90 drop-shadow-md" style={{ ...areaStyle, color: areaStyle.color || '#e6c86e', fontSize: 字号缩放(2, 24) }}>天机</h1>
-                    <div className="text-gray-600 tracking-[0.3em] mt-1 uppercase" style={{ fontSize: 字号缩放(1.05, 14), lineHeight: 1.2 }}>System Menu</div>
+                    <h1 className="font-black tracking-[0.5em] opacity-90 drop-shadow-md text-wuxia-gold" style={{ fontSize: scaleFont(2, 24) }}>澶╂満</h1>
+                    <div className="text-gray-600 tracking-[0.3em] mt-1 uppercase" style={{ fontSize: scaleFont(1.05, 14), lineHeight: 1.2 }}>System Menu</div>
                     <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-wuxia-gold/50 to-transparent"></div>
                 </div>
             )}
 
             {enabled && currentLyric && (
                 <div className="mb-2 -mt-1 text-center overflow-hidden animate-in fade-in duration-700 h-8 flex items-center justify-center">
-                    <p className="text-wuxia-gold/90 italic tracking-wider leading-tight px-2 line-clamp-2 drop-shadow-[0_0_3px_rgba(230,200,110,0.3)]" style={{ fontSize: 字号缩放(1.02, 14) }}>
+                    <p className="text-wuxia-gold/90 italic tracking-wider leading-tight px-2 line-clamp-2 drop-shadow-[0_0_3px_rgba(230,200,110,0.3)]" style={{ fontSize: scaleFont(1.02, 14) }}>
                         {currentLyric}
                     </p>
                 </div>
@@ -112,26 +127,26 @@ const RightPanel: React.FC<Props> = ({
                     <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-gray-600"></div>
                 </div>
                 <div className="p-4 space-y-3 h-full overflow-y-auto no-scrollbar relative z-10">
-                    {MENU_ITEMS.map((item) => (
+                    {menuItems.map((item) => (
                         <GameButton
                             key={item.label}
                             onClick={item.action}
-                            variant={item.color as any}
+                            variant={item.color}
                             className={`w-full text-center py-2 text-sm tracking-widest hover:scale-[1.02] transition-transform !skew-x-0 border-opacity-60 ${item.className || ''}`}
                             contentClassName="!skew-x-0"
                         >
-                            <span style={{ fontFamily: areaStyle.fontFamily, fontStyle: areaStyle.fontStyle, fontSize: 字号缩放(1.08, 14), lineHeight: areaStyle.lineHeight }}>{item.label}</span>
+                            <span style={{ fontSize: scaleFont(1.08, 14), lineHeight: 1.55 }}>{item.label}</span>
                         </GameButton>
                     ))}
                 </div>
             </div>
             <div className="mt-4 pt-4 border-t border-gray-800 space-y-2 shrink-0">
-                {SYSTEM_ITEMS.map((item) => (
+                {systemItems.map((item) => (
                     <button
                         key={item.label}
                         onClick={item.action}
-                        className="w-full text-center transition-all py-1.5 uppercase tracking-wider border border-transparent hover:border-gray-800 hover:bg-white/5 rounded-sm"
-                        style={{ ...areaStyle, fontSize: 字号缩放(1, 14), color: 'rgba(107,114,128,1)' }}
+                        className="w-full text-center transition-all py-1.5 uppercase tracking-wider border border-transparent hover:border-gray-800 hover:bg-white/5 rounded-sm text-gray-500"
+                        style={{ fontSize: scaleFont(1, 14) }}
                     >
                         [ {item.label} ]
                     </button>

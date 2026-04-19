@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import * as dbService from './dbService';
+import { 构建同步API地址 } from '../utils/nativeRuntime';
 import { 设置键 } from '../utils/settingsSchema';
 import { 解析图片资源引用ID } from '../utils/imageAssets';
 
@@ -306,6 +307,13 @@ export const getBoundRepoConfig = (): string | null => {
     return localStorage.getItem(GITHUB_REPO_KEY);
 };
 
+export const setBoundRepoConfig = (repo: string): string | null => {
+    const normalized = 规范化仓库名(repo);
+    if (!normalized) return null;
+    保存仓库名缓存(normalized);
+    return normalized;
+};
+
 export const clearBoundRepoConfig = (): void => {
     localStorage.removeItem(GITHUB_REPO_KEY);
 };
@@ -422,7 +430,7 @@ const 删除旧云同步附件 = async (token: string, config: RepoConfig, relea
 };
 
 const 执行Release附件上传 = async (token: string, uploadUrl: string, bytes: Uint8Array, contentType = 'application/octet-stream'): Promise<Response> => {
-    return fetch(RELEASE_UPLOAD_PROXY_PATH, {
+    return fetch(构建同步API地址(RELEASE_UPLOAD_PROXY_PATH), {
         method: 'POST',
         headers: {
             'Content-Type': contentType,
@@ -445,7 +453,7 @@ const 上传单个附件 = async (token: string, release: ReleaseInfo, fileName:
 };
 
 const 下载Release附件二进制 = async (token: string, url: string): Promise<Uint8Array> => {
-    const res = await fetch(RELEASE_DOWNLOAD_PROXY_PATH, {
+    const res = await fetch(构建同步API地址(RELEASE_DOWNLOAD_PROXY_PATH), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -740,8 +748,11 @@ export async function restoreSyncData(zipBytes: Uint8Array): Promise<boolean> {
     }
 }
 
-export async function fetchSyncMetaData(token: string): Promise<{ exists: boolean; updatedAt: string | null; url: string | null }> {
+export async function fetchSyncMetaData(token: string, preferredRepo?: string): Promise<{ exists: boolean; updatedAt: string | null; url: string | null }> {
     try {
+        if (preferredRepo) {
+            setBoundRepoConfig(preferredRepo);
+        }
         const config = await 获取仓库配置(token);
         await 确保私有仓库存在(token, config);
         const release = await 确保Release存在(token, config);

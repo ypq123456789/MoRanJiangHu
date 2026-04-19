@@ -1,21 +1,20 @@
+import { buildAuthJsonResponse, handleAuthOptions } from './_shared';
+
+export function onRequestOptions(): Response {
+    return handleAuthOptions();
+}
+
 export async function onRequestPost({ request, env }: any) {
     try {
         const { code } = await request.json();
 
         if (!code) {
-            return new Response(JSON.stringify({ error: 'Missing authorization code' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return buildAuthJsonResponse({ error: 'Missing authorization code' }, 400);
         }
 
         const { GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET } = env;
-
         if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
-            return new Response(JSON.stringify({ error: 'Missing GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET env variables in Cloudflare' }), {
-                status: 500,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return buildAuthJsonResponse({ error: 'Missing GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET env variables in Cloudflare' }, 500);
         }
 
         const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
@@ -32,22 +31,16 @@ export async function onRequestPost({ request, env }: any) {
         });
 
         const tokenData = await tokenResponse.json();
-
-        if (tokenData.error) {
-            return new Response(JSON.stringify({ error: tokenData.error_description || tokenData.error }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' }
-            });
+        if (!tokenResponse.ok) {
+            return buildAuthJsonResponse({ error: tokenData.error_description || tokenData.error || 'GitHub OAuth token exchange failed' }, tokenResponse.status);
         }
 
-        return new Response(JSON.stringify({ access_token: tokenData.access_token }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        if (tokenData.error) {
+            return buildAuthJsonResponse({ error: tokenData.error_description || tokenData.error }, 400);
+        }
+
+        return buildAuthJsonResponse({ access_token: tokenData.access_token });
     } catch (error: any) {
-        return new Response(JSON.stringify({ error: error.message }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        return buildAuthJsonResponse({ error: error?.message || 'Unknown GitHub OAuth error' }, 500);
     }
 }

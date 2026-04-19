@@ -33,29 +33,30 @@ type IconName =
     | 'grid'
     | 'novel';
 
-const PRIMARY_MENUS = ['角色', '战斗', '装备', '背包', '社交'];
+const PRIMARY_MENUS = ['瑙掕壊', '鎴樻枟', '瑁呭', '鑳屽寘', '绀句氦'];
 
 const MENU_ICON_MAP: Record<string, IconName> = {
-    角色: 'profile',
-    战斗: 'battle',
-    装备: 'equipment',
-    背包: 'bag',
-    社交: 'social',
-    功法: 'kungfu',
-    世界: 'world',
-    地图: 'map',
-    队伍: 'team',
-    门派: 'sect',
-    任务: 'task',
-    约定: 'agreement',
-    剧情: 'story',
-    规划: 'plan',
-    记忆: 'memory',
-    图册: 'grid',
-    小说分解: 'novel',
-    设置: 'settings',
-    保存: 'save',
-    读取: 'load',
+    '瑙掕壊': 'profile',
+    '鎴樻枟': 'battle',
+    '瑁呭': 'equipment',
+    '鑳屽寘': 'bag',
+    '绀句氦': 'social',
+    '鍔熸硶': 'kungfu',
+    '涓栫晫': 'world',
+    '鍦板浘': 'map',
+    '闃熶紞': 'team',
+    '闂ㄦ淳': 'sect',
+    '浠诲姟': 'task',
+    '绾﹀畾': 'agreement',
+    '鍓ф儏': 'story',
+    '瑙勫垝': 'plan',
+    '璁板繂': 'memory',
+    '瀵煎嚭灏忚': 'novel',
+    '鍥惧唽': 'grid',
+    '灏忚鍒嗚В': 'novel',
+    '璁剧疆': 'settings',
+    '淇濆瓨': 'save',
+    '璇诲彇': 'load',
 };
 
 const getIcon = (menu: string): IconName => MENU_ICON_MAP[menu] || 'grid';
@@ -71,26 +72,27 @@ const MobileQuickMenu: React.FC<Props> = ({
     const [showAllMenus, setShowAllMenus] = useState(false);
     const { enabled, isPlaying, tracks, currentTrackId } = useMusic();
     const currentTrackCover = useMemo(
-        () => tracks.find((track) => track.id === currentTrackId)?.封面URL || '',
+        () => tracks.find((track) => track.id === currentTrackId)?.['灏侀潰URL'] || '',
         [tracks, currentTrackId]
     );
     const allMenus = useMemo(() => ([
         ...PRIMARY_MENUS,
-        '世界',
-        '地图',
-        ...(enableKungfu ? ['功法'] : []),
-        '队伍',
-        '门派',
-        '任务',
-        '约定',
-        '剧情',
-        ...(enableHeroinePlan ? ['规划'] : []),
-        '记忆',
-        ...(enableImageManager ? ['图册'] : []),
-        ...(enableNovelDecomposition ? ['小说分解'] : []),
-        '保存',
-        '读取',
-        '设置',
+        '涓栫晫',
+        '鍦板浘',
+        ...(enableKungfu ? ['鍔熸硶'] : []),
+        '闃熶紞',
+        '闂ㄦ淳',
+        '浠诲姟',
+        '绾﹀畾',
+        '鍓ф儏',
+        ...(enableHeroinePlan ? ['瑙勫垝'] : []),
+        '璁板繂',
+        '导出小说',
+        ...(enableImageManager ? ['鍥惧唽'] : []),
+        ...(enableNovelDecomposition ? ['灏忚鍒嗚В'] : []),
+        '淇濆瓨',
+        '璇诲彇',
+        '璁剧疆',
     ]), [enableHeroinePlan, enableKungfu, enableImageManager, enableNovelDecomposition]);
 
     const handleMenuClick = (menu: string) => {
@@ -117,10 +119,9 @@ const MobileQuickMenu: React.FC<Props> = ({
                         {enabled && (
                             <div className="relative flex flex-col items-center justify-center h-14">
                                 <button
-                                    onClick={() => handleMenuClick('音乐')}
+                                    onClick={() => handleMenuClick('闊充箰')}
                                     className={`w-14 h-14 flex-shrink-0 aspect-square rounded-full border-2 border-gray-700 bg-black shadow-[0_4px_15px_rgba(0,0,0,0.6)] transition-all active:scale-95 z-50 -translate-y-[20%] ${isPlaying ? 'animate-wuxia-music-disc-rotation' : ''}`}
                                 >
-                                    {/* Circular Disc Content */}
                                     <div className="absolute inset-0 rounded-full overflow-hidden">
                                         {currentTrackCover ? (
                                             <img src={currentTrackCover} alt="cd" className="w-full h-full object-cover opacity-80" />
@@ -129,11 +130,9 @@ const MobileQuickMenu: React.FC<Props> = ({
                                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
                                             </div>
                                         )}
-                                        {/* Disc Texture Rings */}
                                         <div className="absolute inset-0 border-[6px] border-black/20 rounded-full pointer-events-none ring-1 ring-inset ring-white/5"></div>
                                     </div>
 
-                                    {/* Edge Flow Light */}
                                     {isPlaying && <div className="animate-cd-edge-flow" />}
 
                                 </button>
@@ -151,7 +150,7 @@ const MobileQuickMenu: React.FC<Props> = ({
                         ))}
                         <QuickButton
                             icon="more"
-                            label={showAllMenus ? '收起' : '更多'}
+                            label={showAllMenus ? '鏀惰捣' : '鏇村'}
                             active={showAllMenus}
                             onClick={() => setShowAllMenus((prev) => !prev)}
                         />
@@ -163,7 +162,7 @@ const MobileQuickMenu: React.FC<Props> = ({
                 <div className="px-2 pt-2 pb-1">
                     <div className="rounded-2xl border border-gray-800 bg-black/50 shadow-[0_8px_20px_rgba(0,0,0,0.4)] overflow-hidden">
                         <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
-                            <span className="text-[10px] tracking-[0.18em] text-gray-500">全部功能</span>
+                            <span className="text-[10px] tracking-[0.18em] text-gray-500">鍏ㄩ儴鍔熻兘</span>
                             <span className="text-[10px] text-wuxia-cyan/80">{allMenus.length} 项</span>
                         </div>
                         <div className="max-h-44 overflow-y-auto no-scrollbar p-2">

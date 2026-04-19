@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useGitHubOAuth } from '../../../hooks/useGitHubOAuth';
 import {
     uploadToCloud,
@@ -6,8 +6,12 @@ import {
     fetchSyncMetaData,
     getBoundRepoConfig,
     clearBoundRepoConfig,
-    type 云同步进度状态
+    GITHUB_REPO_KEY
 } from '../../../services/githubSync';
+
+const FLOATING_BUTTON_STYLE: React.CSSProperties = {
+    top: 'calc(env(safe-area-inset-top, 0px) + 12px)'
+};
 
 const formatTime = (isoString: string | null) => {
     if (!isoString) return '从未同步';
@@ -36,12 +40,12 @@ const formatSpeed = (bytesPerSecond: number) => {
     return `${formatBytes(bytesPerSecond)}/s`;
 };
 
-const getProgressPercent = (progress: 云同步进度状态 | null) => {
+const getProgressPercent = (progress: any) => {
     if (!progress || progress.totalBytes <= 0) return 0;
     return Math.max(0, Math.min(100, (progress.transferredBytes / progress.totalBytes) * 100));
 };
 
-const getStageText = (progress: 云同步进度状态 | null) => {
+const getStageText = (progress: any) => {
     if (!progress) return '待命';
     switch (progress.stage) {
         case 'packing': return '正在打包';
@@ -52,33 +56,142 @@ const getStageText = (progress: 云同步进度状态 | null) => {
     }
 };
 
+const validateRepoName = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+
 export const GitHubSyncButton: React.FC = () => {
-    const { token, login, logout, isLoggingIn } = useGitHubOAuth();
+    const {
+        token,
+        login,
+        logout,
+        isLoggingIn,
+        isNativeApp,
+        hasGitHubOAuthClientId,
+        deviceFlow,
+        deviceFlowRemainingSeconds,
+        openDeviceVerification,
+        cancelDeviceFlow
+    } = useGitHubOAuth();
     const [isSyncing, setIsSyncing] = useState(false);
     const [showPanel, setShowPanel] = useState(false);
-    const [syncData, setSyncData] = useState<{ exists: boolean, updatedAt: string | null, url: string | null } | null>(null);
+    const [syncData, setSyncData] = useState<{ exists: boolean; updatedAt: string | null; url: string | null } | null>(null);
     const [isLoadingMeta, setIsLoadingMeta] = useState(false);
     const [repoName, setRepoName] = useState<string | null>(null);
-    const [progress, setProgress] = useState<云同步进度状态 | null>(null);
+    const [repoInput, setRepoInput] = useState('');
+    const [progress, setProgress] = useState<any>(null);
+
+    const normalizedRepoInput = useMemo(() => validateRepoName(repoInput), [repoInput]);
+    const activeRepoName = normalizedRepoInput || repoName || '';
+
+    const refreshSyncMeta = async (preferredRepo?: string) => {
+        if (!token) return;
+        const repoToUse = validateRepoName(preferredRepo || '');
+        if (!repoToUse) {
+            setSyncData(null);
+            setIsLoadingMeta(false);
+            return;
+        }
+
+        setIsLoadingMeta(true);
+        try {
+            localStorage.setItem(GITHUB_REPO_KEY, repoToUse);
+            const data = await fetchSyncMetaData(token);
+            setSyncData(data);
+            setRepoName(getBoundRepoConfig());
+        } finally {
+            setIsLoadingMeta(false);
+        }
+    };
 
     useEffect(() => {
-        if (showPanel && token) {
-            setRepoName(getBoundRepoConfig());
-            setIsLoadingMeta(true);
-            fetchSyncMetaData(token).then(data => {
-                setSyncData(data);
-                setIsLoadingMeta(false);
-                setRepoName(getBoundRepoConfig());
-            }).catch(() => {
-                setIsLoadingMeta(false);
-            });
+        if (!showPanel) return;
+        const cachedRepo = getBoundRepoConfig();
+        setRepoName(cachedRepo);
+        setRepoInput(cachedRepo || '');
+        if (token && cachedRepo) {
+            void refreshSyncMeta(cachedRepo);
+        } else {
+            setSyncData(null);
         }
     }, [showPanel, token]);
 
-    if (isLoggingIn || (isSyncing && !showPanel)) {
+    const copyDeviceCode = async () => {
+        if (!deviceFlow.userCode) return;
+        try {
+            await navigator.clipboard.writeText(deviceFlow.userCode);
+            alert('设备码已复制，可以直接去 GitHub 验证。');
+        } catch {
+            alert(`请手动复制设备码：${deviceFlow.userCode}`);
+        }
+    };
+
+    const saveRepoBinding = async () => {
+        if (!normalizedRepoInput) {
+            alert('请先输入 GitHub 私有仓库名，只填仓库名，不要带用户名。');
+            return false;
+        }
+        localStorage.setItem(GITHUB_REPO_KEY, normalizedRepoInput);
+        setRepoName(getBoundRepoConfig());
+        await refreshSyncMeta(normalizedRepoInput);
+        return true;
+    };
+
+    const handleChangeRepo = () => {
+        if (!window.confirm('清除当前仓库绑定后，下次同步会使用新的 GitHub 私有仓库名，是否继续？')) return;
+        clearBoundRepoConfig();
+        setRepoName(null);
+        setRepoInput('');
+        setSyncData(null);
+    };
+
+    const handleUpload = async () => {
+        if (!(await saveRepoBinding())) return;
+        if (!window.confirm('这会把当前本机的全部存档、设置与相关素材完整打包上传到 GitHub 私有仓库，确定继续吗？')) return;
+        setIsSyncing(true);
+        setProgress(null);
+        try {
+            const success = await uploadToCloud(token!, setProgress);
+            if (success) {
+                alert('云端备份上传完成。');
+                await refreshSyncMeta(normalizedRepoInput);
+            } else {
+                alert('云端备份上传失败，请稍后重试。');
+            }
+        } catch (error: any) {
+            alert(`上传失败: ${error.message || '未知错误'}`);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleDownload = async () => {
+        if (!(await saveRepoBinding())) return;
+        if (!window.confirm('下载会用云端存档完整覆盖当前本地设置和进度，且不可撤销，是否继续？')) return;
+        setIsSyncing(true);
+        setProgress(null);
+        try {
+            const success = await downloadFromCloud(token!, setProgress);
+            if (success) {
+                alert('云端存档恢复完成，页面即将刷新。');
+                window.location.reload();
+            } else {
+                alert('云端同步失败，请稍后再试。');
+            }
+        } catch (error: any) {
+            alert(`同步失败: ${error.message || '未知错误'}`);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const progressPercent = getProgressPercent(progress);
+
+    if ((isLoggingIn && !showPanel) || (isSyncing && !showPanel)) {
         return (
-            <div className="absolute right-24 md:right-28 top-4 z-20 border border-wuxia-gold/40 bg-black/50 px-3 py-1 text-xs md:text-sm font-serif tracking-wider text-wuxia-gold opacity-80 flex items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-wuxia-gold" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <div
+                className="absolute right-24 md:right-28 z-20 flex items-center justify-center border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs md:text-sm font-serif tracking-wider text-wuxia-gold opacity-90"
+                style={FLOATING_BUTTON_STYLE}
+            >
+                <svg className="mr-2 h-4 w-4 animate-spin text-wuxia-gold" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
@@ -87,240 +200,270 @@ export const GitHubSyncButton: React.FC = () => {
         );
     }
 
-    if (!token) {
-        return (
-            <button
-                type="button"
-                onClick={login}
-                className="absolute right-24 md:right-28 top-4 z-20 flex items-center gap-2 border border-wuxia-gold/40 bg-black/50 px-3 py-1 text-xs md:text-sm font-serif tracking-[0.2em] text-wuxia-gold hover:bg-black/70 hover:text-white hover:border-wuxia-gold/80 transition-all duration-300"
-                style={{
-                    fontFamily: 'var(--ui-按钮-font-family, inherit)',
-                    fontSize: 'var(--ui-按钮-font-size, 14px)',
-                    lineHeight: 'var(--ui-按钮-line-height, 1.2)'
-                }}
-                title="使用 GitHub 进行云存档同步"
-            >
-                <svg viewBox="0 0 24 24" fill="currentColor" className="w-[14px] h-[14px] md:w-4 md:h-4">
-                    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-                </svg>
-                云存档登录
-            </button>
-        );
-    }
-
-    const handleChangeRepo = () => {
-        if (!window.confirm('重置后，下次云端操作时会重新要求您输入一个仓库名。要继续吗？')) return;
-        clearBoundRepoConfig();
-        setRepoName(null);
-        setSyncData({ exists: false, updatedAt: null, url: null });
-        alert('已清除本地仓库绑定配置，请点击操作后重新输入您的私有仓库名。');
-    };
-
-    const handleUpload = async () => {
-        if (!window.confirm('这将会将当前所有存档、游戏设置和游戏内图片（排除提示词）完整打包并分卷上传到 GitHub 私有仓库，过程可能耗时，切勿关闭网页。是否继续？')) return;
-        setIsSyncing(true);
-        setProgress(null);
-        try {
-            const success = await uploadToCloud(token, setProgress);
-            if (success) {
-                alert('私有仓库云备份上传成功！');
-                setIsLoadingMeta(true);
-                setSyncData(await fetchSyncMetaData(token));
-                setRepoName(getBoundRepoConfig());
-                setIsLoadingMeta(false);
-            } else {
-                alert('云备份上传失败，请稍后重试。');
-            }
-        } catch (e: any) {
-            alert('上传失败: ' + e.message);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const handleDownload = async () => {
-        if (!window.confirm('警告：这将会以云端仓库存档包裹彻底覆盖本地进度和设置（过程不可逆），是否继续？')) return;
-        setIsSyncing(true);
-        setProgress(null);
-        try {
-            const success = await downloadFromCloud(token, setProgress);
-            if (success) {
-                alert('私有仓库云存档下载恢复成功！页面即将刷新加载最新数据。');
-                window.location.reload();
-            } else {
-                alert('云端同步失败，请稍后重试。');
-            }
-        } catch (e: any) {
-            alert('同步失败: ' + e.message);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const progressPercent = getProgressPercent(progress);
-
     return (
         <>
             <button
                 type="button"
-                onClick={() => setShowPanel(true)}
-                className="absolute right-24 md:right-28 top-4 z-20 flex items-center gap-2 border border-emerald-500/40 bg-black/50 px-3 py-1 text-xs md:text-sm font-serif tracking-[0.2em] text-emerald-400 hover:bg-black/70 hover:text-emerald-300 hover:border-emerald-500/80 transition-all duration-300"
-                style={{
-                    fontFamily: 'var(--ui-按钮-font-family, inherit)',
-                    fontSize: 'var(--ui-按钮-font-size, 14px)',
-                    lineHeight: 'var(--ui-按钮-line-height, 1.2)'
+                onClick={() => {
+                    if (!token && !isNativeApp && hasGitHubOAuthClientId) {
+                        void login();
+                        return;
+                    }
+                    setShowPanel(true);
                 }}
-                title="管理私有武林云盘"
+                className={`absolute right-3 md:right-28 z-20 flex min-h-[40px] items-center gap-2 border px-3 py-2 text-xs md:text-sm font-serif transition-all duration-300 ${
+                    token
+                        ? 'border-emerald-500/40 bg-black/60 text-emerald-400 hover:border-emerald-400 hover:bg-black/80 hover:text-emerald-300'
+                        : 'border-wuxia-gold/40 bg-black/60 text-wuxia-gold hover:border-wuxia-gold/80 hover:bg-black/80 hover:text-white'
+                }`}
+                style={FLOATING_BUTTON_STYLE}
+                title={token ? '管理 GitHub 云同步' : '登录 GitHub 并同步存档'}
             >
-                <svg viewBox="0 0 24 24" fill="currentColor" className="w-[14px] h-[14px] md:w-4 md:h-4">
+                <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
                     <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
                 </svg>
-                云端同步
+                <span>{token ? '云端同步' : 'GitHub 登录'}</span>
             </button>
 
             {showPanel && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn transition-all">
-                    <div className="bg-gradient-to-b from-[#0a0a0a] to-[#040404] border border-wuxia-gold/30 rounded-lg shadow-[0_0_50px_rgba(0,0,0,0.9),_inset_0_0_20px_rgba(212,175,55,0.05)] w-full max-w-[380px] p-7 relative flex flex-col gap-6 transform transition-all duration-300 scale-100">
-                        <div className="absolute top-0 left-0 w-8 h-8 border-t-[3px] border-l-[3px] border-wuxia-gold/60 rounded-tl-lg shadow-[-2px_-2px_10px_rgba(212,175,55,0.2)]"></div>
-                        <div className="absolute top-0 right-0 w-8 h-8 border-t-[3px] border-r-[3px] border-wuxia-gold/60 rounded-tr-lg shadow-[2px_-2px_10px_rgba(212,175,55,0.2)]"></div>
-                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-[3px] border-l-[3px] border-wuxia-gold/60 rounded-bl-lg shadow-[-2px_2px_10px_rgba(212,175,55,0.2)]"></div>
-                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-[3px] border-r-[3px] border-wuxia-gold/60 rounded-br-lg shadow-[2px_2px_10px_rgba(212,175,55,0.2)]"></div>
-
-                        <div className="absolute inset-0 z-0 flex items-center justify-center opacity-[0.03] pointer-events-none">
-                            <svg viewBox="0 0 24 24" fill="currentColor" className="w-48 h-48 text-wuxia-gold">
-                                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-                            </svg>
-                        </div>
-
-                        <div className="flex justify-between items-center border-b border-wuxia-gold/20 pb-4 relative z-10">
-                            <div className="flex items-center gap-3">
-                                <div className="p-1.5 rounded-full bg-wuxia-gold/10 border border-wuxia-gold/20 shadow-[0_0_10px_rgba(212,175,55,0.2)]">
-                                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-wuxia-gold">
-                                        <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 backdrop-blur-md md:p-4">
+                    <div className="relative flex max-h-[calc(100vh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-24px)] w-full max-w-[430px] flex-col overflow-hidden rounded-2xl border border-wuxia-gold/30 bg-gradient-to-b from-[#0b0b0b] to-[#040404] shadow-[0_0_50px_rgba(0,0,0,0.9)]">
+                        <div className="shrink-0 border-b border-wuxia-gold/15 px-4 pb-4 pt-[max(env(safe-area-inset-top),16px)] md:px-6 md:pt-5">
+                            <div className="flex items-center justify-between gap-4">
+                                <div>
+                                    <div className="text-lg font-serif font-bold tracking-[0.18em] text-wuxia-gold">GitHub 云同步</div>
+                                    <div className="mt-1 text-xs leading-5 text-gray-400">
+                                        {token
+                                            ? '登录后可在手机与 PC 之间同步设置、存档与素材。'
+                                            : isNativeApp
+                                                ? 'APK 将使用 GitHub 设备码登录，不依赖浏览器回跳。'
+                                                : '网页端会跳转 GitHub OAuth 完成授权。'}
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowPanel(false)} className="rounded-full border border-wuxia-gold/20 p-2 text-gray-400 transition-colors hover:text-wuxia-gold" title="关闭面板">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-5 w-5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                     </svg>
-                                </div>
-                                <h2 className="text-[1.1rem] font-serif text-wuxia-gold font-bold tracking-[0.25em] drop-shadow-md">
-                                    私有云存仓库
-                                </h2>
+                                </button>
                             </div>
-                            <button onClick={() => setShowPanel(false)} className="text-gray-400 hover:text-wuxia-gold transition-colors pb-1" title="关闭面板">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
                         </div>
 
-                        <div className="flex flex-col gap-4 text-[13px] text-gray-300 font-serif px-1 relative z-10">
-                            <div className="flex justify-between items-end pb-2 border-b border-gray-800/80 group hover:border-wuxia-gold/30 transition-colors">
-                                <span className="text-gray-400">设备授权状态</span>
-                                <div className="flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_5px_rgba(52,211,153,0.8)]"></span>
-                                    <span className="text-emerald-400 font-bold tracking-widest drop-shadow-sm">已绑定 GitHub</span>
-                                </div>
-                            </div>
-                            <div className="flex justify-between items-end pb-2 border-b border-gray-800/80 group hover:border-wuxia-gold/30 transition-colors">
-                                <span className="text-gray-400">被绑定的目标仓库</span>
-                                <div className="flex items-center gap-2 text-right">
-                                    <span className="font-mono text-xs">{repoName || '尚未指定'}</span>
-                                    {repoName && (
-                                        <button onClick={handleChangeRepo} className="text-wuxia-gold/60 hover:text-wuxia-gold underline decoration-wuxia-gold/30 underline-offset-2 hover:decoration-wuxia-gold text-xs transition-colors">
-                                            修改
-                                        </button>
+                        {!token ? (
+                            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
+                                <div className="rounded-2xl border border-wuxia-gold/15 bg-black/35 p-4">
+                                    {isNativeApp ? (
+                                        <>
+                                            <div className="text-sm leading-6 text-gray-300">
+                                                1. 点下面按钮唤起 GitHub 验证页
+                                                <br />
+                                                2. 在浏览器输入设备码并确认授权
+                                                <br />
+                                                3. APK 会自动拿到令牌并进入同步面板
+                                            </div>
+
+                                            {deviceFlow.status !== 'idle' && (
+                                                <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                                                    <div className="text-xs tracking-[0.18em] text-emerald-300/80">当前设备码</div>
+                                                    <div className="mt-2 select-all rounded-lg border border-emerald-500/20 bg-black/40 px-3 py-3 text-center font-mono text-2xl tracking-[0.28em] text-emerald-300">
+                                                        {deviceFlow.userCode || '---- ----'}
+                                                    </div>
+                                                    <div className="mt-3 text-xs leading-5 text-gray-400">
+                                                        {deviceFlow.message || '等待 GitHub 授权中。'}
+                                                        {deviceFlowRemainingSeconds > 0 && ` 剩余约 ${deviceFlowRemainingSeconds} 秒。`}
+                                                    </div>
+                                                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                                                        <button
+                                                            type="button"
+                                                            onClick={copyDeviceCode}
+                                                            className="flex-1 rounded-lg border border-wuxia-gold/25 bg-black/50 px-3 py-2 text-sm text-wuxia-gold transition-colors hover:bg-black/70"
+                                                        >
+                                                            复制设备码
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={openDeviceVerification}
+                                                            className="flex-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                                                        >
+                                                            打开 GitHub 验证页
+                                                        </button>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={cancelDeviceFlow}
+                                                        className="mt-3 w-full rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs tracking-[0.12em] text-red-300 transition-colors hover:bg-red-500/10"
+                                                    >
+                                                        取消本次授权
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="text-sm leading-6 text-gray-300">
+                                                当前环境会跳转 GitHub 官方授权页，授权完成后自动回到游戏。
+                                            </div>
+                                            {!hasGitHubOAuthClientId && (
+                                                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+                                                    当前部署没有注入 `VITE_GITHUB_CLIENT_ID`，网页端 GitHub 登录不可用。
+                                                    请在 GitHub Actions Secret 中配置 `VITE_GITHUB_CLIENT_ID`，然后重新部署。
+                                                </div>
+                                            )}
+                                        </>
                                     )}
-                                </div>
-                            </div>
-                            <div className="flex justify-between items-end pb-2 border-b border-gray-800/80 group hover:border-wuxia-gold/30 transition-colors">
-                                <span className="text-gray-400">远端仓库同步记录</span>
-                                <span className={`font-mono tracking-wider text-right ${syncData?.exists ? 'text-wuxia-gold drop-shadow-sm' : 'text-gray-600'}`}>
-                                    {isLoadingMeta ? '查询中...' : syncData?.exists ? formatTime(syncData.updatedAt) : '空空如也'}
-                                </span>
-                            </div>
-                            {syncData?.url && (
-                                <div className="text-xs text-wuxia-gold/50 text-right mt-[-6px] pr-1">
-                                    <a href={syncData.url} target="_blank" rel="noreferrer" className="hover:text-wuxia-gold transition-colors underline decoration-wuxia-gold/30 underline-offset-2 hover:decoration-wuxia-gold">
-                                        前往 GitHub Release 查看云端附件 ↗
-                                    </a>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="mt-2 flex flex-col gap-3 relative z-10">
-                            {isSyncing ? (
-                                <div className="py-5 px-4 flex flex-col gap-3 text-wuxia-gold text-sm font-serif tracking-widest border border-wuxia-gold/30 bg-wuxia-gold/5 rounded-md shadow-inner">
-                                    <div className="flex items-center justify-center gap-3">
-                                        <svg className="animate-spin h-6 w-6 text-wuxia-gold drop-shadow-md" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        <span>{progress?.message || '深度云端备份处理中...'}</span>
-                                    </div>
-                                    <div className="text-[12px] tracking-normal text-wuxia-gold/80 flex justify-between">
-                                        <span>{progress?.direction === 'upload' ? '上传任务' : progress?.direction === 'download' ? '下载任务' : '同步任务'} · {getStageText(progress)}</span>
-                                        <span>{progress?.partCount ? `分卷 ${progress.partIndex}/${progress.partCount}` : '准备中'}</span>
-                                    </div>
-                                    <div className="w-full h-2 rounded-full bg-black/50 overflow-hidden border border-wuxia-gold/10">
-                                        <div className="h-full bg-gradient-to-r from-wuxia-gold/40 via-wuxia-gold to-wuxia-gold/50 transition-all duration-300" style={{ width: `${progressPercent}%` }} />
-                                    </div>
-                                    <div className="text-[12px] tracking-normal text-wuxia-gold/80 grid grid-cols-2 gap-2">
-                                        <span>进度：{progressPercent.toFixed(1)}%</span>
-                                        <span className="text-right">速度：{formatSpeed(progress?.speedBytesPerSecond || 0)}</span>
-                                        <span>已传：{formatBytes(progress?.transferredBytes || 0)}</span>
-                                        <span className="text-right">总量：{formatBytes(progress?.totalBytes || 0)}</span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <>
-                                    <button
-                                        type="button"
-                                        onClick={handleUpload}
-                                        className="w-full py-3 relative overflow-hidden group bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-950 border border-emerald-700/60 rounded flex items-center justify-center gap-2 hover:border-emerald-400 transition-all duration-300 shadow-[0_0_15px_rgba(52,211,153,0.15)]"
-                                    >
-                                        <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-emerald-400/10 to-transparent -translate-x-[100%] group-hover:animate-[shine_2s_ease-in-out_infinite]"></div>
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4 text-emerald-400 drop-shadow">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 19.5v-15m0 0l-6.75 6.75M12 4.5l6.75 6.75" />
-                                        </svg>
-                                        <span className="text-emerald-100 font-serif tracking-[0.2em] text-[13px] font-semibold drop-shadow-sm flex items-center pt-0.5">
-                                            分卷上传云端（带进度/速度）
-                                        </span>
-                                    </button>
 
                                     <button
                                         type="button"
-                                        onClick={handleDownload}
-                                        disabled={!syncData?.exists}
-                                        className={`w-full py-3 relative rounded flex items-center justify-center gap-2 transition-all duration-300 shadow-sm text-sm border font-serif tracking-[0.2em] 
-                                            ${!syncData?.exists
-                                                ? 'bg-[#111] border-gray-800/80 text-gray-700 cursor-not-allowed'
-                                                : 'bg-gradient-to-r from-sky-950 via-sky-900 to-sky-950 border-sky-700/60 text-sky-100 hover:border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.15)] cursor-pointer group'}`}
+                                        onClick={() => void login()}
+                                        disabled={!isNativeApp && !hasGitHubOAuthClientId}
+                                        className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold tracking-[0.18em] transition-all ${
+                                            !isNativeApp && !hasGitHubOAuthClientId
+                                                ? 'cursor-not-allowed border-gray-800/80 bg-[#111] text-gray-600'
+                                                : 'border-wuxia-gold/30 bg-gradient-to-r from-wuxia-gold/10 via-wuxia-gold/5 to-wuxia-gold/10 text-wuxia-gold hover:border-wuxia-gold/60 hover:bg-black/70'
+                                        }`}
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`w-4 h-4 ${syncData?.exists ? 'text-sky-400 drop-shadow' : 'text-gray-700'}`}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+                                        <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                                            <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
                                         </svg>
-                                        <span className="flex items-center pt-0.5 text-[13px] font-semibold">
-                                            {syncData?.exists ? '分卷下载并覆盖本地（带进度/速度）' : '您的目标仓库尚无云端备份'}
-                                        </span>
+                                        {isNativeApp ? '开始 GitHub 设备登录' : hasGitHubOAuthClientId ? '前往 GitHub 授权' : '未配置 GitHub Client ID'}
                                     </button>
-                                </>
-                            )}
-                        </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
+                                    <div className="flex flex-col gap-4 text-sm text-gray-300">
+                                        <div className="rounded-2xl border border-wuxia-gold/15 bg-black/35 p-4">
+                                            <div className="flex items-center justify-between gap-3 border-b border-gray-800/80 pb-3">
+                                                <span className="text-gray-400">GitHub 授权状态</span>
+                                                <span className="flex items-center gap-2 text-emerald-400">
+                                                    <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+                                                    已登录
+                                                </span>
+                                            </div>
 
-                        <div className="pt-4 mt-2 border-t border-wuxia-gold/10 flex justify-center relative z-10">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (window.confirm('确认解除与 GitHub 的 OAuth 授权？这只是清除本地保存的 Token，您的私有仓库本身不会消失。\n下次上传时需要重新打开网页登录。')) {
-                                        logout();
-                                        setShowPanel(false);
-                                    }
-                                }}
-                                className="text-[11px] text-red-500/60 hover:text-red-400 transition-colors tracking-widest flex items-center gap-1 group"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-300">
-                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                </svg>
-                                <span>解除设备与 GitHub 账号的授权并退出</span>
-                            </button>
-                        </div>
+                                            <div className="mt-4">
+                                                <label className="mb-2 block text-xs tracking-[0.14em] text-gray-400">目标私有仓库</label>
+                                                <div className="flex flex-col gap-2 sm:flex-row">
+                                                    <input
+                                                        value={repoInput}
+                                                        onChange={(event) => setRepoInput(event.target.value)}
+                                                        placeholder="例如 wuxia-cloud-save"
+                                                        className="min-w-0 flex-1 rounded-lg border border-wuxia-gold/20 bg-black/60 px-3 py-2 text-sm text-gray-100 outline-none transition-colors placeholder:text-gray-600 focus:border-wuxia-gold/60"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void saveRepoBinding()}
+                                                        className="rounded-lg border border-wuxia-gold/25 bg-wuxia-gold/10 px-4 py-2 text-sm text-wuxia-gold transition-colors hover:bg-wuxia-gold/15"
+                                                    >
+                                                        绑定仓库
+                                                    </button>
+                                                </div>
+                                                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-gray-500">
+                                                    <span>只填仓库名，不要带用户名。</span>
+                                                    {repoName && (
+                                                        <button onClick={handleChangeRepo} className="text-wuxia-gold/70 transition-colors hover:text-wuxia-gold">
+                                                            清除绑定
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-4 flex justify-between items-end border-b border-gray-800/80 pb-3">
+                                                <span className="text-gray-400">最近云端记录</span>
+                                                <span className={`text-right font-mono ${syncData?.exists ? 'text-wuxia-gold' : 'text-gray-600'}`}>
+                                                    {activeRepoName
+                                                        ? isLoadingMeta
+                                                            ? '查询中...'
+                                                            : syncData?.exists
+                                                                ? formatTime(syncData.updatedAt)
+                                                                : '当前仓库暂无云备份'
+                                                        : '尚未绑定仓库'}
+                                                </span>
+                                            </div>
+
+                                            {syncData?.url && (
+                                                <a
+                                                    href={syncData.url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="mt-3 inline-flex text-xs text-wuxia-gold/60 underline decoration-wuxia-gold/30 underline-offset-2 transition-colors hover:text-wuxia-gold"
+                                                >
+                                                    前往 GitHub Release 查看云端附件
+                                                </a>
+                                            )}
+                                        </div>
+
+                                        {isSyncing ? (
+                                            <div className="rounded-2xl border border-wuxia-gold/25 bg-wuxia-gold/5 p-4 text-wuxia-gold">
+                                                <div className="flex items-center justify-center gap-3">
+                                                    <svg className="h-6 w-6 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                        <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    <span>{progress?.message || '云同步处理中...'}</span>
+                                                </div>
+                                                <div className="mt-3 flex justify-between text-xs text-wuxia-gold/80">
+                                                    <span>{progress?.direction === 'upload' ? '上传任务' : progress?.direction === 'download' ? '下载任务' : '同步任务'} · {getStageText(progress)}</span>
+                                                    <span>{progress?.partCount ? `分卷 ${progress.partIndex}/${progress.partCount}` : '准备中'}</span>
+                                                </div>
+                                                <div className="mt-3 h-2 overflow-hidden rounded-full border border-wuxia-gold/10 bg-black/50">
+                                                    <div className="h-full bg-gradient-to-r from-wuxia-gold/40 via-wuxia-gold to-wuxia-gold/50 transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+                                                </div>
+                                                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-wuxia-gold/80">
+                                                    <span>进度: {progressPercent.toFixed(1)}%</span>
+                                                    <span className="text-right">速度: {formatSpeed(progress?.speedBytesPerSecond || 0)}</span>
+                                                    <span>已传: {formatBytes(progress?.transferredBytes || 0)}</span>
+                                                    <span className="text-right">总量: {formatBytes(progress?.totalBytes || 0)}</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="grid gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleUpload}
+                                                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-700/60 bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-950 px-4 py-3 text-sm font-semibold tracking-[0.18em] text-emerald-100 shadow-[0_0_15px_rgba(52,211,153,0.15)] transition-all hover:border-emerald-400"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-4 w-4 text-emerald-400">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 19.5v-15m0 0l-6.75 6.75M12 4.5l6.75 6.75" />
+                                                    </svg>
+                                                    上传到 GitHub 云端
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDownload}
+                                                    disabled={!syncData?.exists}
+                                                    className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold tracking-[0.18em] transition-all ${
+                                                        !syncData?.exists
+                                                            ? 'cursor-not-allowed border-gray-800/80 bg-[#111] text-gray-700'
+                                                            : 'border-sky-700/60 bg-gradient-to-r from-sky-950 via-sky-900 to-sky-950 text-sky-100 shadow-[0_0_15px_rgba(56,189,248,0.15)] hover:border-sky-400'
+                                                    }`}
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`h-4 w-4 ${syncData?.exists ? 'text-sky-400' : 'text-gray-700'}`}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+                                                    </svg>
+                                                    {syncData?.exists ? '下载并覆盖本地存档' : '当前仓库暂无可恢复的云端备份'}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="shrink-0 border-t border-wuxia-gold/10 px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!window.confirm('这只会清除当前设备保存的 GitHub 令牌，不会删除你的云端仓库，确定退出吗？')) return;
+                                            logout();
+                                            setShowPanel(false);
+                                        }}
+                                        className="w-full rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-2 text-xs tracking-[0.14em] text-red-300 transition-colors hover:bg-red-500/10"
+                                    >
+                                        解除当前设备上的 GitHub 授权
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

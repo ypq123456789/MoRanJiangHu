@@ -315,9 +315,9 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     };
 
     return (
-        <div className="h-12 md:h-[58px] w-full flex items-center justify-center relative overflow-visible z-50 bg-[#000]" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
+        <div className="w-full relative overflow-visible z-50 bg-[#000] pt-[env(safe-area-inset-top)] min-h-[calc(48px+env(safe-area-inset-top))] md:h-[58px] md:min-h-[58px] md:pt-0 flex items-center justify-center" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
-            <div className="flex items-center justify-between w-full px-4 md:px-20 relative z-10 h-full">
+            <div className="flex items-center justify-between w-full px-4 md:px-20 relative z-10 h-12 md:h-full">
                 <div className="flex items-center">
                     <div className="md:hidden relative">
                         <TopItem 
