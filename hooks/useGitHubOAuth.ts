@@ -1,45 +1,46 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { 构建同步API地址, 是否原生Capacitor环境 } from '../utils/nativeRuntime';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    buildSyncApiUrl,
+    getSyncApiBaseUrl,
+    isMissingNativeSyncApiBaseUrl,
+    isNativeCapacitorEnvironment
+} from '../utils/nativeRuntime';
 
 const TOKEN_KEY = 'github_sync_token';
-const DEVICE_FLOW_GRACE_MS = 5000;
+const OAUTH_STATE_KEY = 'github_oauth_pending_state';
+const GITHUB_OAUTH_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
+const GITHUB_OAUTH_SCOPE = 'repo';
+const WEB_CALLBACK_PATH = '/oauth/github/callback';
+const DEFAULT_NATIVE_APP_LINK = 'https://msjh.bacon.de5.net/oauth/github/callback';
+const DEFAULT_NATIVE_DEEP_LINK = 'com.moranjianghu.game://oauth/github/callback';
 
-type DeviceFlowStatus = 'idle' | 'waiting' | 'success' | 'error';
+type GitHubOAuthSessionStatus = 'idle' | 'waiting' | 'exchanging' | 'success' | 'error';
+type GitHubOAuthClientType = 'web' | 'native';
 
-export type GitHubDeviceFlowState = {
-    status: DeviceFlowStatus;
-    userCode: string;
-    verificationUri: string;
-    verificationUriComplete: string;
-    expiresAt: number | null;
-    intervalSeconds: number;
+export type GitHubOAuthSessionState = {
+    status: GitHubOAuthSessionStatus;
+    authorizationUrl: string;
+    redirectUri: string;
     message: string | null;
 };
 
-type DeviceStartResponse = {
-    device_code?: string;
-    user_code?: string;
-    verification_uri?: string;
-    verification_uri_complete?: string;
-    expires_in?: number;
-    interval?: number;
-    error?: string;
+type PendingOAuthState = {
+    state: string;
+    redirectUri: string;
+    clientType: GitHubOAuthClientType;
+    expectedCallbackUris: string[];
+    createdAt: number;
 };
 
-type DevicePollResponse = {
-    status?: 'pending' | 'slow_down' | 'authorized' | 'expired' | 'denied' | 'error';
+type TokenExchangeResponse = {
     access_token?: string;
-    interval?: number;
     error?: string;
 };
 
-const idleDeviceFlowState = (): GitHubDeviceFlowState => ({
+const createIdleOAuthSession = (): GitHubOAuthSessionState => ({
     status: 'idle',
-    userCode: '',
-    verificationUri: '',
-    verificationUriComplete: '',
-    expiresAt: null,
-    intervalSeconds: 5,
+    authorizationUrl: '',
+    redirectUri: '',
     message: null
 });
 
@@ -52,257 +53,467 @@ const readEnvString = (value: unknown) => (
     typeof value === 'string' ? value.trim() : ''
 );
 
-const parseJsonResponse = async <T>(response: Response): Promise<T> => {
-    let data: T;
-    try {
-        data = await response.json();
-    } catch {
-        throw new Error(`HTTP Error ${response.status}`);
+const getNativeSyncApiMissingMessage = () => {
+    const currentOrigin = typeof window === 'undefined' ? 'unknown' : window.location.origin;
+    return [
+        '当前 APK 没有配置远程同步 API 地址，GitHub 同步无法工作。',
+        `当前运行地址：${currentOrigin}`,
+        '请在打包前配置 VITE_SYNC_API_BASE_URL，并重新生成 APK。'
+    ].join('\n');
+};
+
+const getJsonResponseError = (response: Response, rawText: string) => {
+    const snippet = rawText.trim().slice(0, 160);
+    if (!snippet) {
+        return new Error(`HTTP Error ${response.status}`);
     }
-    return data;
+
+    const looksLikeHtml = snippet.startsWith('<!DOCTYPE') || snippet.startsWith('<html') || snippet.startsWith('<');
+    if (looksLikeHtml) {
+        return new Error(
+            `HTTP Error ${response.status}: 服务返回了 HTML 页面而不是 JSON。通常表示 APK 没有配置 VITE_SYNC_API_BASE_URL，或者请求被发到了错误地址。`
+        );
+    }
+
+    return new Error(`HTTP Error ${response.status}: ${snippet}`);
+};
+
+const parseJsonResponse = async <T>(response: Response): Promise<T> => {
+    const rawText = await response.text();
+    try {
+        return JSON.parse(rawText) as T;
+    } catch {
+        throw getJsonResponseError(response, rawText);
+    }
+};
+
+const openGitHubAuthPage = async (targetUrl: string, isNativeApp: boolean) => {
+    if (!targetUrl) return;
+
+    if (isNativeApp) {
+        try {
+            const { Browser } = await import('@capacitor/browser');
+            await Browser.open({
+                url: targetUrl,
+                presentationStyle: 'fullscreen'
+            });
+            return;
+        } catch (error) {
+            console.warn('Failed to open native browser, fallback to window.open', error);
+        }
+    }
+
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+};
+
+const closeGitHubAuthPageIfPossible = async () => {
+    try {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.close();
+    } catch {
+        // Browser.close is not supported on every platform; ignore.
+    }
+};
+
+const createOAuthStateValue = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
+const buildOAuthState = (isNativeApp: boolean) => (
+    `${isNativeApp ? 'native' : 'web'}:${createOAuthStateValue()}`
+);
+
+const serializeCallbackUrl = (value: string) => {
+    try {
+        const url = new URL(value);
+        url.search = '';
+        url.hash = '';
+        return url.toString().replace(/\/$/, '');
+    } catch {
+        return '';
+    }
+};
+
+const normalizeCallbackUris = (value: unknown) => (
+    Array.isArray(value)
+        ? value.map((item) => readEnvString(item)).filter(Boolean)
+        : []
+);
+
+const readPendingOAuthState = (): PendingOAuthState | null => {
+    try {
+        const raw = localStorage.getItem(OAUTH_STATE_KEY);
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw) as Partial<PendingOAuthState>;
+        const state = readEnvString(parsed.state);
+        const redirectUri = readEnvString(parsed.redirectUri);
+        const createdAt = Number(parsed.createdAt);
+        const clientType = parsed.clientType === 'native' ? 'native' : 'web';
+        const expectedCallbackUris = normalizeCallbackUris(parsed.expectedCallbackUris);
+
+        if (!state || !redirectUri || !Number.isFinite(createdAt)) {
+            return null;
+        }
+
+        return {
+            state,
+            redirectUri,
+            clientType,
+            expectedCallbackUris: expectedCallbackUris.length > 0 ? expectedCallbackUris : [redirectUri],
+            createdAt
+        };
+    } catch {
+        return null;
+    }
+};
+
+const writePendingOAuthState = (value: PendingOAuthState) => {
+    localStorage.setItem(OAUTH_STATE_KEY, JSON.stringify(value));
+};
+
+const clearPendingOAuthState = () => {
+    localStorage.removeItem(OAUTH_STATE_KEY);
+};
+
+const isMatchingCallbackUrl = (urlValue: string, redirectUris: string[]) => {
+    const normalizedUrl = serializeCallbackUrl(urlValue);
+    if (!normalizedUrl) return false;
+
+    return redirectUris.some((redirectUri) => normalizedUrl === serializeCallbackUrl(redirectUri));
+};
+
+const getNativeDirectRedirectUri = () => {
+    const configured = readEnvString((import.meta as any).env?.VITE_GITHUB_OAUTH_REDIRECT_URI);
+    return configured || DEFAULT_NATIVE_DEEP_LINK;
+};
+
+const getNativeBridgeRedirectUri = () => {
+    const configured = readEnvString((import.meta as any).env?.VITE_GITHUB_OAUTH_BRIDGE_REDIRECT_URI);
+    return configured || DEFAULT_NATIVE_APP_LINK;
+};
+
+const getWebRedirectUri = () => {
+    if (typeof window === 'undefined') return WEB_CALLBACK_PATH;
+    return new URL(WEB_CALLBACK_PATH, window.location.origin).toString();
 };
 
 export function useGitHubOAuth() {
     const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
     const [isLoggingIn, setIsLoggingIn] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [deviceFlow, setDeviceFlow] = useState<GitHubDeviceFlowState>(idleDeviceFlowState);
-    const hasFetched = useRef(false);
-    const deviceCodeRef = useRef('');
-    const pollingTimerRef = useRef<number | null>(null);
-    const isNativeApp = 是否原生Capacitor环境();
-    const githubClientId = readEnvString((import.meta as any).env?.VITE_GITHUB_CLIENT_ID);
-    const hasGitHubOAuthClientId = githubClientId.length > 0;
+    const [oauthSession, setOAuthSession] = useState<GitHubOAuthSessionState>(createIdleOAuthSession);
+    const handledCallbackUrlRef = useRef('');
 
-    const stopPolling = useCallback(() => {
-        if (pollingTimerRef.current !== null) {
-            window.clearTimeout(pollingTimerRef.current);
-            pollingTimerRef.current = null;
-        }
+    const isNativeApp = isNativeCapacitorEnvironment();
+    const webGitHubClientId = readEnvString((import.meta as any).env?.VITE_GITHUB_CLIENT_ID);
+    const nativeGitHubClientId = readEnvString((import.meta as any).env?.VITE_GITHUB_NATIVE_CLIENT_ID);
+    const hasNativeGitHubClientId = nativeGitHubClientId.length > 0;
+    const oauthClientType: GitHubOAuthClientType = isNativeApp && hasNativeGitHubClientId ? 'native' : 'web';
+    const githubClientId = oauthClientType === 'native' ? nativeGitHubClientId : webGitHubClientId;
+    const hasGitHubOAuthClientId = githubClientId.length > 0;
+    const syncApiBaseUrl = useMemo(() => getSyncApiBaseUrl(), []);
+    const missingNativeSyncApiBaseUrl = isNativeApp && isMissingNativeSyncApiBaseUrl();
+    const oauthRedirectUri = useMemo(() => {
+        if (!isNativeApp) return getWebRedirectUri();
+        return oauthClientType === 'native'
+            ? getNativeDirectRedirectUri()
+            : getNativeBridgeRedirectUri();
+    }, [isNativeApp, oauthClientType]);
+    const nativeDeepLinkUri = useMemo(() => getNativeDirectRedirectUri(), []);
+
+    const resetOAuthSession = useCallback(() => {
+        setOAuthSession(createIdleOAuthSession());
     }, []);
 
-    const resetDeviceFlow = useCallback(() => {
-        stopPolling();
-        deviceCodeRef.current = '';
-        setDeviceFlow(idleDeviceFlowState());
-    }, [stopPolling]);
-
     const logout = useCallback(() => {
-        stopPolling();
         localStorage.removeItem(TOKEN_KEY);
-        deviceCodeRef.current = '';
+        clearPendingOAuthState();
         setToken(null);
         setError(null);
-        setDeviceFlow(idleDeviceFlowState());
-    }, [stopPolling]);
-
-    const openDeviceVerification = useCallback(() => {
-        const targetUrl = deviceFlow.verificationUriComplete || deviceFlow.verificationUri;
-        if (!targetUrl) return;
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
-    }, [deviceFlow.verificationUri, deviceFlow.verificationUriComplete]);
+        resetOAuthSession();
+    }, [resetOAuthSession]);
 
     const finishWithToken = useCallback((nextToken: string) => {
         localStorage.setItem(TOKEN_KEY, nextToken);
+        clearPendingOAuthState();
         setToken(nextToken);
         setError(null);
-        deviceCodeRef.current = '';
-        setDeviceFlow((current) => ({
+        setOAuthSession((current) => ({
             ...current,
             status: 'success',
             message: 'GitHub 已授权完成。'
         }));
-        stopPolling();
-    }, [stopPolling]);
+        void closeGitHubAuthPageIfPossible();
+    }, []);
 
-    const schedulePoll = useCallback((delayMs: number) => {
-        stopPolling();
-        pollingTimerRef.current = window.setTimeout(async () => {
-            const activeDeviceCode = deviceCodeRef.current;
-            if (!activeDeviceCode) return;
+    const reopenAuthorizationPage = useCallback(() => {
+        const targetUrl = oauthSession.authorizationUrl;
+        if (!targetUrl) return;
+        void openGitHubAuthPage(targetUrl, isNativeApp);
+    }, [isNativeApp, oauthSession.authorizationUrl]);
 
-            try {
-                const response = await fetch(构建同步API地址('/api/auth/github-device-poll'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ deviceCode: activeDeviceCode })
-                });
-                const data = await parseJsonResponse<DevicePollResponse>(response);
-                if (!response.ok) {
-                    throw new Error(data.error || 'GitHub 设备授权轮询失败');
-                }
-
-                if (data.status === 'authorized' && data.access_token) {
-                    finishWithToken(data.access_token);
-                    return;
-                }
-
-                if (data.status === 'pending' || data.status === 'slow_down') {
-                    const nextInterval = Math.max(5, Number(data.interval) || deviceFlow.intervalSeconds || 5);
-                    setDeviceFlow((current) => ({
-                        ...current,
-                        status: 'waiting',
-                        intervalSeconds: nextInterval,
-                        message: data.status === 'slow_down'
-                            ? 'GitHub 限制了轮询频率，已自动放慢检查速度。'
-                            : '等待你在浏览器中完成 GitHub 授权。'
-                    }));
-                    schedulePoll((data.status === 'slow_down' ? nextInterval + 5 : nextInterval) * 1000);
-                    return;
-                }
-
-                if (data.status === 'expired') {
-                    throw new Error(data.error || '设备授权码已过期，请重新发起登录。');
-                }
-
-                if (data.status === 'denied') {
-                    throw new Error(data.error || '你已取消本次 GitHub 授权。');
-                }
-
-                throw new Error(data.error || 'GitHub 授权状态未知');
-            } catch (pollError) {
-                const message = normalizeErrorMessage(pollError, 'GitHub 授权失败');
-                setError(message);
-                setDeviceFlow((current) => ({
-                    ...current,
-                    status: 'error',
-                    message
-                }));
-                stopPolling();
-            }
-        }, delayMs);
-    }, [deviceFlow.intervalSeconds, finishWithToken, stopPolling]);
-
-    useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-
-        if (code && !hasFetched.current) {
-            hasFetched.current = true;
-            setIsLoggingIn(true);
-
-            fetch(构建同步API地址('/api/auth/github'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code })
+    const exchangeCodeForToken = useCallback(async (
+        code: string,
+        redirectUri: string,
+        clientType: GitHubOAuthClientType
+    ) => {
+        const response = await fetch(buildSyncApiUrl('/api/auth/github'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code,
+                redirectUri,
+                clientType
             })
-                .then(async (res) => {
-                    const data = await parseJsonResponse<{ access_token?: string; error?: string }>(res);
-                    if (!res.ok) {
-                        throw new Error(data.error || 'Failed to get token from API');
-                    }
-                    return data;
-                })
-                .then((data) => {
-                    if (data.access_token) {
-                        finishWithToken(data.access_token);
-                        return;
-                    }
-                    throw new Error(data.error || 'GitHub OAuth did not return an access token');
-                })
-                .catch((requestError) => {
-                    const message = normalizeErrorMessage(requestError, '登录失败');
-                    console.error('GitHub OAuth Error:', requestError);
-                    setError(message);
-                    alert(`授权失败: ${message}`);
-                })
-                .finally(() => {
-                    setIsLoggingIn(false);
-                    const newUrl = window.location.origin + window.location.pathname;
-                    window.history.replaceState({}, document.title, newUrl);
-                });
+        });
+        const data = await parseJsonResponse<TokenExchangeResponse>(response);
+        if (!response.ok) {
+            throw new Error(data.error || 'GitHub OAuth token exchange failed');
         }
-    }, [finishWithToken]);
+        if (!data.access_token) {
+            throw new Error(data.error || 'GitHub OAuth did not return an access token');
+        }
+        return data.access_token;
+    }, []);
+
+    const cleanupCallbackUrl = useCallback((callbackUrl: string) => {
+        if (typeof window === 'undefined') return;
+
+        try {
+            const url = new URL(callbackUrl);
+            if (url.origin === window.location.origin && url.pathname === WEB_CALLBACK_PATH) {
+                window.history.replaceState({}, document.title, '/');
+            }
+        } catch {
+            // Ignore malformed callback cleanup.
+        }
+    }, []);
+
+    const bridgeBrowserCallbackToNativeApp = useCallback((callbackUrl: string) => {
+        if (typeof window === 'undefined' || isNativeApp) return false;
+
+        let url: URL;
+        try {
+            url = new URL(callbackUrl);
+        } catch {
+            return false;
+        }
+
+        if (url.pathname !== WEB_CALLBACK_PATH) {
+            return false;
+        }
+
+        const state = readEnvString(url.searchParams.get('state'));
+        if (!state.startsWith('native:')) {
+            return false;
+        }
+
+        const deepLinkUrl = `${getNativeDirectRedirectUri()}${url.search}`;
+        window.location.assign(deepLinkUrl);
+        return true;
+    }, [isNativeApp]);
+
+    const handleOAuthCallback = useCallback(async (callbackUrl: string) => {
+        if (!callbackUrl || handledCallbackUrlRef.current === callbackUrl) {
+            return;
+        }
+
+        if (bridgeBrowserCallbackToNativeApp(callbackUrl)) {
+            return;
+        }
+
+        const pendingState = readPendingOAuthState();
+        if (!pendingState) {
+            return;
+        }
+
+        let url: URL;
+        try {
+            url = new URL(callbackUrl);
+        } catch {
+            return;
+        }
+
+        if (!isMatchingCallbackUrl(callbackUrl, pendingState.expectedCallbackUris)) {
+            return;
+        }
+
+        handledCallbackUrlRef.current = callbackUrl;
+        setIsLoggingIn(true);
+        void closeGitHubAuthPageIfPossible();
+
+        const callbackError = readEnvString(url.searchParams.get('error'));
+        const callbackErrorDescription = readEnvString(url.searchParams.get('error_description'));
+        const callbackCode = readEnvString(url.searchParams.get('code'));
+        const callbackState = readEnvString(url.searchParams.get('state'));
+
+        try {
+            if (callbackError) {
+                throw new Error(callbackErrorDescription || callbackError);
+            }
+
+            if (!callbackCode) {
+                throw new Error('GitHub 回调中缺少 authorization code。');
+            }
+
+            if (!callbackState || callbackState !== pendingState.state) {
+                throw new Error('GitHub OAuth state 校验失败，请重新登录。');
+            }
+
+            setOAuthSession((current) => ({
+                ...current,
+                status: 'exchanging',
+                redirectUri: pendingState.redirectUri,
+                message: '正在校验 GitHub 授权结果并换取访问令牌。'
+            }));
+
+            const nextToken = await exchangeCodeForToken(
+                callbackCode,
+                pendingState.redirectUri,
+                pendingState.clientType
+            );
+            finishWithToken(nextToken);
+        } catch (callbackFailure) {
+            const message = normalizeErrorMessage(callbackFailure, 'GitHub 登录失败');
+            clearPendingOAuthState();
+            setError(message);
+            setOAuthSession((current) => ({
+                ...current,
+                status: 'error',
+                redirectUri: pendingState.redirectUri,
+                message
+            }));
+            alert(`授权失败: ${message}`);
+        } finally {
+            cleanupCallbackUrl(callbackUrl);
+            setIsLoggingIn(false);
+        }
+    }, [bridgeBrowserCallbackToNativeApp, cleanupCallbackUrl, exchangeCodeForToken, finishWithToken]);
 
     useEffect(() => {
-        return () => stopPolling();
-    }, [stopPolling]);
+        void handleOAuthCallback(window.location.href);
+    }, [handleOAuthCallback]);
+
+    useEffect(() => {
+        if (!isNativeApp) return;
+
+        let released = false;
+        let removeListener: (() => void) | undefined;
+
+        const bindNativeOAuthListener = async () => {
+            const { App } = await import('@capacitor/app');
+
+            const listener = await App.addListener('appUrlOpen', (event) => {
+                void handleOAuthCallback(event.url);
+            });
+            removeListener = () => {
+                void listener.remove();
+            };
+
+            const launchUrl = await App.getLaunchUrl();
+            if (!released && launchUrl?.url) {
+                void handleOAuthCallback(launchUrl.url);
+            }
+        };
+
+        void bindNativeOAuthListener();
+
+        return () => {
+            released = true;
+            removeListener?.();
+        };
+    }, [handleOAuthCallback, isNativeApp]);
 
     const login = useCallback(async () => {
         setError(null);
 
-        if (!isNativeApp && !githubClientId) {
-            const message = '未配置 VITE_GITHUB_CLIENT_ID 环境变量';
+        if (!githubClientId) {
+            const message = isNativeApp
+                ? '未配置可用的 GitHub OAuth Client ID。请至少提供 VITE_GITHUB_CLIENT_ID，或为 APK 单独提供 VITE_GITHUB_NATIVE_CLIENT_ID。'
+                : '未配置 VITE_GITHUB_CLIENT_ID 环境变量。';
             setError(message);
             alert(message);
             return;
         }
 
+        if (isNativeApp && missingNativeSyncApiBaseUrl) {
+            const message = getNativeSyncApiMissingMessage();
+            setError(message);
+            alert(message);
+            return;
+        }
+
+        const useNativeDirectCallback = isNativeApp && oauthClientType === 'native';
+        const redirectUri = !isNativeApp
+            ? getWebRedirectUri()
+            : useNativeDirectCallback
+                ? getNativeDirectRedirectUri()
+                : getNativeBridgeRedirectUri();
+        const expectedCallbackUris = !isNativeApp
+            ? [redirectUri]
+            : useNativeDirectCallback
+                ? [redirectUri]
+                : [redirectUri, getNativeDirectRedirectUri()];
+        const state = buildOAuthState(isNativeApp);
+        const authorizationUrl = new URL(GITHUB_OAUTH_AUTHORIZE_URL);
+
+        authorizationUrl.searchParams.set('client_id', githubClientId);
+        authorizationUrl.searchParams.set('redirect_uri', redirectUri);
+        authorizationUrl.searchParams.set('scope', GITHUB_OAUTH_SCOPE);
+        authorizationUrl.searchParams.set('state', state);
+        authorizationUrl.searchParams.set('allow_signup', 'true');
+
+        writePendingOAuthState({
+            state,
+            redirectUri,
+            clientType: oauthClientType,
+            expectedCallbackUris,
+            createdAt: Date.now()
+        });
+
+        const authorizationUrlString = authorizationUrl.toString();
+        handledCallbackUrlRef.current = '';
+        setOAuthSession({
+            status: 'waiting',
+            authorizationUrl: authorizationUrlString,
+            redirectUri,
+            message: !isNativeApp
+                ? '即将跳转到 GitHub 授权页。'
+                : useNativeDirectCallback
+                    ? 'GitHub 授权页已打开，完成授权后会通过 Android deep link 直接回到应用。'
+                    : 'GitHub 授权页已打开，完成授权后会先落到网页回调页，再自动拉起 APK。'
+        });
+
         if (!isNativeApp) {
-            window.location.href = `https://github.com/login/oauth/authorize?client_id=${githubClientId}&scope=repo`;
+            window.location.assign(authorizationUrlString);
             return;
         }
 
         setIsLoggingIn(true);
         try {
-            const response = await fetch(构建同步API地址('/api/auth/github-device-start'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            const data = await parseJsonResponse<DeviceStartResponse>(response);
-            if (!response.ok) {
-                throw new Error(data.error || '无法启动 GitHub 设备授权');
-            }
-
-            const deviceCode = (data.device_code || '').trim();
-            const userCode = (data.user_code || '').trim();
-            const verificationUri = (data.verification_uri || '').trim();
-            const verificationUriComplete = (data.verification_uri_complete || verificationUri).trim();
-            const expiresInSeconds = Math.max(60, Number(data.expires_in) || 900);
-            const intervalSeconds = Math.max(5, Number(data.interval) || 5);
-
-            if (!deviceCode || !userCode || !verificationUri) {
-                throw new Error('GitHub 未返回完整的设备授权信息');
-            }
-
-            deviceCodeRef.current = deviceCode;
-            setDeviceFlow({
-                status: 'waiting',
-                userCode,
-                verificationUri,
-                verificationUriComplete,
-                expiresAt: Date.now() + expiresInSeconds * 1000,
-                intervalSeconds,
-                message: '请在浏览器中输入设备码完成 GitHub 登录。'
-            });
-
-            window.open(verificationUriComplete, '_blank', 'noopener,noreferrer');
-            schedulePoll(intervalSeconds * 1000);
+            await openGitHubAuthPage(authorizationUrlString, true);
         } catch (loginError) {
+            clearPendingOAuthState();
             const message = normalizeErrorMessage(loginError, 'GitHub 登录失败');
             setError(message);
-            setDeviceFlow({
-                ...idleDeviceFlowState(),
+            setOAuthSession({
+                ...createIdleOAuthSession(),
                 status: 'error',
+                redirectUri,
                 message
             });
             alert(`授权失败: ${message}`);
         } finally {
             setIsLoggingIn(false);
         }
-    }, [githubClientId, isNativeApp, schedulePoll]);
-
-    const cancelDeviceFlow = useCallback(() => {
-        setError(null);
-        resetDeviceFlow();
-    }, [resetDeviceFlow]);
-
-    const deviceFlowRemainingSeconds = (() => {
-        if (!deviceFlow.expiresAt) return 0;
-        return Math.max(0, Math.floor((deviceFlow.expiresAt - Date.now() + DEVICE_FLOW_GRACE_MS) / 1000));
-    })();
-
-    useEffect(() => {
-        if (deviceFlow.status !== 'waiting' || !deviceFlow.expiresAt) return;
-        if (deviceFlowRemainingSeconds > 0) return;
-
-        setDeviceFlow((current) => ({
-            ...current,
-            status: 'error',
-            message: '设备授权码已过期，请重新发起登录。'
-        }));
-        stopPolling();
-    }, [deviceFlow.expiresAt, deviceFlow.status, deviceFlowRemainingSeconds, stopPolling]);
+    }, [githubClientId, isNativeApp, missingNativeSyncApiBaseUrl, oauthClientType]);
 
     return {
         token,
@@ -313,9 +524,11 @@ export function useGitHubOAuth() {
         setError,
         isNativeApp,
         hasGitHubOAuthClientId,
-        deviceFlow,
-        deviceFlowRemainingSeconds,
-        openDeviceVerification,
-        cancelDeviceFlow
+        oauthSession,
+        reopenAuthorizationPage,
+        syncApiBaseUrl,
+        missingNativeSyncApiBaseUrl,
+        oauthRedirectUri,
+        nativeDeepLinkUri
     };
 }

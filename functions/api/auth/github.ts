@@ -6,15 +6,22 @@ export function onRequestOptions(): Response {
 
 export async function onRequestPost({ request, env }: any) {
     try {
-        const { code } = await request.json();
+        const { code, redirectUri, clientType } = await request.json();
 
         if (!code) {
             return buildAuthJsonResponse({ error: 'Missing authorization code' }, 400);
         }
 
-        const { GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET } = env;
-        if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
-            return buildAuthJsonResponse({ error: 'Missing GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET env variables in Cloudflare' }, 500);
+        const usingNativeClient = clientType === 'native';
+        const clientId = usingNativeClient ? env.GITHUB_NATIVE_CLIENT_ID : env.GITHUB_CLIENT_ID;
+        const clientSecret = usingNativeClient ? env.GITHUB_NATIVE_CLIENT_SECRET : env.GITHUB_CLIENT_SECRET;
+
+        if (!clientId || !clientSecret) {
+            return buildAuthJsonResponse({
+                error: usingNativeClient
+                    ? 'Missing GITHUB_NATIVE_CLIENT_ID or GITHUB_NATIVE_CLIENT_SECRET env variables in Cloudflare'
+                    : 'Missing GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET env variables in Cloudflare'
+            }, 500);
         }
 
         const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
@@ -24,9 +31,12 @@ export async function onRequestPost({ request, env }: any) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                client_id: GITHUB_CLIENT_ID,
-                client_secret: GITHUB_CLIENT_SECRET,
-                code
+                client_id: clientId,
+                client_secret: clientSecret,
+                code,
+                ...(typeof redirectUri === 'string' && redirectUri.trim()
+                    ? { redirect_uri: redirectUri.trim() }
+                    : {})
             })
         });
 

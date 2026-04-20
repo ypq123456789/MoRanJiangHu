@@ -116,7 +116,7 @@ const novelAiDevProxyPlugin = (): Plugin => ({
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
-  const productionBase = env.VITE_BASE_PATH || '/MoRanJiangHu/';
+  const productionBase = env.VITE_BASE_PATH || '/';
   return {
     base: mode === 'production' ? productionBase : '/',
     server: {

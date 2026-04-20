@@ -6,10 +6,21 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:apk": "vite build --base=/",
     "preview": "vite preview",
+    "apk:sync": "npm run build:apk && npx cap sync android",
+    "apk:debug": "npm run apk:sync && cd android && gradlew.bat assembleDebug",
+    "apk:release": "npm run apk:sync && cd android && gradlew.bat assembleRelease",
     "stress:test": "node scripts/promptStressTest.js"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/clipboard": "^8.0.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/filesystem": "^8.1.2",
     "fflate": "^0.8.2",
     "js-tiktoken": "^1.0.21",
     "node": "^25.6.1",

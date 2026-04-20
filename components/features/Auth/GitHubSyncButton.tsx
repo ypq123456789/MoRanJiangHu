@@ -66,10 +66,10 @@ export const GitHubSyncButton: React.FC = () => {
         isLoggingIn,
         isNativeApp,
         hasGitHubOAuthClientId,
-        deviceFlow,
-        deviceFlowRemainingSeconds,
-        openDeviceVerification,
-        cancelDeviceFlow
+        oauthSession,
+        reopenAuthorizationPage,
+        oauthRedirectUri,
+        nativeDeepLinkUri
     } = useGitHubOAuth();
     const [isSyncing, setIsSyncing] = useState(false);
     const [showPanel, setShowPanel] = useState(false);
@@ -114,14 +114,38 @@ export const GitHubSyncButton: React.FC = () => {
         }
     }, [showPanel, token]);
 
-    const copyDeviceCode = async () => {
-        if (!deviceFlow.userCode) return;
+    const copyText = async (value: string) => {
+        if (!value) return false;
+
         try {
-            await navigator.clipboard.writeText(deviceFlow.userCode);
-            alert('设备码已复制，可以直接去 GitHub 验证。');
-        } catch {
-            alert(`请手动复制设备码：${deviceFlow.userCode}`);
+            if (isNativeApp) {
+                const { Clipboard } = await import('@capacitor/clipboard');
+                await Clipboard.write({ string: value });
+                return true;
+            }
+
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+                return true;
+            }
+        } catch (error) {
+            console.warn('Copy text failed', error);
         }
+
+        return false;
+    };
+
+    const copyAuthorizationLink = async () => {
+        const targetUrl = oauthSession.authorizationUrl;
+        if (!targetUrl) return;
+
+        const copied = await copyText(targetUrl);
+        if (copied) {
+            alert('GitHub 授权链接已复制。');
+            return;
+        }
+
+        window.prompt('请手动复制下面的 GitHub 授权链接：', targetUrl);
     };
 
     const saveRepoBinding = async () => {
@@ -236,10 +260,13 @@ export const GitHubSyncButton: React.FC = () => {
                                         {token
                                             ? '登录后可在手机与 PC 之间同步设置、存档与素材。'
                                             : isNativeApp
-                                                ? 'APK 将使用 GitHub 设备码登录，不依赖浏览器回跳。'
+                                                ? 'APK 现已使用标准 GitHub OAuth，授权完成后会通过 Android deep link / app link 自动回到应用。'
                                                 : '网页端会跳转 GitHub OAuth 完成授权。'}
                                     </div>
                                 </div>
+                                    <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] leading-5 text-amber-200/90">
+                                        云同步建议在直连网络下进行。开启 VPN、系统代理或浏览器代理时，上传速度可能明显变慢，甚至出现失败。
+                                    </div>
                                 <button onClick={() => setShowPanel(false)} className="rounded-full border border-wuxia-gold/20 p-2 text-gray-400 transition-colors hover:text-wuxia-gold" title="关闭面板">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-5 w-5">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -254,46 +281,51 @@ export const GitHubSyncButton: React.FC = () => {
                                     {isNativeApp ? (
                                         <>
                                             <div className="text-sm leading-6 text-gray-300">
-                                                1. 点下面按钮唤起 GitHub 验证页
+                                                1. 点下面按钮打开 GitHub 官方授权页
                                                 <br />
-                                                2. 在浏览器输入设备码并确认授权
+                                                2. 在浏览器确认 GitHub 授权
                                                 <br />
-                                                3. APK 会自动拿到令牌并进入同步面板
+                                                3. GitHub 回调会通过 Android app link / deep link 自动拉回 APK
                                             </div>
 
-                                            {deviceFlow.status !== 'idle' && (
+                                            <div className="mt-4 rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 text-xs leading-6 text-sky-100/85">
+                                                <div className="font-semibold tracking-[0.16em] text-sky-200">当前 OAuth 回调</div>
+                                                <div className="mt-2 break-all font-mono text-[11px] text-sky-100/90">
+                                                    {oauthRedirectUri}
+                                                </div>
+                                                <div className="mt-3 text-sky-100/70">
+                                                    如果你更想使用自定义 scheme，也可以把 GitHub OAuth App 的回调地址改成：
+                                                </div>
+                                                <div className="mt-1 break-all font-mono text-[11px] text-sky-100/90">
+                                                    {nativeDeepLinkUri}
+                                                </div>
+                                            </div>
+
+                                            {oauthSession.status !== 'idle' && (
                                                 <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                                                    <div className="text-xs tracking-[0.18em] text-emerald-300/80">当前设备码</div>
-                                                    <div className="mt-2 select-all rounded-lg border border-emerald-500/20 bg-black/40 px-3 py-3 text-center font-mono text-2xl tracking-[0.28em] text-emerald-300">
-                                                        {deviceFlow.userCode || '---- ----'}
-                                                    </div>
+                                                    <div className="text-xs tracking-[0.18em] text-emerald-300/80">当前授权状态</div>
                                                     <div className="mt-3 text-xs leading-5 text-gray-400">
-                                                        {deviceFlow.message || '等待 GitHub 授权中。'}
-                                                        {deviceFlowRemainingSeconds > 0 && ` 剩余约 ${deviceFlowRemainingSeconds} 秒。`}
+                                                        {oauthSession.message || '等待 GitHub 回调中。'}
                                                     </div>
-                                                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                                                    <div className="mt-2 text-[11px] leading-5 text-emerald-100/80">
+                                                        如果没有自动拉起应用，可以重新打开授权页，或手动复制链接到系统浏览器继续完成授权。
+                                                    </div>
+                                                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
                                                         <button
                                                             type="button"
-                                                            onClick={copyDeviceCode}
-                                                            className="flex-1 rounded-lg border border-wuxia-gold/25 bg-black/50 px-3 py-2 text-sm text-wuxia-gold transition-colors hover:bg-black/70"
+                                                            onClick={copyAuthorizationLink}
+                                                            className="rounded-lg border border-wuxia-gold/25 bg-black/50 px-3 py-2 text-sm text-wuxia-gold transition-colors hover:bg-black/70"
                                                         >
-                                                            复制设备码
+                                                            复制授权链接
                                                         </button>
                                                         <button
                                                             type="button"
-                                                            onClick={openDeviceVerification}
-                                                            className="flex-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                                                            onClick={reopenAuthorizationPage}
+                                                            className="sm:col-span-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 transition-colors hover:bg-emerald-500/20"
                                                         >
-                                                            打开 GitHub 验证页
+                                                            重新打开 GitHub 授权页
                                                         </button>
                                                     </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={cancelDeviceFlow}
-                                                        className="mt-3 w-full rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs tracking-[0.12em] text-red-300 transition-colors hover:bg-red-500/10"
-                                                    >
-                                                        取消本次授权
-                                                    </button>
                                                 </div>
                                             )}
                                         </>
@@ -314,9 +346,9 @@ export const GitHubSyncButton: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => void login()}
-                                        disabled={!isNativeApp && !hasGitHubOAuthClientId}
+                                        disabled={!hasGitHubOAuthClientId}
                                         className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold tracking-[0.18em] transition-all ${
-                                            !isNativeApp && !hasGitHubOAuthClientId
+                                            !hasGitHubOAuthClientId
                                                 ? 'cursor-not-allowed border-gray-800/80 bg-[#111] text-gray-600'
                                                 : 'border-wuxia-gold/30 bg-gradient-to-r from-wuxia-gold/10 via-wuxia-gold/5 to-wuxia-gold/10 text-wuxia-gold hover:border-wuxia-gold/60 hover:bg-black/70'
                                         }`}
@@ -324,7 +356,7 @@ export const GitHubSyncButton: React.FC = () => {
                                         <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
                                             <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
                                         </svg>
-                                        {isNativeApp ? '开始 GitHub 设备登录' : hasGitHubOAuthClientId ? '前往 GitHub 授权' : '未配置 GitHub Client ID'}
+                                        {isNativeApp ? '开始 GitHub OAuth 登录' : hasGitHubOAuthClientId ? '前往 GitHub 授权' : '未配置 GitHub Client ID'}
                                     </button>
                                 </div>
                             </div>
@@ -391,6 +423,9 @@ export const GitHubSyncButton: React.FC = () => {
                                                     前往 GitHub Release 查看云端附件
                                                 </a>
                                             )}
+                                            <div className="mt-4 rounded-xl border border-amber-500/15 bg-amber-500/5 px-3 py-3 text-xs leading-5 text-amber-100/85">
+                                                如果上传速度只有几十 KB/s，或频繁出现上传失败，优先关闭 VPN、代理插件和系统代理后再重试，通常会明显改善。
+                                            </div>
                                         </div>
 
                                         {isSyncing ? (

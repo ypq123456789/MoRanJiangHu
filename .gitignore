@@ -14,6 +14,9 @@
 !.env.*.example
 *.local
 .dev.vars*
+android/keystore.properties
+android/app/*.jks
+android/app/*.keystore
 
 # Logs
 /logs/

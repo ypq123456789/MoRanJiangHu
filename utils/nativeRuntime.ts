@@ -1,19 +1,19 @@
-const 读取字符串 = (value: unknown): string => (
+const readEnvString = (value: unknown): string => (
     typeof value === 'string' ? value.trim() : ''
 );
 
-export const 获取同步API基础地址 = (): string => {
-    const raw = 读取字符串((import.meta as any).env?.VITE_SYNC_API_BASE_URL);
+export const getSyncApiBaseUrl = (): string => {
+    const raw = readEnvString((import.meta as any).env?.VITE_SYNC_API_BASE_URL);
     return raw.replace(/\/+$/, '');
 };
 
-export const 构建同步API地址 = (path: string): string => {
+export const buildSyncApiUrl = (path: string): string => {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    const baseUrl = 获取同步API基础地址();
+    const baseUrl = getSyncApiBaseUrl();
     return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
 };
 
-export const 是否原生Capacitor环境 = (): boolean => {
+export const isNativeCapacitorEnvironment = (): boolean => {
     if (typeof window === 'undefined') return false;
     const maybeCapacitor = (window as any).Capacitor;
     if (!maybeCapacitor) return false;
@@ -32,10 +32,18 @@ export const 是否原生Capacitor环境 = (): boolean => {
     return false;
 };
 
-export const 当前环境需要远程同步API = (): boolean => {
-    if (!是否原生Capacitor环境()) return false;
+export const requiresRemoteSyncApi = (): boolean => {
+    if (!isNativeCapacitorEnvironment()) return false;
     if (typeof window === 'undefined') return false;
 
-    const hostname = 读取字符串(window.location.hostname).toLowerCase();
+    const hostname = readEnvString(window.location.hostname).toLowerCase();
     return hostname === 'localhost' || hostname === '127.0.0.1';
 };
+
+export const isMissingNativeSyncApiBaseUrl = (): boolean => (
+    requiresRemoteSyncApi() && !getSyncApiBaseUrl()
+);
+
+export const 构建同步API地址 = buildSyncApiUrl;
+export const 是否原生Capacitor环境 = isNativeCapacitorEnvironment;
+export const 当前环境需要远程同步API = requiresRemoteSyncApi;

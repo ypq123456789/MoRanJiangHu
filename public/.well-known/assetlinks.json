@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.moranjianghu.game",
+      "sha256_cert_fingerprints": [
+        "0C:63:86:92:59:13:00:75:0C:CC:17:CB:82:8B:52:23:BB:9A:5E:F3:33:09:57:14:37:7A:6C:D5:AD:CB:E4:8C"
+      ]
+    }
+  }
+]
