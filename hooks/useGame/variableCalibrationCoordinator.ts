@@ -77,6 +77,15 @@ const 构建基础状态 = (snapshot: 回合快照结构, 深拷贝: <T>(value: 
     女主剧情规划: 深拷贝(snapshot.回档前状态.女主剧情规划)
 });
 
+const 等待世界演变超时毫秒 = 20000;
+const 变量模型请求超时毫秒 = 90000;
+
+const 创建超时错误 = (message: string): Error => {
+    const error = new Error(message);
+    error.name = 'TimeoutError';
+    return error;
+};
+
 export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) => {
     const 构建带索引命令文本 = (commands: any[], startIndex: number): string[] => (
         (Array.isArray(commands) ? commands : [])
@@ -115,9 +124,30 @@ export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) =
         deps.set变量生成中(true);
         params.onProgress?.({ phase: 'start', text: '正在执行独立变量生成...' });
         try {
+            let 最近流式文本 = '';
+            const 执行带超时 = async <T,>(label: string, timeoutMs: number, task: () => Promise<T>): Promise<T> => {
+                let timer = 0;
+                try {
+                    return await Promise.race([
+                        task(),
+                        new Promise<T>((_, reject) => {
+                            timer = window.setTimeout(() => {
+                                if (!controller.signal.aborted) {
+                                    controller.abort();
+                                }
+                                reject(创建超时错误(`${label}超时（${Math.max(1, Math.ceil(timeoutMs / 1000))} 秒）`));
+                            }, timeoutMs);
+                        })
+                    ]);
+                } finally {
+                    if (timer) {
+                        window.clearTimeout(timer);
+                    }
+                }
+            };
             if (deps.世界演变进行中Ref.current) {
                 params.onProgress?.({ phase: 'start', text: '等待世界演变完成后再开始变量生成...' });
-                await deps.等待世界演变空闲(controller.signal);
+                await 执行带超时('等待世界演变完成', 等待世界演变超时毫秒, () => deps.等待世界演变空闲(controller.signal, 等待世界演变超时毫秒));
             }
             const worldEvolutionEnabled = deps.世界演变功能已开启();
             const calibrationResponse = params.parsedResponse;
@@ -128,7 +158,8 @@ export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) =
                 2
             );
             const isOpeningRound = (Array.isArray(params.snapshot?.回档前历史) ? params.snapshot.回档前历史.length : 0) <= 1;
-            const variableCalibration = await deps.执行变量模型校准工作流(
+            params.onProgress?.({ phase: 'start', text: '正在请求变量模型...' });
+            const variableCalibration = await 执行带超时('变量模型请求', 变量模型请求超时毫秒, () => deps.执行变量模型校准工作流(
                 {
                     playerInput: params.playerInput,
                     parsedResponse: calibrationResponse,
@@ -145,16 +176,17 @@ export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) =
                     isOpeningRound,
                     onStreamDelta: (_delta: string, accumulated: string) => {
                         if (controller.signal.aborted) return;
-                        params.onProgress?.({ phase: 'start', text: accumulated });
+                        最近流式文本 = accumulated;
+                        params.onProgress?.({ phase: 'start', text: accumulated, rawText: accumulated });
                     }
                 },
                 {
                     apiConfig: deps.apiConfig,
                     gameConfig: deps.gameConfig
                 }
-            );
+            ));
             if (controller.signal.aborted) {
-                params.onProgress?.({ phase: 'cancelled', text: '已取消本次变量生成。' });
+                params.onProgress?.({ phase: 'cancelled', text: '已取消本次变量生成。你可以基于当前正文稍后继续生成。', rawText: 最近流式文本 });
                 return null;
             }
             if (!variableCalibration || (
@@ -188,9 +220,20 @@ export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) =
             };
         } catch (error: any) {
             if (error?.name === 'AbortError') {
-                params.onProgress?.({ phase: 'cancelled', text: '已取消本次变量生成。' });
+                params.onProgress?.({ phase: 'cancelled', text: '已取消本次变量生成。你可以基于当前正文稍后继续生成。' });
                 return null;
             }
+            if (error?.name === 'TimeoutError') {
+                params.onProgress?.({
+                    phase: 'error',
+                    text: `${error.message}\n已保留当前正文，可点击“继续生成”从当前回合重新执行变量生成。`
+                });
+                throw error;
+            }
+            params.onProgress?.({
+                phase: 'error',
+                text: `${error?.message || '变量生成失败'}\n已保留当前正文，可点击“继续生成”重试。`
+            });
             throw error;
         } finally {
             if (deps.variableGenerationAbortControllerRef.current === controller) {

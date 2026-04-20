@@ -401,6 +401,70 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
         return snapshot.玩家输入;
     };
 
+    const handleRetryLatestVariableGeneration = async (): Promise<string | null> => {
+        if (deps.loading) return '当前仍在处理中，请稍后再试。';
+        if (deps.变量生成中) return '变量生成进行中，请勿重复触发。';
+        const snapshot = deps.获取最新快照();
+        if (!snapshot) {
+            return '缺少上一轮快照，无法从当前正文继续变量生成。';
+        }
+
+        const latestAssistantIndex = (() => {
+            for (let i = deps.历史记录.length - 1; i >= 0; i -= 1) {
+                if (deps.历史记录[i]?.role === 'assistant') return i;
+            }
+            return -1;
+        })();
+        if (latestAssistantIndex < 0) {
+            return '未找到可继续处理的最新 AI 回合。';
+        }
+
+        const target = deps.历史记录[latestAssistantIndex];
+        if (!target) {
+            return '目标 AI 回合不存在。';
+        }
+
+        const latestUserIndex = (() => {
+            for (let i = latestAssistantIndex - 1; i >= 0; i -= 1) {
+                if (deps.历史记录[i]?.role === 'user') return i;
+            }
+            return -1;
+        })();
+        const latestUserMsg = latestUserIndex >= 0 ? deps.历史记录[latestUserIndex] : null;
+        const playerInput = latestUserMsg?.role === 'user' ? (latestUserMsg.content || '').trim() : '';
+        const snapshotPlayerInput = (snapshot.玩家输入 || '').trim();
+        const isOpeningTurn = !playerInput && !snapshotPlayerInput;
+        if (!isOpeningTurn && playerInput !== snapshotPlayerInput) {
+            return '当前最新回合与上一轮快照不匹配，无法安全续跑变量生成。';
+        }
+
+        const runtimeGameConfig = deps.规范化游戏设置(deps.gameConfig);
+        let parsed: GameResponse;
+        if (target.structuredResponse) {
+            parsed = target.structuredResponse;
+        } else {
+            const rawSource = typeof target.rawJson === 'string' ? target.rawJson.trim() : '';
+            if (!rawSource) {
+                return '当前回合缺少结构化正文和原始响应，无法继续变量生成。';
+            }
+            try {
+                parsed = deps.parseStoryRawText(rawSource, deps.构建标签解析选项(runtimeGameConfig));
+            } catch (error: any) {
+                return deps.提取解析失败原始信息(error) || '无法从原始响应恢复结构化正文。';
+            }
+        }
+
+        await 使用快照重建解析回合(snapshot, parsed, typeof target.rawJson === 'string' ? target.rawJson : '', {
+            playerInput: isOpeningTurn ? '' : playerInput,
+            displayResponse: target.structuredResponse || parsed,
+            tailMessages: 提取回合尾随消息(deps.历史记录, latestAssistantIndex),
+            inputTokens: target.inputTokens,
+            responseDurationSec: target.responseDurationSec,
+            preserveSnapshot: true
+        });
+        return null;
+    };
+
     const handleRecoverFromParseErrorRaw = async (rawText: string, forceRepair: boolean = false): Promise<string | null> => {
         if (deps.loading) return '当前仍在处理中，请稍后再试。';
         const snapshot = deps.获取最新快照();
@@ -480,6 +544,7 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
         使用快照重建解析回合,
         updateHistoryItem,
         handleRegenerate,
+        handleRetryLatestVariableGeneration,
         handleRecoverFromParseErrorRaw,
         handlePolishTurn
     };

@@ -2174,7 +2174,9 @@ export const useGame = () => {
                 throw new DOMException('变量生成已取消', 'AbortError');
             }
             if (Date.now() - startedAt >= timeoutMs) {
-                break;
+                const timeoutError = new Error(`等待世界演变完成超时（${Math.max(1, Math.ceil(timeoutMs / 1000))} 秒）`);
+                timeoutError.name = 'TimeoutError';
+                throw timeoutError;
             }
             await new Promise<void>((resolve) => {
                 window.setTimeout(resolve, 80);
@@ -2192,6 +2194,7 @@ export const useGame = () => {
         使用快照重建解析回合,
         updateHistoryItem,
         handleRegenerate,
+        handleRetryLatestVariableGeneration,
         handleRecoverFromParseErrorRaw,
         handlePolishTurn
     } = 创建历史回合工作流({
@@ -2849,6 +2852,7 @@ export const useGame = () => {
         state: gameState,
         meta: {
             canRerollLatest: 可重Roll计数 > 0,
+            canRetryLatestVariableGeneration: 可重Roll计数 > 0 && 历史记录.some(item => item?.role === 'assistant'),
             canQuickRestart: Boolean(最近开局配置),
             worldEvolutionEnabled: 已进入主剧情回合() && 接口配置是否可用(获取世界演变接口配置(apiConfig)),
             worldEvolutionUpdating: 世界演变更新中,
@@ -2891,6 +2895,7 @@ export const useGame = () => {
             handleStop,
             handleCancelVariableGeneration,
             handleRegenerate,
+            handleRetryLatestVariableGeneration,
             handlePolishTurn,
             handleRecoverFromParseErrorRaw,
             saveSettings, saveVisualSettings, saveImageManagerSettings, saveGameSettings, saveMemorySettings,

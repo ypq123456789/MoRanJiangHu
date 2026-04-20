@@ -78,6 +78,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
     const 隐藏按钮计时器Ref = React.useRef<number | null>(null);
     const 待抑制自动滚动Ref = React.useRef(false);
     const 抑制滚动位置Ref = React.useRef<number | null>(null);
+    const 回合容器Refs = React.useRef<Record<number, HTMLDivElement | null>>({});
 
     const 清理隐藏按钮计时器 = React.useCallback(() => {
         if (隐藏按钮计时器Ref.current !== null) {
@@ -211,6 +212,20 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
         return turnAnchors[turnAnchors.length - 1].index;
     }, [turnAnchors]);
 
+    const 最新回合定位签名 = React.useMemo(() => {
+        if (latestTurnAnchorIndex < 0 || latestTurnAnchorIndex >= history.length) return '';
+        const latestTurn = history[latestTurnAnchorIndex];
+        const latestResponse = latestTurn?.structuredResponse;
+        const latestLogsLength = Array.isArray(latestResponse?.logs) ? latestResponse.logs.length : 0;
+        return [
+            latestTurnAnchorIndex,
+            latestTurn?.timestamp || 0,
+            latestTurn?.autoScrollToTurnIcon === true ? '1' : '0',
+            latestLogsLength,
+            loading ? 'loading' : 'done'
+        ].join(':');
+    }, [history, latestTurnAnchorIndex, loading]);
+
     // Slice by real turns (assistant structured responses), not by message count.
     const sliceIndex = React.useMemo(() => {
         if (turnAnchors.length <= normalizedRenderCount) return 0;
@@ -225,6 +240,28 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
     const visibleHistory = history.slice(sliceIndex);
     const hiddenCount = sliceIndex;
     const hiddenTurns = Math.max(0, turnAnchors.length - normalizedRenderCount);
+
+    React.useEffect(() => {
+        if (!最新回合定位签名 || loading || 待抑制自动滚动Ref.current) return;
+        const container = scrollRef.current;
+        const turnEl = 回合容器Refs.current[latestTurnAnchorIndex];
+        if (!container || !turnEl) return;
+        let raf1 = 0;
+        let raf2 = 0;
+        raf1 = window.requestAnimationFrame(() => {
+            raf2 = window.requestAnimationFrame(() => {
+                const nextTop = Math.max(0, turnEl.offsetTop - 12);
+                container.scrollTop = nextTop;
+                set接近底部(false);
+                清理隐藏按钮计时器();
+                set显示快速置底(false);
+            });
+        });
+        return () => {
+            if (raf1) window.cancelAnimationFrame(raf1);
+            if (raf2) window.cancelAnimationFrame(raf2);
+        };
+    }, [最新回合定位签名, latestTurnAnchorIndex, loading, scrollRef, 清理隐藏按钮计时器]);
 
     return (
         <div className="relative flex-1 min-h-0">
@@ -255,7 +292,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                     if (msg.role === 'assistant' && msg.structuredResponse) {
                         const turnNum = turnNumberByIndex.get(absoluteIdx) ?? 0;
                         return (
-                            <div key={absoluteIdx}>
+                            <div key={absoluteIdx} ref={(node) => { 回合容器Refs.current[absoluteIdx] = node; }}>
                                 <TurnItem
                                     response={msg.structuredResponse}
                                     turnNumber={turnNum}

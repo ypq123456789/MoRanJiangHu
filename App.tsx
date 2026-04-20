@@ -1229,6 +1229,7 @@ const App: React.FC = () => {
                                     onSend={actions.handleSend} 
                                     onStop={actions.handleStop}
                                     onCancelVariableGeneration={actions.handleCancelVariableGeneration}
+                                    onRetryLatestVariableGeneration={actions.handleRetryLatestVariableGeneration}
                                     onRegenerate={actions.handleRegenerate}
                                     onRecoverParseErrorRaw={actions.handleRecoverFromParseErrorRaw}
                                     onQuickRestart={actions.handleQuickRestart}
@@ -1236,6 +1237,7 @@ const App: React.FC = () => {
                                     loading={state.loading} 
                                     variableGenerationRunning={meta.variableGenerationRunning}
                                     canReroll={meta.canRerollLatest}
+                                    canRetryLatestVariableGeneration={meta.canRetryLatestVariableGeneration}
                                     canQuickRestart={meta.canQuickRestart}
                                     openingWorldEvolutionProgress={meta.openingWorldEvolutionProgress}
                                     openingPlanningProgress={meta.openingPlanningProgress}

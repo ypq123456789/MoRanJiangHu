@@ -72,6 +72,7 @@ interface Props {
     ) => Promise<SendResult> | SendResult;
     onStop: () => void;
     onCancelVariableGeneration?: () => void;
+    onRetryLatestVariableGeneration?: () => Promise<string | null> | string | null;
     onRegenerate: () => Promise<string | null> | string | null;
     onRecoverParseErrorRaw?: (rawText: string, forceRepair?: boolean) => Promise<string | null> | string | null;
     onQuickRestart?: (mode: QuickRestartMode) => void | Promise<void>;
@@ -79,6 +80,7 @@ interface Props {
     loading: boolean;
     variableGenerationRunning?: boolean;
     canReroll?: boolean;
+    canRetryLatestVariableGeneration?: boolean;
     canQuickRestart?: boolean;
     options?: unknown[]; // Quick actions from the last turn
     openingWorldEvolutionProgress?: WorldEvolutionProgress | null;
@@ -90,6 +92,7 @@ const InputArea: React.FC<Props> = ({
     onSend,
     onStop,
     onCancelVariableGeneration,
+    onRetryLatestVariableGeneration,
     onRegenerate,
     onRecoverParseErrorRaw,
     onQuickRestart,
@@ -97,6 +100,7 @@ const InputArea: React.FC<Props> = ({
     loading,
     variableGenerationRunning = false,
     canReroll = true,
+    canRetryLatestVariableGeneration = false,
     canQuickRestart = false,
     options = [],
     openingWorldEvolutionProgress = null,
@@ -276,6 +280,18 @@ const InputArea: React.FC<Props> = ({
         setLastSentContent(restoredInput);
     };
 
+    const handleRetryVariableGeneration = async () => {
+        if (!onRetryLatestVariableGeneration) return;
+        const retryError = await Promise.resolve(onRetryLatestVariableGeneration());
+        if (typeof retryError === 'string' && retryError.trim().length > 0) {
+            setErrorModal({
+                open: true,
+                title: '继续变量生成失败',
+                content: retryError
+            });
+        }
+    };
+
     const handleApplyParseRepair = async (mode: 'auto' | 'manual') => {
         if (!onRecoverParseErrorRaw) {
             setParseRepairModal(prev => ({ ...prev, error: '当前版本未接入解析失败恢复能力。' }));
@@ -385,7 +401,7 @@ const InputArea: React.FC<Props> = ({
         .map(normalizeOptionText)
         .filter(item => item.length > 0);
 
-    const busy = loading || isPreparing;
+    const busy = loading || isPreparing || variableGenerationRunning;
     const effectiveWorldEvolutionProgress = worldEvolutionProgress || openingWorldEvolutionProgress;
     const effectivePlanningProgress = planningProgress || openingPlanningProgress;
     const effectiveVariableGenerationProgress = variableGenerationProgress || openingVariableGenerationProgress;
@@ -616,6 +632,18 @@ const InputArea: React.FC<Props> = ({
                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                         </svg>
                     </button>
+                    <div className="w-px h-5 sm:h-6 bg-gray-800"></div>
+                    <button
+                        onClick={() => { void handleRetryVariableGeneration(); }}
+                        disabled={loading || isPreparing || !canRetryLatestVariableGeneration}
+                        className="w-8 sm:w-10 h-full rounded-md sm:rounded-lg flex items-center justify-center text-cyan-300 hover:text-cyan-100 hover:bg-cyan-900/20 transition-all disabled:opacity-30"
+                        title={canRetryLatestVariableGeneration ? "基于当前正文继续变量生成" : "当前没有可继续变量生成的最新回合"}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-3.22-6.92" />
+                        </svg>
+                    </button>
                 </div>
 
                 {/* Input Field */}
@@ -632,11 +660,11 @@ const InputArea: React.FC<Props> = ({
                 </div>
 
                 {/* Send / Stop Button */}
-                {loading ? (
+                {loading || variableGenerationRunning ? (
                     <button 
-                        onClick={handleStop}
+                        onClick={variableGenerationRunning && onCancelVariableGeneration ? onCancelVariableGeneration : handleStop}
                         className="w-11 sm:w-14 h-10 sm:h-12 shrink-0 bg-wuxia-red text-white rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(163,24,24,0.3)] hover:bg-red-600 hover:scale-105 active:scale-95 transition-all"
-                        title="停止生成"
+                        title={variableGenerationRunning ? "取消变量生成" : "停止生成"}
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -838,6 +866,15 @@ const InputArea: React.FC<Props> = ({
                                                                 className="text-[10px] px-2 py-1 border border-teal-400/40 text-teal-100 rounded hover:bg-teal-500/10"
                                                             >
                                                                 取消生成
+                                                            </button>
+                                                        )}
+                                                        {isVariableStage && phase !== 'start' && !variableGenerationRunning && onRetryLatestVariableGeneration && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { void handleRetryVariableGeneration(); }}
+                                                                className="text-[10px] px-2 py-1 border border-cyan-400/40 text-cyan-100 rounded hover:bg-cyan-500/10"
+                                                            >
+                                                                继续生成
                                                             </button>
                                                         )}
                                                         {commandTexts.length > 0 && (
