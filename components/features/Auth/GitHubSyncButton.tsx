@@ -193,12 +193,18 @@ export const GitHubSyncButton: React.FC = () => {
         setIsSyncing(true);
         setProgress(null);
         try {
-            const success = await downloadFromCloud(token!, setProgress);
-            if (success) {
+            const result = await downloadFromCloud(token!, setProgress);
+            if (result.success) {
                 alert('云端存档恢复完成，页面即将刷新。');
                 window.location.reload();
             } else {
-                alert('云端同步失败，请稍后再试。');
+                alert(
+                    `云端同步失败\n` +
+                    `阶段: ${result.stageLabel}\n` +
+                    `原因: ${result.error || '未知错误'}\n` +
+                    `统计: 存档 ${result.importedSaveCount}/${result.saveCount}，设置 ${result.importedSettingCount}/${result.settingCount}，资源 ${result.importedAssetCount}/${result.assetCount}\n` +
+                    `时间: ${result.timestamp}`
+                );
             }
         } catch (error: any) {
             alert(`同步失败: ${error.message || '未知错误'}`);
