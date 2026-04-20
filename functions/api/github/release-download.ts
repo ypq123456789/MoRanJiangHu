@@ -85,7 +85,13 @@ export async function onRequestPost({ request }: any): Promise<Response> {
             status: finalResponse.status,
             headers: {
                 ...BINARY_CORS_HEADERS,
-                'Content-Type': finalResponse.headers.get('Content-Type') || 'application/octet-stream'
+                'Content-Type': finalResponse.headers.get('Content-Type') || 'application/octet-stream',
+                ...(finalResponse.headers.get('Content-Length')
+                    ? { 'Content-Length': finalResponse.headers.get('Content-Length') as string }
+                    : {}),
+                ...(finalResponse.headers.get('Content-Disposition')
+                    ? { 'Content-Disposition': finalResponse.headers.get('Content-Disposition') as string }
+                    : {})
             }
         });
     } catch (error: any) {

@@ -1,6 +1,7 @@
+import { CapacitorHttp } from '@capacitor/core';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import * as dbService from './dbService';
-import { 构建同步API地址 } from '../utils/nativeRuntime';
+import { 构建同步API地址, 是否原生Capacitor环境 } from '../utils/nativeRuntime';
 import { 设置键 } from '../utils/settingsSchema';
 import { 解析图片资源引用ID } from '../utils/imageAssets';
 
@@ -132,6 +133,13 @@ type 云同步分卷清单 = {
     }>;
 };
 
+type 下载附件结果 = {
+    bytes: Uint8Array;
+    contentType: string;
+    contentLength: number | null;
+    previewText: string | null;
+};
+
 export type 云同步恢复结果 = {
     success: boolean;
     stage: 云同步恢复阶段;
@@ -190,6 +198,83 @@ const 提取错误消息 = (error: unknown): string => {
     } catch {
         return String(error);
     }
+};
+
+const 提取文本预览 = (bytes: Uint8Array, contentType: string): string | null => {
+    const normalizedType = (contentType || '').toLowerCase();
+    const looksText =
+        normalizedType.startsWith('text/') ||
+        normalizedType.includes('json') ||
+        normalizedType.includes('xml') ||
+        normalizedType.includes('html');
+    if (!looksText) return null;
+
+    try {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, Math.min(bytes.length, 240)));
+        return text.replace(/\s+/g, ' ').trim().slice(0, 180) || null;
+    } catch {
+        return null;
+    }
+};
+
+const 读取响应头 = (headers: Record<string, string> | Headers | undefined, name: string): string => {
+    if (!headers) return '';
+    if (headers instanceof Headers) {
+        return 读取文本(headers.get(name));
+    }
+
+    const exact = headers[name];
+    if (typeof exact === 'string' && exact.trim()) return exact.trim();
+
+    const lowerName = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase() === lowerName && typeof value === 'string') {
+            return value.trim();
+        }
+    }
+    return '';
+};
+
+const 转字节数组 = (view: ArrayBufferView): Uint8Array => {
+    return new Uint8Array(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
+};
+
+const 解码Base64字节 = (value: string): Uint8Array => {
+    const normalized = value.replace(/\s+/g, '');
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+};
+
+const 解析原生HTTP二进制 = (data: unknown): Uint8Array => {
+    if (data instanceof Uint8Array) return data;
+    if (data instanceof ArrayBuffer) return new Uint8Array(data);
+    if (ArrayBuffer.isView(data)) return 转字节数组(data);
+    if (Array.isArray(data)) return new Uint8Array(data);
+    if (typeof data === 'string') return 解码Base64字节(data);
+    if (data && typeof data === 'object') {
+        const base64Value = (data as { base64?: unknown; base64String?: unknown }).base64String
+            ?? (data as { base64?: unknown; base64String?: unknown }).base64;
+        if (typeof base64Value === 'string' && base64Value.trim()) {
+            return 解码Base64字节(base64Value);
+        }
+    }
+    throw new Error(`无法解析原生下载响应：${Object.prototype.toString.call(data)}`);
+};
+
+const 提取响应预览文本 = (data: unknown): string | null => {
+    if (typeof data === 'string') return data.replace(/\s+/g, ' ').trim().slice(0, 180) || null;
+    if (data && typeof data === 'object') {
+        try {
+            return JSON.stringify(data).slice(0, 180) || null;
+        } catch {
+            return null;
+        }
+    }
+    return null;
 };
 
 const 记录最近云同步恢复诊断 = (result: 云同步恢复结果): void => {
@@ -574,20 +659,56 @@ const 上传单个附件 = async (
     }
 };
 
-const 下载Release附件二进制 = async (token: string, url: string): Promise<Uint8Array> => {
-    const res = await fetch(构建同步API地址(RELEASE_DOWNLOAD_PROXY_PATH), {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-GitHub-Token': token,
-            'X-GitHub-Download-Url': url
+const 下载Release附件二进制 = async (token: string, url: string): Promise<下载附件结果> => {
+    const requestUrl = 构建同步API地址(RELEASE_DOWNLOAD_PROXY_PATH);
+    const requestHeaders = {
+        'Content-Type': 'application/json',
+        'X-GitHub-Token': token,
+        'X-GitHub-Download-Url': url
+    };
+
+    if (是否原生Capacitor环境()) {
+        const response = await CapacitorHttp.request({
+            url: requestUrl,
+            method: 'POST',
+            headers: requestHeaders,
+            responseType: 'arraybuffer',
+            connectTimeout: 30000,
+            readTimeout: 300000
+        });
+        if (response.status < 200 || response.status >= 300) {
+            const detail = 提取响应预览文本(response.data);
+            throw new Error(`下载云存档附件失败：${response.status}${detail ? ` - ${detail}` : ''}`);
         }
+
+        const contentType = 读取响应头(response.headers, 'Content-Type') || 'application/octet-stream';
+        const contentLengthHeader = 读取响应头(response.headers, 'Content-Length');
+        const bytes = 解析原生HTTP二进制(response.data);
+        return {
+            bytes,
+            contentType,
+            contentLength: contentLengthHeader ? Number(contentLengthHeader) || null : null,
+            previewText: 提取文本预览(bytes, contentType)
+        };
+    }
+
+    const res = await fetch(requestUrl, {
+        method: 'POST',
+        headers: requestHeaders
     });
     if (!res.ok) {
         const detail = await res.text().catch(() => '');
         throw new Error(`下载云存档附件失败：${res.status}${detail ? ` - ${detail.slice(0, 220)}` : ''}`);
     }
-    return new Uint8Array(await res.arrayBuffer());
+    const contentType = 读取响应头(res.headers, 'Content-Type') || 'application/octet-stream';
+    const contentLengthHeader = 读取响应头(res.headers, 'Content-Length');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    return {
+        bytes,
+        contentType,
+        contentLength: contentLengthHeader ? Number(contentLengthHeader) || null : null,
+        previewText: 提取文本预览(bytes, contentType)
+    };
 };
 
 const 收集图片资源引用ID = (
@@ -1068,8 +1189,8 @@ export async function downloadFromCloud(token: string, onProgress?: 云同步进
     }
 
     emit({ direction: 'download', stage: 'downloading', message: '正在读取云端分卷清单...', totalBytes: 0, transferredBytes: 0 });
-    const manifestBytes = await 下载Release附件二进制(token, manifestUrl);
-    const manifest = 解析分卷清单(strFromU8(manifestBytes));
+    const manifestDownload = await 下载Release附件二进制(token, manifestUrl);
+    const manifest = 解析分卷清单(strFromU8(manifestDownload.bytes));
     const assetMap = new Map((release.assets || []).map((asset) => [asset.name, asset]));
 
     let transferredBytes = 0;
@@ -1090,7 +1211,30 @@ export async function downloadFromCloud(token: string, onProgress?: 云同步进
             partIndex: index + 1,
             partCount: manifest.partCount
         });
-        const partBytes = await 下载Release附件二进制(token, downloadUrl);
+        const partDownload = await 下载Release附件二进制(token, downloadUrl);
+        const partBytes = partDownload.bytes;
+        const expectedPartSize = Number(partMeta.size) || 0;
+        const normalizedContentType = partDownload.contentType.toLowerCase();
+        const suspiciousContentType =
+            normalizedContentType.includes('text/html') ||
+            normalizedContentType.includes('application/json') ||
+            normalizedContentType.includes('text/plain');
+
+        if (suspiciousContentType) {
+            throw new Error(
+                `分卷 ${partMeta.name} 返回了异常内容类型 ${partDownload.contentType}` +
+                `${partDownload.previewText ? `，内容预览：${partDownload.previewText}` : ''}`
+            );
+        }
+
+        if (expectedPartSize > 0 && partBytes.length !== expectedPartSize) {
+            throw new Error(
+                `分卷 ${partMeta.name} 大小不匹配，期望 ${expectedPartSize} 字节，实际 ${partBytes.length} 字节` +
+                `${partDownload.contentType ? `，内容类型：${partDownload.contentType}` : ''}` +
+                `${partDownload.previewText ? `，内容预览：${partDownload.previewText}` : ''}`
+            );
+        }
+
         parts.push(partBytes);
         transferredBytes += partBytes.length;
         emit({
