@@ -104,6 +104,85 @@ const App: React.FC = () => {
         if (typeof window === 'undefined') return false;
         return window.matchMedia('(max-width: 767px)').matches;
     });
+    function handleMobileMenuAction(menu: string) {
+        const isActive = activeMobileWindowId === menu;
+        closeAllPanels();
+        if (isActive) return;
+
+        switch (menu) {
+            case 'character':
+                setShowCharacter(true);
+                break;
+            case 'equipment':
+                setters.setShowEquipment(true);
+                break;
+            case 'battle':
+                setters.setShowBattle(true);
+                break;
+            case 'inventory':
+                setters.setShowInventory(true);
+                break;
+            case 'social':
+                setters.setShowSocial(true);
+                break;
+            case 'kungfu':
+                if (启用修炼体系) {
+                    setters.setShowKungfu(true);
+                }
+                break;
+            case 'world':
+                setters.setShowWorld(true);
+                break;
+            case 'map':
+                setters.setShowMap(true);
+                break;
+            case 'team':
+                setters.setShowTeam(true);
+                break;
+            case 'sect':
+                setters.setShowSect(true);
+                break;
+            case 'task':
+                setters.setShowTask(true);
+                break;
+            case 'agreement':
+                setters.setShowAgreement(true);
+                break;
+            case 'story':
+                setters.setShowStory(true);
+                break;
+            case 'plan':
+                setters.setShowHeroinePlan(true);
+                break;
+            case 'memory':
+                setters.setShowMemory(true);
+                break;
+            case 'export_novel':
+                setShowNovelExport(true);
+                break;
+            case 'image_manager':
+                void openImageManagerWithCheck();
+                break;
+            case 'novel_decomposition':
+                void openNovelDecompositionWorkbench();
+                break;
+            case 'save':
+                setters.setShowSaveLoad({ show: true, mode: 'save' });
+                break;
+            case 'load':
+                setters.setShowSaveLoad({ show: true, mode: 'load' });
+                break;
+            case 'settings':
+                setters.setShowSettings(true);
+                break;
+            case 'music':
+                setShowMobileMusic(true);
+                break;
+            default:
+                break;
+        }
+    }
+
     React.useEffect(() => {
         const shouldBuildSnapshot = state.showSettings
             && (state.activeTab === 'context' || state.activeTab === 'prompt');
@@ -414,6 +493,22 @@ const App: React.FC = () => {
     );
     const fontFaceStyleText = React.useMemo(() => 构建字体注入样式文本(state.visualConfig), [state.visualConfig]);
     const uiTextStyleVars = React.useMemo(() => 构建UI文字CSS变量(state.visualConfig), [state.visualConfig]);
+    const appUiStyleVars = React.useMemo(() => {
+        if (!isMobile) return uiTextStyleVars;
+        return {
+            ...uiTextStyleVars,
+            ['--ui-正文-font-size' as any]: '14px',
+            ['--ui-辅助文本-font-size' as any]: '12px',
+            ['--ui-按钮-font-size' as any]: '13px',
+            ['--ui-标签-font-size' as any]: '11px',
+            ['--ui-数字-font-size' as any]: '13px',
+            ['--ui-等宽信息-font-size' as any]: '12px',
+            ['--ui-compact-font-size' as any]: '14px',
+            ['--ui-micro-font-size' as any]: '12px',
+            ['--ui-compact-button-font-size' as any]: '13px',
+            ['--ui-compact-mono-font-size' as any]: '12px'
+        };
+    }, [isMobile, uiTextStyleVars]);
     const hideBottomTicker = state.visualConfig?.底部滚动关闭显示 === true;
     const runtimeStateSections = React.useMemo(() => ({
         角色: state.角色,
@@ -466,6 +561,30 @@ const App: React.FC = () => {
         state.showSaveLoad.show ? (state.showSaveLoad.mode === 'save' ? '保存' : '读取') :
         state.showSettings ? '设置' :
         showMobileMusic ? '音乐' :
+        null;
+
+    const activeMobileWindowId =
+        showCharacter ? 'character' :
+        state.showBattle ? 'battle' :
+        state.showEquipment ? 'equipment' :
+        state.showInventory ? 'inventory' :
+        state.showSocial ? 'social' :
+        (启用修炼体系 && state.showKungfu) ? 'kungfu' :
+        state.showWorld ? 'world' :
+        state.showMap ? 'map' :
+        state.showTeam ? 'team' :
+        state.showSect ? 'sect' :
+        state.showTask ? 'task' :
+        state.showAgreement ? 'agreement' :
+        state.showStory ? 'story' :
+        state.showHeroinePlan ? 'plan' :
+        state.showMemory ? 'memory' :
+        showNovelExport ? 'export_novel' :
+        showImageManager ? 'image_manager' :
+        showNovelDecompositionWorkbench ? 'novel_decomposition' :
+        state.showSaveLoad.show ? (state.showSaveLoad.mode === 'save' ? 'save' : 'load') :
+        state.showSettings ? 'settings' :
+        showMobileMusic ? 'music' :
         null;
 
     const closeAllPanels = React.useCallback(() => {
@@ -692,7 +811,7 @@ const App: React.FC = () => {
 
     return (
         <MusicProvider visualConfig={state.visualConfig} onSaveVisual={actions.saveVisualSettings}>
-            <div className="h-screen w-screen overflow-hidden bg-ink-black relative flex flex-col p-3 transition-colors duration-500" style={uiTextStyleVars}>
+            <div className="h-screen w-screen overflow-hidden bg-ink-black relative flex flex-col p-3 transition-colors duration-500" style={appUiStyleVars}>
                 {fontFaceStyleText && <style>{fontFaceStyleText}</style>}
             
             {/* View Switching */}
@@ -934,8 +1053,8 @@ const App: React.FC = () => {
 
                     {/* 移动端快捷菜单 */}
                     <MobileQuickMenu
-                        activeWindow={activeMobileWindow}
-                        onMenuClick={handleMobileMenuClick}
+                        activeWindow={activeMobileWindowId}
+                        onMenuClick={handleMobileMenuAction}
                         enableHeroinePlan={state.gameConfig.启用女主剧情规划 === true}
                         enableKungfu={启用修炼体系}
                         enableImageManager={true}
@@ -947,7 +1066,8 @@ const App: React.FC = () => {
                             className="md:hidden shrink-0 h-[32px] bg-ink-black/90 border-t border-wuxia-gold/20 flex items-center font-mono text-wuxia-gold-dark relative mx-1 mb-1 overflow-hidden pb-[env(safe-area-inset-bottom)]"
                             style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}
                         >
-                            <div className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-wider">
+                            <div className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-wider text-transparent relative">
+                                <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold/90">世界大事</span>
                                 世界大事
                             </div>
                             <div className="flex-1 overflow-hidden relative h-full flex items-center">
@@ -968,7 +1088,8 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="w-full text-center text-gray-700 tracking-wider" style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}>
+                                    <div className="w-full text-center text-gray-700 tracking-wider text-transparent relative" style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}>
+                                        <span className="absolute inset-0 flex items-center justify-center text-gray-700">江湖平静，暂时无大事发生...</span>
                                         江湖平静，暂无大事发生...
                                     </div>
                                 )}
@@ -981,7 +1102,8 @@ const App: React.FC = () => {
                             className="hidden md:flex shrink-0 h-[37px] bg-ink-black/90 border-t border-wuxia-gold/20 justify-between px-4 items-center font-mono text-wuxia-gold-dark z-50 shadow-[0_-5px_15px_rgba(0,0,0,0.8)] relative rounded-b-xl mx-1 mb-1 overflow-hidden"
                             style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}
                         >
-                            <div className="shrink-0 text-wuxia-gold font-bold mr-2 z-20 bg-ink-black/90 px-2 flex items-center h-full border-r border-gray-800">
+                            <div className="shrink-0 text-wuxia-gold font-bold mr-2 z-20 bg-ink-black/90 px-2 flex items-center h-full border-r border-gray-800 text-transparent relative">
+                                <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold">【世界大事】</span>
                                 【世界大事】
                             </div>
 
@@ -1004,13 +1126,15 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="w-full text-center text-gray-700 font-mono tracking-widest" style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}>
+                                    <div className="w-full text-center text-gray-700 font-mono tracking-widest text-transparent relative" style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}>
+                                        <span className="absolute inset-0 flex items-center justify-center text-gray-700">江湖平静，暂时无大事发生...</span>
                                         江湖平静，暂无大事发生...
                                     </div>
                                 )}
                             </div>
 
-                            <div className="shrink-0 text-wuxia-gold font-bold ml-2 z-20 bg-ink-black/90 px-2 flex items-center h-full border-l border-gray-800">
+                            <div className="shrink-0 text-wuxia-gold font-bold ml-2 z-20 bg-ink-black/90 px-2 flex items-center h-full border-l border-gray-800 text-transparent relative">
+                                <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold">【V0.0.1】</span>
                                 【V0.0.1】
                             </div>
                         </div>

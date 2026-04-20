@@ -1,9 +1,34 @@
 import React, { useMemo, useState } from 'react';
 import { useMusic } from '../features/Music/MusicProvider';
 
+type MenuId =
+    | 'character'
+    | 'battle'
+    | 'equipment'
+    | 'inventory'
+    | 'social'
+    | 'kungfu'
+    | 'world'
+    | 'map'
+    | 'team'
+    | 'sect'
+    | 'task'
+    | 'agreement'
+    | 'story'
+    | 'plan'
+    | 'memory'
+    | 'export_novel'
+    | 'image_manager'
+    | 'novel_decomposition'
+    | 'save'
+    | 'load'
+    | 'settings'
+    | 'music'
+    | 'more';
+
 interface Props {
-    activeWindow: string | null;
-    onMenuClick: (menu: string) => void;
+    activeWindow: MenuId | null;
+    onMenuClick: (menu: MenuId) => void;
     enableHeroinePlan?: boolean;
     enableKungfu?: boolean;
     enableImageManager?: boolean;
@@ -33,33 +58,38 @@ type IconName =
     | 'grid'
     | 'novel';
 
-const PRIMARY_MENUS = ['瑙掕壊', '鎴樻枟', '瑁呭', '鑳屽寘', '绀句氦'];
-
-const MENU_ICON_MAP: Record<string, IconName> = {
-    '瑙掕壊': 'profile',
-    '鎴樻枟': 'battle',
-    '瑁呭': 'equipment',
-    '鑳屽寘': 'bag',
-    '绀句氦': 'social',
-    '鍔熸硶': 'kungfu',
-    '涓栫晫': 'world',
-    '鍦板浘': 'map',
-    '闃熶紞': 'team',
-    '闂ㄦ淳': 'sect',
-    '浠诲姟': 'task',
-    '绾﹀畾': 'agreement',
-    '鍓ф儏': 'story',
-    '瑙勫垝': 'plan',
-    '璁板繂': 'memory',
-    '瀵煎嚭灏忚': 'novel',
-    '鍥惧唽': 'grid',
-    '灏忚鍒嗚В': 'novel',
-    '璁剧疆': 'settings',
-    '淇濆瓨': 'save',
-    '璇诲彇': 'load',
+type MenuMeta = {
+    id: MenuId;
+    label: string;
+    icon: IconName;
 };
 
-const getIcon = (menu: string): IconName => MENU_ICON_MAP[menu] || 'grid';
+const PRIMARY_MENU_IDS: MenuId[] = ['character', 'battle', 'equipment', 'inventory', 'social'];
+
+const MENU_META: Record<Exclude<MenuId, 'more'>, MenuMeta> = {
+    character: { id: 'character', label: '角色', icon: 'profile' },
+    battle: { id: 'battle', label: '战斗', icon: 'battle' },
+    equipment: { id: 'equipment', label: '装备', icon: 'equipment' },
+    inventory: { id: 'inventory', label: '背包', icon: 'bag' },
+    social: { id: 'social', label: '社交', icon: 'social' },
+    kungfu: { id: 'kungfu', label: '功法', icon: 'kungfu' },
+    world: { id: 'world', label: '世界', icon: 'world' },
+    map: { id: 'map', label: '地图', icon: 'map' },
+    team: { id: 'team', label: '队伍', icon: 'team' },
+    sect: { id: 'sect', label: '门派', icon: 'sect' },
+    task: { id: 'task', label: '任务', icon: 'task' },
+    agreement: { id: 'agreement', label: '约定', icon: 'agreement' },
+    story: { id: 'story', label: '剧情', icon: 'story' },
+    plan: { id: 'plan', label: '规划', icon: 'plan' },
+    memory: { id: 'memory', label: '记忆', icon: 'memory' },
+    export_novel: { id: 'export_novel', label: '导出', icon: 'novel' },
+    image_manager: { id: 'image_manager', label: '图册', icon: 'grid' },
+    novel_decomposition: { id: 'novel_decomposition', label: '分解', icon: 'novel' },
+    save: { id: 'save', label: '保存', icon: 'save' },
+    load: { id: 'load', label: '读取', icon: 'load' },
+    settings: { id: 'settings', label: '设置', icon: 'settings' },
+    music: { id: 'music', label: '音乐', icon: 'novel' },
+};
 
 const MobileQuickMenu: React.FC<Props> = ({
     activeWindow,
@@ -72,30 +102,31 @@ const MobileQuickMenu: React.FC<Props> = ({
     const [showAllMenus, setShowAllMenus] = useState(false);
     const { enabled, isPlaying, tracks, currentTrackId } = useMusic();
     const currentTrackCover = useMemo(
-        () => tracks.find((track) => track.id === currentTrackId)?.['灏侀潰URL'] || '',
+        () => tracks.find((track) => track.id === currentTrackId)?.封面URL || '',
         [tracks, currentTrackId]
     );
-    const allMenus = useMemo(() => ([
-        ...PRIMARY_MENUS,
-        '涓栫晫',
-        '鍦板浘',
-        ...(enableKungfu ? ['鍔熸硶'] : []),
-        '闃熶紞',
-        '闂ㄦ淳',
-        '浠诲姟',
-        '绾﹀畾',
-        '鍓ф儏',
-        ...(enableHeroinePlan ? ['瑙勫垝'] : []),
-        '璁板繂',
-        '导出小说',
-        ...(enableImageManager ? ['鍥惧唽'] : []),
-        ...(enableNovelDecomposition ? ['灏忚鍒嗚В'] : []),
-        '淇濆瓨',
-        '璇诲彇',
-        '璁剧疆',
-    ]), [enableHeroinePlan, enableKungfu, enableImageManager, enableNovelDecomposition]);
 
-    const handleMenuClick = (menu: string) => {
+    const allMenus = useMemo<MenuMeta[]>(() => ([
+        ...PRIMARY_MENU_IDS.map((id) => MENU_META[id]),
+        MENU_META.world,
+        MENU_META.map,
+        ...(enableKungfu ? [MENU_META.kungfu] : []),
+        MENU_META.team,
+        MENU_META.sect,
+        MENU_META.task,
+        MENU_META.agreement,
+        MENU_META.story,
+        ...(enableHeroinePlan ? [MENU_META.plan] : []),
+        MENU_META.memory,
+        MENU_META.export_novel,
+        ...(enableImageManager ? [MENU_META.image_manager] : []),
+        ...(enableNovelDecomposition ? [MENU_META.novel_decomposition] : []),
+        MENU_META.save,
+        MENU_META.load,
+        MENU_META.settings,
+    ]), [enableHeroinePlan, enableImageManager, enableKungfu, enableNovelDecomposition]);
+
+    const handleMenuClick = (menu: MenuId) => {
         onMenuClick(menu);
         setShowAllMenus(false);
     };
@@ -106,21 +137,26 @@ const MobileQuickMenu: React.FC<Props> = ({
                 <div className="relative rounded-2xl border border-gray-800 bg-black/40">
                     <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
                     <div className={`grid ${enabled ? 'grid-cols-7' : 'grid-cols-6'}`}>
-                        {PRIMARY_MENUS.slice(0, 3).map((menu) => (
-                            <QuickButton
-                                key={menu}
-                                icon={getIcon(menu)}
-                                label={menu}
-                                active={activeWindow === menu}
-                                onClick={() => handleMenuClick(menu)}
-                            />
-                        ))}
-                        
+                        {PRIMARY_MENU_IDS.slice(0, 3).map((id) => {
+                            const menu = MENU_META[id];
+                            return (
+                                <QuickButton
+                                    key={menu.id}
+                                    icon={menu.icon}
+                                    label={menu.label}
+                                    active={activeWindow === menu.id}
+                                    onClick={() => handleMenuClick(menu.id)}
+                                />
+                            );
+                        })}
+
                         {enabled && (
                             <div className="relative flex flex-col items-center justify-center h-14">
                                 <button
-                                    onClick={() => handleMenuClick('闊充箰')}
+                                    type="button"
+                                    onClick={() => handleMenuClick('music')}
                                     className={`w-14 h-14 flex-shrink-0 aspect-square rounded-full border-2 border-gray-700 bg-black shadow-[0_4px_15px_rgba(0,0,0,0.6)] transition-all active:scale-95 z-50 -translate-y-[20%] ${isPlaying ? 'animate-wuxia-music-disc-rotation' : ''}`}
+                                    aria-label="打开音乐"
                                 >
                                     <div className="absolute inset-0 rounded-full overflow-hidden">
                                         {currentTrackCover ? (
@@ -130,27 +166,29 @@ const MobileQuickMenu: React.FC<Props> = ({
                                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
                                             </div>
                                         )}
-                                        <div className="absolute inset-0 border-[6px] border-black/20 rounded-full pointer-events-none ring-1 ring-inset ring-white/5"></div>
+                                        <div className="absolute inset-0 border-[6px] border-black/20 rounded-full pointer-events-none ring-1 ring-inset ring-white/5" />
                                     </div>
-
                                     {isPlaying && <div className="animate-cd-edge-flow" />}
-
                                 </button>
                             </div>
                         )}
 
-                        {PRIMARY_MENUS.slice(3).map((menu) => (
-                            <QuickButton
-                                key={menu}
-                                icon={getIcon(menu)}
-                                label={menu}
-                                active={activeWindow === menu}
-                                onClick={() => handleMenuClick(menu)}
-                            />
-                        ))}
+                        {PRIMARY_MENU_IDS.slice(3).map((id) => {
+                            const menu = MENU_META[id];
+                            return (
+                                <QuickButton
+                                    key={menu.id}
+                                    icon={menu.icon}
+                                    label={menu.label}
+                                    active={activeWindow === menu.id}
+                                    onClick={() => handleMenuClick(menu.id)}
+                                />
+                            );
+                        })}
+
                         <QuickButton
                             icon="more"
-                            label={showAllMenus ? '鏀惰捣' : '鏇村'}
+                            label={showAllMenus ? '收起' : '更多'}
                             active={showAllMenus}
                             onClick={() => setShowAllMenus((prev) => !prev)}
                         />
@@ -162,18 +200,18 @@ const MobileQuickMenu: React.FC<Props> = ({
                 <div className="px-2 pt-2 pb-1">
                     <div className="rounded-2xl border border-gray-800 bg-black/50 shadow-[0_8px_20px_rgba(0,0,0,0.4)] overflow-hidden">
                         <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
-                            <span className="text-[10px] tracking-[0.18em] text-gray-500">鍏ㄩ儴鍔熻兘</span>
+                            <span className="text-[10px] tracking-[0.18em] text-gray-500">全部功能</span>
                             <span className="text-[10px] text-wuxia-cyan/80">{allMenus.length} 项</span>
                         </div>
                         <div className="max-h-44 overflow-y-auto no-scrollbar p-2">
                             <div className="grid grid-cols-4 gap-2">
                                 {allMenus.map((menu) => (
                                     <MenuTile
-                                        key={menu}
-                                        icon={getIcon(menu)}
-                                        label={menu}
-                                        active={activeWindow === menu}
-                                        onClick={() => handleMenuClick(menu)}
+                                        key={menu.id}
+                                        icon={menu.icon}
+                                        label={menu.label}
+                                        active={activeWindow === menu.id}
+                                        onClick={() => handleMenuClick(menu.id)}
                                     />
                                 ))}
                             </div>

@@ -19,6 +19,7 @@ const 图片资源存储名 = 'image_assets';
 const GITHUB_API_BASE = 'https://api.github.com';
 const RELEASE_UPLOAD_PROXY_PATH = '/api/github/release-upload';
 const RELEASE_DOWNLOAD_PROXY_PATH = '/api/github/release-download';
+const DEVICE_LOCAL_SETTING_KEYS = new Set<string>(['visual_settings']);
 const 云同步分卷大小 = 8 * 1024 * 1024;
 const 单分卷上传超时毫秒 = 300000;
 const 云同步分卷清单文件名 = 'WuXia_Save_Data.parts.json';
@@ -276,6 +277,8 @@ const 提取响应预览文本 = (data: unknown): string | null => {
     }
     return null;
 };
+
+const 是设备本地设置键 = (key: string): boolean => DEVICE_LOCAL_SETTING_KEYS.has(key);
 
 const 记录最近云同步恢复诊断 = (result: 云同步恢复结果): void => {
     try {
@@ -769,7 +772,7 @@ const 读取全部待同步设置 = async (): Promise<Array<{ key: string; categ
     const items: Array<{ key: string; category: string; value: unknown }> = [];
     for (const item of settingsList) {
         const key = item.key;
-        if (!key || key === GITHUB_TOKEN_KEY || 是否提示词相关键(key)) continue;
+        if (!key || key === GITHUB_TOKEN_KEY || 是否提示词相关键(key) || 是设备本地设置键(key)) continue;
         try {
             items.push({
                 key,
@@ -979,14 +982,14 @@ export async function restoreSyncData(zipBytes: Uint8Array): Promise<云同步�
         const importedSettingKeys = new Set(settingsList.map((item) => item.key).filter(Boolean));
         const currentSettings = await dbService.获取设置管理清单();
         for (const current of currentSettings) {
-            if (!current.key || current.key === GITHUB_TOKEN_KEY || 是否提示词相关键(current.key)) continue;
+            if (!current.key || current.key === GITHUB_TOKEN_KEY || 是否提示词相关键(current.key) || 是设备本地设置键(current.key)) continue;
             if (!importedSettingKeys.has(current.key)) {
                 await dbService.删除设置(current.key);
             }
         }
 
         for (const item of settingsList) {
-            if (!item.key || item.key === GITHUB_TOKEN_KEY || 是否提示词相关键(item.key)) continue;
+            if (!item.key || item.key === GITHUB_TOKEN_KEY || 是否提示词相关键(item.key) || 是设备本地设置键(item.key)) continue;
             const entry = entries[item.file];
             if (!entry) {
                 throw new Error(`缺少设置文件：${item.file}`);
