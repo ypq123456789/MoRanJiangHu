@@ -351,8 +351,18 @@ const MobileImageManagerModal: React.FC<Props> = ({
         }
     };
 
-    const propsForTabs = {
-        socialList, queue, sceneArchive, sceneQueue, apiConfig, currentPersistentWallpaper, onSaveApiConfig, onClose,
+    const propsForTabs: TabProps = {
+        socialList,
+        cultivationSystemEnabled,
+        queue,
+        sceneArchive,
+        sceneQueue,
+        apiConfig,
+        imageManagerConfig,
+        currentPersistentWallpaper,
+        onSaveApiConfig,
+        onSaveImageManagerConfig,
+        onClose,
         onGenerateImage, onGenerateSecretPartImage, onRetryImage, onGenerateSceneImage, onSetPersistentWallpaper, onClearPersistentWallpaper,
         onSelectAvatarImage, onSelectPortraitImage, onSelectBackgroundImage,
         onClearAvatarImage, onClearPortraitImage, onClearBackgroundImage,
@@ -424,7 +434,7 @@ interface PresetEditorProps {
     busyActionKey: string;
 }
 
-const ManualTabContent: React.FC<TabProps> = ({ socialList, queue, apiConfig, onGenerateImage, onGenerateSecretPartImage, withBusyAction, busyActionKey, setActionError, setActiveTab }) => {
+const ManualTabContent: React.FC<TabProps> = ({ socialList, cultivationSystemEnabled, queue, apiConfig, onGenerateImage, onGenerateSecretPartImage, withBusyAction, busyActionKey, setActionError, setActiveTab }) => {
     const [selectedNpcId, setSelectedNpcId] = React.useState('');
     const [composition, setComposition] = React.useState<'头像' | '半身' | '立绘' | '自定义'>('头像');
     const [customComposition, setCustomComposition] = React.useState('');

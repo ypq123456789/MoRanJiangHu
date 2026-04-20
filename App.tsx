@@ -1,4 +1,5 @@
 import React from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
 import TopBar from './components/layout/TopBar';
 import LeftPanel from './components/layout/LeftPanel';
 import RightPanel from './components/layout/RightPanel';
@@ -13,6 +14,7 @@ import { 获取文生图接口配置, 获取生图词组转化器接口配置, �
 import { 构建字体注入样式文本, 构建UI文字CSS变量 } from './utils/visualSettings';
 import { 获取图片资源文本地址 } from './utils/imageAssets';
 import { MusicProvider } from './components/features/Music/MusicProvider';
+import { isNativeCapacitorEnvironment } from './utils/nativeRuntime';
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
 
 type 可预加载组件<T extends React.ComponentType<any>> = React.LazyExoticComponent<T> & {
@@ -88,6 +90,50 @@ const 懒加载边界: React.FC<{ children: React.ReactNode }> = ({ children }) 
 );
 
 
+class ModalErrorBoundary extends React.Component<
+    { children: React.ReactNode; title: string; onClose?: () => void },
+    { error: Error | null }
+> {
+    state: { error: Error | null } = { error: null };
+
+    static getDerivedStateFromError(error: Error) {
+        return { error };
+    }
+
+    componentDidCatch(error: Error) {
+        console.error('Modal render failed:', error);
+    }
+
+    render() {
+        if (!this.state.error) {
+            return this.props.children;
+        }
+
+        return (
+            <div className="fixed inset-0 z-[280] flex items-center justify-center bg-black/88 px-5 py-8">
+                <div className="w-full max-w-md rounded-2xl border border-red-500/45 bg-[#120909] p-5 text-red-100 shadow-[0_20px_60px_rgba(0,0,0,0.7)]">
+                    <div className="text-base font-semibold tracking-[0.12em] text-red-200">{this.props.title}</div>
+                    <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-red-100/90">
+                        {this.state.error.message || '界面渲染失败'}
+                    </div>
+                    <div className="mt-4 text-xs leading-5 text-red-200/70">
+                        请把这段报错截图发我，我就能继续按具体原因修。
+                    </div>
+                    {this.props.onClose && (
+                        <button
+                            type="button"
+                            onClick={this.props.onClose}
+                            className="mt-5 inline-flex h-10 items-center justify-center rounded-lg border border-red-300/40 bg-red-950/40 px-4 text-sm text-red-50"
+                        >
+                            关闭
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    }
+}
+
 const App: React.FC = () => {
     const { state, meta, setters, actions } = useGame();
     const [showCharacter, setShowCharacter] = React.useState(false);
@@ -103,6 +149,14 @@ const App: React.FC = () => {
     const [isMobile, setIsMobile] = React.useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
         return window.matchMedia('(max-width: 767px)').matches;
+    });
+    const [isFullscreen, setIsFullscreen] = React.useState<boolean>(() => {
+        if (typeof document === 'undefined') return false;
+        const doc = document as Document & {
+            webkitFullscreenElement?: Element;
+            msFullscreenElement?: Element;
+        };
+        return Boolean(document.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement);
     });
     function handleMobileMenuAction(menu: string) {
         const isActive = activeMobileWindowId === menu;
@@ -251,6 +305,36 @@ const App: React.FC = () => {
         meta.builtinPromptEntries,
         meta.worldbooks
     ]);
+    React.useEffect(() => {
+        const syncFullscreen = () => {
+            const doc = document as Document & {
+                webkitFullscreenElement?: Element;
+                msFullscreenElement?: Element;
+            };
+            setIsFullscreen(Boolean(document.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement));
+        };
+
+        syncFullscreen();
+        document.addEventListener('fullscreenchange', syncFullscreen);
+        return () => {
+            document.removeEventListener('fullscreenchange', syncFullscreen);
+        };
+    }, []);
+
+    React.useEffect(() => {
+        const html = document.documentElement;
+        const body = document.body;
+        const previousHtmlBackground = html.style.backgroundColor;
+        const previousBodyBackground = body.style.backgroundColor;
+
+        html.style.backgroundColor = '#0e0d0b';
+        body.style.backgroundColor = '#0e0d0b';
+
+        return () => {
+            html.style.backgroundColor = previousHtmlBackground;
+            body.style.backgroundColor = previousBodyBackground;
+        };
+    }, []);
     const confirmResolverRef = React.useRef<((value: boolean) => void) | null>(null);
     const 最近小说分解报错提示IDRef = React.useRef('');
     const [confirmState, setConfirmState] = React.useState<(ConfirmOptions & { open: boolean })>({
@@ -475,7 +559,18 @@ const App: React.FC = () => {
         () => 环境时间转标准串(state.环境) || state.环境?.时间 || '未知时间',
         [state.环境]
     );
-    const 当前背景图片地址 = React.useMemo(() => 获取图片资源文本地址(state.visualConfig?.背景图片), [state.visualConfig?.背景图片]);
+    const effectiveVisualConfig = React.useMemo(() => {
+        if (!isMobile || !state.visualConfig) return state.visualConfig;
+
+        return {
+            ...state.visualConfig,
+            ['字体大小']: 16,
+            ['段落间距']: 1.6,
+            ['区域文字样式']: undefined,
+            ['UI文字样式']: undefined
+        } as typeof state.visualConfig;
+    }, [isMobile, state.visualConfig]);
+    const 当前背景图片地址 = React.useMemo(() => 获取图片资源文本地址(effectiveVisualConfig?.背景图片), [effectiveVisualConfig?.背景图片]);
     const 玩家头像地址 = React.useMemo(() => {
         const archive = state.角色?.图片档案;
         const selectedAvatarId = typeof archive?.已选头像图片ID === 'string' ? archive.已选头像图片ID.trim() : '';
@@ -491,12 +586,17 @@ const App: React.FC = () => {
         () => ({ 姓名: state.角色?.姓名, 头像图片URL: 玩家头像地址 }),
         [state.角色?.姓名, 玩家头像地址]
     );
-    const fontFaceStyleText = React.useMemo(() => 构建字体注入样式文本(state.visualConfig), [state.visualConfig]);
-    const uiTextStyleVars = React.useMemo(() => 构建UI文字CSS变量(state.visualConfig), [state.visualConfig]);
+    const fontFaceStyleText = React.useMemo(() => 构建字体注入样式文本(effectiveVisualConfig), [effectiveVisualConfig]);
+    const uiTextStyleVars = React.useMemo(() => 构建UI文字CSS变量(effectiveVisualConfig), [effectiveVisualConfig]);
     const appUiStyleVars = React.useMemo(() => {
-        if (!isMobile) return uiTextStyleVars;
+        const runtimeSafeAreaVars = {
+            ['--app-safe-top' as any]: isMobile && isFullscreen ? '0px' : 'env(safe-area-inset-top, 0px)',
+            ['--app-safe-bottom' as any]: isMobile && isFullscreen ? '0px' : 'env(safe-area-inset-bottom, 0px)'
+        };
+        if (!isMobile) return { ...uiTextStyleVars, ...runtimeSafeAreaVars };
         return {
             ...uiTextStyleVars,
+            ...runtimeSafeAreaVars,
             ['--ui-正文-font-size' as any]: '14px',
             ['--ui-辅助文本-font-size' as any]: '12px',
             ['--ui-按钮-font-size' as any]: '13px',
@@ -508,8 +608,8 @@ const App: React.FC = () => {
             ['--ui-compact-button-font-size' as any]: '13px',
             ['--ui-compact-mono-font-size' as any]: '12px'
         };
-    }, [isMobile, uiTextStyleVars]);
-    const hideBottomTicker = state.visualConfig?.底部滚动关闭显示 === true;
+    }, [isFullscreen, isMobile, uiTextStyleVars]);
+    const hideBottomTicker = effectiveVisualConfig?.底部滚动关闭显示 === true;
     const runtimeStateSections = React.useMemo(() => ({
         角色: state.角色,
         环境: state.环境,
@@ -802,6 +902,157 @@ const App: React.FC = () => {
         }
     }, [activeMobileWindow, closeAllPanels, openImageManagerWithCheck, openNovelDecompositionWorkbench, setters, 启用修炼体系]);
 
+    const toggleAppFullscreen = React.useCallback(async () => {
+        const doc = document as Document & {
+            webkitFullscreenElement?: Element;
+            webkitExitFullscreen?: () => Promise<void> | void;
+            msFullscreenElement?: Element;
+            msExitFullscreen?: () => Promise<void> | void;
+        };
+        const root = document.documentElement as HTMLElement & {
+            webkitRequestFullscreen?: () => Promise<void> | void;
+            msRequestFullscreen?: () => Promise<void> | void;
+        };
+        const fullscreenNow = Boolean(document.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement);
+
+        if (!fullscreenNow) {
+            const enter = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+            if (enter) {
+                await Promise.resolve(enter.call(root));
+            }
+            return;
+        }
+
+        const exit = document.exitFullscreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+        if (exit) {
+            await Promise.resolve(exit.call(document));
+        }
+    }, []);
+
+    const handleNativeBackNavigation = React.useCallback(async () => {
+        if (showImageManager) {
+            setShowImageManager(false);
+            return true;
+        }
+        if (showWorldbookManager) {
+            closeWorldbookManager();
+            return true;
+        }
+        if (showNovelDecompositionWorkbench) {
+            closeNovelDecompositionWorkbench();
+            return true;
+        }
+        if (showNovelExport) {
+            closeNovelExport();
+            return true;
+        }
+        if (showMobileMusic) {
+            closeMobileMusic();
+            return true;
+        }
+        if (state.showSaveLoad.show) {
+            closeSaveLoad();
+            return true;
+        }
+        if (state.showSettings) {
+            closeSettings();
+            return true;
+        }
+        if (activeMobileWindowId) {
+            closeAllPanels();
+            return true;
+        }
+        if (state.view === 'new_game') {
+            state.setView('home');
+            return true;
+        }
+        if (isFullscreen) {
+            await toggleAppFullscreen();
+            return true;
+        }
+
+        return false;
+    }, [
+        activeMobileWindowId,
+        closeAllPanels,
+        closeMobileMusic,
+        closeNovelDecompositionWorkbench,
+        closeNovelExport,
+        closeSaveLoad,
+        closeSettings,
+        closeWorldbookManager,
+        isFullscreen,
+        showImageManager,
+        showMobileMusic,
+        showNovelDecompositionWorkbench,
+        showNovelExport,
+        showWorldbookManager,
+        state,
+        toggleAppFullscreen
+    ]);
+
+    const mobileBackNavigationRef = React.useRef(handleNativeBackNavigation);
+
+    React.useEffect(() => {
+        mobileBackNavigationRef.current = handleNativeBackNavigation;
+    }, [handleNativeBackNavigation]);
+
+    React.useEffect(() => {
+        if (!isNativeCapacitorEnvironment()) return;
+
+        let cancelled = false;
+        let removeListener: (() => Promise<void>) | null = null;
+
+        void CapacitorApp.addListener('backButton', () => {
+            void handleNativeBackNavigation();
+        }).then((listener) => {
+            if (cancelled) {
+                void listener.remove();
+                return;
+            }
+            removeListener = () => listener.remove();
+        });
+
+        return () => {
+            cancelled = true;
+            if (removeListener) {
+                void removeListener();
+            }
+        };
+    }, [handleNativeBackNavigation]);
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined' || !isMobile) return;
+
+        const historyStateKey = '__mrjhMobileBackTrap';
+
+        if (!window.history.state || !window.history.state[historyStateKey]) {
+            window.history.pushState(
+                { ...(window.history.state || {}), [historyStateKey]: Date.now() },
+                '',
+                window.location.href
+            );
+        }
+
+        const handlePopState = () => {
+            void (async () => {
+                const handled = await mobileBackNavigationRef.current();
+                if (handled) {
+                    window.history.pushState(
+                        { ...(window.history.state || {}), [historyStateKey]: Date.now() },
+                        '',
+                        window.location.href
+                    );
+                }
+            })();
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [isMobile]);
+
     React.useEffect(() => {
         if (!启用修炼体系 && state.showKungfu) {
             setters.setShowKungfu(false);
@@ -810,8 +1061,8 @@ const App: React.FC = () => {
 
 
     return (
-        <MusicProvider visualConfig={state.visualConfig} onSaveVisual={actions.saveVisualSettings}>
-            <div className="h-screen w-screen overflow-hidden bg-ink-black relative flex flex-col p-3 transition-colors duration-500" style={appUiStyleVars}>
+        <MusicProvider visualConfig={effectiveVisualConfig} onSaveVisual={actions.saveVisualSettings}>
+            <div className={`h-screen w-screen overflow-hidden bg-ink-black relative flex flex-col transition-colors duration-500 ${isMobile ? 'p-0' : 'p-3'}`} style={appUiStyleVars}>
                 {fontFaceStyleText && <style>{fontFaceStyleText}</style>}
             
             {/* View Switching */}
@@ -849,21 +1100,38 @@ const App: React.FC = () => {
 
             {state.view === 'game' && (
                 /* Main Game Frame Container */
-                <div className="relative flex-1 flex flex-col w-full h-full rounded-2xl overflow-hidden bg-ink-black shadow-2xl">
+                <div className={`relative flex-1 flex flex-col w-full h-full overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
+                    {isMobile && (
+                        <button
+                            type="button"
+                            onClick={() => { void toggleAppFullscreen(); }}
+                            className="absolute right-1.5 top-1.5 z-[65] inline-flex h-6 w-6 items-center justify-center rounded-md border border-wuxia-gold/35 bg-black/75 text-[0px] text-wuxia-gold shadow-[0_6px_18px_rgba(0,0,0,0.35)] backdrop-blur-sm"
+                            aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+                            title={isFullscreen ? '退出全屏' : '进入全屏'}
+                        >
+                            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 3H3v5" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16 3h5v5" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 21H3v-5" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16 21h5v-5" />
+                            </svg>
+                            {isFullscreen ? '退出全屏' : '全屏'}
+                        </button>
+                    )}
 
                     {/* 顶部导航栏 */}
-                    <div className="shrink-0 z-40 bg-ink-black/90 border-b border-wuxia-gold/20 shadow-[0_10px_30px_rgba(0,0,0,0.8)] relative rounded-t-xl overflow-visible mx-1 mt-1">
+                    <div className={`shrink-0 z-40 bg-ink-black/90 border-b border-wuxia-gold/20 shadow-[0_10px_30px_rgba(0,0,0,0.8)] relative overflow-visible ${isMobile ? 'rounded-none mx-0 mt-0' : 'rounded-t-xl mx-1 mt-1'}`}>
                         <TopBar 
                             环境={state.环境} 
                             游戏初始时间={state.游戏初始时间}
-                            timeFormat={state.visualConfig.时间显示格式}
+                            timeFormat={effectiveVisualConfig.时间显示格式}
                             festivals={state.festivals}
-                            visualConfig={state.visualConfig}
+                            visualConfig={effectiveVisualConfig}
                         />
                     </div>
 
                     {/* 中间主要互动区域 */}
-                    <div className="flex-1 flex overflow-hidden relative z-10 mx-1 mb-1">
+                    <div className={`flex-1 flex overflow-hidden relative z-10 ${isMobile ? 'mx-0 mb-0' : 'mx-1 mb-1'}`}>
                         
                         {/* 左侧栏 */}
                         <div className="hidden md:block w-[14.285714%] h-full relative z-20 bg-ink-black/95 border-r border-wuxia-gold/20 flex flex-col shadow-[10px_0_20px_rgba(0,0,0,0.5)]">
@@ -871,7 +1139,7 @@ const App: React.FC = () => {
                                 角色={state.角色}
                                 onOpenCharacter={openCharacter}
                                 onUploadAvatar={actions.updatePlayerAvatar}
-                                visualConfig={state.visualConfig}
+                                visualConfig={effectiveVisualConfig}
                                 gameConfig={state.gameConfig}
                             />
                         </div>
@@ -950,10 +1218,10 @@ const App: React.FC = () => {
                                     scrollRef={state.scrollRef}
                                     onUpdateHistory={actions.updateHistoryItem} 
                                     onPolishTurn={actions.handlePolishTurn}
-                                    visualConfig={state.visualConfig}
+                                    visualConfig={effectiveVisualConfig}
                                     socialList={state.社交}
                                     playerProfile={playerProfile}
-                                    renderCount={state.visualConfig.渲染层数}
+                                    renderCount={effectiveVisualConfig.渲染层数}
                                     suppressAutoScrollToken={meta.chatScrollSuppressToken}
                                     forceScrollToken={meta.chatForceScrollToken}
                                 />
@@ -1014,7 +1282,7 @@ const App: React.FC = () => {
                                 enableKungfu={启用修炼体系}
                                 onSave={openSave}
                                 onLoad={openLoad}
-                                visualConfig={state.visualConfig}
+                                visualConfig={effectiveVisualConfig}
                             />
                         </div>
                     </div>
@@ -1063,7 +1331,7 @@ const App: React.FC = () => {
 
                     {!hideBottomTicker && (
                         <div
-                            className="md:hidden shrink-0 h-[32px] bg-ink-black/90 border-t border-wuxia-gold/20 flex items-center font-mono text-wuxia-gold-dark relative mx-1 mb-1 overflow-hidden pb-[env(safe-area-inset-bottom)]"
+                            className={`md:hidden shrink-0 h-[32px] bg-ink-black/90 border-t border-wuxia-gold/20 flex items-center font-mono text-wuxia-gold-dark relative overflow-hidden pb-[var(--app-safe-bottom,env(safe-area-inset-bottom,0px))] ${isMobile ? 'mx-0 mb-0' : 'mx-1 mb-1'}`}
                             style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}
                         >
                             <div className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-wider text-transparent relative">
@@ -1152,7 +1420,7 @@ const App: React.FC = () => {
             )}
 
             {/* Global Golden Border Frame */}
-            <div className="pointer-events-none fixed inset-3 z-[100] border-4 border-double border-wuxia-gold/40 rounded-2xl shadow-[inset_0_0_30px_rgba(0,0,0,0.5)]">
+            {!isMobile && <div className="pointer-events-none fixed inset-3 z-[100] border-4 border-double border-wuxia-gold/40 rounded-2xl shadow-[inset_0_0_30px_rgba(0,0,0,0.5)]">
                 {/* Corner Ornaments */}
                 <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-wuxia-gold rounded-tl-xl shadow-[-2px_-2px_5px_rgba(0,0,0,0.5)]"></div>
                 <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-wuxia-gold rounded-tr-xl shadow-[2px_-2px_5px_rgba(0,0,0,0.5)]"></div>
@@ -1162,7 +1430,7 @@ const App: React.FC = () => {
                 {/* Mid-point Accents */}
                 <div className="absolute top-1/2 left-0 w-1 h-12 -translate-y-1/2 bg-wuxia-gold/60"></div>
                 <div className="absolute top-1/2 right-0 w-1 h-12 -translate-y-1/2 bg-wuxia-gold/60"></div>
-            </div>
+            </div>}
 
             {/* Save/Load Modal */}
             {state.showSaveLoad.show && (
@@ -1366,6 +1634,7 @@ const App: React.FC = () => {
             {showImageManager && (
                 <懒加载边界>
                     {isMobile ? (
+                        <ModalErrorBoundary title="图册打开失败" onClose={() => setShowImageManager(false)}>
                         <MobileImageManagerModal
                             socialList={state.社交}
                             cultivationSystemEnabled={启用修炼体系}
@@ -1421,6 +1690,7 @@ const App: React.FC = () => {
                             onImportPresets={actions.importPresets}
                             onExportPresets={actions.exportPresets}
                         />
+                        </ModalErrorBoundary>
                     ) : (
                         <ImageManagerModal
                             socialList={state.社交}
@@ -1511,7 +1781,7 @@ const App: React.FC = () => {
                                 <CharacterModal
                                     character={state.角色}
                                     onClose={() => setShowCharacter(false)}
-                                    visualConfig={state.visualConfig}
+                                    visualConfig={effectiveVisualConfig}
                                     apiConfig={state.apiConfig}
                                     playerAnchor={主角锚点}
                                     onGeneratePlayerImage={actions.generatePlayerImageManually}

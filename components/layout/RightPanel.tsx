@@ -63,36 +63,36 @@ const RightPanel: React.FC<Props> = ({
     const scaleFont = (ratio: number, min = 13) => `${Math.max(min, Math.round(baseFontSize * ratio))}px`;
 
     const menuItems = [
-        { label: '鎴樻枟', action: onOpenBattle, color: 'primary' as const },
-        { label: '瑁呭', action: onOpenEquipment, color: 'primary' as const },
-        { label: '鑳屽寘', action: onOpenInventory, color: 'primary' as const },
-        { label: '闃熶紞', action: onOpenTeam, color: 'primary' as const },
-        { label: '绀句氦', action: onOpenSocial, color: 'primary' as const },
-        ...(enableKungfu ? [{ label: '鍔熸硶', action: onOpenKungfu, color: 'primary' as const }] : []),
+        { label: '战斗', action: onOpenBattle, color: 'primary' as const },
+        { label: '装备', action: onOpenEquipment, color: 'primary' as const },
+        { label: '背包', action: onOpenInventory, color: 'primary' as const },
+        { label: '队伍', action: onOpenTeam, color: 'primary' as const },
+        { label: '社交', action: onOpenSocial, color: 'primary' as const },
+        ...(enableKungfu ? [{ label: '功法', action: onOpenKungfu, color: 'primary' as const }] : []),
         {
-            label: worldEvolutionUpdating ? '涓栫晫路鏇存柊涓?' : '涓栫晫',
+            label: worldEvolutionUpdating ? '世界·更新中' : '世界',
             action: onOpenWorld,
             color: worldEvolutionUpdating ? 'secondary' as const : 'primary' as const,
             className: worldEvolutionEnabled && worldEvolutionUpdating
                 ? 'animate-pulse shadow-[0_0_18px_rgba(90,220,220,0.35)]'
                 : ''
         },
-        { label: '鍦板浘', action: onOpenMap, color: 'primary' as const },
-        { label: '闂ㄦ淳', action: onOpenSect, color: 'primary' as const },
-        { label: '浠诲姟', action: onOpenTask, color: 'primary' as const },
-        { label: '绾﹀畾', action: onOpenAgreement, color: 'primary' as const },
-        { label: '鍓ф儏', action: onOpenStory, color: 'primary' as const },
-        ...(enableHeroinePlan ? [{ label: '瑙勫垝', action: onOpenHeroinePlan, color: 'primary' as const }] : []),
-        { label: '璁板繂', action: onOpenMemory, color: 'primary' as const },
-        ...(onOpenNovelExport ? [{ label: '瀵煎嚭灏忚', action: onOpenNovelExport, color: 'secondary' as const }] : []),
-        ...(onOpenImageManager ? [{ label: '鍥惧唽', action: onOpenImageManager, color: 'secondary' as const }] : []),
-        ...(onOpenNovelDecomposition ? [{ label: '灏忚鍒嗚В', action: onOpenNovelDecomposition, color: 'secondary' as const }] : []),
+        { label: '地图', action: onOpenMap, color: 'primary' as const },
+        { label: '门派', action: onOpenSect, color: 'primary' as const },
+        { label: '任务', action: onOpenTask, color: 'primary' as const },
+        { label: '约定', action: onOpenAgreement, color: 'primary' as const },
+        { label: '剧情', action: onOpenStory, color: 'primary' as const },
+        ...(enableHeroinePlan ? [{ label: '规划', action: onOpenHeroinePlan, color: 'primary' as const }] : []),
+        { label: '记忆', action: onOpenMemory, color: 'primary' as const },
+        ...(onOpenNovelExport ? [{ label: '导出小说', action: onOpenNovelExport, color: 'secondary' as const }] : []),
+        ...(onOpenImageManager ? [{ label: '图册', action: onOpenImageManager, color: 'secondary' as const }] : []),
+        ...(onOpenNovelDecomposition ? [{ label: '小说分解', action: onOpenNovelDecomposition, color: 'secondary' as const }] : []),
     ];
 
     const systemItems = [
-        { label: '淇濆瓨杩涘害', action: onSave },
-        { label: '璇诲彇杩涘害', action: onLoad },
-        { label: '姹熸箹璁剧疆', action: onOpenSettings },
+        { label: '保存进度', action: onSave },
+        { label: '读取进度', action: onLoad },
+        { label: '江湖设置', action: onOpenSettings },
     ];
 
     return (
@@ -105,7 +105,7 @@ const RightPanel: React.FC<Props> = ({
                 </div>
             ) : (
                 <div className="mb-4 text-center border-b border-gray-800 pb-4 relative h-[80px] flex flex-col justify-center shrink-0">
-                    <h1 className="font-black tracking-[0.5em] opacity-90 drop-shadow-md text-wuxia-gold" style={{ fontSize: scaleFont(2, 24) }}>澶╂満</h1>
+                    <h1 className="font-black tracking-[0.5em] opacity-90 drop-shadow-md text-wuxia-gold" style={{ fontSize: scaleFont(2, 24) }}>天机</h1>
                     <div className="text-gray-600 tracking-[0.3em] mt-1 uppercase" style={{ fontSize: scaleFont(1.05, 14), lineHeight: 1.2 }}>System Menu</div>
                     <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-wuxia-gold/50 to-transparent"></div>
                 </div>

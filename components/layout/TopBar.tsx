@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { 环境信息结构, 节日结构, 视觉设置结构 } from '../../types';
 import { 构建区域文字样式 } from '../../utils/visualSettings';
 import { normalizeCanonicalGameTime } from '../../hooks/useGame/timeUtils';
+import { setNativeSystemBarsHidden } from '../../utils/nativeRuntime';
 
 interface Props {
     环境: 环境信息结构;
@@ -31,16 +32,18 @@ const TopItem: React.FC<{
     highlight?: boolean;
     visualConfig?: 视觉设置结构;
     isExpanded?: boolean;
+    compact?: boolean;
+    align?: 'left' | 'right';
     onClick?: () => void;
     onLongPress?: () => void;
     onMouseEnter?: () => void;
     onMouseLeave?: () => void;
-}> = ({ label, value, highlight, visualConfig, isExpanded, onClick, onLongPress, onMouseEnter, onMouseLeave }) => {
+}> = ({ label, value, highlight, visualConfig, isExpanded, compact = false, align = 'left', onClick, onLongPress, onMouseEnter, onMouseLeave }) => {
     const areaStyle = 构建区域文字样式(visualConfig, '顶部栏');
     const labelColor = 颜色转透明度(areaStyle.color as string | undefined, 0.62, 'rgba(230, 200, 110, 0.62)');
     const baseFontSize = Number(areaStyle.fontSize) || 14;
-    const labelFontSize = `${Math.max(13, Math.round(baseFontSize * 0.96))}px`;
-    const valueFontSize = `${Math.max(16, Math.round(baseFontSize * 1.14))}px`;
+    const labelFontSize = compact ? `${Math.max(8, Math.round(baseFontSize * 0.58))}px` : `${Math.max(13, Math.round(baseFontSize * 0.96))}px`;
+    const valueFontSize = compact ? `${Math.max(10, Math.round(baseFontSize * 0.76))}px` : `${Math.max(16, Math.round(baseFontSize * 1.14))}px`;
     
     // Long press logic
     const timerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -69,7 +72,7 @@ const TopItem: React.FC<{
 
     return (
         <div 
-            className={`flex flex-col items-center justify-center mx-1 md:mx-4 relative group cursor-pointer transition-all duration-300 ${isExpanded ? 'scale-110' : ''}`} 
+            className={`flex flex-col justify-center relative group cursor-pointer transition-all duration-300 ${compact ? `mx-0 w-[54px] ${align === 'right' ? 'items-end text-right' : 'items-start text-left'}` : 'items-center mx-1 md:mx-4'} ${isExpanded ? (compact ? 'scale-[1.03]' : 'scale-110') : ''}`} 
             onClick={onClick}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
@@ -77,11 +80,11 @@ const TopItem: React.FC<{
             onTouchEnd={handleTouchEnd}
             onContextMenu={(e) => isLongPressActive.current && e.preventDefault()} // Block context menu on long press
         >
-            <div className={`absolute -inset-1.5 border-x border-wuxia-gold/0 group-hover:border-wuxia-gold/20 transition-all duration-500 scale-y-50 group-hover:scale-y-100 ${isExpanded ? 'border-wuxia-gold/40 scale-y-100' : ''}`}></div>
-            <div className="tracking-[0.18em] mb-0.5" style={{ ...areaStyle, color: labelColor, fontSize: labelFontSize, lineHeight: 1.1 }}>
+            {!compact && <div className={`absolute -inset-1.5 border-x border-wuxia-gold/0 group-hover:border-wuxia-gold/20 transition-all duration-500 scale-y-50 group-hover:scale-y-100 ${isExpanded ? 'border-wuxia-gold/40 scale-y-100' : ''}`}></div>}
+            <div className={compact ? 'w-full truncate tracking-[0.08em] mb-0' : 'tracking-[0.18em] mb-0.5'} style={{ ...areaStyle, color: labelColor, fontSize: labelFontSize, lineHeight: compact ? 1 : 1.1 }}>
                 {label}
             </div>
-            <div className={`whitespace-nowrap drop-shadow-md transition-transform ${highlight ? 'font-bold animate-pulse scale-[1.03]' : 'group-hover:scale-[1.03]'} ${isExpanded ? 'text-wuxia-gold font-bold' : ''}`} style={{ ...areaStyle, fontSize: valueFontSize, lineHeight: 1.15 }}>
+            <div className={`${compact ? 'w-full truncate whitespace-nowrap' : 'whitespace-nowrap'} drop-shadow-md transition-transform ${highlight ? 'font-bold animate-pulse scale-[1.03]' : (compact ? '' : 'group-hover:scale-[1.03]')} ${isExpanded ? 'text-wuxia-gold font-bold' : ''}`} style={{ ...areaStyle, fontSize: valueFontSize, lineHeight: compact ? 1.05 : 1.15 }}>
                 {value}
             </div>
         </div>
@@ -173,6 +176,19 @@ const parseCanonicalGameTime = (raw?: string): { year: number; month: number; da
     const minute = Number(match[5]);
     if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
     return { year, month, day, hour, minute };
+};
+
+const hasFullscreenElement = () => {
+    const doc = document as Document & {
+        webkitFullscreenElement?: Element;
+        msFullscreenElement?: Element;
+    };
+
+    return !!(
+        document.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.msFullscreenElement
+    );
 };
 
 const toGameMinuteValue = (time: { year: number; month: number; day: number; hour: number; minute: number } | null): number | null => {
@@ -287,13 +303,35 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         return uniqueSegments.length > 0 ? uniqueSegments.join(' - ') : '未知地点';
     }, [环境?.中地点, 环境?.小地点, 环境?.具体地点]);
 
-    const toggleFullScreen = () => {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(err => {
+    React.useEffect(() => {
+        const syncSystemBars = () => {
+            void setNativeSystemBarsHidden(hasFullscreenElement());
+        };
+
+        document.addEventListener('fullscreenchange', syncSystemBars);
+        return () => {
+            document.removeEventListener('fullscreenchange', syncSystemBars);
+            void setNativeSystemBarsHidden(false);
+        };
+    }, []);
+
+    const toggleFullScreen = async () => {
+        if (!hasFullscreenElement()) {
+            try {
+                await document.documentElement.requestFullscreen();
+                await setNativeSystemBarsHidden(true);
+            } catch (err: any) {
                 console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
-            });
+            }
         } else if (document.exitFullscreen) {
-            document.exitFullscreen();
+            try {
+                await document.exitFullscreen();
+                await setNativeSystemBarsHidden(false);
+            } catch (err: any) {
+                console.error(`Error attempting to exit full-screen mode: ${err.message} (${err.name})`);
+            }
+        } else {
+            await setNativeSystemBarsHidden(false);
         }
     };
 
@@ -315,16 +353,18 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     };
 
     return (
-        <div className="w-full relative overflow-visible z-50 bg-[#000] pt-[env(safe-area-inset-top)] min-h-[calc(48px+env(safe-area-inset-top))] md:h-[58px] md:min-h-[58px] md:pt-0 flex items-center justify-center" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
+        <div className="w-full relative overflow-visible z-50 bg-[#000] pt-[var(--app-safe-top,env(safe-area-inset-top,0px))] min-h-[calc(40px+var(--app-safe-top,env(safe-area-inset-top,0px)))] md:h-[58px] md:min-h-[58px] md:pt-0 flex items-center justify-center" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
-            <div className="flex items-center justify-between w-full px-4 md:px-20 relative z-10 h-12 md:h-full">
+            <div className="flex items-center justify-between w-full pl-2 pr-11 md:px-20 relative z-10 h-10 md:h-full">
                 <div className="flex items-center">
-                    <div className="md:hidden relative">
+                    <div className="md:hidden relative w-[54px] shrink-0">
                         <TopItem 
                             label={mobileLeftLabel} 
                             value={mobileLeftValue} 
                             visualConfig={visualConfig} 
                             isExpanded={expandedType === mobileLeftMode}
+                            compact
+                            align="left"
                             onClick={() => handleMobileToggle('left')} 
                             onLongPress={() => handleMobileLongPress(mobileLeftMode)}
                         />
@@ -432,41 +472,42 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                     </div>
                 </div>
 
-                <div className="absolute left-1/2 top-0 transform -translate-x-1/2 h-full flex flex-col items-center justify-start pt-0 z-20">
-                    <div className="flex gap-8 md:gap-16 w-full justify-center absolute top-0">
+                <div className="absolute left-1/2 top-0 transform -translate-x-1/2 h-full flex flex-col items-center justify-center pt-0 z-20">
+                    <div className="hidden md:flex gap-8 md:gap-16 w-full justify-center absolute top-0">
                         <div className="w-[2px] h-7 md:h-8 bg-gradient-to-b from-wuxia-gold/40 to-black"></div>
                         <div className="w-[2px] h-7 md:h-8 bg-gradient-to-b from-wuxia-gold/40 to-black"></div>
                     </div>
-                    <div onClick={toggleFullScreen} className="mt-2.5 md:mt-4 bg-[#111] border-2 border-double border-wuxia-gold/50 px-4 md:px-10 py-1.5 md:py-3 rounded-lg shadow-[0_10px_20px_rgba(0,0,0,0.8)] relative flex flex-col items-center min-w-[164px] md:min-w-[240px] transform hover:scale-105 transition-transform duration-500 cursor-pointer">
-                        <div className="absolute top-1 left-1 w-2 h-2 border-t border-l border-wuxia-gold/50"></div>
-                        <div className="absolute top-1 right-1 w-2 h-2 border-t border-r border-wuxia-gold/50"></div>
-                        <div className="absolute bottom-1 left-1 w-2 h-2 border-b border-l border-wuxia-gold/50"></div>
-                        <div className="absolute bottom-1 right-1 w-2 h-2 border-b border-r border-wuxia-gold/50"></div>
+                    <div onClick={toggleFullScreen} className="mt-0 md:mt-4 bg-[#111]/95 border border-wuxia-gold/25 md:border-2 md:border-double md:border-wuxia-gold/50 px-2 md:px-10 py-0.5 md:py-3 rounded-md md:rounded-lg shadow-[0_8px_18px_rgba(0,0,0,0.55)] relative flex flex-col items-center min-w-[104px] md:min-w-[240px] max-w-[118px] md:max-w-none transform md:hover:scale-105 transition-transform duration-500 pointer-events-none md:pointer-events-auto cursor-default md:cursor-pointer">
+                        <div className="hidden md:block absolute top-1 left-1 w-2 h-2 border-t border-l border-wuxia-gold/50"></div>
+                        <div className="hidden md:block absolute top-1 right-1 w-2 h-2 border-t border-r border-wuxia-gold/50"></div>
+                        <div className="hidden md:block absolute bottom-1 left-1 w-2 h-2 border-b border-l border-wuxia-gold/50"></div>
+                        <div className="hidden md:block absolute bottom-1 right-1 w-2 h-2 border-b border-r border-wuxia-gold/50"></div>
                         <div className="hidden md:block tracking-[0.08em] md:tracking-[0.1em] text-shadow" style={{ ...topBarStyle, fontWeight: 700, fontSize: 顶栏字号(1.24, 20), lineHeight: 1.3 }}>
                             {fullDateStr}
                         </div>
-                        <div className="md:hidden text-shadow text-center leading-tight" style={{ color: topBarStyle.color }}>
-                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(0.98, 13), lineHeight: 1.2 }}>{mobileDateStr}</div>
-                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(1.16, 17), fontWeight: 700, letterSpacing: '0.12em' }}>{mobileClockStr}</div>
+                        <div className="md:hidden text-shadow text-center leading-tight scale-[0.8]" style={{ color: topBarStyle.color }}>
+                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(0.78, 10), lineHeight: 1.05 }}>{mobileDateStr}</div>
+                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(0.94, 13), fontWeight: 700, letterSpacing: '0.08em', lineHeight: 1.05 }}>{mobileClockStr}</div>
                         </div>
                         <div
-                            className="absolute -bottom-2.5 md:-bottom-3 bg-wuxia-red px-2 md:px-3 py-[1px] md:py-[2px] rounded border border-wuxia-gold/30 shadow-md flex items-center gap-1 z-30 font-bold tracking-widest max-w-[220px] md:max-w-[460px]"
+                            className="absolute -bottom-2.5 md:-bottom-3 hidden md:flex bg-wuxia-red px-2 md:px-3 py-[1px] md:py-[2px] rounded border border-wuxia-gold/30 shadow-md items-center gap-1 z-30 font-bold tracking-widest max-w-[220px] md:max-w-[460px]"
                             style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle, fontSize: 顶栏字号(0.96, 13), lineHeight: 1.15 }}
                         >
-                            <span className="md:hidden opacity-90 truncate" title={mobileLocationBadge}>{mobileLocationBadge}</span>
                             <span className="hidden md:inline opacity-90 truncate" title={locationBadge}>{locationBadge}</span>
                         </div>
                     </div>
                 </div>
 
                 <div className="flex items-center">
-                    <div className="md:hidden relative">
+                    <div className="md:hidden relative w-[54px] shrink-0">
                         <TopItem 
                             label={mobileRightLabel} 
                             value={mobileRightValue} 
                             highlight={mobileRightMode === 'festival' && !!currentFestival} 
                             visualConfig={visualConfig} 
                             isExpanded={expandedType === 'festival' && mobileRightMode === 'festival'}
+                            compact
+                            align="right"
                             onClick={() => handleMobileToggle('right')}
                             onLongPress={() => mobileRightMode === 'festival' && handleMobileLongPress('festival')}
                         />

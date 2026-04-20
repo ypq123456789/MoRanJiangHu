@@ -1,3 +1,5 @@
+import { SystemBars, SystemBarType } from '@capacitor/core';
+
 const readEnvString = (value: unknown): string => (
     typeof value === 'string' ? value.trim() : ''
 );
@@ -44,6 +46,23 @@ export const isMissingNativeSyncApiBaseUrl = (): boolean => (
     requiresRemoteSyncApi() && !getSyncApiBaseUrl()
 );
 
+export const setNativeSystemBarsHidden = async (hidden: boolean): Promise<void> => {
+    if (!isNativeCapacitorEnvironment()) return;
+
+    try {
+        if (hidden) {
+            await SystemBars.hide({ bar: SystemBarType.StatusBar });
+            await SystemBars.hide({ bar: SystemBarType.NavigationBar });
+        } else {
+            await SystemBars.show({ bar: SystemBarType.StatusBar });
+            await SystemBars.show({ bar: SystemBarType.NavigationBar });
+        }
+    } catch (error) {
+        console.warn('Failed to update native system bars visibility:', error);
+    }
+};
+
 export const 构建同步API地址 = buildSyncApiUrl;
 export const 是否原生Capacitor环境 = isNativeCapacitorEnvironment;
 export const 当前环境需要远程同步API = requiresRemoteSyncApi;
+export const 设置原生系统栏隐藏 = setNativeSystemBarsHidden;

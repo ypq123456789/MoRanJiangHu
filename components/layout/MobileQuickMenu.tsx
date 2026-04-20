@@ -107,7 +107,6 @@ const MobileQuickMenu: React.FC<Props> = ({
     );
 
     const allMenus = useMemo<MenuMeta[]>(() => ([
-        ...PRIMARY_MENU_IDS.map((id) => MENU_META[id]),
         MENU_META.world,
         MENU_META.map,
         ...(enableKungfu ? [MENU_META.kungfu] : []),
