@@ -758,7 +758,8 @@ export async function restoreSyncData(zipBytes: Uint8Array): Promise<boolean> {
         }
 
         if (hasSaveData) {
-            await dbService.导入存档数据(saves, { 覆盖现有: true });
+            // 云恢复已经在 UI 中做过明确覆盖确认，这里不再受本地“存档保护”拦截。
+            await dbService.导入存档数据(saves, { 覆盖现有: true, 忽略存档保护: true });
         }
 
         const importedSettingKeys = new Set(settingsList.map((item) => item.key).filter(Boolean));

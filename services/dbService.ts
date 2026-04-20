@@ -542,7 +542,7 @@ export const 导出存档数据 = async (): Promise<存档导出结构> => {
 
 export const 导入存档数据 = async (
     payload: unknown,
-    options?: { 覆盖现有?: boolean }
+    options?: { 覆盖现有?: boolean; 忽略存档保护?: boolean }
 ): Promise<存档导入结果> => {
     const rawList = Array.isArray(payload)
         ? payload
@@ -562,7 +562,7 @@ export const 导入存档数据 = async (
     }
 
     const db = await 初始化数据库();
-    if (options?.覆盖现有 && await 读取存档保护状态()) {
+    if (options?.覆盖现有 && options?.忽略存档保护 !== true && await 读取存档保护状态()) {
         throw new Error('存档保护已开启，请先在“设置-数据存储”中关闭后再执行覆盖导入。');
     }
     const existingSaves = options?.覆盖现有 ? [] : await 读取存档列表();
