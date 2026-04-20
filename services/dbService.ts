@@ -401,27 +401,36 @@ const 读取已引用图片资源ID集合 = async (): Promise<Set<string>> => {
 };
 
 export const 清理未引用图片资源 = async (): Promise<number> => {
-    const [referencedIds, assetEntries] = await Promise.all([
-        读取已引用图片资源ID集合(),
-        读取全部图片资源记录()
-    ]);
-    const unusedIds = assetEntries
-        .map((item) => item.id)
-        .filter((id) => !referencedIds.has(id));
-    if (unusedIds.length <= 0) return 0;
+    try {
+        const [referencedIds, assetEntries] = await Promise.all([
+            读取已引用图片资源ID集合(),
+            读取全部图片资源记录()
+        ]);
+        const unusedIds = assetEntries
+            .map((item) => item.id)
+            .filter((id) => !referencedIds.has(id));
+        if (unusedIds.length <= 0) return 0;
 
-    const db = await 初始化数据库();
-    await new Promise<void>((resolve, reject) => {
-        const transaction = db.transaction([IMAGE_ASSETS_STORE], 'readwrite');
-        const store = transaction.objectStore(IMAGE_ASSETS_STORE);
-        unusedIds.forEach((id) => store.delete(id));
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(transaction.error);
-    });
+        const db = await 初始化数据库();
+        await new Promise<void>((resolve, reject) => {
+            const transaction = db.transaction([IMAGE_ASSETS_STORE], 'readwrite');
+            const store = transaction.objectStore(IMAGE_ASSETS_STORE);
+            unusedIds.forEach((id) => store.delete(id));
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = () => reject(transaction.error);
+        });
 
-    图片资源签名缓存.clear();
-    await 预热图片资源缓存();
-    return unusedIds.length;
+        图片资源签名缓存.clear();
+        try {
+            await 预热图片资源缓存();
+        } catch (error) {
+            console.warn('预热图片资源缓存失败，已跳过本次缓存刷新:', error);
+        }
+        return unusedIds.length;
+    } catch (error) {
+        console.warn('清理未引用图片资源失败，已跳过本次清理:', error);
+        return 0;
+    }
 };
 
 export const 维护自动存档 = async (db: IDBDatabase, maxKeep: number = 自动存档最大保留数): Promise<void> => {

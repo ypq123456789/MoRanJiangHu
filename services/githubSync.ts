@@ -17,8 +17,8 @@ const 图片资源存储名 = 'image_assets';
 const GITHUB_API_BASE = 'https://api.github.com';
 const RELEASE_UPLOAD_PROXY_PATH = '/api/github/release-upload';
 const RELEASE_DOWNLOAD_PROXY_PATH = '/api/github/release-download';
-const 云同步分卷大小 = 2 * 1024 * 1024;
-const 单分卷上传超时毫秒 = 120000;
+const 云同步分卷大小 = 8 * 1024 * 1024;
+const 单分卷上传超时毫秒 = 300000;
 const 云同步分卷清单文件名 = 'WuXia_Save_Data.parts.json';
 const 云同步分卷前缀 = 'WuXia_Save_Data.part';
 
@@ -685,7 +685,11 @@ const 清空并写入图片资源 = async (assets: Array<{ id: string; dataUrl: 
         transaction.oncomplete = () => resolve();
         transaction.onerror = () => reject(transaction.error);
     });
-    await dbService.预热图片资源缓存();
+    try {
+        await dbService.预热图片资源缓存();
+    } catch (error) {
+        console.warn('云同步恢复后预热图片资源缓存失败，已跳过缓存刷新:', error);
+    }
 };
 
 export async function extractSyncData(): Promise<Uint8Array> {
@@ -789,7 +793,11 @@ export async function restoreSyncData(zipBytes: Uint8Array): Promise<boolean> {
         });
 
         await 清空并写入图片资源(importedAssets);
-        await dbService.清理未引用图片资源();
+        try {
+            await dbService.清理未引用图片资源();
+        } catch (error) {
+            console.warn('云同步恢复后清理未引用图片资源失败，已跳过本次清理:', error);
+        }
 
         return true;
     } catch (e) {
