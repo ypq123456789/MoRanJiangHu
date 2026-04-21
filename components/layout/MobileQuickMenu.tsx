@@ -153,7 +153,7 @@ const MobileQuickMenu: React.FC<Props> = ({
         <div className="md:hidden pointer-events-none fixed inset-y-0 right-0 z-[86] flex items-end pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+34px)]">
             <div className="pointer-events-auto relative flex items-end gap-2 pr-2">
                 {!collapsed && showAllMenus && (
-                    <div className="mb-2 max-h-[68vh] w-[170px] overflow-hidden rounded-3xl border border-wuxia-gold/18 bg-black/80 shadow-[0_18px_50px_rgba(0,0,0,0.42)] backdrop-blur-md">
+                    <div className="mb-2 max-h-[68vh] w-[170px] overflow-hidden rounded-3xl border border-wuxia-gold/14 bg-black/38 shadow-[0_14px_40px_rgba(0,0,0,0.24)] backdrop-blur-sm">
                         <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                             <span className="text-[10px] tracking-[0.2em] text-wuxia-gold/70">全部功能</span>
                             <span className="text-[10px] text-gray-400">{allMenus.length} 项</span>
@@ -172,24 +172,24 @@ const MobileQuickMenu: React.FC<Props> = ({
                     </div>
                 )}
 
-                <div className="flex flex-col items-end gap-2">
+                <div className="relative flex flex-col items-end gap-2">
                     <button
                         type="button"
                         onClick={() => {
                             if (!collapsed) setShowAllMenus(false);
                             setCollapsed(prev => !prev);
                         }}
-                        className="flex h-10 w-10 items-center justify-center rounded-2xl border border-wuxia-gold/25 bg-black/78 text-wuxia-gold shadow-[0_8px_28px_rgba(0,0,0,0.42)] backdrop-blur-md"
+                        className="absolute -top-11 right-0 flex h-9 w-9 items-center justify-center rounded-xl border border-wuxia-gold/20 bg-black/24 text-wuxia-gold shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition-colors hover:border-wuxia-gold/40 hover:bg-black/36"
                         aria-label={collapsed ? '展开功能栏' : '收起功能栏'}
                         title={collapsed ? '展开功能栏' : '收起功能栏'}
                     >
-                        <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
                         </svg>
                     </button>
 
                     {!collapsed && (
-                        <div className="flex max-h-[72vh] flex-col gap-1.5 overflow-y-auto rounded-[24px] border border-wuxia-gold/18 bg-gradient-to-b from-black/84 to-black/64 p-2 shadow-[0_16px_48px_rgba(0,0,0,0.44)] backdrop-blur-md no-scrollbar">
+                        <div className="flex max-h-[72vh] flex-col gap-1 overflow-y-auto rounded-[18px] border border-wuxia-gold/12 bg-black/14 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-sm no-scrollbar">
                             {visibleMenus.map((menu) => (
                                 <RailButton
                                     key={menu.id}
@@ -237,10 +237,10 @@ const RailButton = ({
     <button
         type="button"
         onClick={onClick}
-        className={`group relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border transition-all ${
+        className={`group relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl border transition-all ${
             active
-                ? 'border-wuxia-gold/70 bg-wuxia-gold/14 text-wuxia-gold shadow-[0_0_20px_rgba(230,200,110,0.18)]'
-                : 'border-wuxia-gold/16 bg-white/[0.03] text-wuxia-gold/75 hover:border-wuxia-gold/38 hover:bg-white/[0.06]'
+                ? 'border-wuxia-gold/60 bg-wuxia-gold/12 text-wuxia-gold shadow-[0_0_16px_rgba(230,200,110,0.14)]'
+                : 'border-wuxia-gold/12 bg-black/18 text-wuxia-gold/78 hover:border-wuxia-gold/32 hover:bg-black/28'
         } ${isPlaying ? 'animate-wuxia-music-disc-rotation' : ''}`}
         aria-label={label}
         title={label}
@@ -252,8 +252,8 @@ const RailButton = ({
                 <div className="absolute inset-[28%] rounded-full border border-black/25 bg-black/50" />
             </>
         ) : null}
-        <span className="relative z-10 flex h-5 w-5 items-center justify-center">
-            <IconGlyph name={icon} className="h-4.5 w-4.5" />
+        <span className="relative z-10 flex h-4 w-4 items-center justify-center">
+            <IconGlyph name={icon} className="h-3.5 w-3.5" />
         </span>
     </button>
 );

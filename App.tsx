@@ -1279,7 +1279,7 @@ const App: React.FC = () => {
                 {/* Main Game Frame Container */}
                 <div className={`relative flex-1 flex flex-col w-full h-full overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
                     {isMobile && (
-                        <div className="absolute right-1.5 top-1.5 z-[65] flex flex-col gap-1.5">
+                        <div className="absolute right-[52px] top-2 z-[65] flex flex-col gap-1.5">
                             <button
                                 type="button"
                                 onClick={() => { void toggleAppFullscreen(); }}
@@ -1338,7 +1338,7 @@ const App: React.FC = () => {
                         </div>
 
                         {/* 中间栏 - Chat Area */}
-                        <div className={`flex-1 flex flex-col relative z-0 min-w-0 transition-colors duration-500 ${isMobile ? 'pl-[58px] pr-[58px]' : ''}`}>
+                        <div className="flex-1 flex flex-col relative z-0 min-w-0 transition-colors duration-500">
                             {当前背景图片地址 && (
                                 <div
                                     className={`absolute inset-0 z-0 bg-cover bg-center pointer-events-none transition-opacity duration-300 ${
@@ -1352,7 +1352,7 @@ const App: React.FC = () => {
                                     chatContentHidden ? 'opacity-0' : 'opacity-100'
                                 }`}
                             ></div>
-                              <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
+                              <div className={`absolute top-3 z-30 flex items-center gap-2 ${isMobile ? 'right-[52px]' : 'right-3'}`}>
                                   {chatContentHidden && (
                                       <button
                                           type="button"

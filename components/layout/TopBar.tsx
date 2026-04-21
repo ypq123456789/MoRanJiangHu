@@ -505,7 +505,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         <div className="w-full relative overflow-visible z-50 bg-[#000] pt-[var(--app-safe-top,env(safe-area-inset-top,0px))] md:h-[58px] md:min-h-[58px] md:pt-0" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
 
-            <div className="md:hidden pointer-events-none fixed inset-y-0 left-0 z-[85] flex items-start pt-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+10px)]">
+            <div className="md:hidden pointer-events-none fixed inset-y-0 left-0 z-[85] flex items-start pt-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+12px)]">
                 <div className="pointer-events-auto flex items-start gap-2 pl-2">
                     <div className="flex flex-col items-center gap-2">
                         <button
@@ -514,31 +514,31 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                 if (!mobileCollapsed) closeExpandedPanel();
                                 setMobileCollapsed(prev => !prev);
                             }}
-                            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-wuxia-gold/25 bg-black/78 text-wuxia-gold shadow-[0_8px_28px_rgba(0,0,0,0.42)] backdrop-blur-md"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-wuxia-gold/20 bg-black/24 text-wuxia-gold shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition-colors hover:border-wuxia-gold/40 hover:bg-black/36"
                             aria-label={mobileCollapsed ? '展开顶部信息栏' : '收起顶部信息栏'}
                             title={mobileCollapsed ? '展开顶部信息栏' : '收起顶部信息栏'}
                         >
-                            <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform ${mobileCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8">
+                            <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${mobileCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 6 9 12l6 6" />
                             </svg>
                         </button>
 
                         {!mobileCollapsed && (
-                            <div className="flex flex-col gap-2 rounded-[22px] border border-wuxia-gold/18 bg-gradient-to-b from-black/82 to-black/62 p-2 shadow-[0_14px_40px_rgba(0,0,0,0.44)] backdrop-blur-md">
+                            <div className="flex flex-col gap-1.5 rounded-[18px] border border-wuxia-gold/12 bg-black/14 p-1.5 shadow-[0_10px_28px_rgba(0,0,0,0.2)] backdrop-blur-sm">
                                 {mobileItems.map((item) => (
                                     <button
                                         key={item.type}
                                         type="button"
                                         onClick={() => toggleExpanded(item.type)}
-                                        className={`group flex h-11 w-11 items-center justify-center rounded-2xl border text-[12px] font-semibold tracking-[0.2em] transition-all ${
+                                        className={`group flex h-8 min-w-[42px] items-center justify-center rounded-xl border px-2 text-[11px] font-semibold tracking-[0.08em] transition-all ${
                                             expandedType === item.type
-                                                ? 'border-wuxia-gold/70 bg-wuxia-gold/14 text-wuxia-gold shadow-[0_0_20px_rgba(230,200,110,0.18)]'
-                                                : 'border-wuxia-gold/16 bg-white/[0.03] text-wuxia-gold/75 hover:border-wuxia-gold/38 hover:bg-white/[0.06]'
+                                                ? 'border-wuxia-gold/60 bg-wuxia-gold/12 text-wuxia-gold shadow-[0_0_16px_rgba(230,200,110,0.14)]'
+                                                : 'border-wuxia-gold/12 bg-black/18 text-wuxia-gold/80 hover:border-wuxia-gold/32 hover:bg-black/28'
                                         }`}
                                         aria-label={item.label}
                                         title={`${item.label}：${item.value}`}
                                     >
-                                        <span className={item.highlight ? 'text-wuxia-gold' : ''}>{item.shortLabel}</span>
+                                        <span className={`leading-none ${item.highlight ? 'text-wuxia-gold' : ''}`}>{item.label}</span>
                                     </button>
                                 ))}
                             </div>
