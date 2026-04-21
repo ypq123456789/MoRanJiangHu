@@ -193,6 +193,21 @@ export interface 单接口配置结构 {
     updatedAt: number;
 }
 
+export interface 发现图片后端记录结构 {
+    id: string;
+    customerId?: string;
+    label: string;
+    backendType: 文生图后端类型 | 'comfyui';
+    port: number;
+    url: string;
+    healthUrl?: string;
+    workspace?: string;
+    detectedFrom?: string;
+    detectedAt: string;
+    lastHeartbeatAt?: string;
+    source: 'registry';
+}
+
 export interface 功能模型占位配置结构 {
     主剧情使用模型: string;
     剧情回忆独立模型开关: boolean;
@@ -252,12 +267,15 @@ export interface 功能模型占位配置结构 {
     文生图模型使用模型: string;
     文生图模型API地址: string;
     文生图模型API密钥: string;
+    图片后端注册表地址: string;
+    当前图片后端发现ID: string;
     ComfyUI工作流JSON: string;
     场景生图独立接口启用: boolean;
     场景生图后端类型: 文生图后端类型;
     场景生图模型使用模型: string;
     场景生图模型API地址: string;
     场景生图模型API密钥: string;
+    当前场景图片后端发现ID: string;
     场景ComfyUI工作流JSON: string;
     文生图接口路径模式: 文生图接口路径模式类型;
     文生图预设接口路径: 文生图预设接口路径类型;

@@ -5,13 +5,15 @@ import {
     单接口配置结构,
     画师串预设结构,
     词组转化器提示词预设结构,
-    PNG画风预设结构
+    PNG画风预设结构,
+    发现图片后端记录结构
 } from '../../../types';
 import GameButton from '../../ui/GameButton';
 import ToggleSwitch from '../../ui/ToggleSwitch';
 import InlineSelect from '../../ui/InlineSelect';
 import { 规范化接口设置 } from '../../../utils/apiConfig';
 import { 自动场景横屏尺寸选项, 自动场景竖屏尺寸选项 } from '../../../utils/imageSizeOptions';
+import { buildDiscoveredBackendLabel, fetchDiscoveredImageBackends } from '../../../services/ai/imageBackendRegistry';
 
 interface Props {
     settings: 接口设置结构;
@@ -155,6 +157,9 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
     const [transformerPresetScope, setTransformerPresetScope] = useState<词组预设页签>('nai');
     const [message, setMessage] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
+    const [discoveredBackends, setDiscoveredBackends] = useState<发现图片后端记录结构[]>([]);
+    const [discoveryLoading, setDiscoveryLoading] = useState(false);
+    const [discoveryError, setDiscoveryError] = useState('');
     const artistImportRef = React.useRef<HTMLInputElement | null>(null);
     const transformerImportRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -167,6 +172,8 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
         setActivePage('basic');
         setArtistPresetScope('npc');
         setTransformerPresetScope('nai');
+        setDiscoveredBackends([]);
+        setDiscoveryError('');
     }, [settings]);
 
     const activeConfig = useMemo<单接口配置结构 | null>(() => {
@@ -246,6 +253,38 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
     const selectedTransformerPreset = scopedTransformerPresets.find((item) => item.id === currentTransformerPresetId)
         || scopedTransformerPresets[0]
         || null;
+    const selectedDiscoveredBackend = useMemo(
+        () => discoveredBackends.find((item) => item.id === form.功能模型占位.当前图片后端发现ID) || null,
+        [discoveredBackends, form.功能模型占位.当前图片后端发现ID]
+    );
+    const selectedSceneDiscoveredBackend = useMemo(
+        () => discoveredBackends.find((item) => item.id === form.功能模型占位.当前场景图片后端发现ID) || null,
+        [discoveredBackends, form.功能模型占位.当前场景图片后端发现ID]
+    );
+
+    const refreshDiscoveredBackends = React.useCallback(async () => {
+        if (当前后端 !== 'comfyui' && 当前场景后端 !== 'comfyui') {
+            setDiscoveredBackends([]);
+            setDiscoveryError('');
+            return;
+        }
+
+        setDiscoveryLoading(true);
+        setDiscoveryError('');
+        try {
+            const items = await fetchDiscoveredImageBackends(form.功能模型占位.图片后端注册表地址, 'comfyui');
+            setDiscoveredBackends(items);
+        } catch (error: any) {
+            setDiscoveredBackends([]);
+            setDiscoveryError(error?.message || '图片后端自动发现失败');
+        } finally {
+            setDiscoveryLoading(false);
+        }
+    }, [form.功能模型占位.图片后端注册表地址, 当前后端, 当前场景后端]);
+
+    useEffect(() => {
+        void refreshDiscoveredBackends();
+    }, [refreshDiscoveredBackends]);
 
     const updatePlaceholder = <K extends keyof 功能模型占位配置结构>(key: K, value: 功能模型占位配置结构[K]) => {
         setForm((prev) => ({
@@ -255,6 +294,22 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                 [key]: value
             }
         }));
+    };
+
+    const handleApplyDiscoveredBackend = (target: 'main' | 'scene', backendId: string) => {
+        const matched = discoveredBackends.find((item) => item.id === backendId) || null;
+        if (target === 'main') {
+            updatePlaceholder('当前图片后端发现ID', backendId);
+            if (matched) {
+                updatePlaceholder('文生图模型API地址', matched.url);
+            }
+            return;
+        }
+
+        updatePlaceholder('当前场景图片后端发现ID', backendId);
+        if (matched) {
+            updatePlaceholder('场景生图模型API地址', matched.url);
+        }
     };
 
     const 更新当前画师串预设ID = (scope: 画师串适用页签, presetId: string) => {
@@ -682,6 +737,63 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                         />
                     </div>
                 </div>
+
+                {当前后端 === 'comfyui' && (
+                    <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-4 space-y-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <div className="text-base font-bold text-emerald-200">自动发现 ComfyUI 后端</div>
+                                <div className="mt-1 text-xs leading-6 text-emerald-100/70">后端启动后向注册表上报 8188 地址，这里会自动拉取在线列表，选择后会直接回填到 API 地址。</div>
+                            </div>
+                            <GameButton
+                                onClick={() => void refreshDiscoveredBackends()}
+                                variant="secondary"
+                                className="px-4 py-2 text-xs"
+                                disabled={discoveryLoading}
+                            >
+                                {discoveryLoading ? '刷新中...' : '刷新列表'}
+                            </GameButton>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-emerald-200">注册表地址</label>
+                                <input
+                                    type="text"
+                                    value={form.功能模型占位.图片后端注册表地址}
+                                    onChange={(e) => updatePlaceholder('图片后端注册表地址', e.target.value)}
+                                    placeholder="留空则使用当前站点 /api/image-backend/cnb-sync"
+                                    className="w-full rounded-md border-2 border-transparent bg-black/50 p-3 text-white outline-none transition-all focus:border-emerald-400"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-emerald-200">在线后端</label>
+                                <InlineSelect
+                                    value={form.功能模型占位.当前图片后端发现ID}
+                                    options={discoveredBackends.map((item) => ({
+                                        value: item.id,
+                                        label: buildDiscoveredBackendLabel(item)
+                                    }))}
+                                    onChange={(value) => handleApplyDiscoveredBackend('main', value)}
+                                    placeholder={discoveryLoading ? '正在拉取在线后端...' : '选择已上报的 ComfyUI 8188 后端'}
+                                    buttonClassName="bg-black/50 border-gray-600 py-2.5"
+                                    panelClassName="max-w-full"
+                                />
+                            </div>
+                        </div>
+                        {selectedDiscoveredBackend && (
+                            <div className="rounded-xl border border-emerald-500/20 bg-black/20 px-4 py-3 text-xs leading-6 text-emerald-100">
+                                当前已选：<code>{selectedDiscoveredBackend.url}</code>
+                                {selectedDiscoveredBackend.workspace ? <> · 工作区：<code>{selectedDiscoveredBackend.workspace}</code></> : null}
+                                {selectedDiscoveredBackend.lastHeartbeatAt ? <> · 最近心跳：<code>{selectedDiscoveredBackend.lastHeartbeatAt}</code></> : null}
+                            </div>
+                        )}
+                        {discoveryError && (
+                            <div className="rounded-xl border border-red-500/20 bg-red-950/20 px-4 py-3 text-xs leading-6 text-red-200">
+                                {discoveryError}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
         </div>
@@ -1300,6 +1412,45 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                                         />
                                     </div>
                                 </div>
+
+                                {当前场景后端 === 'comfyui' && (
+                                    <div className="rounded-xl border border-sky-500/20 bg-sky-950/10 p-4 space-y-4">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <div className="text-base font-bold text-sky-200">场景自动发现后端</div>
+                                                <div className="mt-1 text-xs leading-6 text-sky-100/70">如果场景生图也走 ComfyUI，可以从同一个注册表里选另一个在线 8188 后端。</div>
+                                            </div>
+                                            <GameButton
+                                                onClick={() => void refreshDiscoveredBackends()}
+                                                variant="secondary"
+                                                className="px-4 py-2 text-xs"
+                                                disabled={discoveryLoading}
+                                            >
+                                                {discoveryLoading ? '刷新中...' : '刷新列表'}
+                                            </GameButton>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-sky-200">在线后端</label>
+                                            <InlineSelect
+                                                value={form.功能模型占位.当前场景图片后端发现ID}
+                                                options={discoveredBackends.map((item) => ({
+                                                    value: item.id,
+                                                    label: buildDiscoveredBackendLabel(item)
+                                                }))}
+                                                onChange={(value) => handleApplyDiscoveredBackend('scene', value)}
+                                                placeholder={discoveryLoading ? '正在拉取在线后端...' : '选择场景使用的 ComfyUI 后端'}
+                                                buttonClassName="bg-black/50 border-gray-600 py-2.5"
+                                                panelClassName="max-w-full"
+                                            />
+                                        </div>
+                                        {selectedSceneDiscoveredBackend && (
+                                            <div className="rounded-xl border border-sky-500/20 bg-black/20 px-4 py-3 text-xs leading-6 text-sky-100">
+                                                当前已选：<code>{selectedSceneDiscoveredBackend.url}</code>
+                                                {selectedSceneDiscoveredBackend.workspace ? <> · 工作区：<code>{selectedSceneDiscoveredBackend.workspace}</code></> : null}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {图片后端需要模型选择(当前场景后端) ? (
                                     <>

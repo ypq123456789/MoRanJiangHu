@@ -4,6 +4,9 @@
   "version": "1.0.3",
   "type": "module",
   "scripts": {
+    "cnb:sync": "node scripts/cnb-image-backend-sync.mjs",
+    "cnb:start": "node scripts/cnb-image-backend-sync.mjs --start",
+    "cnb:workspace": "node scripts/cnb-workspace-start.mjs",
     "release:sync": "node scripts/sync-release.mjs",
     "release:bump": "node scripts/bump-release.mjs",
     "release:r2": "node scripts/publish-release-r2.mjs",
