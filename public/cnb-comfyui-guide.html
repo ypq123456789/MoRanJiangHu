@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>如何构建属于自己的 CNB ComfyUI 后端</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0c0b09;
+      --panel: rgba(27, 20, 14, 0.92);
+      --line: rgba(215, 170, 86, 0.22);
+      --gold: #d7aa56;
+      --gold-soft: rgba(215, 170, 86, 0.14);
+      --text: #f6eddc;
+      --muted: #cdbb9c;
+      --accent: #72d6c9;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(215, 170, 86, 0.16), transparent 32%),
+        linear-gradient(180deg, #14100d 0%, #090807 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      width: min(920px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 40px 0 56px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 28px;
+      padding: 28px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(8px);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--gold-soft);
+      border: 1px solid var(--line);
+      color: var(--gold);
+      font-size: 12px;
+      letter-spacing: 0.22em;
+    }
+
+    h1 {
+      margin: 16px 0 10px;
+      font-size: clamp(28px, 5vw, 42px);
+      line-height: 1.2;
+    }
+
+    .lead {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+
+    .steps {
+      display: grid;
+      gap: 14px;
+      margin: 28px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 14px;
+      align-items: start;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 18px;
+    }
+
+    .num {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--gold-soft);
+      border: 1px solid var(--line);
+      color: var(--gold);
+      font-weight: 700;
+    }
+
+    .step h2 {
+      margin: 0 0 8px;
+      font-size: 19px;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.85;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 18px;
+      border-radius: 14px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: transform 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary {
+      background: linear-gradient(180deg, #d45757, #9a2727);
+      color: #fff5f5;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+    }
+
+    .tip {
+      margin-top: 24px;
+      padding: 16px 18px;
+      border-radius: 16px;
+      background: rgba(114, 214, 201, 0.08);
+      border: 1px solid rgba(114, 214, 201, 0.16);
+      color: #d7fffa;
+      line-height: 1.8;
+    }
+
+    code {
+      font-family: Consolas, monospace;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="panel">
+      <div class="badge">CNB COMFYUI GUIDE</div>
+      <h1>如何构建属于自己的 CNB ComfyUI 后端</h1>
+      <p class="lead">客户侧操作其实很简单，不需要自己改脚本。注册并登录 CNB 后，Fork 指定仓库，然后点击红色按钮 <code>AI-创作启动</code> 就可以了。</p>
+
+      <ol class="steps">
+        <li class="step">
+          <div class="num">1</div>
+          <div>
+            <h2>注册并登录 CNB</h2>
+            <p>先进入 CNB 官网完成注册登录，确保账号可正常访问仓库页面与启动按钮。</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="num">2</div>
+          <div>
+            <h2>Fork 这个仓库</h2>
+            <p>打开仓库页面后点击 Fork，把仓库复制到自己的账号下：</p>
+            <p><code>https://cnb.cool/bacon159-2026/ComfyUI-yi_dian_tong</code></p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="num">3</div>
+          <div>
+            <h2>点击红色按钮启动</h2>
+            <p>进入自己 Fork 后的仓库页面，直接点击红色按钮 <code>AI-创作启动</code>。系统会自动拉起 AI 创作环境，并按预设流程启动 ComfyUI。</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="num">4</div>
+          <div>
+            <h2>回到墨色江湖自动发现后端</h2>
+            <p>等 CNB 环境启动完成后，回到墨色江湖的“自动发现 ComfyUI 后端”，点击刷新列表，选择自己的在线后端即可自动回填 API 地址。</p>
+          </div>
+        </li>
+      </ol>
+
+      <div class="links">
+        <a class="btn btn-primary" href="https://cnb.cool/bacon159-2026/ComfyUI-yi_dian_tong" target="_blank" rel="noopener noreferrer">打开仓库并 Fork</a>
+        <a class="btn btn-secondary" href="https://cnb.cool/" target="_blank" rel="noopener noreferrer">打开 CNB 官网</a>
+      </div>
+
+      <div class="tip">
+        如果后端已经启动，但墨色江湖里还没出现在线地址，先点一次“刷新列表”。正常情况下，启动成功后系统会自动发现并展示在线的 <code>8188</code> ComfyUI 后端。
+      </div>
+    </section>
+  </main>
+</body>
+</html>

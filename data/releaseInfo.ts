@@ -59,6 +59,7 @@ export const RELEASE_INFO = {
     ],
     "websiteUrl": "https://msjh.bacon.de5.net",
     "githubRepoUrl": "https://github.com/ypq123456789/MoRanJiangHu",
+    "cnbGuideUrl": "https://msjh.bacon.de5.net/cnb-comfyui-guide.html",
     "releaseNotesUrl": "https://github.com/ypq123456789/MoRanJiangHu/commits/main",
     "apkDownloadUrl": "https://download.bacon.de5.net/moranjianghu/latest.apk",
     "updateManifestUrl": "https://download.bacon.de5.net/moranjianghu/latest.json",

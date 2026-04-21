@@ -11,6 +11,8 @@ import {
 import GameButton from '../../ui/GameButton';
 import ToggleSwitch from '../../ui/ToggleSwitch';
 import InlineSelect from '../../ui/InlineSelect';
+import { RELEASE_INFO } from '../../../data/releaseInfo';
+import { openExternalUrl } from '../../../services/appUpdate';
 import { 规范化接口设置 } from '../../../utils/apiConfig';
 import { 自动场景横屏尺寸选项, 自动场景竖屏尺寸选项 } from '../../../utils/imageSizeOptions';
 import { buildDiscoveredBackendLabel, fetchDiscoveredImageBackends } from '../../../services/ai/imageBackendRegistry';
@@ -121,6 +123,7 @@ const ComfyUI工作流占位提示 = '__PROMPT__ / {{prompt}}，__NEGATIVE_PROMP
 const 页面容器样式 = 'rounded-2xl border border-fuchsia-500/20 bg-black/25 p-5 space-y-5';
 const 卡片样式 = 'rounded-xl border border-white/10 bg-black/20 p-4 space-y-4';
 const 标签样式 = 'text-sm font-bold text-fuchsia-200';
+const CNB_GUIDE_URL = RELEASE_INFO.cnbGuideUrl || 'https://msjh.bacon.de5.net/cnb-comfyui-guide.html';
 const 生成预设ID = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const 创建空画师串预设 = (scope: 画师串适用页签): 画师串预设结构 => {
     const now = Date.now();
@@ -742,7 +745,18 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                     <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-4 space-y-4">
                         <div className="flex items-center justify-between gap-3">
                             <div>
-                                <div className="text-base font-bold text-emerald-200">自动发现 ComfyUI 后端</div>
+                                <div className="flex items-center gap-2 text-base font-bold text-emerald-200">
+                                    <span>自动发现 ComfyUI 后端</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => { void openExternalUrl(CNB_GUIDE_URL); }}
+                                        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/30 bg-black/20 text-xs text-emerald-200 transition-colors hover:border-emerald-300 hover:text-white"
+                                        aria-label="如何构建属于自己的 CNB ComfyUI 后端"
+                                        title="如何构建属于自己的 CNB ComfyUI 后端"
+                                    >
+                                        ?
+                                    </button>
+                                </div>
                                 <div className="mt-1 text-xs leading-6 text-emerald-100/70">后端启动后向注册表上报 8188 地址，这里会自动拉取在线列表，选择后会直接回填到 API 地址。</div>
                             </div>
                             <GameButton

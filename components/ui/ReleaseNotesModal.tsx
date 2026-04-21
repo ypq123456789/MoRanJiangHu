@@ -1,6 +1,7 @@
 import React from 'react';
 import GameButton from './GameButton';
 import { RELEASE_INFO } from '../../data/releaseInfo';
+import { openExternalUrl } from '../../services/appUpdate';
 
 type ReleaseEntry = {
     versionCode?: number;
@@ -48,6 +49,8 @@ const normalizedHistory: ReleaseEntry[] = [
     return [...list, item];
 }, []);
 
+const CNB_GUIDE_URL = RELEASE_INFO.cnbGuideUrl || 'https://msjh.bacon.de5.net/cnb-comfyui-guide.html';
+
 const ReleaseNotesModal: React.FC<Props> = ({
     open,
     isNativeApp,
@@ -75,6 +78,15 @@ const ReleaseNotesModal: React.FC<Props> = ({
                         <h3 className="mt-3 text-2xl font-serif font-bold tracking-[0.12em] text-wuxia-gold md:text-3xl">
                             更新日志
                         </h3>
+                        <button
+                            type="button"
+                            onClick={() => { void openExternalUrl(CNB_GUIDE_URL); }}
+                            className="mt-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-wuxia-gold/25 bg-black/25 text-sm text-wuxia-gold transition-colors hover:border-wuxia-gold/50 hover:text-white"
+                            aria-label="如何构建属于自己的 CNB ComfyUI 后端"
+                            title="如何构建属于自己的 CNB ComfyUI 后端"
+                        >
+                            ?
+                        </button>
                         <p className="mt-2 text-sm leading-6 text-gray-300 md:text-[15px]">
                             当前版本 v{RELEASE_INFO.versionName} · APK {RELEASE_INFO.versionCode}
                         </p>
