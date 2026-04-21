@@ -64,6 +64,7 @@ interface Props {
     onWorldbookManager: () => void;
     onNovelDecomposition: () => void;
     onSettings: () => void;
+    onOpenReleaseNotes: () => void;
     hasSave: boolean;
 }
 
@@ -73,7 +74,16 @@ const actionButtonStyle: React.CSSProperties = {
     lineHeight: 'var(--ui-按钮-line-height, 1.2)'
 };
 
-const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorldbookManager, onNovelDecomposition, onSettings, hasSave }) => {
+const LandingPage: React.FC<Props> = ({
+    onStart,
+    onLoad,
+    onImageManager,
+    onWorldbookManager,
+    onNovelDecomposition,
+    onSettings,
+    onOpenReleaseNotes,
+    hasSave
+}) => {
     const isNativeApp = React.useMemo(() => isNativeCapacitorEnvironment(), []);
     const [isCheckingUpdate, setIsCheckingUpdate] = React.useState(false);
 
@@ -101,13 +111,10 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
     };
 
     return (
-        <div className="relative z-40 flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-xl bg-black px-4 pt-[max(var(--app-safe-top,env(safe-area-inset-top,0px)),12px)] pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+16px)]">
+        <div className="relative z-40 flex h-full w-full flex-col items-center overflow-y-auto rounded-xl bg-black px-4 pt-[max(var(--app-safe-top,env(safe-area-inset-top,0px)),12px)] pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+16px)]">
             <div className="absolute inset-0 bg-black" />
 
-            <div
-                className="absolute left-3 right-3 z-20 flex flex-wrap items-center justify-end gap-2"
-                style={{ top: 'calc(var(--app-safe-top, env(safe-area-inset-top, 0px)) + 12px)' }}
-            >
+            <div className="relative z-20 mb-8 flex w-full max-w-5xl flex-wrap items-center justify-center gap-2 pt-2 sm:justify-end md:mb-12">
                 <GitHubSyncButton floating={false} />
 
                 {isNativeApp && (
@@ -133,7 +140,7 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
                 </button>
             </div>
 
-            <div className="relative z-10 mb-16 flex flex-col items-center animate-fadeIn">
+            <div className="relative z-10 mt-2 mb-16 flex flex-col items-center animate-fadeIn">
                 <div className="absolute -top-20 -left-20 h-64 w-64 rounded-full bg-wuxia-gold/5 blur-3xl" />
 
                 <h1
@@ -147,7 +154,7 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
                     }}
                     title="点击切换全屏"
                 >
-                    墨色江湖
+                    墨染江湖
                 </h1>
 
                 <div className="flex items-center gap-6 opacity-80">
@@ -230,26 +237,18 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
                     >
                         {isNativeApp ? '立即更新' : 'APK 下载'}
                     </button>
-                    {!isNativeApp && (
-                        <button
-                            type="button"
-                            onClick={() => { void openExternalUrl(RELEASE_INFO.updateManifestUrl); }}
-                            className="min-h-[40px] border border-sky-500/25 bg-sky-500/10 px-4 py-2 text-xs tracking-[0.16em] text-sky-200 transition-colors hover:bg-sky-500/15"
-                        >
-                            更新日志
-                        </button>
-                    )}
-                </div>
-
-                <div className="mt-3 text-xs leading-6 text-gray-400">
-                    {isNativeApp
-                        ? 'APK 版本会直接在应用内下载并拉起安装器，不再跳转浏览器。'
-                        : '网页首页已内置 GitHub 项目地址、APK 下载链接和更新日志入口，客户可直接查看。'}
+                    <button
+                        type="button"
+                        onClick={onOpenReleaseNotes}
+                        className="min-h-[40px] border border-sky-500/25 bg-sky-500/10 px-4 py-2 text-xs tracking-[0.16em] text-sky-200 transition-colors hover:bg-sky-500/15"
+                    >
+                        更新日志
+                    </button>
                 </div>
             </div>
 
             <div
-                className="absolute bottom-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+12px)] text-[10px] font-mono tracking-[0.3em] text-gray-600 opacity-60"
+                className="relative z-10 mt-6 text-[10px] font-mono tracking-[0.3em] text-gray-600 opacity-60"
                 style={{
                     fontFamily: 'var(--ui-等宽信息-font-family, inherit)',
                     fontSize: 'var(--ui-等宽信息-font-size, 12px)',

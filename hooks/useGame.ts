@@ -2912,7 +2912,7 @@ export const useGame = () => {
             saveBuiltinPromptEntries,
             saveWorldbooks, saveWorldbookPresetGroups,
             updatePrompts, updateFestivals,
-            handleSaveGame, handleLoadGame,
+            handleSaveGame, handleLoadGame, performAutoSave,
             updateHistoryItem,
             updateMemorySystem,
             createNpcManually,

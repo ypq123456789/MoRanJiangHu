@@ -8,6 +8,7 @@ import ChatList from './components/features/Chat/ChatList';
 import InputArea from './components/features/Chat/InputArea';
 import LandingPage from './components/layout/LandingPage';
 import InAppConfirmModal, { ConfirmOptions } from './components/ui/InAppConfirmModal';
+import ReleaseNotesModal from './components/ui/ReleaseNotesModal';
 import { useGame } from './hooks/useGame';
 import { 环境时间转标准串, normalizeCanonicalGameTime, 结构化时间转标准串 } from './hooks/useGame/timeUtils';
 import { 获取文生图接口配置, 获取生图词组转化器接口配置, 接口配置是否可用 } from './utils/apiConfig';
@@ -17,6 +18,9 @@ import { MusicProvider } from './components/features/Music/MusicProvider';
 import { isNativeCapacitorEnvironment } from './utils/nativeRuntime';
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
 import { checkForAppUpdate } from './services/appUpdate';
+import { RELEASE_INFO } from './data/releaseInfo';
+
+const RELEASE_NOTES_SUPPRESS_DATE_KEY = 'moranjianghu.releaseNotesSuppressDate';
 
 type 可预加载组件<T extends React.ComponentType<any>> = React.LazyExoticComponent<T> & {
     preload?: () => Promise<unknown>;
@@ -147,6 +151,8 @@ const App: React.FC = () => {
     const [sceneQuickGenHint, setSceneQuickGenHint] = React.useState(false);
     const [sceneQuickGenToastVisible, setSceneQuickGenToastVisible] = React.useState(false);
     const [contextSnapshot, setContextSnapshot] = React.useState<Awaited<ReturnType<typeof actions.getContextSnapshot>> | undefined>(undefined);
+    const [showReleaseNotes, setShowReleaseNotes] = React.useState(false);
+    const [suppressReleaseNotesForToday, setSuppressReleaseNotesForToday] = React.useState(false);
     const [isMobile, setIsMobile] = React.useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
         return window.matchMedia('(max-width: 767px)').matches;
@@ -160,6 +166,7 @@ const App: React.FC = () => {
         return Boolean(document.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement);
     });
     const lastUpdateCheckAtRef = React.useRef(0);
+    const releaseNotesAutoOpenedRef = React.useRef(false);
     function handleMobileMenuAction(menu: string) {
         const isActive = activeMobileWindowId === menu;
         closeAllPanels();
@@ -371,6 +378,32 @@ const App: React.FC = () => {
             }
         };
     }, []);
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const today = new Date().toISOString().slice(0, 10);
+        let suppressedDate = '';
+
+        try {
+            suppressedDate = localStorage.getItem(RELEASE_NOTES_SUPPRESS_DATE_KEY) || '';
+        } catch {
+            suppressedDate = '';
+        }
+
+        const suppressedToday = suppressedDate === today;
+        setSuppressReleaseNotesForToday(suppressedToday);
+
+        if (state.view !== 'home') {
+            return;
+        }
+
+        if (suppressedToday || releaseNotesAutoOpenedRef.current) {
+            return;
+        }
+
+        releaseNotesAutoOpenedRef.current = true;
+        setShowReleaseNotes(true);
+    }, [state.view]);
     const confirmResolverRef = React.useRef<((value: boolean) => void) | null>(null);
     const 最近小说分解报错提示IDRef = React.useRef('');
     const [confirmState, setConfirmState] = React.useState<(ConfirmOptions & { open: boolean })>({
@@ -804,6 +837,35 @@ const App: React.FC = () => {
         setShowNovelDecompositionWorkbench(true);
     }, [closeAllPanels, requestConfirm, setters, state.apiConfig]);
     const handleStartFromLanding = React.useCallback(() => actions.handleStartNewGameWizard(), [actions]);
+    const openReleaseNotes = React.useCallback(() => {
+        setSuppressReleaseNotesForToday(false);
+        setShowReleaseNotes(true);
+    }, []);
+    const closeReleaseNotes = React.useCallback(() => {
+        const today = new Date().toISOString().slice(0, 10);
+
+        try {
+            if (suppressReleaseNotesForToday) {
+                localStorage.setItem(RELEASE_NOTES_SUPPRESS_DATE_KEY, today);
+            } else {
+                localStorage.removeItem(RELEASE_NOTES_SUPPRESS_DATE_KEY);
+            }
+        } catch {
+            // ignore storage failures
+        }
+
+        setShowReleaseNotes(false);
+    }, [suppressReleaseNotesForToday]);
+    const handleReleaseNotesPrimaryAction = React.useCallback(() => {
+        if (isNativeCapacitorEnvironment()) {
+            void checkForAppUpdate();
+            return;
+        }
+        void window.open(RELEASE_INFO.apkDownloadUrl, '_blank', 'noopener,noreferrer');
+    }, []);
+    const handleReleaseNotesOpenGithub = React.useCallback(() => {
+        void window.open(RELEASE_INFO.githubRepoUrl, '_blank', 'noopener,noreferrer');
+    }, []);
     const handleReturnToHomeFromSettings = React.useCallback(async () => {
         const ok = await requestConfirm({
             title: '返回首页',
@@ -815,6 +877,14 @@ const App: React.FC = () => {
         actions.handleReturnToHome();
         setters.setShowSettings(false);
     }, [actions, requestConfirm, setters]);
+    const handleReturnToHomeWithAutoSave = React.useCallback(async () => {
+        try {
+            await actions.performAutoSave({ force: true });
+            actions.handleReturnToHome();
+        } catch (error: any) {
+            window.alert(`自动存档失败：${error?.message || '未知错误'}`);
+        }
+    }, [actions]);
     const openPolishSettings = React.useCallback(() => {
         closeAllPanels();
         setters.setActiveTab('polish');
@@ -1110,6 +1180,7 @@ const App: React.FC = () => {
                     onWorldbookManager={openWorldbookManager}
                     onNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
                     onSettings={openSettings}
+                    onOpenReleaseNotes={openReleaseNotes}
                     hasSave={state.hasSave}
                 />
             )}
@@ -1138,21 +1209,37 @@ const App: React.FC = () => {
                 /* Main Game Frame Container */
                 <div className={`relative flex-1 flex flex-col w-full h-full overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
                     {isMobile && (
-                        <button
-                            type="button"
-                            onClick={() => { void toggleAppFullscreen(); }}
-                            className="absolute right-1.5 top-1.5 z-[65] inline-flex h-6 w-6 items-center justify-center rounded-md border border-wuxia-gold/35 bg-black/75 text-[0px] text-wuxia-gold shadow-[0_6px_18px_rgba(0,0,0,0.35)] backdrop-blur-sm"
-                            aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
-                            title={isFullscreen ? '退出全屏' : '进入全屏'}
-                        >
-                            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 3H3v5" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16 3h5v5" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 21H3v-5" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16 21h5v-5" />
-                            </svg>
-                            {isFullscreen ? '退出全屏' : '全屏'}
-                        </button>
+                        <div className="absolute right-1.5 top-1.5 z-[65] flex flex-col gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => { void toggleAppFullscreen(); }}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-wuxia-gold/35 bg-black/75 text-[0px] text-wuxia-gold shadow-[0_6px_18px_rgba(0,0,0,0.35)] backdrop-blur-sm"
+                                aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+                                title={isFullscreen ? '退出全屏' : '进入全屏'}
+                            >
+                                <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 3H3v5" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 3h5v5" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 21H3v-5" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 21h5v-5" />
+                                </svg>
+                                {isFullscreen ? '退出全屏' : '全屏'}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => { void handleReturnToHomeWithAutoSave(); }}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-sky-400/35 bg-black/75 text-[0px] text-sky-100 shadow-[0_6px_18px_rgba(0,0,0,0.35)] backdrop-blur-sm"
+                                aria-label="自动存档后返回主界面"
+                                title="自动存档后返回主界面"
+                            >
+                                <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 7 5 12l5 5" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h9a5 5 0 0 1 5 5" />
+                                </svg>
+                                返回主页
+                            </button>
+                        </div>
                     )}
 
                     {/* 顶部导航栏 */}
@@ -1592,6 +1679,16 @@ const App: React.FC = () => {
                     />
                 </懒加载边界>
             )}
+
+            <ReleaseNotesModal
+                open={showReleaseNotes}
+                isNativeApp={isNativeCapacitorEnvironment()}
+                suppressForToday={suppressReleaseNotesForToday}
+                onSuppressForTodayChange={setSuppressReleaseNotesForToday}
+                onClose={closeReleaseNotes}
+                onPrimaryAction={handleReleaseNotesPrimaryAction}
+                onOpenGithub={handleReleaseNotesOpenGithub}
+            />
 
             <InAppConfirmModal
                 open={confirmState.open}
