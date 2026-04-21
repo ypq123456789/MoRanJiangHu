@@ -178,6 +178,15 @@ export const hasNewerRelease = (
     manifest: UpdateManifest,
     currentFingerprint?: { sha256?: string; fileSize?: number } | null
 ): boolean => {
+    const currentCode = Number(currentRelease.versionCode || 0);
+    const latestCode = Number(manifest.versionCode || 0);
+    const versionNameCompare = compareVersionNames(manifest.versionName || '', currentRelease.versionName || '');
+
+    if (latestCode > currentCode) return true;
+    if (latestCode < currentCode) return false;
+    if (versionNameCompare > 0) return true;
+    if (versionNameCompare < 0) return false;
+
     const currentSha = String(currentFingerprint?.sha256 || '').trim().toLowerCase();
     const manifestSha = String(manifest.apkSha256 || '').trim().toLowerCase();
 
@@ -185,13 +194,7 @@ export const hasNewerRelease = (
         return currentSha !== manifestSha;
     }
 
-    const currentCode = Number(currentRelease.versionCode || 0);
-    const latestCode = Number(manifest.versionCode || 0);
-
-    if (latestCode > currentCode) return true;
-    if (latestCode < currentCode) return false;
-
-    return compareVersionNames(manifest.versionName || '', currentRelease.versionName || '') > 0;
+    return false;
 };
 
 const formatChanges = (changes?: string[]) => {

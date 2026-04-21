@@ -68,8 +68,16 @@ const runWrangler = (args) => {
 
 runWrangler(['r2', 'object', 'put', latestKey, '--file', apkPath, '--content-type', 'application/vnd.android.package-archive', '--remote']);
 runWrangler(['r2', 'object', 'put', versionedKey, '--file', apkPath, '--content-type', 'application/vnd.android.package-archive', '--remote']);
-runWrangler(['r2', 'object', 'put', manifestKey, '--file', manifestPath, '--content-type', 'application/json', '--remote']);
+runWrangler([
+  'r2', 'object', 'put', manifestKey,
+  '--file', manifestPath,
+  '--content-type', 'application/json',
+  '--cache-control', 'no-store,no-cache,max-age=0,must-revalidate',
+  '--remote'
+]);
 
 console.log(`R2 publish complete:
 - ${releaseInfo.apkDownloadUrl}
-- ${releaseInfo.updateManifestUrl}`);
+- ${releaseInfo.updateManifestUrl}
+- apkSha256=${apkSha256}
+- apkSize=${apkSize}`);
