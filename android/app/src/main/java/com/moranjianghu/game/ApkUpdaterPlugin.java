@@ -17,11 +17,27 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.FileInputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.MessageDigest;
 
 @CapacitorPlugin(name = "ApkUpdater")
 public class ApkUpdaterPlugin extends Plugin {
+    @PluginMethod
+    public void getInstalledApkInfo(PluginCall call) {
+        try {
+            File sourceApk = new File(getContext().getApplicationInfo().sourceDir);
+            JSObject result = new JSObject();
+            result.put("filePath", sourceApk.getAbsolutePath());
+            result.put("sha256", computeSha256(sourceApk));
+            result.put("fileSize", sourceApk.length());
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject(error.getMessage(), error);
+        }
+    }
+
     @PluginMethod
     public void downloadAndInstall(PluginCall call) {
         String url = call.getString("url", "");
@@ -137,5 +153,30 @@ public class ApkUpdaterPlugin extends Plugin {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         getContext().startActivity(intent);
+    }
+
+    private String computeSha256(File file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        FileInputStream inputStream = null;
+
+        try {
+            inputStream = new FileInputStream(file);
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                digest.update(buffer, 0, bytesRead);
+            }
+        } finally {
+            if (inputStream != null) {
+                inputStream.close();
+            }
+        }
+
+        byte[] hash = digest.digest();
+        StringBuilder builder = new StringBuilder(hash.length * 2);
+        for (byte item : hash) {
+            builder.append(String.format("%02x", item));
+        }
+        return builder.toString();
     }
 }

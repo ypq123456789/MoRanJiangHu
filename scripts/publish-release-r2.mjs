@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -28,11 +29,16 @@ const manifestKey = `${bucket}/${prefix}/latest.json`;
 const versionedApkUrl = String(releaseInfo.apkDownloadUrl || '')
   .replace(/\/latest\.apk(?:\?.*)?$/i, `/MoRanJiangHu-v${releaseInfo.versionName}.apk`)
   || `https://download.bacon.de5.net/${prefix}/MoRanJiangHu-v${releaseInfo.versionName}.apk`;
+const apkBuffer = fs.readFileSync(apkPath);
+const apkSha256 = crypto.createHash('sha256').update(apkBuffer).digest('hex');
+const apkSize = apkBuffer.byteLength;
 
 const manifest = {
   latest: {
     versionCode: releaseInfo.versionCode,
     versionName: releaseInfo.versionName,
+    apkSha256,
+    apkSize,
     releaseChannel: releaseInfo.releaseChannel,
     websiteUrl: releaseInfo.websiteUrl,
     githubRepoUrl: releaseInfo.githubRepoUrl,

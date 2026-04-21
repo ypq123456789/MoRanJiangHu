@@ -3,11 +3,13 @@ import { RELEASE_INFO } from '../data/releaseInfo';
 import { isNativeCapacitorEnvironment } from '../utils/nativeRuntime';
 import { NativeApkUpdater } from './nativeApkUpdater';
 
-const UPDATE_PROMPT_STORAGE_KEY = 'moranjianghu.lastPromptedUpdateVersion';
+const UPDATE_PROMPT_STORAGE_KEY = 'moranjianghu.lastPromptedUpdateRelease';
 
 export type UpdateManifest = {
     versionCode: number;
     versionName: string;
+    apkSha256?: string;
+    apkSize?: number;
     releaseChannel?: string;
     apkUrl?: string;
     manifestUrl?: string;
@@ -45,7 +47,7 @@ const compareVersionNames = (left: string, right: string): number => {
     return 0;
 };
 
-const getPromptedVersion = (): string => {
+const getPromptedReleaseKey = (): string => {
     try {
         return localStorage.getItem(UPDATE_PROMPT_STORAGE_KEY) || '';
     } catch {
@@ -53,9 +55,13 @@ const getPromptedVersion = (): string => {
     }
 };
 
-const setPromptedVersion = (versionName: string) => {
+const getManifestReleaseKey = (manifest: UpdateManifest): string => (
+    String(manifest.apkSha256 || manifest.versionName || '').trim().toLowerCase()
+);
+
+const setPromptedReleaseKey = (value: string) => {
     try {
-        localStorage.setItem(UPDATE_PROMPT_STORAGE_KEY, versionName);
+        localStorage.setItem(UPDATE_PROMPT_STORAGE_KEY, value);
     } catch {
         // ignore storage failures
     }
@@ -95,6 +101,22 @@ export const getCurrentAppRelease = async (): Promise<{ versionCode: number; ver
     }
 };
 
+const getCurrentInstalledApkFingerprint = async (): Promise<{ sha256?: string; fileSize?: number } | null> => {
+    if (!isNativeCapacitorEnvironment()) {
+        return null;
+    }
+
+    try {
+        const info = await NativeApkUpdater.getInstalledApkInfo();
+        return {
+            sha256: typeof info?.sha256 === 'string' ? info.sha256.trim().toLowerCase() : undefined,
+            fileSize: Number(info?.fileSize || 0) || undefined
+        };
+    } catch {
+        return null;
+    }
+};
+
 export const fetchLatestUpdateManifest = async (): Promise<UpdateManifest | null> => {
     if (!RELEASE_INFO.updateManifestUrl) return null;
 
@@ -125,8 +147,16 @@ export const fetchLatestUpdateManifest = async (): Promise<UpdateManifest | null
 
 export const hasNewerRelease = (
     currentRelease: { versionCode: number; versionName: string },
-    manifest: UpdateManifest
+    manifest: UpdateManifest,
+    currentFingerprint?: { sha256?: string; fileSize?: number } | null
 ): boolean => {
+    const currentSha = String(currentFingerprint?.sha256 || '').trim().toLowerCase();
+    const manifestSha = String(manifest.apkSha256 || '').trim().toLowerCase();
+
+    if (currentSha && manifestSha) {
+        return currentSha !== manifestSha;
+    }
+
     const currentCode = Number(currentRelease.versionCode || 0);
     const latestCode = Number(manifest.versionCode || 0);
 
@@ -158,31 +188,36 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
 
 export const checkForAppUpdate = async (options?: { silentNoUpdate?: boolean; auto?: boolean }) => {
     const currentRelease = await getCurrentAppRelease();
+    const currentFingerprint = await getCurrentInstalledApkFingerprint();
     const manifest = await fetchLatestUpdateManifest();
 
     if (!manifest) {
         if (!options?.silentNoUpdate) {
             window.alert('暂时无法获取更新信息，请稍后重试。');
         }
-        return { updateAvailable: false, currentRelease, manifest: null };
+        return { updateAvailable: false, currentRelease, currentFingerprint, manifest: null };
     }
 
-    if (!hasNewerRelease(currentRelease, manifest)) {
+    if (!hasNewerRelease(currentRelease, manifest, currentFingerprint)) {
         if (!options?.silentNoUpdate) {
             window.alert(`当前已经是最新版本 v${currentRelease.versionName}。`);
         }
-        return { updateAvailable: false, currentRelease, manifest };
+        return { updateAvailable: false, currentRelease, currentFingerprint, manifest };
     }
 
-    if (options?.auto && getPromptedVersion() === manifest.versionName) {
-        return { updateAvailable: true, currentRelease, manifest, skippedPrompt: true };
+    const promptReleaseKey = getManifestReleaseKey(manifest);
+
+    if (options?.auto && promptReleaseKey && getPromptedReleaseKey() === promptReleaseKey) {
+        return { updateAvailable: true, currentRelease, currentFingerprint, manifest, skippedPrompt: true };
     }
 
     const confirmed = window.confirm(
         `检测到新版本 v${manifest.versionName}（当前 v${currentRelease.versionName}）。\n\n更新内容：\n${formatChanges(manifest.changes)}\n\n是否立即更新？`
     );
 
-    setPromptedVersion(manifest.versionName);
+    if (promptReleaseKey) {
+        setPromptedReleaseKey(promptReleaseKey);
+    }
 
     if (confirmed) {
         if (isNativeCapacitorEnvironment()) {
@@ -192,5 +227,5 @@ export const checkForAppUpdate = async (options?: { silentNoUpdate?: boolean; au
         }
     }
 
-    return { updateAvailable: true, currentRelease, manifest, opened: confirmed };
+    return { updateAvailable: true, currentRelease, currentFingerprint, manifest, opened: confirmed };
 };
