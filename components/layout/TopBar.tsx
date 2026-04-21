@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { 环境信息结构, 节日结构, 视觉设置结构 } from '../../types';
 import { 构建区域文字样式 } from '../../utils/visualSettings';
 import { normalizeCanonicalGameTime } from '../../hooks/useGame/timeUtils';
@@ -111,11 +111,15 @@ const DetailCard: React.FC<{
             <div
                 className={`relative w-64 md:w-80 bg-black/90 backdrop-blur-md border border-wuxia-gold/30 rounded-xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden group ${panelClassName || ''}`}
                 onClick={(event) => event.stopPropagation()}
+                onTouchStart={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }}
                 onTouchEnd={(event) => event.stopPropagation()}
             >
                 {/* Reference style elements */}
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-wuxia-gold/40 to-transparent"></div>
-                <div className="absolute -right-16 -top-16 w-32 h-32 bg-wuxia-gold/5 rounded-full blur-3xl group-hover:bg-wuxia-gold/10 transition-colors duration-500"></div>
+                <div className="pointer-events-none absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-wuxia-gold/40 to-transparent"></div>
+                <div className="pointer-events-none absolute -right-16 -top-16 w-32 h-32 bg-wuxia-gold/5 rounded-full blur-3xl group-hover:bg-wuxia-gold/10 transition-colors duration-500"></div>
                 
                 <h3 className="text-wuxia-gold font-bold text-lg mb-3 border-b border-wuxia-gold/10 pb-1 flex justify-between items-center" style={areaStyle}>
                     {title}
@@ -123,10 +127,16 @@ const DetailCard: React.FC<{
                         <button
                             type="button"
                             onClick={(event) => {
+                                event.preventDefault();
                                 event.stopPropagation();
                                 onClose();
                             }}
+                            onTouchStart={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }}
                             onTouchEnd={(event) => {
+                                event.preventDefault();
                                 event.stopPropagation();
                                 onClose();
                             }}
@@ -261,6 +271,7 @@ type ExpandedType = 'weather' | 'environment' | 'time' | 'location' | 'festival'
 
 const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festivals = [], visualConfig }) => {
     const [expandedType, setExpandedType] = useState<ExpandedType>(null);
+    const lastMobileDismissAtRef = useRef(0);
 
     const parsedTime = parseEnvTime(环境);
     const derivedDayCount = useMemo(() => {
@@ -387,9 +398,20 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         }
     };
 
+    const closeExpandedPanel = () => {
+        lastMobileDismissAtRef.current = Date.now();
+        setExpandedType(null);
+    };
+
     const toggleExpanded = (type: Exclude<ExpandedType, null>) => {
-        if (expandedType === type) setExpandedType(null);
-        else setExpandedType(type);
+        if (expandedType === type) {
+            closeExpandedPanel();
+            return;
+        }
+        if (Date.now() - lastMobileDismissAtRef.current < 300) {
+            return;
+        }
+        setExpandedType(type);
     };
 
     const alternateTime = timeFormat === '数字' ? traditionalTime : numericTime;
@@ -504,7 +526,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                     <DetailCard
                         title={detailConfigs[expandedType].title}
                         content={detailConfigs[expandedType].content}
-                        onClose={() => setExpandedType(null)}
+                        onClose={closeExpandedPanel}
                         visualConfig={visualConfig}
                         className="left-0 right-0"
                         panelClassName="w-full max-w-none"
