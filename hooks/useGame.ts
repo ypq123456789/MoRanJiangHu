@@ -390,6 +390,7 @@ export const useGame = () => {
     const [NPC记忆总结阶段, setNPC记忆总结阶段] = useState<记忆总结阶段类型>('idle');
     const [NPC记忆总结草稿, setNPC记忆总结草稿] = useState('');
     const [NPC记忆总结错误, setNPC记忆总结错误] = useState('');
+    const 自动记忆总结暂停Ref = useRef(false);
     const 上下文快照缓存Ref = useRef<{
         value: 上下文快照;
         refs: unknown[];
@@ -562,6 +563,10 @@ export const useGame = () => {
             清空NPC记忆总结流程();
             return;
         }
+        if (自动记忆总结暂停Ref.current) {
+            setNPC记忆总结阶段('idle');
+            return;
+        }
         if (!options?.静默 && NPC记忆总结阶段 === 'idle') {
             setNPC记忆总结阶段('remind');
         }
@@ -607,6 +612,10 @@ export const useGame = () => {
         if (!sameTask) {
             set记忆总结草稿('');
             set记忆总结错误('');
+        }
+        if (自动记忆总结暂停Ref.current) {
+            set记忆总结阶段('idle');
+            return;
         }
         if (!options?.静默) {
             set记忆总结阶段('remind');
@@ -2538,6 +2547,7 @@ export const useGame = () => {
     const 存档格式版本 = 3;
     const 自动存档最小间隔毫秒 = 30000;
     const 重置读档瞬态状态 = () => {
+        自动记忆总结暂停Ref.current = true;
         清空变量生成上下文缓存();
         世界演变进行中Ref.current = false;
         世界演变去重签名Ref.current = '';
@@ -2547,6 +2557,19 @@ export const useGame = () => {
         世界演变最近现实更新时间戳Ref.current = 0;
         set世界演变最近摘要([]);
         set世界演变最近原始消息('');
+        set待处理记忆总结任务(null);
+        set记忆总结阶段('idle');
+        set记忆总结草稿('');
+        set记忆总结错误('');
+        set待处理NPC记忆总结队列([]);
+        setNPC记忆总结阶段('idle');
+        setNPC记忆总结草稿('');
+        setNPC记忆总结错误('');
+    };
+
+    const 读档后重置上下文 = () => {
+        清空变量生成上下文缓存();
+        自动记忆总结暂停Ref.current = false;
     };
 
     const {
@@ -2653,7 +2676,7 @@ export const useGame = () => {
         最近自动存档时间戳Ref,
         最近自动存档签名Ref,
         读档前重置瞬态状态: 重置读档瞬态状态,
-        读档后重置上下文: 清空变量生成上下文缓存,
+        读档后重置上下文,
         读档后定位到最新回合: () => set聊天区强制置底令牌(prev => prev + 1)
     });
 
