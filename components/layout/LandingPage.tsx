@@ -1,7 +1,9 @@
 import React from 'react';
 import GameButton from '../ui/GameButton';
 import { GitHubSyncButton } from '../features/Auth/GitHubSyncButton';
-import { setNativeSystemBarsHidden } from '../../utils/nativeRuntime';
+import { RELEASE_INFO } from '../../data/releaseInfo';
+import { checkForAppUpdate, openExternalUrl } from '../../services/appUpdate';
+import { isNativeCapacitorEnvironment, setNativeSystemBarsHidden } from '../../utils/nativeRuntime';
 
 const hasFullscreenElement = () => {
     const doc = document as Document & {
@@ -65,7 +67,16 @@ interface Props {
     hasSave: boolean;
 }
 
+const actionButtonStyle: React.CSSProperties = {
+    fontFamily: 'var(--ui-按钮-font-family, inherit)',
+    fontSize: 'var(--ui-按钮-font-size, 14px)',
+    lineHeight: 'var(--ui-按钮-line-height, 1.2)'
+};
+
 const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorldbookManager, onNovelDecomposition, onSettings, hasSave }) => {
+    const isNativeApp = React.useMemo(() => isNativeCapacitorEnvironment(), []);
+    const [isCheckingUpdate, setIsCheckingUpdate] = React.useState(false);
+
     React.useEffect(() => {
         const syncSystemBars = () => {
             void setNativeSystemBarsHidden(hasFullscreenElement());
@@ -78,33 +89,54 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
         };
     }, []);
 
+    const handleCheckUpdate = async () => {
+        setIsCheckingUpdate(true);
+        try {
+            await checkForAppUpdate();
+        } finally {
+            setIsCheckingUpdate(false);
+        }
+    };
+
     return (
-        <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden bg-black z-40 rounded-xl px-4 pt-[max(var(--app-safe-top,env(safe-area-inset-top,0px)),12px)] pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+16px)]">
-            <div className="absolute inset-0 bg-black"></div>
+        <div className="relative z-40 flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-xl bg-black px-4 pt-[max(var(--app-safe-top,env(safe-area-inset-top,0px)),12px)] pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+16px)]">
+            <div className="absolute inset-0 bg-black" />
 
-            <GitHubSyncButton />
-
-            <button
-                type="button"
-                onClick={() => { void requestBrowserFullscreen(); }}
-                className="absolute right-3 md:right-4 z-20 min-h-[40px] border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs md:text-sm font-serif tracking-[0.2em] text-wuxia-gold hover:bg-black/80 transition-colors"
-                style={{
-                    top: 'calc(var(--app-safe-top, env(safe-area-inset-top, 0px)) + 12px)',
-                    fontFamily: 'var(--ui-按钮-font-family, inherit)',
-                    fontSize: 'var(--ui-按钮-font-size, 14px)',
-                    lineHeight: 'var(--ui-按钮-line-height, 1.2)'
-                }}
-                title="切换全屏"
+            <div
+                className="absolute left-3 right-3 z-20 flex flex-wrap items-center justify-end gap-2"
+                style={{ top: 'calc(var(--app-safe-top, env(safe-area-inset-top, 0px)) + 12px)' }}
             >
-                全屏
-            </button>
+                <GitHubSyncButton floating={false} />
 
-            <div className="relative z-10 flex flex-col items-center mb-16 animate-fadeIn">
-                <div className="absolute -top-20 -left-20 w-64 h-64 rounded-full bg-wuxia-gold/5 blur-3xl"></div>
+                {isNativeApp && (
+                    <button
+                        type="button"
+                        onClick={() => { void handleCheckUpdate(); }}
+                        className="min-h-[40px] border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs font-serif tracking-[0.18em] text-wuxia-gold transition-colors hover:bg-black/80 md:text-sm"
+                        style={actionButtonStyle}
+                        title="检查 APK 更新"
+                    >
+                        {isCheckingUpdate ? '检查中...' : '检查更新'}
+                    </button>
+                )}
+
+                <button
+                    type="button"
+                    onClick={() => { void requestBrowserFullscreen(); }}
+                    className="min-h-[40px] border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs font-serif tracking-[0.2em] text-wuxia-gold transition-colors hover:bg-black/80 md:text-sm"
+                    style={actionButtonStyle}
+                    title="切换全屏"
+                >
+                    全屏
+                </button>
+            </div>
+
+            <div className="relative z-10 mb-16 flex flex-col items-center animate-fadeIn">
+                <div className="absolute -top-20 -left-20 h-64 w-64 rounded-full bg-wuxia-gold/5 blur-3xl" />
 
                 <h1
                     onClick={() => { void requestBrowserFullscreen(); }}
-                    className="text-7xl md:text-9xl font-black font-serif text-transparent bg-clip-text bg-gradient-to-b from-gray-100 to-gray-500 tracking-[0.1em] drop-shadow-2xl select-none mb-6 text-center cursor-pointer"
+                    className="mb-6 cursor-pointer select-none bg-gradient-to-b from-gray-100 to-gray-500 bg-clip-text text-center font-serif text-7xl font-black tracking-[0.1em] text-transparent drop-shadow-2xl md:text-9xl"
                     style={{
                         fontFamily: 'var(--ui-页面标题-font-family, inherit)',
                         fontSize: 'var(--ui-页面标题-font-size, clamp(3rem,8vw,6rem))',
@@ -117,61 +149,110 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
                 </h1>
 
                 <div className="flex items-center gap-6 opacity-80">
-                    <div className="h-px w-16 bg-gradient-to-r from-transparent to-wuxia-red"></div>
+                    <div className="h-px w-16 bg-gradient-to-r from-transparent to-wuxia-red" />
                     <h2
-                        className="text-xl md:text-2xl font-serif text-wuxia-red tracking-[0.5em] uppercase font-bold text-shadow-sm"
-                        style={{ fontFamily: 'var(--ui-分组标题-font-family, inherit)', lineHeight: 'var(--ui-分组标题-line-height, 1.35)' }}
+                        className="text-shadow-sm text-xl font-bold uppercase tracking-[0.5em] text-wuxia-red md:text-2xl"
+                        style={{
+                            fontFamily: 'var(--ui-分组标题-font-family, inherit)',
+                            lineHeight: 'var(--ui-分组标题-line-height, 1.35)'
+                        }}
                     >
                         无尽武林
                     </h2>
-                    <div className="h-px w-16 bg-gradient-to-l from-transparent to-wuxia-red"></div>
+                    <div className="h-px w-16 bg-gradient-to-l from-transparent to-wuxia-red" />
                 </div>
             </div>
 
-            <div className="relative z-10 flex flex-col gap-6 w-64 animate-slide-in delay-100">
-                <GameButton onClick={onStart} variant="primary" className="text-lg py-4 shadow-lg">
+            <div className="relative z-10 flex w-64 flex-col gap-6 animate-slide-in delay-100">
+                <GameButton onClick={onStart} variant="primary" className="py-4 text-lg shadow-lg">
                     踏入江湖
                 </GameButton>
 
                 <GameButton
                     onClick={onLoad}
                     variant="secondary"
-                    className={`text-lg py-4 shadow-lg ${!hasSave ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                    className={`py-4 text-lg shadow-lg ${!hasSave ? 'cursor-not-allowed grayscale opacity-50' : ''}`}
                     disabled={!hasSave}
                 >
                     重入江湖
                 </GameButton>
 
-                <GameButton onClick={onImageManager} variant="secondary" className="text-lg py-4 shadow-lg border-opacity-50 opacity-90 hover:opacity-100">
+                <GameButton onClick={onImageManager} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-90 shadow-lg hover:opacity-100">
                     图片管理
                 </GameButton>
 
-                <GameButton onClick={onWorldbookManager} variant="secondary" className="text-lg py-4 shadow-lg border-opacity-50 opacity-90 hover:opacity-100">
+                <GameButton onClick={onWorldbookManager} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-90 shadow-lg hover:opacity-100">
                     世界书管理
                 </GameButton>
 
-                <GameButton onClick={onNovelDecomposition} variant="secondary" className="text-lg py-4 shadow-lg border-opacity-50 opacity-90 hover:opacity-100">
+                <GameButton onClick={onNovelDecomposition} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-90 shadow-lg hover:opacity-100">
                     小说拆解
                 </GameButton>
 
-                <GameButton onClick={onSettings} variant="secondary" className="text-lg py-4 shadow-lg border-opacity-50 opacity-80 hover:opacity-100">
+                <GameButton onClick={onSettings} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-80 shadow-lg hover:opacity-100">
                     设置
                 </GameButton>
             </div>
 
+            <div className="relative z-10 mt-8 w-full max-w-xl animate-fadeIn rounded-2xl border border-wuxia-gold/15 bg-black/45 px-4 py-4 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-wuxia-gold/10 pb-3">
+                    <div>
+                        <div className="text-sm font-serif tracking-[0.24em] text-wuxia-gold">发布信息</div>
+                        <div className="mt-1 text-xs text-gray-400">
+                            Web / APK 当前统一版本 v{RELEASE_INFO.versionName}
+                        </div>
+                    </div>
+                    <div className="text-xs font-mono tracking-[0.18em] text-gray-500">
+                        APK CODE {RELEASE_INFO.versionCode}
+                    </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                        type="button"
+                        onClick={() => { void openExternalUrl(RELEASE_INFO.githubRepoUrl); }}
+                        className="min-h-[40px] border border-wuxia-gold/25 bg-white/[0.03] px-4 py-2 text-xs tracking-[0.16em] text-wuxia-gold transition-colors hover:bg-white/[0.06]"
+                    >
+                        GitHub 项目
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { void openExternalUrl(RELEASE_INFO.apkDownloadUrl); }}
+                        className="min-h-[40px] border border-emerald-500/25 bg-emerald-500/10 px-4 py-2 text-xs tracking-[0.16em] text-emerald-300 transition-colors hover:bg-emerald-500/15"
+                    >
+                        APK 下载
+                    </button>
+                    {!isNativeApp && (
+                        <button
+                            type="button"
+                            onClick={() => { void openExternalUrl(RELEASE_INFO.updateManifestUrl); }}
+                            className="min-h-[40px] border border-sky-500/25 bg-sky-500/10 px-4 py-2 text-xs tracking-[0.16em] text-sky-200 transition-colors hover:bg-sky-500/15"
+                        >
+                            更新清单
+                        </button>
+                    )}
+                </div>
+
+                <div className="mt-3 text-xs leading-6 text-gray-400">
+                    {isNativeApp
+                        ? 'APK 已内置“检查更新”按钮，启动和回到前台时也会自动检查。'
+                        : '网页首页已内置 GitHub 项目地址和 APK 下载入口，客户可直接获取最新版本。'}
+                </div>
+            </div>
+
             <div
-                className="absolute bottom-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+12px)] text-[10px] text-gray-600 font-mono tracking-[0.3em] opacity-60"
+                className="absolute bottom-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+12px)] text-[10px] font-mono tracking-[0.3em] text-gray-600 opacity-60"
                 style={{
                     fontFamily: 'var(--ui-等宽信息-font-family, inherit)',
                     fontSize: 'var(--ui-等宽信息-font-size, 12px)',
                     lineHeight: 'var(--ui-等宽信息-line-height, 1.45)'
                 }}
             >
-                VER 0.0.1 ALPHA
+                VER {RELEASE_INFO.versionName} · APK {RELEASE_INFO.versionCode}
             </div>
 
-            <div className="absolute top-10 right-20 w-32 h-32 bg-black/50 rounded-full blur-2xl opacity-40"></div>
-            <div className="absolute bottom-20 left-10 w-48 h-48 bg-black/60 rounded-full blur-3xl opacity-30"></div>
+            <div className="absolute top-10 right-20 h-32 w-32 rounded-full bg-black/50 opacity-40 blur-2xl" />
+            <div className="absolute bottom-20 left-10 h-48 w-48 rounded-full bg-black/60 opacity-30 blur-3xl" />
         </div>
     );
 };

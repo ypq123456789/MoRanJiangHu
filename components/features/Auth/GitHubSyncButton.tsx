@@ -13,6 +13,12 @@ const FLOATING_BUTTON_STYLE: React.CSSProperties = {
     top: 'calc(env(safe-area-inset-top, 0px) + 12px)'
 };
 
+type GitHubSyncButtonProps = {
+    floating?: boolean;
+    className?: string;
+    style?: React.CSSProperties;
+};
+
 const formatTime = (isoString: string | null) => {
     if (!isoString) return '从未同步';
     try {
@@ -58,7 +64,7 @@ const getStageText = (progress: any) => {
 
 const validateRepoName = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '-');
 
-export const GitHubSyncButton: React.FC = () => {
+export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = true, className = '', style }) => {
     const {
         token,
         login,
@@ -81,6 +87,10 @@ export const GitHubSyncButton: React.FC = () => {
 
     const normalizedRepoInput = useMemo(() => validateRepoName(repoInput), [repoInput]);
     const activeRepoName = normalizedRepoInput || repoName || '';
+    const containerStyle = floating ? { ...FLOATING_BUTTON_STYLE, ...style } : style;
+    const containerClassName = floating
+        ? `absolute right-3 md:right-28 z-20 ${className}`.trim()
+        : `relative z-20 shrink-0 ${className}`.trim();
 
     const refreshSyncMeta = async (preferredRepo?: string) => {
         if (!token) return;
@@ -218,8 +228,8 @@ export const GitHubSyncButton: React.FC = () => {
     if ((isLoggingIn && !showPanel) || (isSyncing && !showPanel)) {
         return (
             <div
-                className="absolute right-24 md:right-28 z-20 flex items-center justify-center border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs md:text-sm font-serif tracking-wider text-wuxia-gold opacity-90"
-                style={FLOATING_BUTTON_STYLE}
+                className={`${containerClassName} flex items-center justify-center border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs md:text-sm font-serif tracking-wider text-wuxia-gold opacity-90`}
+                style={containerStyle}
             >
                 <svg className="mr-2 h-4 w-4 animate-spin text-wuxia-gold" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -241,12 +251,12 @@ export const GitHubSyncButton: React.FC = () => {
                     }
                     setShowPanel(true);
                 }}
-                className={`absolute right-3 md:right-28 z-20 flex min-h-[40px] items-center gap-2 border px-3 py-2 text-xs md:text-sm font-serif transition-all duration-300 ${
+                className={`${containerClassName} flex min-h-[40px] items-center gap-2 border px-3 py-2 text-xs md:text-sm font-serif transition-all duration-300 ${
                     token
                         ? 'border-emerald-500/40 bg-black/60 text-emerald-400 hover:border-emerald-400 hover:bg-black/80 hover:text-emerald-300'
                         : 'border-wuxia-gold/40 bg-black/60 text-wuxia-gold hover:border-wuxia-gold/80 hover:bg-black/80 hover:text-white'
                 }`}
-                style={FLOATING_BUTTON_STYLE}
+                style={containerStyle}
                 title={token ? '管理 GitHub 云同步' : '登录 GitHub 并同步存档'}
             >
                 <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">

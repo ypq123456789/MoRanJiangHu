@@ -16,6 +16,7 @@ import { 获取图片资源文本地址 } from './utils/imageAssets';
 import { MusicProvider } from './components/features/Music/MusicProvider';
 import { isNativeCapacitorEnvironment } from './utils/nativeRuntime';
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
+import { checkForAppUpdate } from './services/appUpdate';
 
 type 可预加载组件<T extends React.ComponentType<any>> = React.LazyExoticComponent<T> & {
     preload?: () => Promise<unknown>;
@@ -158,6 +159,7 @@ const App: React.FC = () => {
         };
         return Boolean(document.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement);
     });
+    const lastUpdateCheckAtRef = React.useRef(0);
     function handleMobileMenuAction(menu: string) {
         const isActive = activeMobileWindowId === menu;
         closeAllPanels();
@@ -333,6 +335,40 @@ const App: React.FC = () => {
         return () => {
             html.style.backgroundColor = previousHtmlBackground;
             body.style.backgroundColor = previousBodyBackground;
+        };
+    }, []);
+    React.useEffect(() => {
+        if (!isNativeCapacitorEnvironment()) return;
+
+        let disposed = false;
+        let listenerHandle: { remove: () => Promise<void> } | null = null;
+
+        const runAutoUpdateCheck = async () => {
+            const now = Date.now();
+            if (now - lastUpdateCheckAtRef.current < 5 * 60 * 1000) return;
+            lastUpdateCheckAtRef.current = now;
+            await checkForAppUpdate({ auto: true, silentNoUpdate: true });
+        };
+
+        void runAutoUpdateCheck();
+
+        void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+            if (!disposed && isActive) {
+                void runAutoUpdateCheck();
+            }
+        }).then((handle) => {
+            if (disposed) {
+                void handle.remove();
+                return;
+            }
+            listenerHandle = handle;
+        });
+
+        return () => {
+            disposed = true;
+            if (listenerHandle) {
+                void listenerHandle.remove();
+            }
         };
     }, []);
     const confirmResolverRef = React.useRef<((value: boolean) => void) | null>(null);
