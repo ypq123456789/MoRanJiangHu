@@ -28,6 +28,10 @@ type RegistryItem = SyncPayload & {
     source: 'registry';
 };
 
+type RegistryDocument = {
+    items: RegistryItem[];
+};
+
 const buildJsonResponse = (payload: unknown, status = 200): Response => {
     return new Response(JSON.stringify(payload), {
         status,
@@ -76,6 +80,23 @@ const toPositiveInt = (value: unknown, fallback: number): number => {
     return parsed > 0 ? parsed : fallback;
 };
 
+const parsePortFromUrl = (value: string): number => {
+    try {
+        const url = new URL(value);
+        const explicitPort = toPositiveInt(url.port, 0);
+        if (explicitPort > 0) return explicitPort;
+
+        const cnbHostMatch = url.hostname.match(/-(\d+)\.cnb\.run$/i);
+        if (cnbHostMatch) {
+            return toPositiveInt(cnbHostMatch[1], 0);
+        }
+
+        return 0;
+    } catch {
+        return 0;
+    }
+};
+
 const buildRegistryKey = (payload: SyncPayload): string => {
     const backendType = readString(payload.backendType || 'comfyui') || 'comfyui';
     const customerId = readString(payload.customerId || 'anonymous') || 'anonymous';
@@ -95,11 +116,27 @@ const getRegistryNamespace = (env: any): KVNamespace | null => {
     return candidate as KVNamespace;
 };
 
+const getRegistryBucket = (env: any): R2Bucket | null => {
+    const candidate = env?.CNB_SYNC_R2;
+    if (!candidate || typeof candidate.get !== 'function' || typeof candidate.put !== 'function') {
+        return null;
+    }
+    return candidate as R2Bucket;
+};
+
+const getRegistryObjectKey = (env: any): string => {
+    return readString(env?.CNB_SYNC_R2_KEY) || 'moranjianghu/cnb-sync-registry.json';
+};
+
 const getRegistryTtlSeconds = (env: any): number => toPositiveInt(env?.CNB_SYNC_REGISTRY_TTL_SEC, 900);
 
 const sanitizePayload = (body: any, allowAnyUrl: boolean): SyncPayload | null => {
     const normalizedUrl = normalizeSyncUrl(String(body?.url || ''));
-    const port = Math.max(1, Number(body?.port || 0) || 0);
+    const requestedPort = toPositiveInt(body?.port, 0);
+    const inferredPort = parsePortFromUrl(normalizedUrl);
+    const backendType = readString(body?.backendType || 'comfyui') || 'comfyui';
+    const fallbackPort = backendType === 'comfyui' ? 8188 : 0;
+    const port = requestedPort || inferredPort || fallbackPort;
 
     if (!normalizedUrl || !port || !isAllowedSyncUrl(normalizedUrl, allowAnyUrl)) {
         return null;
@@ -107,7 +144,7 @@ const sanitizePayload = (body: any, allowAnyUrl: boolean): SyncPayload | null =>
 
     return {
         customerId: readString(body?.customerId) || undefined,
-        backendType: readString(body?.backendType || 'comfyui') || 'comfyui',
+        backendType,
         port,
         url: normalizedUrl,
         healthUrl: normalizeSyncUrl(String(body?.healthUrl || '')) || undefined,
@@ -119,10 +156,43 @@ const sanitizePayload = (body: any, allowAnyUrl: boolean): SyncPayload | null =>
     };
 };
 
-const saveRegistryItem = async (env: any, payload: SyncPayload): Promise<RegistryItem | null> => {
-    const registry = getRegistryNamespace(env);
-    if (!registry) return null;
+const readRegistryDocumentFromR2 = async (env: any): Promise<RegistryDocument> => {
+    const bucket = getRegistryBucket(env);
+    if (!bucket) {
+        return { items: [] };
+    }
 
+    const object = await bucket.get(getRegistryObjectKey(env));
+    if (!object) {
+        return { items: [] };
+    }
+
+    try {
+        const parsed = await object.json<RegistryDocument>();
+        return {
+            items: Array.isArray(parsed?.items) ? parsed.items : []
+        };
+    } catch {
+        return { items: [] };
+    }
+};
+
+const writeRegistryDocumentToR2 = async (env: any, document: RegistryDocument): Promise<void> => {
+    const bucket = getRegistryBucket(env);
+    if (!bucket) return;
+
+    await bucket.put(
+        getRegistryObjectKey(env),
+        JSON.stringify(document, null, 2),
+        {
+            httpMetadata: {
+                contentType: 'application/json'
+            }
+        }
+    );
+};
+
+const saveRegistryItem = async (env: any, payload: SyncPayload): Promise<RegistryItem | null> => {
     const now = new Date().toISOString();
     const item: RegistryItem = {
         ...payload,
@@ -132,6 +202,31 @@ const saveRegistryItem = async (env: any, payload: SyncPayload): Promise<Registr
         source: 'registry'
     };
 
+    const bucket = getRegistryBucket(env);
+    if (bucket) {
+        const ttlMs = getRegistryTtlSeconds(env) * 1000;
+        const nowMs = Date.now();
+        const document = await readRegistryDocumentFromR2(env);
+        const filtered = (Array.isArray(document.items) ? document.items : []).filter((existing) => {
+            const heartbeatTime = Date.parse(existing.lastHeartbeatAt || existing.detectedAt || '');
+            if (heartbeatTime && nowMs - heartbeatTime > ttlMs) return false;
+            return existing.id !== item.id;
+        });
+
+        await writeRegistryDocumentToR2(env, {
+            items: [item, ...filtered].sort((a, b) => {
+                const aTime = Date.parse(a.lastHeartbeatAt || a.detectedAt || '') || 0;
+                const bTime = Date.parse(b.lastHeartbeatAt || b.detectedAt || '') || 0;
+                return bTime - aTime;
+            })
+        });
+
+        return item;
+    }
+
+    const registry = getRegistryNamespace(env);
+    if (!registry) return null;
+
     await registry.put(item.id, JSON.stringify(item), {
         expirationTtl: getRegistryTtlSeconds(env)
     });
@@ -140,15 +235,34 @@ const saveRegistryItem = async (env: any, payload: SyncPayload): Promise<Registr
 };
 
 const listRegistryItems = async (request: Request, env: any): Promise<RegistryItem[]> => {
-    const registry = getRegistryNamespace(env);
-    if (!registry) return [];
-
     const url = new URL(request.url);
     const backendType = readString(url.searchParams.get('backendType'));
     const customerId = readString(url.searchParams.get('customerId'));
-    const prefix = backendType ? `backend:${backendType.toLowerCase()}:` : 'backend:';
     const ttlMs = getRegistryTtlSeconds(env) * 1000;
     const now = Date.now();
+
+    const bucket = getRegistryBucket(env);
+    if (bucket) {
+        const document = await readRegistryDocumentFromR2(env);
+        return (Array.isArray(document.items) ? document.items : [])
+            .filter((item) => {
+                const heartbeatTime = Date.parse(item.lastHeartbeatAt || item.detectedAt || '');
+                if (heartbeatTime && now - heartbeatTime > ttlMs) return false;
+                if (backendType && readString(item.backendType) !== backendType) return false;
+                if (customerId && readString(item.customerId) !== customerId) return false;
+                return true;
+            })
+            .sort((a, b) => {
+                const aTime = Date.parse(a.lastHeartbeatAt || a.detectedAt || '') || 0;
+                const bTime = Date.parse(b.lastHeartbeatAt || b.detectedAt || '') || 0;
+                return bTime - aTime;
+            });
+    }
+
+    const registry = getRegistryNamespace(env);
+    if (!registry) return [];
+
+    const prefix = backendType ? `backend:${backendType.toLowerCase()}:` : 'backend:';
 
     let cursor: string | undefined;
     const items: RegistryItem[] = [];

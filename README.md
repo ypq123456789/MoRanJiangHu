@@ -259,6 +259,8 @@ CNB_SYNC_TOKEN=shared_secret
 CNB_SYNC_FORWARD_URL=https://customer-worker.example.com/cnb-sync
 CNB_SYNC_FORWARD_TOKEN=forward_secret
 CNB_SYNC_ALLOW_ANY_URL=false
+CNB_SYNC_R2=<Cloudflare R2 binding>
+CNB_SYNC_R2_KEY=moranjianghu/cnb-sync-registry.json
 CNB_SYNC_REGISTRY=<Cloudflare KV binding>
 CNB_SYNC_REGISTRY_TTL_SEC=900
 ```
@@ -268,7 +270,8 @@ CNB_SYNC_REGISTRY_TTL_SEC=900
 - 作为你自己站点上的接收入口，再转发到客户 worker。
 - 校验共享 token，避免任意请求伪造同步。
 - 默认只接受 `cnb.run` 域名；如确实需要放开，可设置 `CNB_SYNC_ALLOW_ANY_URL=true`。
-- 如果绑定了 `CNB_SYNC_REGISTRY`（Cloudflare KV），接口还会把在线后端写入注册表，并支持 `GET /api/image-backend/cnb-sync` 返回在线列表。
+- 如果绑定了 `CNB_SYNC_R2`（Cloudflare R2），接口会把在线后端写入一个 `registry.json` 注册表文件，并支持 `GET /api/image-backend/cnb-sync` 返回在线列表。
+- 若未绑定 `CNB_SYNC_R2`，接口仍可继续使用旧的 `CNB_SYNC_REGISTRY`（Cloudflare KV）兼容模式。
 - 前端设置页里的 ComfyUI 面板已经支持读取这个注册表，并把选中的在线后端地址自动回填到 API 地址。
 
 ## 目录结构
