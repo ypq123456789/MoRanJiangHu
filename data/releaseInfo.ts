@@ -3,6 +3,36 @@ export const RELEASE_INFO = {
     "versionCode": 2,
     "versionName": "1.0.1",
     "releaseChannel": "stable",
+    "releasePublishedAt": "2026-04-21T05:18:55.051Z",
+    "releaseNotes": [
+        "修复安卓版首页右上角按钮重叠问题，头部操作区重新排版。",
+        "首页新增 GitHub 项目入口与 APK 下载入口，客户可直接获取最新版。",
+        "新增 APK 自动检查更新与手动检查更新入口。",
+        "发布包已同步上传到下载域名，可通过统一链接直接安装。"
+    ],
+    "releaseHistory": [
+        {
+            "versionCode": 2,
+            "versionName": "1.0.1",
+            "publishedAt": "2026-04-21T05:18:55.051Z",
+            "changes": [
+                "修复安卓版首页右上角按钮重叠问题，头部操作区重新排版。",
+                "首页新增 GitHub 项目入口与 APK 下载入口，客户可直接获取最新版。",
+                "新增 APK 自动检查更新与手动检查更新入口。",
+                "发布包已同步上传到下载域名，可通过统一链接直接安装。"
+            ]
+        },
+        {
+            "versionCode": 1,
+            "versionName": "1.0.0",
+            "publishedAt": "2026-04-21T04:40:00.000Z",
+            "changes": [
+                "修复顶部信息栏详情弹窗关闭问题。",
+                "优化移动端顶部六栏布局与详情展示。",
+                "修复小说拆解与后台队列的部分稳定性问题。"
+            ]
+        }
+    ],
     "websiteUrl": "https://msjh.bacon.de5.net",
     "githubRepoUrl": "https://github.com/ypq123456789/MoRanJiangHu",
     "releaseNotesUrl": "https://github.com/ypq123456789/MoRanJiangHu/commits/main",

@@ -1,6 +1,7 @@
 import { App as CapacitorApp } from '@capacitor/app';
 import { RELEASE_INFO } from '../data/releaseInfo';
 import { isNativeCapacitorEnvironment } from '../utils/nativeRuntime';
+import { NativeApkUpdater } from './nativeApkUpdater';
 
 const UPDATE_PROMPT_STORAGE_KEY = 'moranjianghu.lastPromptedUpdateVersion';
 
@@ -12,7 +13,14 @@ export type UpdateManifest = {
     manifestUrl?: string;
     githubRepoUrl?: string;
     releaseNotesUrl?: string;
+    websiteUrl?: string;
     publishedAt?: string;
+    changes?: string[];
+};
+
+type UpdateManifestDocument = {
+    latest?: UpdateManifest;
+    history?: UpdateManifest[];
 };
 
 const parseVersionParts = (value: string): number[] => (
@@ -95,7 +103,13 @@ export const fetchLatestUpdateManifest = async (): Promise<UpdateManifest | null
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        return await response.json();
+
+        const payload = await response.json() as UpdateManifestDocument | UpdateManifest;
+        if (payload && typeof payload === 'object' && 'latest' in payload && payload.latest) {
+            return payload.latest;
+        }
+
+        return payload as UpdateManifest;
     } catch (error) {
         console.warn('Failed to fetch update manifest:', error);
         return null;
@@ -113,6 +127,26 @@ export const hasNewerRelease = (
     if (latestCode < currentCode) return false;
 
     return compareVersionNames(manifest.versionName || '', currentRelease.versionName || '') > 0;
+};
+
+const formatChanges = (changes?: string[]) => {
+    if (!Array.isArray(changes) || changes.length === 0) {
+        return '本次版本未填写详细更新日志。';
+    }
+
+    return changes.map((item, index) => `${index + 1}. ${item}`).join('\n');
+};
+
+const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
+    const targetUrl = manifest.apkUrl || RELEASE_INFO.apkDownloadUrl;
+    if (!targetUrl) {
+        throw new Error('缺少 APK 下载地址。');
+    }
+
+    await NativeApkUpdater.downloadAndInstall({
+        url: targetUrl,
+        versionName: manifest.versionName || RELEASE_INFO.versionName
+    });
 };
 
 export const checkForAppUpdate = async (options?: { silentNoUpdate?: boolean; auto?: boolean }) => {
@@ -137,15 +171,18 @@ export const checkForAppUpdate = async (options?: { silentNoUpdate?: boolean; au
         return { updateAvailable: true, currentRelease, manifest, skippedPrompt: true };
     }
 
-    const targetUrl = manifest.apkUrl || RELEASE_INFO.apkDownloadUrl;
     const confirmed = window.confirm(
-        `检测到新版本 v${manifest.versionName}（当前 v${currentRelease.versionName}）。\n\n是否立即打开下载链接更新 APK？`
+        `检测到新版本 v${manifest.versionName}（当前 v${currentRelease.versionName}）。\n\n更新内容：\n${formatChanges(manifest.changes)}\n\n是否立即更新？`
     );
 
     setPromptedVersion(manifest.versionName);
 
-    if (confirmed && targetUrl) {
-        await openExternalUrl(targetUrl);
+    if (confirmed) {
+        if (isNativeCapacitorEnvironment()) {
+            await installUpdateInNativeApp(manifest);
+        } else {
+            await openExternalUrl(manifest.apkUrl || RELEASE_INFO.apkDownloadUrl);
+        }
     }
 
     return { updateAvailable: true, currentRelease, manifest, opened: confirmed };

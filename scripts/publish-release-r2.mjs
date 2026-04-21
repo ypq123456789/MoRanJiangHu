@@ -27,15 +27,19 @@ const versionedKey = `${bucket}/${prefix}/MoRanJiangHu-v${releaseInfo.versionNam
 const manifestKey = `${bucket}/${prefix}/latest.json`;
 
 const manifest = {
-  versionCode: releaseInfo.versionCode,
-  versionName: releaseInfo.versionName,
-  releaseChannel: releaseInfo.releaseChannel,
-  websiteUrl: releaseInfo.websiteUrl,
-  githubRepoUrl: releaseInfo.githubRepoUrl,
-  releaseNotesUrl: releaseInfo.releaseNotesUrl,
-  apkUrl: releaseInfo.apkDownloadUrl,
-  manifestUrl: releaseInfo.updateManifestUrl,
-  publishedAt: new Date().toISOString()
+  latest: {
+    versionCode: releaseInfo.versionCode,
+    versionName: releaseInfo.versionName,
+    releaseChannel: releaseInfo.releaseChannel,
+    websiteUrl: releaseInfo.websiteUrl,
+    githubRepoUrl: releaseInfo.githubRepoUrl,
+    releaseNotesUrl: releaseInfo.releaseNotesUrl,
+    apkUrl: releaseInfo.apkDownloadUrl,
+    manifestUrl: releaseInfo.updateManifestUrl,
+    publishedAt: releaseInfo.releasePublishedAt || new Date().toISOString(),
+    changes: Array.isArray(releaseInfo.releaseNotes) ? releaseInfo.releaseNotes : []
+  },
+  history: Array.isArray(releaseInfo.releaseHistory) ? releaseInfo.releaseHistory : []
 };
 
 const manifestPath = path.join(os.tmpdir(), `moranjianghu-release-${Date.now()}.json`);

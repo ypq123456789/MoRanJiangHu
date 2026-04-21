@@ -93,6 +93,8 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
         setIsCheckingUpdate(true);
         try {
             await checkForAppUpdate();
+        } catch (error: any) {
+            window.alert(`开始更新失败：${error?.message || '未知错误'}`);
         } finally {
             setIsCheckingUpdate(false);
         }
@@ -217,10 +219,16 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
                     </button>
                     <button
                         type="button"
-                        onClick={() => { void openExternalUrl(RELEASE_INFO.apkDownloadUrl); }}
+                        onClick={() => {
+                            if (isNativeApp) {
+                                void handleCheckUpdate();
+                                return;
+                            }
+                            void openExternalUrl(RELEASE_INFO.apkDownloadUrl);
+                        }}
                         className="min-h-[40px] border border-emerald-500/25 bg-emerald-500/10 px-4 py-2 text-xs tracking-[0.16em] text-emerald-300 transition-colors hover:bg-emerald-500/15"
                     >
-                        APK 下载
+                        {isNativeApp ? '立即更新' : 'APK 下载'}
                     </button>
                     {!isNativeApp && (
                         <button
@@ -228,15 +236,15 @@ const LandingPage: React.FC<Props> = ({ onStart, onLoad, onImageManager, onWorld
                             onClick={() => { void openExternalUrl(RELEASE_INFO.updateManifestUrl); }}
                             className="min-h-[40px] border border-sky-500/25 bg-sky-500/10 px-4 py-2 text-xs tracking-[0.16em] text-sky-200 transition-colors hover:bg-sky-500/15"
                         >
-                            更新清单
+                            更新日志
                         </button>
                     )}
                 </div>
 
                 <div className="mt-3 text-xs leading-6 text-gray-400">
                     {isNativeApp
-                        ? 'APK 已内置“检查更新”按钮，启动和回到前台时也会自动检查。'
-                        : '网页首页已内置 GitHub 项目地址和 APK 下载入口，客户可直接获取最新版本。'}
+                        ? 'APK 版本会直接在应用内下载并拉起安装器，不再跳转浏览器。'
+                        : '网页首页已内置 GitHub 项目地址、APK 下载链接和更新日志入口，客户可直接查看。'}
                 </div>
             </div>
 
