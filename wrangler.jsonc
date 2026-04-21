@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "moranjianghu",
+  "main": ".tmp-worker-build/index.js",
+  "compatibility_date": "2026-04-21",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "vars": {
+    "CNB_SYNC_R2_KEY": "moranjianghu/cnb-sync-registry.json"
+  },
+  "r2_buckets": [
+    {
+      "binding": "CNB_SYNC_R2",
+      "bucket_name": "quark-downloads-bacon"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

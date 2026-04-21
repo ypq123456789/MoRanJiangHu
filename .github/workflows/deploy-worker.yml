@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Pages
+name: Deploy Cloudflare Worker
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-pages
+  group: cloudflare-worker
   cancel-in-progress: true
 
 jobs:
@@ -40,15 +40,13 @@ jobs:
             exit 1
           fi
 
-      - name: Build
-        run: npm run build
+      - name: Build Worker bundle
+        run: npm run worker:build
 
-      - name: Install Wrangler
-        run: npm install --no-save wrangler@4
-
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-        run: npx wrangler pages deploy dist --project-name=moranjianghu --branch=main
+        run: npx wrangler@4 deploy
