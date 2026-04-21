@@ -10,6 +10,8 @@ interface Props {
     socialList: NPC结构[];
     cultivationSystemEnabled?: boolean;
     onClose: () => void;
+    selectedNpcId?: string | null;
+    onSelectedNpcIdChange?: (npcId: string | null) => void;
     playerName?: string; // Add playerName prop to check for first time taker
     nsfwEnabled?: boolean;
     onToggleMajorRole?: (npcId: string, nextIsMajor: boolean) => void;
@@ -21,6 +23,8 @@ const MobileSocial: React.FC<Props> = ({
     socialList,
     cultivationSystemEnabled = true,
     onClose,
+    selectedNpcId,
+    onSelectedNpcIdChange,
     playerName = "少侠",
     nsfwEnabled = false,
     onToggleMajorRole,
@@ -44,6 +48,12 @@ const MobileSocial: React.FC<Props> = ({
             setSelectedId(socialList[0].id);
         }
     }, [selectedId, socialList]);
+
+    useEffect(() => {
+        if (!selectedNpcId) return;
+        if (!socialList.some(item => item.id === selectedNpcId)) return;
+        setSelectedId(selectedNpcId);
+    }, [selectedNpcId, socialList]);
 
     useEffect(() => {
         // 关闭或切换角色时折叠背景
@@ -214,6 +224,7 @@ const MobileSocial: React.FC<Props> = ({
 
     const 当前头像 = 提取头像图片地址(currentNPC);
     const 当前立绘 = 提取立绘图片地址(currentNPC);
+    const 当前详情主图 = 当前立绘 || 当前头像;
     const 当前背景 = 提取背景图片地址(currentNPC) || 当前立绘 || 当前头像;
     const 打开图片查看器 = (src?: string, alt?: string) => {
         const normalizedSrc = typeof src === 'string' ? src.trim() : '';
@@ -276,7 +287,10 @@ const MobileSocial: React.FC<Props> = ({
                             {socialList.map(npc => (
                                 <button
                                     key={npc.id}
-                                    onClick={() => setSelectedId(npc.id)}
+                                    onClick={() => {
+                                        setSelectedId(npc.id);
+                                        onSelectedNpcIdChange?.(npc.id);
+                                    }}
                                     className={`w-[140px] shrink-0 p-1.5 rounded-xl transition-all relative group overflow-hidden flex items-center gap-2 ${
                                         selectedId === npc.id 
                                         ? 'bg-gradient-to-r from-wuxia-gold/20 to-wuxia-gold/5 border border-wuxia-gold/40 shadow-[0_0_15px_rgba(212,175,55,0.15)]' 
@@ -357,7 +371,7 @@ const MobileSocial: React.FC<Props> = ({
                             {currentNPC ? (
                                 <div className="p-4 flex flex-col gap-4 pb-12">
                                 {/* Toggle Background Button */}
-                                {(当前背景 || 当前立绘) && (
+                                {(当前背景 || 当前详情主图) && (
                                     <button 
                                         onClick={() => setShowFullBackground(!showFullBackground)}
                                         className="w-full py-2 bg-gradient-to-r from-transparent via-wuxia-gold/10 to-transparent border-y border-wuxia-gold/20 flex items-center justify-center gap-2 text-[10px] text-wuxia-gold/70 tracking-widest font-serif active:bg-wuxia-gold/20 transition-all mb-2"
@@ -381,11 +395,11 @@ const MobileSocial: React.FC<Props> = ({
                                         <button
                                             type="button"
                                             className="w-20 h-28 rounded-lg border border-wuxia-gold/30 overflow-hidden relative shadow-[0_0_15px_rgba(212,175,55,0.2)] bg-black/50 shrink-0"
-                                            onClick={() => 打开图片查看器(当前立绘, `${currentNPC.姓名} 立绘`)}
-                                            title={当前立绘 ? '点击查看图片大图' : ''}
+                                            onClick={() => 打开图片查看器(当前详情主图, `${currentNPC.姓名}${当前立绘 ? ' 立绘' : ' 头像'}`)}
+                                            title={当前详情主图 ? '点击查看图片大图' : ''}
                                         >
-                                            {当前立绘 ? (
-                                                <img src={当前立绘} alt={currentNPC.姓名} className="w-full h-full object-cover" />
+                                            {当前详情主图 ? (
+                                                <img src={当前详情主图} alt={currentNPC.姓名} className="w-full h-full object-cover" />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center font-serif text-2xl text-wuxia-gold/30">{currentNPC.姓名[0]}</div>
                                             )}

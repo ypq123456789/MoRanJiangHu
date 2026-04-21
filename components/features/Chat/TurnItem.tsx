@@ -20,6 +20,7 @@ interface Props {
     visualConfig?: 视觉设置结构;
     socialList?: NPC结构[];
     playerProfile?: { 姓名?: string; 头像图片URL?: string };
+    onOpenNpcDetail?: (npcId: string) => void;
     turnAnchorRef?: React.Ref<HTMLDivElement>;
 }
 
@@ -39,6 +40,7 @@ const TurnItem: React.FC<Props> = ({
     visualConfig,
     socialList,
     playerProfile,
+    onOpenNpcDetail,
     turnAnchorRef
 }) => {
     const formatRawJson = (raw?: string) => raw || '（该回合未记录原始文本）';
@@ -516,7 +518,7 @@ const TurnItem: React.FC<Props> = ({
                         const isNsfw = log.sender?.includes('NSFW');
                         return <JudgmentRenderer key={idx} text={log.text} thoughtBlock={matchedJudgeBlock} isNsfw={isNsfw} visualConfig={visualConfig} prefix={log.sender} />;
                     }
-                    return <CharacterRenderer key={idx} sender={log.sender} text={log.text} visualConfig={visualConfig} socialList={socialList} playerProfile={playerProfile} />;
+                    return <CharacterRenderer key={idx} sender={log.sender} text={log.text} visualConfig={visualConfig} socialList={socialList} playerProfile={playerProfile} onOpenNpcDetail={onOpenNpcDetail} />;
                 })}
             </div>
 

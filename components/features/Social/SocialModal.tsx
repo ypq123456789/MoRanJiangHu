@@ -11,6 +11,8 @@ interface Props {
     socialList: NPC结构[];
     cultivationSystemEnabled?: boolean;
     onClose: () => void;
+    selectedNpcId?: string | null;
+    onSelectedNpcIdChange?: (npcId: string | null) => void;
     playerName?: string; // Add playerName prop to check for first time taker
     nsfwEnabled?: boolean;
     onToggleMajorRole?: (npcId: string, nextIsMajor: boolean) => void;
@@ -22,6 +24,8 @@ const SocialModal: React.FC<Props> = ({
     socialList,
     cultivationSystemEnabled = true,
     onClose,
+    selectedNpcId,
+    onSelectedNpcIdChange,
     playerName = "少侠",
     nsfwEnabled = false,
     onToggleMajorRole,
@@ -46,6 +50,12 @@ const SocialModal: React.FC<Props> = ({
             setSelectedId(socialList[0].id);
         }
     }, [selectedId, socialList]);
+
+    useEffect(() => {
+        if (!selectedNpcId) return;
+        if (!socialList.some(item => item.id === selectedNpcId)) return;
+        setSelectedId(selectedNpcId);
+    }, [selectedNpcId, socialList]);
 
     useEffect(() => {
         setShowFullBackground(false);
@@ -208,7 +218,8 @@ const SocialModal: React.FC<Props> = ({
 
     const 当前头像 = 提取头像图片地址(currentNPC);
     const 当前立绘 = 提取立绘图片地址(currentNPC);
-    const 当前背景 = 提取背景图片地址(currentNPC) || 当前立绘;
+    const 当前详情主图 = 当前立绘 || 当前头像;
+    const 当前背景 = 提取背景图片地址(currentNPC) || 当前立绘 || 当前头像;
     const 打开图片查看器 = (src?: string, alt?: string) => {
         const normalizedSrc = typeof src === 'string' ? src.trim() : '';
         if (!normalizedSrc) return;
@@ -266,7 +277,10 @@ const SocialModal: React.FC<Props> = ({
                         {socialList.map(npc => (
                             <button
                                 key={npc.id}
-                                onClick={() => setSelectedId(npc.id)}
+                                onClick={() => {
+                                    setSelectedId(npc.id);
+                                    onSelectedNpcIdChange?.(npc.id);
+                                }}
                                 className={`w-full text-left p-2 rounded-xl transition-all relative group overflow-hidden flex items-center gap-3 ${selectedId === npc.id
                                     ? 'bg-gradient-to-r from-wuxia-gold/20 to-wuxia-gold/5 border border-wuxia-gold/40 shadow-[0_0_15px_rgba(212,175,55,0.15)]'
                                     : 'border border-transparent hover:border-white/10 hover:bg-white/[0.03]'
@@ -346,7 +360,7 @@ const SocialModal: React.FC<Props> = ({
                         </div>
 
                         {/* Expandable Button Fixed at Top */}
-                        {currentNPC && (当前背景 || 当前立绘) && (
+                        {currentNPC && (当前背景 || 当前详情主图) && (
                             <button
                                 type="button"
                                 onClick={() => setShowFullBackground(!showFullBackground)}
@@ -387,12 +401,12 @@ const SocialModal: React.FC<Props> = ({
                                         {/* Portrait Thumbnail */}
                                         <div
                                             className="w-24 h-32 rounded-lg border-2 border-wuxia-gold/30 overflow-hidden relative shadow-[0_0_20px_rgba(212,175,55,0.2)] bg-black/50 shrink-0 group-hover:border-wuxia-gold/60 transition-all cursor-pointer group/portrait"
-                                            onClick={() => 打开图片查看器(当前立绘, `${currentNPC.姓名} 立绘`)}
-                                            title={当前立绘 ? "点击查看图片大图" : ""}
+                                            onClick={() => 打开图片查看器(当前详情主图, `${currentNPC.姓名}${当前立绘 ? ' 立绘' : ' 头像'}`)}
+                                            title={当前详情主图 ? "点击查看图片大图" : ""}
                                         >
-                                            {当前立绘 ? (
+                                            {当前详情主图 ? (
                                                 <>
-                                                    <img src={当前立绘} alt={currentNPC.姓名} className="w-full h-full object-cover group-hover/portrait:scale-110 transition-transform duration-500" />
+                                                    <img src={当前详情主图} alt={currentNPC.姓名} className="w-full h-full object-cover group-hover/portrait:scale-110 transition-transform duration-500" />
                                                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/portrait:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px]">
                                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-wuxia-gold drop-shadow-[0_0_5px_rgba(212,175,55,0.8)]">
                                                             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" />

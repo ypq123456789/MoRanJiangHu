@@ -242,7 +242,24 @@ type 玩家资料 = {
     头像图片URL?: string;
 };
 
-export const CharacterRenderer: React.FC<{ sender: string; text: string; visualConfig?: 视觉设置结构; socialList?: NPC结构[]; playerProfile?: 玩家资料 }> = ({ sender, text, visualConfig, socialList, playerProfile }) => {
+const 获取匹配NPC = (sender: string, socialList?: NPC结构[]): NPC结构 | null => {
+    const normalizedSender = (sender || '').trim();
+    if (!normalizedSender) return null;
+    const list = Array.isArray(socialList) ? socialList : [];
+    return list.find((npc) => {
+        const name = typeof npc?.姓名 === 'string' ? npc.姓名.trim() : '';
+        return name === normalizedSender;
+    }) || null;
+};
+
+export const CharacterRenderer: React.FC<{
+    sender: string;
+    text: string;
+    visualConfig?: 视觉设置结构;
+    socialList?: NPC结构[];
+    playerProfile?: 玩家资料;
+    onOpenNpcDetail?: (npcId: string) => void;
+}> = ({ sender, text, visualConfig, socialList, playerProfile, onOpenNpcDetail }) => {
     use图片资源回源预取(playerProfile?.头像图片URL, socialList);
     const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
     const colors = ['bg-red-900', 'bg-blue-900', 'bg-emerald-900', 'bg-violet-900', 'bg-amber-900'];
@@ -250,7 +267,17 @@ export const CharacterRenderer: React.FC<{ sender: string; text: string; visualC
     const bgClass = colors[colorIdx];
     const style = 构建区域文字样式(visualConfig, '角色对话');
     const usePlayerAvatar = 是否主角称呼(sender, playerProfile?.姓名);
+    const matchedNpc = usePlayerAvatar ? null : 获取匹配NPC(sender, socialList);
     const avatarUrl = usePlayerAvatar ? 获取图片资源文本地址(playerProfile?.头像图片URL) : 获取NPC头像地址(sender, socialList);
+    const handleAvatarClick = () => {
+        if (matchedNpc?.id && onOpenNpcDetail) {
+            onOpenNpcDetail(matchedNpc.id);
+            return;
+        }
+        if (avatarUrl) {
+            setAvatarPreviewOpen(true);
+        }
+    };
     const roleNameStyle: React.CSSProperties = {
         ...style,
         color: '#f3f4f6',
@@ -267,9 +294,9 @@ export const CharacterRenderer: React.FC<{ sender: string; text: string; visualC
                     {avatarUrl ? (
                         <button
                             type="button"
-                            onClick={() => setAvatarPreviewOpen(true)}
-                            className="relative z-10 h-full w-full cursor-zoom-in"
-                            aria-label={`放大查看 ${sender} 头像`}
+                            onClick={handleAvatarClick}
+                            className="relative z-10 h-full w-full"
+                            aria-label={matchedNpc?.id ? `打开 ${sender} 人物详情` : `放大查看 ${sender} 头像`}
                         >
                             <img src={avatarUrl} alt={`${sender} 头像`} className="w-full h-full object-cover" />
                         </button>

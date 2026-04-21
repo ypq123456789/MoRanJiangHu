@@ -16,6 +16,7 @@ import { 构建字体注入样式文本, 构建UI文字CSS变量 } from './utils
 import { 获取图片资源文本地址 } from './utils/imageAssets';
 import { MusicProvider } from './components/features/Music/MusicProvider';
 import { isNativeCapacitorEnvironment } from './utils/nativeRuntime';
+import { isDynamicImportFetchError, lazyImportWithReload } from './utils/lazyImportWithReload';
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
 import { checkForAppUpdate, subscribeAppUpdateProgress, type AppUpdateProgressState } from './services/appUpdate';
 import { RELEASE_INFO } from './data/releaseInfo';
@@ -27,57 +28,59 @@ type 可预加载组件<T extends React.ComponentType<any>> = React.LazyExoticCo
 };
 
 const 创建可预加载懒组件 = <T extends React.ComponentType<any>>(
+    importKey: string,
     loader: () => Promise<{ default: T }>
 ): 可预加载组件<T> => {
-    const Component = React.lazy(loader) as 可预加载组件<T>;
-    Component.preload = loader;
+    const wrappedLoader = () => lazyImportWithReload(importKey, loader);
+    const Component = React.lazy(wrappedLoader) as 可预加载组件<T>;
+    Component.preload = wrappedLoader;
     return Component;
 };
 
-const CharacterModal = 创建可预加载懒组件(() => import('./components/features/Character/CharacterModal'));
-const MobileCharacter = 创建可预加载懒组件(() => import('./components/features/Character/MobileCharacter'));
-const NewGameWizard = 创建可预加载懒组件(() => import('./components/features/NewGame/NewGameWizard'));
-const MobileNewGameWizard = 创建可预加载懒组件(() => import('./components/features/NewGame/mobile/MobileNewGameWizard'));
-const SettingsModal = 创建可预加载懒组件(() => import('./components/features/Settings/SettingsModal'));
-const MobileSettingsModal = 创建可预加载懒组件(() => import('./components/features/Settings/mobile/MobileSettingsModal'));
-const InventoryModal = 创建可预加载懒组件(() => import('./components/features/Inventory/InventoryModal'));
-const MobileInventoryModal = 创建可预加载懒组件(() => import('./components/features/Inventory/MobileInventoryModal'));
-const EquipmentModal = 创建可预加载懒组件(() => import('./components/features/Equipment/EquipmentModal'));
-const BattleModal = 创建可预加载懒组件(() => import('./components/features/Battle/BattleModal'));
-const MobileBattleModal = 创建可预加载懒组件(() => import('./components/features/Battle/MobileBattleModal'));
-const SocialModal = 创建可预加载懒组件(() => import('./components/features/Social/SocialModal'));
-const MobileSocial = 创建可预加载懒组件(() => import('./components/features/Social/MobileSocial'));
-const ImageManagerModal = 创建可预加载懒组件(() => import('./components/features/Social/ImageManagerModal'));
-const MobileImageManagerModal = 创建可预加载懒组件(() => import('./components/features/Social/mobile/MobileImageManagerModal'));
-const WorldbookManagerModal = 创建可预加载懒组件(() => import('./components/features/Worldbook/WorldbookManagerModal'));
-const TeamModal = 创建可预加载懒组件(() => import('./components/features/Team/TeamModal'));
-const MobileTeamModal = 创建可预加载懒组件(() => import('./components/features/Team/MobileTeamModal'));
-const KungfuModal = 创建可预加载懒组件(() => import('./components/features/Kungfu/KungfuModal'));
-const MobileKungfuModal = 创建可预加载懒组件(() => import('./components/features/Kungfu/MobileKungfuModal'));
-const WorldModal = 创建可预加载懒组件(() => import('./components/features/World/WorldModal'));
-const MobileWorldModal = 创建可预加载懒组件(() => import('./components/features/World/MobileWorldModal'));
-const MapModal = 创建可预加载懒组件(() => import('./components/features/Map/MapModal'));
-const MobileMapModal = 创建可预加载懒组件(() => import('./components/features/Map/MobileMapModal'));
-const SectModal = 创建可预加载懒组件(() => import('./components/features/Sect/SectModal'));
-const MobileSect = 创建可预加载懒组件(() => import('./components/features/Sect/MobileSect'));
-const TaskModal = 创建可预加载懒组件(() => import('./components/features/Task/TaskModal'));
-const MobileTask = 创建可预加载懒组件(() => import('./components/features/Task/MobileTask'));
-const AgreementModal = 创建可预加载懒组件(() => import('./components/features/Agreement/AgreementModal'));
-const MobileAgreementModal = 创建可预加载懒组件(() => import('./components/features/Agreement/MobileAgreementModal'));
-const StoryModal = 创建可预加载懒组件(() => import('./components/features/Story/StoryModal'));
-const MobileStory = 创建可预加载懒组件(() => import('./components/features/Story/MobileStory'));
-const HeroinePlanModal = 创建可预加载懒组件(() => import('./components/features/Story/HeroinePlanModal'));
-const MobileHeroinePlanModal = 创建可预加载懒组件(() => import('./components/features/Story/MobileHeroinePlanModal'));
-const NovelExportModal = 创建可预加载懒组件(() => import('./components/features/Story/NovelExportModal'));
-const MemoryModal = 创建可预加载懒组件(() => import('./components/features/Memory/MemoryModal'));
-const MobileMemory = 创建可预加载懒组件(() => import('./components/features/Memory/MobileMemory'));
-const MemorySummaryFlowModal = 创建可预加载懒组件(() => import('./components/features/Memory/MemorySummaryFlowModal'));
-const MemorySummaryFlowMobileModal = 创建可预加载懒组件(() => import('./components/features/Memory/MemorySummaryFlowMobileModal'));
-const NpcMemorySummaryFlowModal = 创建可预加载懒组件(() => import('./components/features/Memory/NpcMemorySummaryFlowModal'));
-const NpcMemorySummaryFlowMobileModal = 创建可预加载懒组件(() => import('./components/features/Memory/NpcMemorySummaryFlowMobileModal'));
-const SaveLoadModal = 创建可预加载懒组件(() => import('./components/features/SaveLoad/SaveLoadModal'));
-const MobileMusicPlayer = 创建可预加载懒组件(() => import('./components/features/Music/mobile/MobileMusicPlayer'));
-const NovelDecompositionWorkbenchModal = 创建可预加载懒组件(() => import('./components/features/NovelDecomposition/NovelDecompositionWorkbenchModal'));
+const CharacterModal = 创建可预加载懒组件('character-modal', () => import('./components/features/Character/CharacterModal'));
+const MobileCharacter = 创建可预加载懒组件('mobile-character', () => import('./components/features/Character/MobileCharacter'));
+const NewGameWizard = 创建可预加载懒组件('new-game-wizard', () => import('./components/features/NewGame/NewGameWizard'));
+const MobileNewGameWizard = 创建可预加载懒组件('mobile-new-game-wizard', () => import('./components/features/NewGame/mobile/MobileNewGameWizard'));
+const SettingsModal = 创建可预加载懒组件('settings-modal', () => import('./components/features/Settings/SettingsModal'));
+const MobileSettingsModal = 创建可预加载懒组件('mobile-settings-modal', () => import('./components/features/Settings/mobile/MobileSettingsModal'));
+const InventoryModal = 创建可预加载懒组件('inventory-modal', () => import('./components/features/Inventory/InventoryModal'));
+const MobileInventoryModal = 创建可预加载懒组件('mobile-inventory-modal', () => import('./components/features/Inventory/MobileInventoryModal'));
+const EquipmentModal = 创建可预加载懒组件('equipment-modal', () => import('./components/features/Equipment/EquipmentModal'));
+const BattleModal = 创建可预加载懒组件('battle-modal', () => import('./components/features/Battle/BattleModal'));
+const MobileBattleModal = 创建可预加载懒组件('mobile-battle-modal', () => import('./components/features/Battle/MobileBattleModal'));
+const SocialModal = 创建可预加载懒组件('social-modal', () => import('./components/features/Social/SocialModal'));
+const MobileSocial = 创建可预加载懒组件('mobile-social', () => import('./components/features/Social/MobileSocial'));
+const ImageManagerModal = 创建可预加载懒组件('image-manager-modal', () => import('./components/features/Social/ImageManagerModal'));
+const MobileImageManagerModal = 创建可预加载懒组件('mobile-image-manager-modal', () => import('./components/features/Social/mobile/MobileImageManagerModal'));
+const WorldbookManagerModal = 创建可预加载懒组件('worldbook-manager-modal', () => import('./components/features/Worldbook/WorldbookManagerModal'));
+const TeamModal = 创建可预加载懒组件('team-modal', () => import('./components/features/Team/TeamModal'));
+const MobileTeamModal = 创建可预加载懒组件('mobile-team-modal', () => import('./components/features/Team/MobileTeamModal'));
+const KungfuModal = 创建可预加载懒组件('kungfu-modal', () => import('./components/features/Kungfu/KungfuModal'));
+const MobileKungfuModal = 创建可预加载懒组件('mobile-kungfu-modal', () => import('./components/features/Kungfu/MobileKungfuModal'));
+const WorldModal = 创建可预加载懒组件('world-modal', () => import('./components/features/World/WorldModal'));
+const MobileWorldModal = 创建可预加载懒组件('mobile-world-modal', () => import('./components/features/World/MobileWorldModal'));
+const MapModal = 创建可预加载懒组件('map-modal', () => import('./components/features/Map/MapModal'));
+const MobileMapModal = 创建可预加载懒组件('mobile-map-modal', () => import('./components/features/Map/MobileMapModal'));
+const SectModal = 创建可预加载懒组件('sect-modal', () => import('./components/features/Sect/SectModal'));
+const MobileSect = 创建可预加载懒组件('mobile-sect', () => import('./components/features/Sect/MobileSect'));
+const TaskModal = 创建可预加载懒组件('task-modal', () => import('./components/features/Task/TaskModal'));
+const MobileTask = 创建可预加载懒组件('mobile-task', () => import('./components/features/Task/MobileTask'));
+const AgreementModal = 创建可预加载懒组件('agreement-modal', () => import('./components/features/Agreement/AgreementModal'));
+const MobileAgreementModal = 创建可预加载懒组件('mobile-agreement-modal', () => import('./components/features/Agreement/MobileAgreementModal'));
+const StoryModal = 创建可预加载懒组件('story-modal', () => import('./components/features/Story/StoryModal'));
+const MobileStory = 创建可预加载懒组件('mobile-story', () => import('./components/features/Story/MobileStory'));
+const HeroinePlanModal = 创建可预加载懒组件('heroine-plan-modal', () => import('./components/features/Story/HeroinePlanModal'));
+const MobileHeroinePlanModal = 创建可预加载懒组件('mobile-heroine-plan-modal', () => import('./components/features/Story/MobileHeroinePlanModal'));
+const NovelExportModal = 创建可预加载懒组件('novel-export-modal', () => import('./components/features/Story/NovelExportModal'));
+const MemoryModal = 创建可预加载懒组件('memory-modal', () => import('./components/features/Memory/MemoryModal'));
+const MobileMemory = 创建可预加载懒组件('mobile-memory', () => import('./components/features/Memory/MobileMemory'));
+const MemorySummaryFlowModal = 创建可预加载懒组件('memory-summary-flow-modal', () => import('./components/features/Memory/MemorySummaryFlowModal'));
+const MemorySummaryFlowMobileModal = 创建可预加载懒组件('mobile-memory-summary-flow-modal', () => import('./components/features/Memory/MemorySummaryFlowMobileModal'));
+const NpcMemorySummaryFlowModal = 创建可预加载懒组件('npc-memory-summary-flow-modal', () => import('./components/features/Memory/NpcMemorySummaryFlowModal'));
+const NpcMemorySummaryFlowMobileModal = 创建可预加载懒组件('mobile-npc-memory-summary-flow-modal', () => import('./components/features/Memory/NpcMemorySummaryFlowMobileModal'));
+const SaveLoadModal = 创建可预加载懒组件('save-load-modal', () => import('./components/features/SaveLoad/SaveLoadModal'));
+const MobileMusicPlayer = 创建可预加载懒组件('mobile-music-player', () => import('./components/features/Music/mobile/MobileMusicPlayer'));
+const NovelDecompositionWorkbenchModal = 创建可预加载懒组件('novel-decomposition-workbench-modal', () => import('./components/features/NovelDecomposition/NovelDecompositionWorkbenchModal'));
 
 const 懒加载占位: React.FC = () => (
     <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/45 px-6 py-10 text-center backdrop-blur-[2px]">
@@ -114,6 +117,7 @@ class ModalErrorBoundary extends React.Component<
             return this.props.children;
         }
 
+        const isLazyImportError = isDynamicImportFetchError(this.state.error);
         return (
             <div className="fixed inset-0 z-[280] flex items-center justify-center bg-black/88 px-5 py-8">
                 <div className="w-full max-w-md rounded-2xl border border-red-500/45 bg-[#120909] p-5 text-red-100 shadow-[0_20px_60px_rgba(0,0,0,0.7)]">
@@ -122,8 +126,19 @@ class ModalErrorBoundary extends React.Component<
                         {this.state.error.message || '界面渲染失败'}
                     </div>
                     <div className="mt-4 text-xs leading-5 text-red-200/70">
-                        请把这段报错截图发我，我就能继续按具体原因修。
+                        {isLazyImportError
+                            ? '检测到页面资源已经更新，但当前页面还停留在旧版本。点击下面按钮刷新后，通常就能直接恢复。'
+                            : '请把这段报错截图发我，我就能继续按具体原因修。'}
                     </div>
+                    {isLazyImportError && (
+                        <button
+                            type="button"
+                            onClick={() => window.location.reload()}
+                            className="mt-5 inline-flex h-10 items-center justify-center rounded-lg border border-wuxia-gold/35 bg-wuxia-gold/10 px-4 text-sm text-wuxia-gold"
+                        >
+                            刷新重试
+                        </button>
+                    )}
                     {this.props.onClose && (
                         <button
                             type="button"
@@ -157,6 +172,7 @@ const App: React.FC = () => {
     const [showReleaseNotes, setShowReleaseNotes] = React.useState(false);
     const [suppressReleaseNotesForToday, setSuppressReleaseNotesForToday] = React.useState(false);
     const [appUpdateProgress, setAppUpdateProgress] = React.useState<AppUpdateProgressState | null>(null);
+    const [selectedSocialNpcId, setSelectedSocialNpcId] = React.useState<string | null>(null);
     const [isMobile, setIsMobile] = React.useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
         return window.matchMedia('(max-width: 767px)').matches;
@@ -805,6 +821,11 @@ const App: React.FC = () => {
     const openBattle = React.useCallback(() => setters.setShowBattle(true), [setters]);
     const openTeam = React.useCallback(() => setters.setShowTeam(true), [setters]);
     const openSocial = React.useCallback(() => setters.setShowSocial(true), [setters]);
+    const openNpcDetailFromChat = React.useCallback((npcId: string) => {
+        if (!npcId) return;
+        setSelectedSocialNpcId(npcId);
+        setters.setShowSocial(true);
+    }, [setters]);
     const openKungfu = React.useCallback(() => {
         if (!启用修炼体系) return;
         setters.setShowKungfu(true);
@@ -1393,6 +1414,7 @@ const App: React.FC = () => {
                                     visualConfig={effectiveVisualConfig}
                                     socialList={state.社交}
                                     playerProfile={playerProfile}
+                                    onOpenNpcDetail={openNpcDetailFromChat}
                                     renderCount={effectiveVisualConfig.渲染层数}
                                     suppressAutoScrollToken={meta.chatScrollSuppressToken}
                                     forceScrollToken={meta.chatForceScrollToken}
@@ -2084,6 +2106,8 @@ const App: React.FC = () => {
                                     socialList={state.社交}
                                     cultivationSystemEnabled={启用修炼体系}
                                     onClose={() => setters.setShowSocial(false)}
+                                    selectedNpcId={selectedSocialNpcId}
+                                    onSelectedNpcIdChange={setSelectedSocialNpcId}
                                     playerName={safeCharacter?.姓名 || ''}
                                     nsfwEnabled={safeGameConfig?.启用NSFW模式 === true}
                                     onToggleMajorRole={actions.updateNpcMajorRole}
@@ -2095,6 +2119,8 @@ const App: React.FC = () => {
                                     socialList={state.社交}
                                     cultivationSystemEnabled={启用修炼体系}
                                     onClose={() => setters.setShowSocial(false)}
+                                    selectedNpcId={selectedSocialNpcId}
+                                    onSelectedNpcIdChange={setSelectedSocialNpcId}
                                     playerName={safeCharacter?.姓名 || ''}
                                     nsfwEnabled={safeGameConfig?.启用NSFW模式 === true}
                                     onToggleMajorRole={actions.updateNpcMajorRole}

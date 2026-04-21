@@ -401,6 +401,8 @@ export const useGame = () => {
     const NPC生图进行中Ref = useRef<Set<string>>(new Set());
     const 主角生图进行中Ref = useRef<Set<string>>(new Set());
     const NPC香闺秘档生图进行中Ref = useRef<Set<string>>(new Set());
+    const 角色锚点补全进行中Ref = useRef<Set<string>>(new Set());
+    const 主要角色资源补全签名Ref = useRef('');
     const [NPC生图任务队列, setNPC生图任务队列] = useState<NPC生图任务记录[]>([]);
     const 场景生图自动应用任务Ref = useRef('');
     const 场景图片档案Ref = useRef<场景图片档案>({});
@@ -1804,6 +1806,117 @@ export const useGame = () => {
             void 执行单个NPC生图(npc).catch(() => undefined);
         });
     };
+
+    const 读取NPC图片记录列表 = (npc: any): any[] => {
+        if (!npc || typeof npc !== 'object') return [];
+        const archive = npc?.图片档案;
+        const history = Array.isArray(archive?.生图历史) ? archive.生图历史.filter((item: any) => item && typeof item === 'object') : [];
+        const recent = archive?.最近生图结果 && typeof archive.最近生图结果 === 'object'
+            ? archive.最近生图结果
+            : (npc?.最近生图结果 && typeof npc.最近生图结果 === 'object' ? npc.最近生图结果 : undefined);
+        const merged = recent ? [recent, ...history] : history;
+        return merged.filter((item: any, index: number, list: any[]) => {
+            const itemId = typeof item?.id === 'string' ? item.id.trim() : '';
+            return !itemId || list.findIndex((candidate: any) => candidate?.id === itemId) === index;
+        });
+    };
+
+    const NPC是否已有成功构图 = (npc: any, 构图列表: Array<'头像' | '半身' | '立绘'>): boolean => {
+        const allowed = new Set(构图列表);
+        return 读取NPC图片记录列表(npc).some((item: any) => (
+            item?.状态 === 'success'
+            && typeof item?.构图 === 'string'
+            && allowed.has(item.构图)
+            && Boolean(获取图片展示地址(item))
+        ));
+    };
+
+    const 构建主要角色资源缺口签名 = (npcList: any[]): string => {
+        return (Array.isArray(npcList) ? npcList : [])
+            .filter((npc) => npc?.是否主要角色 === true && typeof npc?.id === 'string' && npc.id.trim())
+            .map((npc) => {
+                const npcId = npc.id.trim();
+                const missingParts: string[] = [];
+                if (!按NPC读取角色锚点(npcId)) {
+                    missingParts.push('anchor');
+                }
+                if (!NPC是否已有成功构图(npc, ['头像'])) {
+                    missingParts.push('avatar');
+                }
+                if (npc?.性别 === '女' && !NPC是否已有成功构图(npc, ['半身', '立绘'])) {
+                    missingParts.push('portrait');
+                }
+                return missingParts.length > 0 ? `${npcId}:${missingParts.join(',')}` : '';
+            })
+            .filter(Boolean)
+            .join('|');
+    };
+
+    const 自动补全主要角色图片与锚点 = async (targetNpcList?: any[]) => {
+        const npcList = (Array.isArray(targetNpcList) ? targetNpcList : 社交)
+            .filter((npc: any) => npc?.是否主要角色 === true && typeof npc?.id === 'string' && npc.id.trim());
+        if (npcList.length === 0) return;
+
+        for (const npc of npcList) {
+            const npcId = typeof npc?.id === 'string' ? npc.id.trim() : '';
+            if (!npcId) continue;
+
+            const hasAnchor = Boolean(按NPC读取角色锚点(npcId));
+            if (!hasAnchor && !角色锚点补全进行中Ref.current.has(npcId)) {
+                角色锚点补全进行中Ref.current.add(npcId);
+                try {
+                    await 提取角色锚点(npcId, { 名称: typeof npc?.姓名 === 'string' ? npc.姓名.trim() : '' });
+                } catch (error) {
+                    console.warn('主要角色锚点自动补全失败', npcId, error);
+                } finally {
+                    角色锚点补全进行中Ref.current.delete(npcId);
+                }
+            }
+
+            if (!NPC是否已有成功构图(npc, ['头像'])) {
+                try {
+                    await 执行单个NPC生图(npc, {
+                        force: true,
+                        source: 'auto',
+                        构图: '头像'
+                    });
+                } catch (error) {
+                    console.warn('主要角色头像自动补全失败', npcId, error);
+                }
+            }
+
+            if (npc?.性别 === '女' && !NPC是否已有成功构图(npc, ['半身', '立绘'])) {
+                try {
+                    await 执行单个NPC生图(npc, {
+                        force: true,
+                        source: 'auto',
+                        构图: '半身'
+                    });
+                } catch (error) {
+                    console.warn('主要女角色展示图自动补全失败', npcId, error);
+                }
+            }
+        }
+    };
+
+    useEffect(() => {
+        const latestAssistantTurn = [...(Array.isArray(历史记录) ? 历史记录 : [])]
+            .reverse()
+            .find((item) => item?.role === 'assistant' && item?.structuredResponse);
+        if (!latestAssistantTurn) return;
+
+        const missingSignature = 构建主要角色资源缺口签名(社交);
+        if (!missingSignature) return;
+
+        const turnSignature = `${latestAssistantTurn.timestamp || latestAssistantTurn.gameTime || 'unknown'}__${missingSignature}`;
+        if (主要角色资源补全签名Ref.current === turnSignature) return;
+        主要角色资源补全签名Ref.current = turnSignature;
+
+        const timerId = window.setTimeout(() => {
+            void 自动补全主要角色图片与锚点(社交);
+        }, 300);
+        return () => window.clearTimeout(timerId);
+    }, [历史记录, 社交]);
 
     const 世界演变功能已开启 = (): boolean => {
         const feature = apiConfig?.功能模型占位 as any;

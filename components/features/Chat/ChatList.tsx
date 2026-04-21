@@ -13,6 +13,7 @@ interface Props {
     visualConfig?: 视觉设置结构;
     socialList?: NPC结构[];
     playerProfile?: { 姓名?: string; 头像图片URL?: string };
+    onOpenNpcDetail?: (npcId: string) => void;
     renderCount?: number;
     suppressAutoScrollToken?: number;
     forceScrollToken?: number;
@@ -66,7 +67,7 @@ const 解析流式草稿显示 = (content: string): 流式草稿显示结构 => 
     };
 };
 
-const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistory, onPolishTurn, visualConfig, socialList, playerProfile, renderCount = 10, suppressAutoScrollToken, forceScrollToken }) => {
+const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistory, onPolishTurn, visualConfig, socialList, playerProfile, onOpenNpcDetail, renderCount = 10, suppressAutoScrollToken, forceScrollToken }) => {
     const normalizedRenderCount = Number.isFinite(renderCount) ? Math.max(1, Math.floor(renderCount)) : 10;
     const chatStyle = 构建区域文字样式(visualConfig, '聊天');
     const 紧凑字号 = 'var(--ui-compact-font-size, 14px)';
@@ -308,6 +309,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                                     visualConfig={visualConfig}
                                     socialList={socialList}
                                     playerProfile={playerProfile}
+                                    onOpenNpcDetail={onOpenNpcDetail}
                                 />
                             </div>
                         );

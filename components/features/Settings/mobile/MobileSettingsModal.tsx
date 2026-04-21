@@ -1,34 +1,35 @@
 import React from 'react';
+import { lazyImportWithReload } from '../../../../utils/lazyImportWithReload';
 import {
     接口设置结构, 提示词结构, ThemePreset, 视觉设置结构, 节日结构, 聊天记录结构,
     游戏设置结构, 记忆配置结构, 记忆系统结构, NPC结构, TavernCommand, OpeningConfig, 剧情系统结构
 } from '../../../../types';
 
-const ApiSettings = React.lazy(() => import('../ApiSettings'));
-const ImageGenerationSettings = React.lazy(() => import('../ImageGenerationSettings'));
-const PromptManager = React.lazy(() => import('../PromptManager'));
-const StorageManager = React.lazy(() => import('../StorageManager'));
-const ThemeSettings = React.lazy(() => import('../ThemeSettings'));
-const VisualSettings = React.lazy(() => import('../VisualSettings'));
-const WorldSettings = React.lazy(() => import('../WorldSettings'));
-const GameSettings = React.lazy(() => import('../GameSettings'));
-const RealitySettings = React.lazy(() => import('../RealitySettings'));
-const TavernPresetSettings = React.lazy(() => import('../TavernPresetSettings'));
-const MemorySettings = React.lazy(() => import('../MemorySettings'));
-const HistoryViewer = React.lazy(() => import('../HistoryViewer'));
-const ContextViewer = React.lazy(() => import('../ContextViewer'));
-const RecallModelSettings = React.lazy(() => import('../RecallModelSettings'));
-const MemorySummaryModelSettings = React.lazy(() => import('../MemorySummaryModelSettings'));
-const PolishModelSettings = React.lazy(() => import('../PolishModelSettings'));
-const WorldEvolutionModelSettings = React.lazy(() => import('../WorldEvolutionModelSettings'));
-const VariableModelSettings = React.lazy(() => import('../VariableModelSettings'));
-const PlanningModelSettings = React.lazy(() => import('../PlanningModelSettings'));
-const IndependentApiGptModeSettings = React.lazy(() => import('../IndependentApiGptModeSettings'));
-const NovelDecompositionApiSettings = React.lazy(() => import('../NovelDecompositionApiSettings'));
-const CurrentNovelDecompositionInjectionSettings = React.lazy(() => import('../CurrentNovelDecompositionInjectionSettings'));
-const MusicSettings = React.lazy(() => import('../MusicSettings'));
-const NpcManager = React.lazy(() => import('../NpcManager'));
-const VariableManager = React.lazy(() => import('../VariableManager'));
+const ApiSettings = React.lazy(() => lazyImportWithReload('mobile-settings-api', () => import('../ApiSettings')));
+const ImageGenerationSettings = React.lazy(() => lazyImportWithReload('mobile-settings-image-generation', () => import('../ImageGenerationSettings')));
+const PromptManager = React.lazy(() => lazyImportWithReload('mobile-settings-prompt-manager', () => import('../PromptManager')));
+const StorageManager = React.lazy(() => lazyImportWithReload('mobile-settings-storage-manager', () => import('../StorageManager')));
+const ThemeSettings = React.lazy(() => lazyImportWithReload('mobile-settings-theme', () => import('../ThemeSettings')));
+const VisualSettings = React.lazy(() => lazyImportWithReload('mobile-settings-visual', () => import('../VisualSettings')));
+const WorldSettings = React.lazy(() => lazyImportWithReload('mobile-settings-world', () => import('../WorldSettings')));
+const GameSettings = React.lazy(() => lazyImportWithReload('mobile-settings-game', () => import('../GameSettings')));
+const RealitySettings = React.lazy(() => lazyImportWithReload('mobile-settings-reality', () => import('../RealitySettings')));
+const TavernPresetSettings = React.lazy(() => lazyImportWithReload('mobile-settings-tavern-preset', () => import('../TavernPresetSettings')));
+const MemorySettings = React.lazy(() => lazyImportWithReload('mobile-settings-memory', () => import('../MemorySettings')));
+const HistoryViewer = React.lazy(() => lazyImportWithReload('mobile-settings-history-viewer', () => import('../HistoryViewer')));
+const ContextViewer = React.lazy(() => lazyImportWithReload('mobile-settings-context-viewer', () => import('../ContextViewer')));
+const RecallModelSettings = React.lazy(() => lazyImportWithReload('mobile-settings-recall-model', () => import('../RecallModelSettings')));
+const MemorySummaryModelSettings = React.lazy(() => lazyImportWithReload('mobile-settings-memory-summary-model', () => import('../MemorySummaryModelSettings')));
+const PolishModelSettings = React.lazy(() => lazyImportWithReload('mobile-settings-polish-model', () => import('../PolishModelSettings')));
+const WorldEvolutionModelSettings = React.lazy(() => lazyImportWithReload('mobile-settings-world-evolution-model', () => import('../WorldEvolutionModelSettings')));
+const VariableModelSettings = React.lazy(() => lazyImportWithReload('mobile-settings-variable-model', () => import('../VariableModelSettings')));
+const PlanningModelSettings = React.lazy(() => lazyImportWithReload('mobile-settings-planning-model', () => import('../PlanningModelSettings')));
+const IndependentApiGptModeSettings = React.lazy(() => lazyImportWithReload('mobile-settings-independent-api-gpt-mode', () => import('../IndependentApiGptModeSettings')));
+const NovelDecompositionApiSettings = React.lazy(() => lazyImportWithReload('mobile-settings-novel-decomposition-api', () => import('../NovelDecompositionApiSettings')));
+const CurrentNovelDecompositionInjectionSettings = React.lazy(() => lazyImportWithReload('mobile-settings-novel-decomposition-runtime', () => import('../CurrentNovelDecompositionInjectionSettings')));
+const MusicSettings = React.lazy(() => lazyImportWithReload('mobile-settings-music', () => import('../MusicSettings')));
+const NpcManager = React.lazy(() => lazyImportWithReload('mobile-settings-npc-manager', () => import('../NpcManager')));
+const VariableManager = React.lazy(() => lazyImportWithReload('mobile-settings-variable-manager', () => import('../VariableManager')));
 
 type SettingsTab = 'api' | 'image_generation' | 'recall' | 'memory_summary_model' | 'polish' | 'world_evolution' | 'variable_model' | 'planning_model' | 'independent_api_gpt' | 'novel_decomposition' | 'novel_decomposition_runtime' | 'prompt' | 'storage' | 'theme' | 'visual' | 'world' | 'game' | 'reality' | 'tavern_preset' | 'memory' | 'history' | 'context' | 'music' | 'npc_management' | 'variable_manager';
 type RuntimeStateSections = Record<'角色' | '环境' | '社交' | '世界' | '战斗' | '剧情' | '女主剧情规划' | '玩家门派' | '任务列表' | '约定列表' | '记忆系统', unknown>;
