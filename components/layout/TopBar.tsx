@@ -271,6 +271,7 @@ type ExpandedType = 'weather' | 'environment' | 'time' | 'location' | 'festival'
 
 const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festivals = [], visualConfig }) => {
     const [expandedType, setExpandedType] = useState<ExpandedType>(null);
+    const [mobileCollapsed, setMobileCollapsed] = useState(false);
     const lastMobileDismissAtRef = useRef(0);
 
     const parsedTime = parseEnvTime(环境);
@@ -493,45 +494,68 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     };
 
     const mobileItems = [
-        { type: 'weather' as const, label: '天气', value: weatherDisplay, highlight: false },
-        { type: 'environment' as const, label: '环境', value: environmentDisplay, highlight: false },
-        { type: 'time' as const, label: '时间', value: mobileClockStr, highlight: false },
-        { type: 'location' as const, label: '地点', value: mobileLocationBadge, highlight: false },
-        { type: 'festival' as const, label: '节日', value: festivalDisplay, highlight: !!currentFestival },
-        { type: 'journey' as const, label: '历程', value: `第 ${derivedDayCount} 天`, highlight: false },
+        { type: 'weather' as const, label: '天气', shortLabel: '气', value: weatherDisplay, highlight: false },
+        { type: 'environment' as const, label: '环境', shortLabel: '境', value: environmentDisplay, highlight: false },
+        { type: 'time' as const, label: '时程', shortLabel: '时', value: `${mobileClockStr} / 第${derivedDayCount}天`, highlight: false },
+        { type: 'location' as const, label: '地点', shortLabel: '地', value: mobileLocationBadge, highlight: false },
+        { type: 'festival' as const, label: '节日', shortLabel: '节', value: festivalDisplay, highlight: !!currentFestival },
     ];
 
     return (
         <div className="w-full relative overflow-visible z-50 bg-[#000] pt-[var(--app-safe-top,env(safe-area-inset-top,0px))] md:h-[58px] md:min-h-[58px] md:pt-0" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
 
-            <div className="md:hidden relative z-10 px-2 pr-11 pb-2 pt-1.5">
-                <div className="rounded-xl border border-wuxia-gold/15 bg-gradient-to-b from-white/[0.04] to-white/[0.015] px-2 py-1.5 shadow-[0_10px_24px_rgba(0,0,0,0.38)]">
-                    <div className="grid grid-cols-3 gap-1.5">
-                        {mobileItems.map((item) => (
-                            <MobileInfoCard
-                                key={item.type}
-                                label={item.label}
-                                value={item.value}
-                                visualConfig={visualConfig}
-                                highlight={item.highlight}
-                                isExpanded={expandedType === item.type}
-                                onClick={() => toggleExpanded(item.type)}
-                            />
-                        ))}
-                    </div>
-                </div>
+            <div className="md:hidden pointer-events-none fixed inset-y-0 left-0 z-[85] flex items-start pt-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+10px)]">
+                <div className="pointer-events-auto flex items-start gap-2 pl-2">
+                    <div className="flex flex-col items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!mobileCollapsed) closeExpandedPanel();
+                                setMobileCollapsed(prev => !prev);
+                            }}
+                            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-wuxia-gold/25 bg-black/78 text-wuxia-gold shadow-[0_8px_28px_rgba(0,0,0,0.42)] backdrop-blur-md"
+                            aria-label={mobileCollapsed ? '展开顶部信息栏' : '收起顶部信息栏'}
+                            title={mobileCollapsed ? '展开顶部信息栏' : '收起顶部信息栏'}
+                        >
+                            <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform ${mobileCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 6 9 12l6 6" />
+                            </svg>
+                        </button>
 
-                {expandedType && (
-                    <DetailCard
-                        title={detailConfigs[expandedType].title}
-                        content={detailConfigs[expandedType].content}
-                        onClose={closeExpandedPanel}
-                        visualConfig={visualConfig}
-                        className="left-0 right-0"
-                        panelClassName="w-full max-w-none"
-                    />
-                )}
+                        {!mobileCollapsed && (
+                            <div className="flex flex-col gap-2 rounded-[22px] border border-wuxia-gold/18 bg-gradient-to-b from-black/82 to-black/62 p-2 shadow-[0_14px_40px_rgba(0,0,0,0.44)] backdrop-blur-md">
+                                {mobileItems.map((item) => (
+                                    <button
+                                        key={item.type}
+                                        type="button"
+                                        onClick={() => toggleExpanded(item.type)}
+                                        className={`group flex h-11 w-11 items-center justify-center rounded-2xl border text-[12px] font-semibold tracking-[0.2em] transition-all ${
+                                            expandedType === item.type
+                                                ? 'border-wuxia-gold/70 bg-wuxia-gold/14 text-wuxia-gold shadow-[0_0_20px_rgba(230,200,110,0.18)]'
+                                                : 'border-wuxia-gold/16 bg-white/[0.03] text-wuxia-gold/75 hover:border-wuxia-gold/38 hover:bg-white/[0.06]'
+                                        }`}
+                                        aria-label={item.label}
+                                        title={`${item.label}：${item.value}`}
+                                    >
+                                        <span className={item.highlight ? 'text-wuxia-gold' : ''}>{item.shortLabel}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {!mobileCollapsed && expandedType && (
+                        <DetailCard
+                            title={detailConfigs[expandedType].title}
+                            content={detailConfigs[expandedType].content}
+                            onClose={closeExpandedPanel}
+                            visualConfig={visualConfig}
+                            className="left-full top-0 mt-0"
+                            panelClassName="w-[min(72vw,320px)] max-w-[320px]"
+                        />
+                    )}
+                </div>
             </div>
 
             <div className="hidden md:flex items-center justify-between w-full px-20 relative z-10 h-full">

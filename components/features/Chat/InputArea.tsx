@@ -501,7 +501,7 @@ const InputArea: React.FC<Props> = ({
     }, [polishProgress, worldEvolutionProgress, planningProgress]);
 
     return (
-        <div className="shrink-0 relative z-20 bg-gradient-to-t from-ink-black/90 via-ink-black/75 to-transparent pb-4 px-4 flex flex-col gap-1 backdrop-blur-[2px]">
+        <div className="shrink-0 relative z-20 bg-gradient-to-t from-ink-black/90 via-ink-black/75 to-transparent pb-2 px-2 sm:px-4 flex flex-col gap-1 backdrop-blur-[2px]">
             {/* Quick Actions Chips (Fixed Box Size, Scrolling Text) */}
             {normalizedOptions.length > 0 && (
                 <div
@@ -514,13 +514,13 @@ const InputArea: React.FC<Props> = ({
                     onPointerCancel={endQuickActionsDrag}
                     onPointerLeave={endQuickActionsDrag}
                 >
-                    <div className="flex flex-nowrap md:flex-wrap md:justify-center gap-3 min-w-max md:min-w-0">
+                    <div className="flex flex-nowrap md:flex-wrap md:justify-center gap-2 min-w-max md:min-w-0">
                         {normalizedOptions.map((opt, idx) => (
                             <button 
                                 key={idx}
                                 onClick={() => handleOptionClick(opt)}
                                 disabled={loading}
-                                className="shrink-0 whitespace-nowrap px-6 py-2.5 bg-white/5 border border-wuxia-gold/30 text-gray-300 rounded hover:bg-wuxia-gold hover:text-ink-black hover:border-wuxia-gold transition-all text-sm tracking-wider shadow-sm min-w-[132px] text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="shrink-0 whitespace-nowrap px-3 py-1.5 bg-white/5 border border-wuxia-gold/30 text-gray-300 rounded hover:bg-wuxia-gold hover:text-ink-black hover:border-wuxia-gold transition-all text-[11px] sm:text-xs tracking-[0.08em] shadow-sm min-w-[84px] sm:min-w-[96px] text-center disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                  {opt}
                             </button>
@@ -651,14 +651,14 @@ const InputArea: React.FC<Props> = ({
             )}
             
             {/* Main Control Bar */}
-            <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="flex items-center gap-1 sm:gap-1.5">
                 
                 {/* Left Controls Group */}
-                <div className="flex shrink-0 items-center gap-0.5 bg-black/40 border border-gray-700/50 rounded-lg p-0.5 h-10 sm:gap-1 sm:rounded-xl sm:p-1 sm:h-12">
+                <div className="flex shrink-0 items-center gap-0.5 bg-black/40 border border-gray-700/50 rounded-lg p-0.5 h-9 sm:gap-1 sm:rounded-xl sm:p-1 sm:h-11">
                     {/* Stream Toggle */}
                     <button 
                         onClick={() => setIsStreaming(!isStreaming)}
-                        className={`w-8 sm:w-10 h-full rounded-md sm:rounded-lg flex items-center justify-center transition-all ${isStreaming ? 'text-wuxia-cyan bg-wuxia-cyan/10' : 'text-gray-600 hover:text-gray-400'}`}
+                        className={`w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center transition-all ${isStreaming ? 'text-wuxia-cyan bg-wuxia-cyan/10' : 'text-gray-600 hover:text-gray-400'}`}
                         title={isStreaming ? "流式传输开启" : "流式传输关闭"}
                         disabled={busy}
                     >
@@ -675,7 +675,7 @@ const InputArea: React.FC<Props> = ({
                             <button 
                                 onClick={() => setShowQuickRestartMenu(prev => !prev)}
                                 disabled={busy}
-                                className="w-8 sm:w-10 h-full rounded-md sm:rounded-lg flex items-center justify-center text-teal-300 hover:text-teal-100 hover:bg-teal-900/20 transition-all disabled:opacity-30"
+                                className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-teal-300 hover:text-teal-100 hover:bg-teal-900/20 transition-all disabled:opacity-30"
                                 title="快速重开"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
@@ -690,7 +690,7 @@ const InputArea: React.FC<Props> = ({
                     <button
                         onClick={() => { void handleReroll(); }}
                         disabled={busy || !canReroll}
-                        className="w-8 sm:w-10 h-full rounded-md sm:rounded-lg flex items-center justify-center text-gray-400 hover:text-wuxia-gold hover:bg-white/5 transition-all disabled:opacity-30"
+                        className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-gray-400 hover:text-wuxia-gold hover:bg-white/5 transition-all disabled:opacity-30"
                         title={canReroll ? "重ROLL：回档到上一轮并回填输入" : "暂无可重ROLL回合"}
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
@@ -701,7 +701,7 @@ const InputArea: React.FC<Props> = ({
                     <button
                         onClick={() => { void handleRetryVariableGeneration(); }}
                         disabled={loading || isPreparing || !canRetryLatestVariableGeneration}
-                        className="w-8 sm:w-10 h-full rounded-md sm:rounded-lg flex items-center justify-center text-cyan-300 hover:text-cyan-100 hover:bg-cyan-900/20 transition-all disabled:opacity-30"
+                        className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-cyan-300 hover:text-cyan-100 hover:bg-cyan-900/20 transition-all disabled:opacity-30"
                         title={canRetryLatestVariableGeneration ? "基于当前正文继续变量生成" : "当前没有可继续变量生成的最新回合"}
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
@@ -712,10 +712,10 @@ const InputArea: React.FC<Props> = ({
                 </div>
 
                 {/* Input Field */}
-                <div className={`flex-1 min-w-0 bg-black/40 border border-gray-700/50 rounded-lg h-10 flex items-center px-3 transition-all shadow-inner sm:rounded-xl sm:h-12 sm:px-4 ${busy ? 'opacity-50 cursor-not-allowed' : 'focus-within:border-wuxia-gold/50 focus-within:bg-black/60'}`}>
+                <div className={`flex-1 min-w-0 bg-black/40 border border-gray-700/50 rounded-lg h-9 flex items-center px-2.5 transition-all shadow-inner sm:rounded-xl sm:h-11 sm:px-4 ${busy ? 'opacity-50 cursor-not-allowed' : 'focus-within:border-wuxia-gold/50 focus-within:bg-black/60'}`}>
                     <input
                         type="text"
-                        className="w-full bg-transparent text-[14px] sm:text-[16px] text-paper-white font-serif placeholder-gray-600 focus:outline-none"
+                        className="w-full bg-transparent text-[13px] sm:text-[15px] text-paper-white font-serif placeholder-gray-600 focus:outline-none"
                         placeholder={busy ? "等待处理中..." : "输入你的行动..."}
                         value={content}
                         onChange={(e) => setContent(e.target.value)}
@@ -728,7 +728,7 @@ const InputArea: React.FC<Props> = ({
                 {loading || isPreparing || variableGenerationRunning ? (
                     <button 
                         onClick={variableGenerationRunning && onCancelVariableGeneration ? onCancelVariableGeneration : handleStop}
-                        className="w-11 sm:w-14 h-10 sm:h-12 shrink-0 bg-wuxia-red text-white rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(163,24,24,0.3)] hover:bg-red-600 hover:scale-105 active:scale-95 transition-all"
+                        className="w-10 sm:w-12 h-9 sm:h-11 shrink-0 bg-wuxia-red text-white rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(163,24,24,0.3)] hover:bg-red-600 hover:scale-105 active:scale-95 transition-all"
                         title={variableGenerationRunning ? "取消变量生成" : (recallRunning ? "取消检索" : "停止生成")}
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">
@@ -739,7 +739,7 @@ const InputArea: React.FC<Props> = ({
                     <button 
                         onClick={() => { void handleSend(); }} 
                         disabled={!content.trim() || busy} 
-                        className="w-11 sm:w-14 h-10 sm:h-12 shrink-0 bg-wuxia-gold text-ink-black rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(230,200,110,0.3)] hover:bg-white hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
+                        className="w-10 sm:w-12 h-9 sm:h-11 shrink-0 bg-wuxia-gold text-ink-black rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(230,200,110,0.3)] hover:bg-white hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
                         title="发送"
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">
@@ -889,7 +889,7 @@ const InputArea: React.FC<Props> = ({
                                 </button>
                             </div>
                         ) : (
-                            <div className="rounded-lg border border-wuxia-gold/25 bg-black p-2 space-y-2 shadow-[0_18px_60px_rgba(0,0,0,0.45)] max-h-[34svh] sm:max-h-[42vh] md:max-h-[55vh] overflow-y-auto no-scrollbar">
+                            <div className="rounded-lg border border-wuxia-gold/25 bg-black p-2 space-y-2 shadow-[0_18px_60px_rgba(0,0,0,0.45)] max-h-[28svh] sm:max-h-[36vh] md:max-h-[55vh] overflow-y-auto no-scrollbar">
                                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                                     <div className="text-wuxia-gold">独立更新阶段队列</div>
                                     <div className="text-gray-400">

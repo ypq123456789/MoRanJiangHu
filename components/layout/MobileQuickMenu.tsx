@@ -64,8 +64,6 @@ type MenuMeta = {
     icon: IconName;
 };
 
-const PRIMARY_MENU_IDS: MenuId[] = ['character', 'battle', 'equipment', 'inventory', 'social'];
-
 const MENU_META: Record<Exclude<MenuId, 'more'>, MenuMeta> = {
     character: { id: 'character', label: '角色', icon: 'profile' },
     battle: { id: 'battle', label: '战斗', icon: 'battle' },
@@ -99,17 +97,36 @@ const MobileQuickMenu: React.FC<Props> = ({
     enableImageManager = false,
     enableNovelDecomposition = false
 }) => {
+    const [collapsed, setCollapsed] = useState(false);
     const [showAllMenus, setShowAllMenus] = useState(false);
     const { enabled, isPlaying, tracks, currentTrackId } = useMusic();
+
     const currentTrackCover = useMemo(
         () => tracks.find((track) => track.id === currentTrackId)?.封面URL || '',
         [tracks, currentTrackId]
     );
 
-    const allMenus = useMemo<MenuMeta[]>(() => ([
+    const visibleMenus = useMemo<MenuMeta[]>(() => ([
+        MENU_META.character,
+        MENU_META.battle,
+        MENU_META.equipment,
+        MENU_META.inventory,
+        MENU_META.social,
         MENU_META.world,
         MENU_META.map,
+        ...(enabled ? [MENU_META.music] : []),
+        MENU_META.settings,
+    ]), [enabled]);
+
+    const allMenus = useMemo<MenuMeta[]>(() => ([
+        MENU_META.character,
+        MENU_META.battle,
+        MENU_META.equipment,
+        MENU_META.inventory,
+        MENU_META.social,
         ...(enableKungfu ? [MENU_META.kungfu] : []),
+        MENU_META.world,
+        MENU_META.map,
         MENU_META.team,
         MENU_META.sect,
         MENU_META.task,
@@ -127,129 +144,116 @@ const MobileQuickMenu: React.FC<Props> = ({
 
     const handleMenuClick = (menu: MenuId) => {
         onMenuClick(menu);
-        setShowAllMenus(false);
+        if (menu !== 'music') {
+            setShowAllMenus(false);
+        }
     };
 
     return (
-        <div className="md:hidden border-t border-wuxia-gold/20 bg-gradient-to-t from-ink-black via-ink-black/95 to-ink-black/80 backdrop-blur-sm shadow-[0_-12px_24px_rgba(0,0,0,0.38)] pb-2">
-            <div className="px-2 pt-1.5">
-                <div className="relative rounded-2xl border border-gray-800 bg-black/40">
-                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                    <div className={`grid ${enabled ? 'grid-cols-7' : 'grid-cols-6'}`}>
-                        {PRIMARY_MENU_IDS.slice(0, 3).map((id) => {
-                            const menu = MENU_META[id];
-                            return (
-                                <QuickButton
+        <div className="md:hidden pointer-events-none fixed inset-y-0 right-0 z-[86] flex items-end pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+34px)]">
+            <div className="pointer-events-auto relative flex items-end gap-2 pr-2">
+                {!collapsed && showAllMenus && (
+                    <div className="mb-2 max-h-[68vh] w-[170px] overflow-hidden rounded-3xl border border-wuxia-gold/18 bg-black/80 shadow-[0_18px_50px_rgba(0,0,0,0.42)] backdrop-blur-md">
+                        <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                            <span className="text-[10px] tracking-[0.2em] text-wuxia-gold/70">全部功能</span>
+                            <span className="text-[10px] text-gray-400">{allMenus.length} 项</span>
+                        </div>
+                        <div className="grid max-h-[60vh] grid-cols-3 gap-2 overflow-y-auto p-2 no-scrollbar">
+                            {allMenus.map((menu) => (
+                                <MenuTile
                                     key={menu.id}
                                     icon={menu.icon}
                                     label={menu.label}
                                     active={activeWindow === menu.id}
                                     onClick={() => handleMenuClick(menu.id)}
                                 />
-                            );
-                        })}
-
-                        {enabled && (
-                            <div className="relative flex flex-col items-center justify-center h-14">
-                                <button
-                                    type="button"
-                                    onClick={() => handleMenuClick('music')}
-                                    className={`w-14 h-14 flex-shrink-0 aspect-square rounded-full border-2 border-gray-700 bg-black shadow-[0_4px_15px_rgba(0,0,0,0.6)] transition-all active:scale-95 z-50 -translate-y-[20%] ${isPlaying ? 'animate-wuxia-music-disc-rotation' : ''}`}
-                                    aria-label="打开音乐"
-                                >
-                                    <div className="absolute inset-0 rounded-full overflow-hidden">
-                                        {currentTrackCover ? (
-                                            <img src={currentTrackCover} alt="cd" className="w-full h-full object-cover opacity-80" />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-wuxia-gold/40">
-                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-                                            </div>
-                                        )}
-                                        <div className="absolute inset-0 border-[6px] border-black/20 rounded-full pointer-events-none ring-1 ring-inset ring-white/5" />
-                                    </div>
-                                    {isPlaying && <div className="animate-cd-edge-flow" />}
-                                </button>
-                            </div>
-                        )}
-
-                        {PRIMARY_MENU_IDS.slice(3).map((id) => {
-                            const menu = MENU_META[id];
-                            return (
-                                <QuickButton
-                                    key={menu.id}
-                                    icon={menu.icon}
-                                    label={menu.label}
-                                    active={activeWindow === menu.id}
-                                    onClick={() => handleMenuClick(menu.id)}
-                                />
-                            );
-                        })}
-
-                        <QuickButton
-                            icon="more"
-                            label={showAllMenus ? '收起' : '更多'}
-                            active={showAllMenus}
-                            onClick={() => setShowAllMenus((prev) => !prev)}
-                        />
+                            ))}
+                        </div>
                     </div>
+                )}
+
+                <div className="flex flex-col items-end gap-2">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (!collapsed) setShowAllMenus(false);
+                            setCollapsed(prev => !prev);
+                        }}
+                        className="flex h-10 w-10 items-center justify-center rounded-2xl border border-wuxia-gold/25 bg-black/78 text-wuxia-gold shadow-[0_8px_28px_rgba(0,0,0,0.42)] backdrop-blur-md"
+                        aria-label={collapsed ? '展开功能栏' : '收起功能栏'}
+                        title={collapsed ? '展开功能栏' : '收起功能栏'}
+                    >
+                        <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
+                        </svg>
+                    </button>
+
+                    {!collapsed && (
+                        <div className="flex max-h-[72vh] flex-col gap-1.5 overflow-y-auto rounded-[24px] border border-wuxia-gold/18 bg-gradient-to-b from-black/84 to-black/64 p-2 shadow-[0_16px_48px_rgba(0,0,0,0.44)] backdrop-blur-md no-scrollbar">
+                            {visibleMenus.map((menu) => (
+                                <RailButton
+                                    key={menu.id}
+                                    icon={menu.icon}
+                                    label={menu.label}
+                                    active={activeWindow === menu.id}
+                                    onClick={() => handleMenuClick(menu.id)}
+                                    isMusic={menu.id === 'music'}
+                                    isPlaying={menu.id === 'music' && isPlaying}
+                                    coverUrl={menu.id === 'music' ? currentTrackCover : ''}
+                                />
+                            ))}
+
+                            <RailButton
+                                icon="more"
+                                label={showAllMenus ? '收起' : '更多'}
+                                active={showAllMenus}
+                                onClick={() => setShowAllMenus((prev) => !prev)}
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
-
-            {showAllMenus && (
-                <div className="px-2 pt-2 pb-1">
-                    <div className="rounded-2xl border border-gray-800 bg-black/50 shadow-[0_8px_20px_rgba(0,0,0,0.4)] overflow-hidden">
-                        <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
-                            <span className="text-[10px] tracking-[0.18em] text-gray-500">全部功能</span>
-                            <span className="text-[10px] text-wuxia-cyan/80">{allMenus.length} 项</span>
-                        </div>
-                        <div className="max-h-44 overflow-y-auto no-scrollbar p-2">
-                            <div className="grid grid-cols-4 gap-2">
-                                {allMenus.map((menu) => (
-                                    <MenuTile
-                                        key={menu.id}
-                                        icon={menu.icon}
-                                        label={menu.label}
-                                        active={activeWindow === menu.id}
-                                        onClick={() => handleMenuClick(menu.id)}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
 
-const QuickButton = ({
+const RailButton = ({
     icon,
     label,
     active,
     onClick,
+    isMusic = false,
+    isPlaying = false,
+    coverUrl = '',
 }: {
     icon: IconName;
     label: string;
     active?: boolean;
     onClick: () => void;
+    isMusic?: boolean;
+    isPlaying?: boolean;
+    coverUrl?: string;
 }) => (
     <button
         type="button"
         onClick={onClick}
-        className={`relative h-14 flex flex-col items-center justify-center gap-1 transition-colors ${
-            active ? 'text-wuxia-gold' : 'text-gray-400 hover:text-gray-100'
-        }`}
+        className={`group relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border transition-all ${
+            active
+                ? 'border-wuxia-gold/70 bg-wuxia-gold/14 text-wuxia-gold shadow-[0_0_20px_rgba(230,200,110,0.18)]'
+                : 'border-wuxia-gold/16 bg-white/[0.03] text-wuxia-gold/75 hover:border-wuxia-gold/38 hover:bg-white/[0.06]'
+        } ${isPlaying ? 'animate-wuxia-music-disc-rotation' : ''}`}
+        aria-label={label}
+        title={label}
     >
-        {active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-7 h-0.5 bg-wuxia-gold rounded-full" />}
-        <span className={`h-8 w-8 flex items-center justify-center translate-y-0.5 transition-all ${
-            active ? 'scale-110 drop-shadow-[0_0_8px_rgba(230,200,110,0.45)]' : ''
-        }`}>
-            <IconGlyph name={icon} className="h-5 w-5" />
-        </span>
-        <span className={`text-[10px] tracking-[0.14em] -translate-y-0.5 transition-colors ${
-            active ? 'text-wuxia-gold' : 'text-gray-400'
-        }`}>
-            {label}
+        {isMusic && coverUrl ? (
+            <>
+                <img src={coverUrl} alt={label} className="absolute inset-0 h-full w-full object-cover opacity-70" />
+                <div className="absolute inset-0 bg-black/35" />
+                <div className="absolute inset-[28%] rounded-full border border-black/25 bg-black/50" />
+            </>
+        ) : null}
+        <span className="relative z-10 flex h-5 w-5 items-center justify-center">
+            <IconGlyph name={icon} className="h-4.5 w-4.5" />
         </span>
     </button>
 );
@@ -268,18 +272,16 @@ const MenuTile = ({
     <button
         type="button"
         onClick={onClick}
-        className={`h-16 border rounded-xl flex flex-col items-center justify-center gap-1.5 transition-colors ${
+        className={`flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border transition-colors ${
             active
                 ? 'border-wuxia-gold/80 bg-wuxia-gold/10 text-wuxia-gold'
                 : 'border-gray-800 bg-black/20 text-gray-300 hover:border-wuxia-cyan/60 hover:text-white'
         }`}
     >
-        <span className={`h-8 w-8 flex items-center justify-center translate-y-0.5 transition-all ${
-            active ? 'scale-110 drop-shadow-[0_0_8px_rgba(230,200,110,0.45)]' : ''
-        }`}>
-            <IconGlyph name={icon} className="h-5 w-5" />
+        <span className="flex h-5 w-5 items-center justify-center">
+            <IconGlyph name={icon} className="h-4.5 w-4.5" />
         </span>
-        <span className="text-[10px] tracking-[0.12em]">{label}</span>
+        <span className="text-[9px] tracking-[0.08em]">{label}</span>
     </button>
 );
 

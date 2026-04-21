@@ -1313,7 +1313,7 @@ const App: React.FC = () => {
                     )}
 
                     {/* 顶部导航栏 */}
-                    <div className={`shrink-0 z-40 bg-ink-black/90 border-b border-wuxia-gold/20 shadow-[0_10px_30px_rgba(0,0,0,0.8)] relative overflow-visible ${isMobile ? 'rounded-none mx-0 mt-0' : 'rounded-t-xl mx-1 mt-1'}`}>
+                    <div className={`shrink-0 z-40 bg-ink-black/90 border-b border-wuxia-gold/20 shadow-[0_10px_30px_rgba(0,0,0,0.8)] relative overflow-visible ${isMobile ? 'pointer-events-none h-0 border-b-0 bg-transparent shadow-none rounded-none mx-0 mt-0' : 'rounded-t-xl mx-1 mt-1'}`}>
                         <TopBar 
                             环境={state.环境} 
                             游戏初始时间={state.游戏初始时间}
@@ -1338,7 +1338,7 @@ const App: React.FC = () => {
                         </div>
 
                         {/* 中间栏 - Chat Area */}
-                        <div className="flex-1 flex flex-col relative z-0 min-w-0 transition-colors duration-500">
+                        <div className={`flex-1 flex flex-col relative z-0 min-w-0 transition-colors duration-500 ${isMobile ? 'pl-[58px] pr-[58px]' : ''}`}>
                             {当前背景图片地址 && (
                                 <div
                                     className={`absolute inset-0 z-0 bg-cover bg-center pointer-events-none transition-opacity duration-300 ${
@@ -1528,10 +1528,10 @@ const App: React.FC = () => {
 
                     {!hideBottomTicker && (
                         <div
-                            className={`md:hidden shrink-0 h-[32px] bg-ink-black/90 border-t border-wuxia-gold/20 flex items-center font-mono text-wuxia-gold-dark relative overflow-hidden pb-[var(--app-safe-bottom,env(safe-area-inset-bottom,0px))] ${isMobile ? 'mx-0 mb-0' : 'mx-1 mb-1'}`}
-                            style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}
+                            className={`md:hidden shrink-0 h-[28px] bg-ink-black/88 border-t border-wuxia-gold/20 flex items-center font-mono text-wuxia-gold-dark relative overflow-hidden pb-[var(--app-safe-bottom,env(safe-area-inset-bottom,0px))] ${isMobile ? 'mx-0 mb-0' : 'mx-1 mb-1'}`}
+                            style={{ fontSize: '11px' }}
                         >
-                            <div className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-wider text-transparent relative">
+                            <div className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-[0.18em] text-transparent relative">
                                 <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold/90">世界大事</span>
                                 世界大事
                             </div>
