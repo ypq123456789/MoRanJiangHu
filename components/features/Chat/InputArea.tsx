@@ -79,6 +79,7 @@ interface Props {
     requestConfirm?: (options: { title?: string; message: string; confirmText?: string; cancelText?: string; danger?: boolean }) => Promise<boolean>;
     loading: boolean;
     variableGenerationRunning?: boolean;
+    postStoryQueueRunning?: boolean;
     canReroll?: boolean;
     canRetryLatestVariableGeneration?: boolean;
     canQuickRestart?: boolean;
@@ -99,6 +100,7 @@ const InputArea: React.FC<Props> = ({
     requestConfirm,
     loading,
     variableGenerationRunning = false,
+    postStoryQueueRunning = false,
     canReroll = true,
     canRetryLatestVariableGeneration = false,
     canQuickRestart = false,
@@ -148,6 +150,14 @@ const InputArea: React.FC<Props> = ({
     const handleSend = async () => {
         if (!content.trim()) return;
         if (loading || isPreparing) return;
+        if (postStoryQueueRunning) {
+            setErrorModal({
+                open: true,
+                title: '后台队列仍在处理',
+                content: '上一轮的后台队列还没结束，暂时不能继续下一次正文生成。请等待变量、世界和规划处理完成后再发送。'
+            });
+            return;
+        }
         setIsPreparing(true);
         setErrorModal(prev => ({ ...prev, open: false }));
         setParseRepairModal(prev => ({ ...prev, open: false, error: '' }));
@@ -160,10 +170,11 @@ const InputArea: React.FC<Props> = ({
         setExpandedCommandStageId(null);
         setQueueCollapsed(true);
         try {
+            let recallAutoRetried = false;
             const payload = pendingRecallTag
                 ? `${content}\n<剧情回忆>\n${pendingRecallTag}\n</剧情回忆>`
                 : content;
-            const result = await onSend(payload, isStreaming, {
+            let result = await onSend(payload, isStreaming, {
                 onRecallProgress: (progress) => setRecallProgress(progress),
                 onPolishProgress: (progress) => setPolishProgress(progress),
                 onWorldEvolutionProgress: (progress) => setWorldEvolutionProgress(progress),
@@ -186,6 +197,38 @@ const InputArea: React.FC<Props> = ({
                     return 'skip';
                 }
             });
+            if (result?.cancelled && result.needRecallConfirm && result.preparedRecallTag) {
+                recallAutoRetried = true;
+                setPendingRecallTag(result.preparedRecallTag);
+                if (result.attachedRecallPreview) {
+                    setAttachedRecallPreview(result.attachedRecallPreview);
+                    setShowAttachedRecall(false);
+                }
+                const retryPayload = `${content}\n<剧情回忆>\n${result.preparedRecallTag}\n</剧情回忆>`;
+                result = await onSend(retryPayload, isStreaming, {
+                    onRecallProgress: (progress) => setRecallProgress(progress),
+                    onPolishProgress: (progress) => setPolishProgress(progress),
+                    onWorldEvolutionProgress: (progress) => setWorldEvolutionProgress(progress),
+                    onPlanningProgress: (progress) => setPlanningProgress(progress),
+                    onVariableGenerationProgress: (progress) => setVariableGenerationProgress(progress),
+                    onStageFailureDecision: async (params) => {
+                        const message = `${params.stageLabel}请求失败：\n\n${params.errorText || '未知错误'}\n\n选择“重试”会重新执行当前阶段；选择“跳过”会继续后续阶段。`;
+                        if (requestConfirm) {
+                            const accepted = await requestConfirm({
+                                title: `${params.stageLabel}失败`,
+                                message,
+                                confirmText: '重试',
+                                cancelText: '跳过'
+                            });
+                            return accepted ? 'retry' : 'skip';
+                        }
+                        if (typeof window !== 'undefined') {
+                            return window.confirm(`${message}\n\n按“确定”重试，按“取消”跳过。`) ? 'retry' : 'skip';
+                        }
+                        return 'skip';
+                    }
+                });
+            }
             if (result?.cancelled) {
                 if (result.needRerollConfirm) {
                     const parseErrorText = result.parseErrorDetail || result.parseErrorMessage || '模型返回了不符合标签协议的内容。';
@@ -199,7 +242,7 @@ const InputArea: React.FC<Props> = ({
                     });
                     return;
                 }
-                if (result.needRecallConfirm && result.preparedRecallTag) {
+                if (result.needRecallConfirm && result.preparedRecallTag && !recallAutoRetried) {
                     const confirmed = requestConfirm
                         ? await requestConfirm({
                             title: '确认剧情回忆',
@@ -401,7 +444,7 @@ const InputArea: React.FC<Props> = ({
         .map(normalizeOptionText)
         .filter(item => item.length > 0);
 
-    const busy = loading || isPreparing || variableGenerationRunning;
+    const busy = loading || isPreparing || variableGenerationRunning || postStoryQueueRunning;
     const effectiveWorldEvolutionProgress = worldEvolutionProgress || openingWorldEvolutionProgress;
     const effectivePlanningProgress = planningProgress || openingPlanningProgress;
     const effectiveVariableGenerationProgress = variableGenerationProgress || openingVariableGenerationProgress;

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { JudgmentThoughtBlock, NPC结构, 视觉设置结构 } from '../../../types';
 import { use图片资源回源预取 } from '../../../hooks/useImageAssetPrefetch';
 import { 构建区域文字样式 } from '../../../utils/visualSettings';
@@ -243,6 +244,7 @@ type 玩家资料 = {
 
 export const CharacterRenderer: React.FC<{ sender: string; text: string; visualConfig?: 视觉设置结构; socialList?: NPC结构[]; playerProfile?: 玩家资料 }> = ({ sender, text, visualConfig, socialList, playerProfile }) => {
     use图片资源回源预取(playerProfile?.头像图片URL, socialList);
+    const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
     const colors = ['bg-red-900', 'bg-blue-900', 'bg-emerald-900', 'bg-violet-900', 'bg-amber-900'];
     const colorIdx = sender.charCodeAt(0) % colors.length;
     const bgClass = colors[colorIdx];
@@ -263,7 +265,14 @@ export const CharacterRenderer: React.FC<{ sender: string; text: string; visualC
                 <div className={`w-11 h-11 sm:w-16 sm:h-16 ${avatarUrl ? 'bg-black/60' : bgClass} rounded-xl sm:rounded-2xl flex items-center justify-center text-white/90 font-black text-lg sm:text-2xl shadow-[0_8px_16px_rgba(0,0,0,0.6)] border border-white/10 sm:border-2 ring-1 ring-wuxia-gold/20 relative overflow-hidden transition-all group-hover:scale-105 group-hover:ring-wuxia-gold/40 duration-500`}>
                     <div className="absolute inset-0 bg-noise opacity-30 mix-blend-overlay"></div>
                     {avatarUrl ? (
-                        <img src={avatarUrl} alt={`${sender} 头像`} className="relative z-10 w-full h-full object-cover" />
+                        <button
+                            type="button"
+                            onClick={() => setAvatarPreviewOpen(true)}
+                            className="relative z-10 h-full w-full cursor-zoom-in"
+                            aria-label={`放大查看 ${sender} 头像`}
+                        >
+                            <img src={avatarUrl} alt={`${sender} 头像`} className="w-full h-full object-cover" />
+                        </button>
                     ) : (
                         <span className="relative z-10 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">{sender[0]}</span>
                     )}
@@ -280,6 +289,31 @@ export const CharacterRenderer: React.FC<{ sender: string; text: string; visualC
                     <p className="font-medium relative z-10 tracking-wide whitespace-pre-wrap break-words leading-relaxed text-[#1a1a1a]" style={style}>{text}</p>
                 </div>
             </div>
+            {avatarUrl && avatarPreviewOpen && typeof document !== 'undefined' && createPortal(
+                <div
+                    className="fixed inset-0 z-[1002] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+                    onClick={() => setAvatarPreviewOpen(false)}
+                >
+                    <div
+                        className="relative max-h-[88vh] max-w-[88vw]"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <button
+                            type="button"
+                            onClick={() => setAvatarPreviewOpen(false)}
+                            className="absolute top-2 right-2 z-10 rounded-full border border-white/15 bg-black/55 px-3 py-1 text-xs text-white/90 transition hover:bg-black/75"
+                        >
+                            关闭
+                        </button>
+                        <img
+                            src={avatarUrl}
+                            alt={`${sender} 头像`}
+                            className="max-h-[88vh] max-w-[88vw] rounded-2xl border border-white/10 object-contain shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
+                        />
+                    </div>
+                </div>,
+                document.body
+            )}
         </div>
     );
 };

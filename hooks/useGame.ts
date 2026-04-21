@@ -415,6 +415,7 @@ export const useGame = () => {
     const [聊天区自动滚动抑制令牌, set聊天区自动滚动抑制令牌] = useState(0);
     const [聊天区强制置底令牌, set聊天区强制置底令牌] = useState(0);
     const [变量生成中, set变量生成中] = useState(false);
+    const [后台队列处理中, set后台队列处理中] = useState(false);
     const [开局变量生成进度, set开局变量生成进度] = useState<开局独立阶段进度 | null>(null);
     const [开局世界演变进度, set开局世界演变进度] = useState<开局独立阶段进度 | null>(null);
     const [开局规划进度, set开局规划进度] = useState<开局独立阶段进度 | null>(null);
@@ -2376,6 +2377,13 @@ export const useGame = () => {
         isStreaming: boolean = true,
         options?: 发送选项
     ): Promise<发送结果> => {
+        if (后台队列处理中) {
+            return {
+                cancelled: true,
+                errorTitle: '后台队列仍在处理',
+                errorDetail: '上一轮的变量、世界演变或规划分析还没完成，暂时不能继续下一次正文生成。'
+            };
+        }
         set开局变量生成进度(null);
         set开局世界演变进度(null);
         set开局规划进度(null);
@@ -2416,6 +2424,7 @@ export const useGame = () => {
             {
                 abortControllerRef,
                 setLoading,
+                set后台队列处理中,
                 setShowSettings,
                 设置剧情,
                 设置历史记录,
@@ -2875,6 +2884,7 @@ export const useGame = () => {
             sceneImageArchive: 场景图片档案,
             sceneImageQueue: 场景生图任务队列,
             variableGenerationRunning: 变量生成中,
+            postStoryQueueRunning: 后台队列处理中,
             openingWorldEvolutionProgress: 开局世界演变进度,
             openingPlanningProgress: 开局规划进度,
             openingVariableGenerationProgress: 开局变量生成进度,

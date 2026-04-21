@@ -1236,6 +1236,7 @@ const App: React.FC = () => {
                                     requestConfirm={requestConfirm}
                                     loading={state.loading} 
                                     variableGenerationRunning={meta.variableGenerationRunning}
+                                    postStoryQueueRunning={meta.postStoryQueueRunning}
                                     canReroll={meta.canRerollLatest}
                                     canRetryLatestVariableGeneration={meta.canRetryLatestVariableGeneration}
                                     canQuickRestart={meta.canQuickRestart}

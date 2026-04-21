@@ -35,6 +35,8 @@ lerna-debug.log*
 /diff1.txt
 /diff2.txt
 /implementation_plan.md
+/AGENTS.md
+/docs/r2-login-sync-plan.md
 /task.md
 /tsc_output.txt
 *.tmp
@@ -45,6 +47,27 @@ lerna-debug.log*
 # Local tooling state
 /.wrangler/
 /.codex/
+
+# Sensitive local data, save packages, debug outputs, and generated app bundles
+/.tmp-release-assets/
+/.tmp-save-test/
+/_apk_extract/
+/apk_recovered/
+/progress.md
+/mobile-local-*.png
+/output-*.png
+/final-mobile-topbar-validation.png
+/.codex-*.log
+/.tmp-*.log
+/*.apk
+/*.aab
+/android/local.properties
+/android/.gradle/
+/wuxia-saves-*.zip
+*.p12
+*.pfx
+*.pem
+*.key
 
 # Editor directories and files
 .vscode/*
