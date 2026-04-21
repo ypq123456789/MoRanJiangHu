@@ -222,6 +222,7 @@ export const useGameState = () => {
     const [currentTheme, setCurrentTheme] = useState<ThemePreset>('ink');
     const scrollRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const recallAbortControllerRef = useRef<AbortController | null>(null);
     const variableGenerationAbortControllerRef = useRef<AbortController | null>(null);
     const prompts加载PromiseRef = useRef<Promise<提示词结构[]> | null>(null);
 
@@ -387,6 +388,6 @@ export const useGameState = () => {
         ensurePromptsLoaded,
         festivals, setFestivals,
         currentTheme, setCurrentTheme,
-        scrollRef, abortControllerRef, variableGenerationAbortControllerRef
+        scrollRef, abortControllerRef, recallAbortControllerRef, variableGenerationAbortControllerRef
     };
 };

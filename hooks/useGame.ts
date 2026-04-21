@@ -360,7 +360,7 @@ export const useGame = () => {
         ensurePromptsLoaded,
         festivals, setFestivals,
         currentTheme, setCurrentTheme,
-        scrollRef, abortControllerRef, variableGenerationAbortControllerRef
+        scrollRef, abortControllerRef, recallAbortControllerRef, variableGenerationAbortControllerRef
     } = gameState;
     const 回合快照栈Ref = useRef<回合快照结构[]>([]);
     const 最近自动存档时间戳Ref = useRef<number>(0);
@@ -1160,6 +1160,35 @@ export const useGame = () => {
         setNPC记忆总结草稿('');
         setNPC记忆总结错误('');
     };
+
+    useEffect(() => {
+        if (!待处理记忆总结任务) return;
+        if (记忆总结阶段 !== 'remind') return;
+        void handleStartMemorySummary();
+    }, [待处理记忆总结任务, 记忆总结阶段]);
+
+    useEffect(() => {
+        if (!待处理记忆总结任务) return;
+        if (记忆总结阶段 !== 'review') return;
+        if (记忆总结错误) return;
+        handleApplyMemorySummary();
+    }, [待处理记忆总结任务, 记忆总结阶段, 记忆总结错误, 记忆总结草稿]);
+
+    useEffect(() => {
+        if (待处理记忆总结任务) return;
+        if (!待处理NPC记忆总结队列[0]) return;
+        if (NPC记忆总结阶段 !== 'remind') return;
+        void handleStartNpcMemorySummary();
+    }, [待处理记忆总结任务, 待处理NPC记忆总结队列, NPC记忆总结阶段]);
+
+    useEffect(() => {
+        if (待处理记忆总结任务) return;
+        if (!待处理NPC记忆总结队列[0]) return;
+        if (NPC记忆总结阶段 !== 'review') return;
+        if (NPC记忆总结错误) return;
+        handleApplyNpcMemorySummary();
+    }, [待处理记忆总结任务, 待处理NPC记忆总结队列, NPC记忆总结阶段, NPC记忆总结错误, NPC记忆总结草稿]);
+
     const 构建标签解析选项 = (config: 游戏设置结构) => ({
         validateTagCompleteness: config?.启用标签检测完整性 === true,
         enableTagRepair: config?.启用标签修复 !== false,
@@ -2287,6 +2316,9 @@ export const useGame = () => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
+        if (recallAbortControllerRef.current) {
+            recallAbortControllerRef.current.abort();
+        }
         if (variableGenerationAbortControllerRef.current) {
             variableGenerationAbortControllerRef.current.abort();
         }
@@ -2423,6 +2455,7 @@ export const useGame = () => {
             },
             {
                 abortControllerRef,
+                recallAbortControllerRef,
                 setLoading,
                 set后台队列处理中,
                 setShowSettings,
@@ -2869,12 +2902,12 @@ export const useGame = () => {
             worldEvolutionLastUpdatedAt: 世界演变最近更新时间,
             worldEvolutionLastSummary: 世界演变最近摘要,
             worldEvolutionLastRawText: 世界演变最近原始消息,
-            memorySummaryOpen: Boolean(待处理记忆总结任务) && 记忆总结阶段 !== 'idle',
+            memorySummaryOpen: Boolean(待处理记忆总结任务) && 记忆总结阶段 === 'review' && Boolean(记忆总结错误),
             memorySummaryStage: 记忆总结阶段,
             memorySummaryTask: 待处理记忆总结任务,
             memorySummaryDraft: 记忆总结草稿,
             memorySummaryError: 记忆总结错误,
-            npcMemorySummaryOpen: !Boolean(待处理记忆总结任务) && Boolean(待处理NPC记忆总结队列[0]) && NPC记忆总结阶段 !== 'idle',
+            npcMemorySummaryOpen: !Boolean(待处理记忆总结任务) && Boolean(待处理NPC记忆总结队列[0]) && NPC记忆总结阶段 === 'review' && Boolean(NPC记忆总结错误),
             npcMemorySummaryStage: NPC记忆总结阶段,
             npcMemorySummaryTask: 待处理NPC记忆总结队列[0] || null,
             npcMemorySummaryDraft: NPC记忆总结草稿,

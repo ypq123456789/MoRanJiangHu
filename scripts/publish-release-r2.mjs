@@ -25,6 +25,9 @@ const prefix = String(releaseInfo.r2Prefix || '').replace(/^\/+|\/+$/g, '');
 const latestKey = `${bucket}/${prefix}/latest.apk`;
 const versionedKey = `${bucket}/${prefix}/MoRanJiangHu-v${releaseInfo.versionName}.apk`;
 const manifestKey = `${bucket}/${prefix}/latest.json`;
+const versionedApkUrl = String(releaseInfo.apkDownloadUrl || '')
+  .replace(/\/latest\.apk(?:\?.*)?$/i, `/MoRanJiangHu-v${releaseInfo.versionName}.apk`)
+  || `https://download.bacon.de5.net/${prefix}/MoRanJiangHu-v${releaseInfo.versionName}.apk`;
 
 const manifest = {
   latest: {
@@ -34,7 +37,7 @@ const manifest = {
     websiteUrl: releaseInfo.websiteUrl,
     githubRepoUrl: releaseInfo.githubRepoUrl,
     releaseNotesUrl: releaseInfo.releaseNotesUrl,
-    apkUrl: releaseInfo.apkDownloadUrl,
+    apkUrl: `${versionedApkUrl}?v=${encodeURIComponent(releaseInfo.versionName)}-${encodeURIComponent(String(releaseInfo.versionCode))}`,
     manifestUrl: releaseInfo.updateManifestUrl,
     publishedAt: releaseInfo.releasePublishedAt || new Date().toISOString(),
     changes: Array.isArray(releaseInfo.releaseNotes) ? releaseInfo.releaseNotes : []

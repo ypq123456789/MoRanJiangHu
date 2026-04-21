@@ -99,7 +99,14 @@ export const fetchLatestUpdateManifest = async (): Promise<UpdateManifest | null
     if (!RELEASE_INFO.updateManifestUrl) return null;
 
     try {
-        const response = await fetch(RELEASE_INFO.updateManifestUrl, { cache: 'no-store' });
+        const requestUrl = new URL(RELEASE_INFO.updateManifestUrl, typeof window !== 'undefined' ? window.location.href : 'https://msjh.bacon.de5.net');
+        requestUrl.searchParams.set('t', String(Date.now()));
+        const response = await fetch(requestUrl.toString(), {
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache'
+            }
+        });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }

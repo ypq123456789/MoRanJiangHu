@@ -177,10 +177,10 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
             });
             return;
         }
-        if (接近底部) {
+        if (接近底部 && (loading || latestTurnAnchorIndex < 0)) {
             el.scrollTop = el.scrollHeight;
         }
-    }, [history, loading, 接近底部, scrollRef, 判断是否接近底部]);
+    }, [history, loading, 接近底部, latestTurnAnchorIndex, scrollRef, 判断是否接近底部]);
 
     React.useEffect(() => {
         return () => {

@@ -94,6 +94,7 @@ export type 发送结果 = {
     attachedRecallPreview?: string;
     preparedRecallTag?: string;
     needRecallConfirm?: boolean;
+    recallFailed?: boolean;
     needRerollConfirm?: boolean;
     parseErrorMessage?: string;
     parseErrorDetail?: string;
@@ -158,6 +159,7 @@ type 主剧情发送当前状态 = {
 
 type 主剧情发送依赖 = {
     abortControllerRef: { current: AbortController | null };
+    recallAbortControllerRef: { current: AbortController | null };
     setLoading: (value: boolean) => void;
     set后台队列处理中: (value: boolean) => void;
     setShowSettings: (value: boolean) => void;
@@ -315,32 +317,95 @@ export const 执行主剧情发送工作流 = async (
     let sendInput = extracted.cleanInput || content.trim();
     let recallTag = extracted.recallTag;
     let attachedRecallPreview = '';
+    const recallTimeoutMs = 25000;
+    const recallMaxAttempts = 2;
+
+    const createRecallTimeoutError = () => {
+        const error = new Error(`剧情回忆检索超时（${Math.max(1, Math.ceil(recallTimeoutMs / 1000))} 秒）`);
+        error.name = 'TimeoutError';
+        return error;
+    };
+
+    const runRecallAttempt = async () => {
+        const recallController = new AbortController();
+        deps.recallAbortControllerRef.current = recallController;
+        const abortRecall = () => recallController.abort();
+        controller.signal.addEventListener('abort', abortRecall, { once: true });
+
+        try {
+            return await new Promise<Awaited<ReturnType<typeof 执行剧情回忆检索>>>((resolve, reject) => {
+                const timeoutId = window.setTimeout(() => {
+                    recallController.abort();
+                    reject(createRecallTimeoutError());
+                }, recallTimeoutMs);
+
+                执行剧情回忆检索(
+                    sendInput,
+                    normalizedMemBeforeSend,
+                    currentState.apiConfig,
+                    {
+                        signal: recallController.signal,
+                        onDelta: (_delta, accumulated) => {
+                            options?.onRecallProgress?.({ phase: 'stream', text: accumulated });
+                        }
+                    }
+                ).then(resolve).catch(reject).finally(() => {
+                    window.clearTimeout(timeoutId);
+                });
+            });
+        } finally {
+            controller.signal.removeEventListener('abort', abortRecall);
+            if (deps.recallAbortControllerRef.current === recallController) {
+                deps.recallAbortControllerRef.current = null;
+            }
+        }
+    };
 
     if (recallFeatureEnabled && recallRoundReady && !recallTag) {
         try {
             options?.onRecallProgress?.({ phase: 'start', text: '正在检索剧情回忆...' });
-            const recalled = await 执行剧情回忆检索(
-                sendInput,
-                normalizedMemBeforeSend,
-                currentState.apiConfig,
-                {
-                    signal: controller.signal,
-                    onDelta: (_delta, accumulated) => {
-                        options?.onRecallProgress?.({ phase: 'stream', text: accumulated });
+            let recalled = null;
+            for (let attempt = 1; attempt <= recallMaxAttempts; attempt += 1) {
+                options?.onRecallProgress?.({
+                    phase: 'start',
+                    text: attempt > 1
+                        ? `正在重试剧情回忆检索（${attempt}/${recallMaxAttempts}）...`
+                        : '正在检索剧情回忆...'
+                });
+                try {
+                    recalled = await runRecallAttempt();
+                    break;
+                } catch (error: any) {
+                    if (error?.name === 'AbortError') {
+                        throw error;
                     }
+                    if (attempt >= recallMaxAttempts) {
+                        throw error;
+                    }
+                    options?.onRecallProgress?.({
+                        phase: 'error',
+                        text: `${error?.message || '剧情回忆检索失败'}\n正在自动重试...`
+                    });
                 }
-            );
+            }
             if (!recalled) {
                 deps.abortControllerRef.current = null;
-                alert('已开启剧情回忆模型，但未配置可用接口。');
+                deps.recallAbortControllerRef.current = null;
+                options?.onRecallProgress?.({ phase: 'error', text: '已开启剧情回忆模型，但未配置可用接口。' });
                 deps.setShowSettings(true);
-                return { cancelled: true };
+                return {
+                    cancelled: true,
+                    recallFailed: true,
+                    errorTitle: '剧情回忆未配置',
+                    errorDetail: '已开启剧情回忆模型，但未配置可用接口。'
+                };
             }
             attachedRecallPreview = recalled.previewText;
             options?.onRecallProgress?.({ phase: 'done', text: recalled.previewText });
             const silentConfirm = Boolean(currentState.apiConfig?.功能模型占位?.剧情回忆静默确认);
             if (!silentConfirm) {
                 deps.abortControllerRef.current = null;
+                deps.recallAbortControllerRef.current = null;
                 return {
                     cancelled: true,
                     attachedRecallPreview: recalled.previewText,
@@ -353,13 +418,19 @@ export const 执行主剧情发送工作流 = async (
             console.error('剧情回忆检索失败', error);
             options?.onRecallProgress?.({ phase: 'error', text: error?.message || '剧情回忆检索失败' });
             deps.abortControllerRef.current = null;
-            alert(`剧情回忆检索失败：${error?.message || '未知错误'}`);
-            return { cancelled: true };
+            deps.recallAbortControllerRef.current = null;
+            return {
+                cancelled: true,
+                recallFailed: true,
+                errorTitle: '剧情回忆检索失败',
+                errorDetail: error?.message || '未知错误'
+            };
         }
     }
 
     if (!sendInput.trim()) {
         deps.abortControllerRef.current = null;
+        deps.recallAbortControllerRef.current = null;
         return { cancelled: true };
     }
 
@@ -1058,7 +1129,8 @@ export const 执行主剧情发送工作流 = async (
 
                 const queuedAiMsg: 聊天记录结构 = {
                     ...newAiMsg,
-                    structuredResponse: finalDisplayResponse
+                    structuredResponse: finalDisplayResponse,
+                    autoScrollToTurnIcon: true
                 };
                 deps.设置历史记录(prev => prev.map(item => (
                     item.timestamp === aiTurnTimestamp && item.role === "assistant"
@@ -1166,6 +1238,7 @@ export const 执行主剧情发送工作流 = async (
     } finally {
         deps.setLoading(false);
         deps.abortControllerRef.current = null;
+        deps.recallAbortControllerRef.current = null;
     }
 };
 

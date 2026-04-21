@@ -9,6 +9,7 @@ type SendResult = {
     attachedRecallPreview?: string;
     preparedRecallTag?: string;
     needRecallConfirm?: boolean;
+    recallFailed?: boolean;
     needRerollConfirm?: boolean;
     parseErrorMessage?: string;
     parseErrorDetail?: string;
@@ -445,6 +446,7 @@ const InputArea: React.FC<Props> = ({
         .filter(item => item.length > 0);
 
     const busy = loading || isPreparing || variableGenerationRunning || postStoryQueueRunning;
+    const recallRunning = isPreparing && !loading;
     const effectiveWorldEvolutionProgress = worldEvolutionProgress || openingWorldEvolutionProgress;
     const effectivePlanningProgress = planningProgress || openingPlanningProgress;
     const effectiveVariableGenerationProgress = variableGenerationProgress || openingVariableGenerationProgress;
@@ -529,7 +531,7 @@ const InputArea: React.FC<Props> = ({
 
             <div className="h-px w-full bg-gradient-to-r from-transparent via-wuxia-gold/30 to-transparent my-0.5 opacity-50"></div>
 
-            {isPreparing && recallProgress && (
+            {recallProgress && (
                 <div className="rounded-lg border border-wuxia-cyan/30 bg-wuxia-cyan/5 p-2 space-y-1">
                     <div className="flex items-center gap-2 text-xs text-wuxia-cyan">
                         {recallProgress.phase === 'done' ? (
@@ -551,6 +553,26 @@ const InputArea: React.FC<Props> = ({
                             {recallProgress.text}
                         </pre>
                     )}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                        {recallRunning && (
+                            <button
+                                type="button"
+                                onClick={handleStop}
+                                className="px-2.5 py-1 rounded border border-red-700/60 text-[11px] text-red-200 hover:bg-red-900/20"
+                            >
+                                取消检索
+                            </button>
+                        )}
+                        {!busy && recallProgress.phase === 'error' && content.trim() && (
+                            <button
+                                type="button"
+                                onClick={() => { void handleSend(); }}
+                                className="px-2.5 py-1 rounded border border-wuxia-cyan/50 text-[11px] text-wuxia-cyan hover:bg-wuxia-cyan/10"
+                            >
+                                重试检索
+                            </button>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -703,11 +725,11 @@ const InputArea: React.FC<Props> = ({
                 </div>
 
                 {/* Send / Stop Button */}
-                {loading || variableGenerationRunning ? (
+                {loading || isPreparing || variableGenerationRunning ? (
                     <button 
                         onClick={variableGenerationRunning && onCancelVariableGeneration ? onCancelVariableGeneration : handleStop}
                         className="w-11 sm:w-14 h-10 sm:h-12 shrink-0 bg-wuxia-red text-white rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(163,24,24,0.3)] hover:bg-red-600 hover:scale-105 active:scale-95 transition-all"
-                        title={variableGenerationRunning ? "取消变量生成" : "停止生成"}
+                        title={variableGenerationRunning ? "取消变量生成" : (recallRunning ? "取消检索" : "停止生成")}
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
