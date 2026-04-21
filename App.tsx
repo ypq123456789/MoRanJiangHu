@@ -17,7 +17,7 @@ import { 获取图片资源文本地址 } from './utils/imageAssets';
 import { MusicProvider } from './components/features/Music/MusicProvider';
 import { isNativeCapacitorEnvironment } from './utils/nativeRuntime';
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
-import { checkForAppUpdate } from './services/appUpdate';
+import { checkForAppUpdate, subscribeAppUpdateProgress, type AppUpdateProgressState } from './services/appUpdate';
 import { RELEASE_INFO } from './data/releaseInfo';
 
 const RELEASE_NOTES_SUPPRESS_DATE_KEY = 'moranjianghu.releaseNotesSuppressDate';
@@ -156,6 +156,7 @@ const App: React.FC = () => {
     const [contextSnapshot, setContextSnapshot] = React.useState<Awaited<ReturnType<typeof actions.getContextSnapshot>> | undefined>(undefined);
     const [showReleaseNotes, setShowReleaseNotes] = React.useState(false);
     const [suppressReleaseNotesForToday, setSuppressReleaseNotesForToday] = React.useState(false);
+    const [appUpdateProgress, setAppUpdateProgress] = React.useState<AppUpdateProgressState | null>(null);
     const [isMobile, setIsMobile] = React.useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
         return window.matchMedia('(max-width: 767px)').matches;
@@ -170,6 +171,20 @@ const App: React.FC = () => {
     });
     const lastUpdateCheckAtRef = React.useRef(0);
     const releaseNotesAutoOpenedRef = React.useRef(false);
+    const runAppUpdateCheck = React.useCallback(async (options?: { silentNoUpdate?: boolean; auto?: boolean }) => {
+        try {
+            await checkForAppUpdate(options);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '更新失败，请稍后重试。';
+            if (options?.auto) {
+                console.warn('Auto update check failed:', error);
+                return;
+            }
+            window.alert(message);
+        }
+    }, []);
+
+    React.useEffect(() => subscribeAppUpdateProgress(setAppUpdateProgress), []);
     function handleMobileMenuAction(menu: string) {
         const isActive = activeMobileWindowId === menu;
         closeAllPanels();
@@ -346,7 +361,7 @@ const App: React.FC = () => {
             html.style.backgroundColor = previousHtmlBackground;
             body.style.backgroundColor = previousBodyBackground;
         };
-    }, []);
+    }, [runAppUpdateCheck]);
     React.useEffect(() => {
         if (!isNativeCapacitorEnvironment()) return;
 
@@ -357,7 +372,7 @@ const App: React.FC = () => {
             const now = Date.now();
             if (now - lastUpdateCheckAtRef.current < 5 * 60 * 1000) return;
             lastUpdateCheckAtRef.current = now;
-            await checkForAppUpdate({ auto: true, silentNoUpdate: true });
+            await runAppUpdateCheck({ auto: true, silentNoUpdate: true });
         };
 
         void runAutoUpdateCheck();
@@ -861,11 +876,11 @@ const App: React.FC = () => {
     }, [suppressReleaseNotesForToday]);
     const handleReleaseNotesPrimaryAction = React.useCallback(() => {
         if (isNativeCapacitorEnvironment()) {
-            void checkForAppUpdate();
+            void runAppUpdateCheck();
             return;
         }
         void window.open(RELEASE_INFO.apkDownloadUrl, '_blank', 'noopener,noreferrer');
-    }, []);
+    }, [runAppUpdateCheck]);
     const handleReleaseNotesOpenGithub = React.useCallback(() => {
         void window.open(RELEASE_INFO.githubRepoUrl, '_blank', 'noopener,noreferrer');
     }, []);
@@ -1167,7 +1182,37 @@ const App: React.FC = () => {
             setters.setShowKungfu(false);
         }
     }, [启用修炼体系, setters, state.showKungfu]);
+    const appUpdateProgressPercent = React.useMemo(() => {
+        const explicitPercent = Number(appUpdateProgress?.percent || 0);
+        if (Number.isFinite(explicitPercent) && explicitPercent > 0) {
+            return Math.max(0, Math.min(100, explicitPercent));
+        }
+        const downloaded = Number(appUpdateProgress?.downloadedBytes || 0);
+        const total = Number(appUpdateProgress?.totalBytes || 0);
+        if (total > 0) {
+            return Math.max(0, Math.min(100, (downloaded / total) * 100));
+        }
+        return appUpdateProgress?.stage === 'completed' ? 100 : 0;
+    }, [appUpdateProgress]);
 
+    const appUpdateStageText = React.useMemo(() => {
+        switch (appUpdateProgress?.stage) {
+            case 'preparing':
+                return '准备中';
+            case 'downloading':
+                return '下载中';
+            case 'downloaded':
+                return '下载完成';
+            case 'installing':
+                return '拉起安装';
+            case 'completed':
+                return '等待安装';
+            case 'error':
+                return '更新失败';
+            default:
+                return '处理中';
+        }
+    }, [appUpdateProgress]);
 
     return (
         <MusicProvider visualConfig={effectiveVisualConfig} onSaveVisual={actions.saveVisualSettings}>
@@ -1683,6 +1728,54 @@ const App: React.FC = () => {
                         onNotify={actions.pushNotification}
                     />
                 </懒加载边界>
+            )}
+
+            {appUpdateProgress?.visible && (
+                <div className="fixed inset-0 z-[295] flex items-center justify-center bg-black/72 px-5 py-8 backdrop-blur-sm">
+                    <div className="w-full max-w-sm rounded-2xl border border-wuxia-gold/30 bg-[#0b0907]/95 p-5 text-wuxia-gold shadow-[0_20px_60px_rgba(0,0,0,0.7)]">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <div className="text-base font-semibold tracking-[0.16em]">应用更新</div>
+                                <div className="mt-1 text-xs text-wuxia-gold/70">{appUpdateStageText}</div>
+                            </div>
+                            <div className="text-sm font-semibold text-wuxia-gold/90">
+                                {appUpdateProgressPercent.toFixed(0)}%
+                            </div>
+                        </div>
+                        <div className="mt-4 h-2 overflow-hidden rounded-full border border-wuxia-gold/10 bg-black/50">
+                            <div
+                                className={`h-full transition-all duration-300 ${
+                                    appUpdateProgress.stage === 'error'
+                                        ? 'bg-gradient-to-r from-red-500/80 to-red-300/80'
+                                        : 'bg-gradient-to-r from-wuxia-gold/40 via-wuxia-gold to-wuxia-gold/60'
+                                }`}
+                                style={{ width: `${appUpdateProgressPercent}%` }}
+                            />
+                        </div>
+                        <div className="mt-4 whitespace-pre-wrap text-sm leading-6 text-wuxia-gold/90">
+                            {appUpdateProgress.message || '正在处理更新请求...'}
+                        </div>
+                        {appUpdateProgress.totalBytes && appUpdateProgress.totalBytes > 0 && (
+                            <div className="mt-3 text-xs text-wuxia-gold/65">
+                                已下载 {Math.max(0, Number(appUpdateProgress.downloadedBytes || 0)).toLocaleString()} / {Math.max(0, Number(appUpdateProgress.totalBytes || 0)).toLocaleString()} 字节
+                            </div>
+                        )}
+                        {appUpdateProgress.stage === 'completed' && (
+                            <div className="mt-3 text-xs leading-5 text-emerald-300/90">
+                                如果系统安装界面没有自动弹出，请检查“允许安装未知应用”权限后再试一次。
+                            </div>
+                        )}
+                        {appUpdateProgress.stage === 'error' && (
+                            <button
+                                type="button"
+                                onClick={() => setAppUpdateProgress(null)}
+                                className="mt-4 inline-flex h-10 items-center justify-center rounded-lg border border-red-300/35 bg-red-950/40 px-4 text-sm text-red-50"
+                            >
+                                关闭
+                            </button>
+                        )}
+                    </div>
+                </div>
             )}
 
             <ReleaseNotesModal

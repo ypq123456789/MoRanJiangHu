@@ -15,12 +15,13 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.FileInputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
+import java.util.Locale;
 
 @CapacitorPlugin(name = "ApkUpdater")
 public class ApkUpdaterPlugin extends Plugin {
@@ -56,12 +57,14 @@ public class ApkUpdaterPlugin extends Plugin {
             );
             settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(settingsIntent);
+            notifyErrorProgress("请先在系统中允许本应用安装未知来源应用，然后再重试更新。", versionName);
             call.reject("请先在系统中允许本应用安装未知来源应用，然后再重试更新。");
             return;
         }
 
         new Thread(() -> {
             try {
+                notifyUpdateProgress("preparing", "正在准备下载更新包...", 0L, 0L, null, versionName);
                 File apkFile = downloadApk(url, versionName);
 
                 JSObject result = new JSObject();
@@ -69,19 +72,24 @@ public class ApkUpdaterPlugin extends Plugin {
                 result.put("versionName", versionName);
 
                 if (getActivity() == null) {
+                    notifyErrorProgress("当前没有可用的 Activity。", versionName);
                     call.reject("当前没有可用的 Activity。");
                     return;
                 }
 
                 getActivity().runOnUiThread(() -> {
                     try {
+                        notifyUpdateProgress("installing", "下载完成，正在拉起安装界面...", apkFile.length(), apkFile.length(), apkFile.getAbsolutePath(), versionName);
                         installApk(apkFile);
+                        notifyUpdateProgress("completed", "安装界面已打开，请按系统提示继续安装。", apkFile.length(), apkFile.length(), apkFile.getAbsolutePath(), versionName);
                         call.resolve(result);
                     } catch (Exception installError) {
+                        notifyErrorProgress(installError.getMessage(), versionName);
                         call.reject(installError.getMessage(), installError);
                     }
                 });
             } catch (Exception error) {
+                notifyErrorProgress(error.getMessage(), versionName);
                 call.reject(error.getMessage(), error);
             }
         }).start();
@@ -118,6 +126,10 @@ public class ApkUpdaterPlugin extends Plugin {
                 throw new IllegalStateException("下载更新失败，HTTP " + responseCode);
             }
 
+            long totalBytes = connection.getContentLengthLong();
+            long downloadedBytes = 0L;
+            long lastReportedAt = 0L;
+
             inputStream = connection.getInputStream();
             outputStream = new FileOutputStream(apkFile, false);
 
@@ -125,8 +137,16 @@ public class ApkUpdaterPlugin extends Plugin {
             int bytesRead;
             while ((bytesRead = inputStream.read(buffer)) != -1) {
                 outputStream.write(buffer, 0, bytesRead);
+                downloadedBytes += bytesRead;
+
+                long now = System.currentTimeMillis();
+                if (now - lastReportedAt >= 180L || (totalBytes > 0L && downloadedBytes >= totalBytes)) {
+                    notifyUpdateProgress("downloading", "正在下载更新包...", downloadedBytes, totalBytes, apkFile.getAbsolutePath(), versionName);
+                    lastReportedAt = now;
+                }
             }
             outputStream.flush();
+            notifyUpdateProgress("downloaded", "更新包下载完成。", downloadedBytes, totalBytes, apkFile.getAbsolutePath(), versionName);
             return apkFile;
         } finally {
             if (outputStream != null) {
@@ -148,11 +168,43 @@ public class ApkUpdaterPlugin extends Plugin {
             apkFile
         );
 
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+        Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+        intent.setData(apkUri);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true);
+        intent.putExtra(Intent.EXTRA_RETURN_RESULT, true);
         getContext().startActivity(intent);
+    }
+
+    private void notifyUpdateProgress(
+        String stage,
+        String message,
+        long downloadedBytes,
+        long totalBytes,
+        String filePath,
+        String versionName
+    ) {
+        JSObject payload = new JSObject();
+        payload.put("stage", stage);
+        payload.put("message", message);
+        payload.put("downloadedBytes", downloadedBytes);
+        payload.put("totalBytes", totalBytes);
+        payload.put("filePath", filePath);
+        payload.put("versionName", versionName);
+        if (totalBytes > 0L) {
+            double percent = (downloadedBytes * 100.0d) / totalBytes;
+            payload.put("percent", Double.parseDouble(String.format(Locale.US, "%.2f", percent)));
+        }
+        notifyListeners("updateProgress", payload);
+    }
+
+    private void notifyErrorProgress(String message, String versionName) {
+        JSObject payload = new JSObject();
+        payload.put("stage", "error");
+        payload.put("message", message != null && !message.trim().isEmpty() ? message : "更新失败");
+        payload.put("versionName", versionName);
+        notifyListeners("updateProgress", payload);
     }
 
     private String computeSha256(File file) throws Exception {

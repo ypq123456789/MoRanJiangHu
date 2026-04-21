@@ -79,6 +79,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
     const 待抑制自动滚动Ref = React.useRef(false);
     const 抑制滚动位置Ref = React.useRef<number | null>(null);
     const 回合容器Refs = React.useRef<Record<number, HTMLDivElement | null>>({});
+    const lastAutoScrolledTurnSignatureRef = React.useRef('');
 
     const 清理隐藏按钮计时器 = React.useCallback(() => {
         if (隐藏按钮计时器Ref.current !== null) {
@@ -187,16 +188,12 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
     const 最新回合定位签名 = React.useMemo(() => {
         if (latestTurnAnchorIndex < 0 || latestTurnAnchorIndex >= history.length) return '';
         const latestTurn = history[latestTurnAnchorIndex];
-        const latestResponse = latestTurn?.structuredResponse;
-        const latestLogsLength = Array.isArray(latestResponse?.logs) ? latestResponse.logs.length : 0;
         return [
             latestTurnAnchorIndex,
             latestTurn?.timestamp || 0,
-            latestTurn?.autoScrollToTurnIcon === true ? '1' : '0',
-            latestLogsLength,
-            loading ? 'loading' : 'done'
+            latestTurn?.autoScrollToTurnIcon === true ? '1' : '0'
         ].join(':');
-    }, [history, latestTurnAnchorIndex, loading]);
+    }, [history, latestTurnAnchorIndex]);
 
     React.useEffect(() => {
         const el = scrollRef.current;
@@ -243,9 +240,11 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
 
     React.useEffect(() => {
         if (!最新回合定位签名 || loading || 待抑制自动滚动Ref.current) return;
+        if (lastAutoScrolledTurnSignatureRef.current === 最新回合定位签名) return;
         const container = scrollRef.current;
         const turnEl = 回合容器Refs.current[latestTurnAnchorIndex];
         if (!container || !turnEl) return;
+        lastAutoScrolledTurnSignatureRef.current = 最新回合定位签名;
         let raf1 = 0;
         let raf2 = 0;
         raf1 = window.requestAnimationFrame(() => {

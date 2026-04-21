@@ -21,6 +21,7 @@ const parseArgs = (argv) => {
     backendType: process.env.CNB_SYNC_BACKEND_TYPE || 'comfyui',
     waitMs: Math.max(1000, Number(process.env.CNB_SYNC_WAIT_MS || 120000) || 120000),
     retryMs: Math.max(500, Number(process.env.CNB_SYNC_RETRY_MS || 3000) || 3000),
+    heartbeatMs: Math.max(0, Number(process.env.CNB_SYNC_HEARTBEAT_MS || 60000) || 60000),
     dryRun: process.env.CNB_SYNC_DRY_RUN === 'true',
     cnbStartWorkspace: String(process.env.CNB_START_WORKSPACE || '').trim().toLowerCase() === 'true',
     cnbApiBase: process.env.CNB_OPENAPI_BASE || 'https://api.cnb.cool',
@@ -57,6 +58,18 @@ const parseArgs = (argv) => {
         args.backendType = argv[index + 1] || args.backendType;
         if (argv[index + 1]) index += 1;
         break;
+      case '--wait-ms':
+        args.waitMs = Math.max(1000, Number(argv[index + 1]) || args.waitMs);
+        if (argv[index + 1]) index += 1;
+        break;
+      case '--retry-ms':
+        args.retryMs = Math.max(500, Number(argv[index + 1]) || args.retryMs);
+        if (argv[index + 1]) index += 1;
+        break;
+      case '--heartbeat-ms':
+        args.heartbeatMs = Math.max(0, Number(argv[index + 1]) || args.heartbeatMs);
+        if (argv[index + 1]) index += 1;
+        break;
       case '--dry-run':
         args.dryRun = true;
         break;
@@ -69,7 +82,6 @@ const parseArgs = (argv) => {
         if (argv[index + 1]) index += 1;
         break;
       case '--cnb-token':
-      case '--token':
         args.cnbToken = argv[index + 1] || args.cnbToken;
         if (argv[index + 1]) index += 1;
         break;
@@ -156,6 +168,22 @@ const resolveUrlFromEnv = (port) => {
   };
 };
 
+const waitForDiscoveredUrl = async (port, waitMs, retryMs) => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < waitMs) {
+    const discovered = resolveUrlFromEnv(port);
+    if (discovered.url) {
+      return discovered;
+    }
+    await sleep(retryMs);
+  }
+
+  return {
+    url: '',
+    source: ''
+  };
+};
+
 const waitForBackendReady = async (baseUrl, waitMs, retryMs) => {
   const startedAt = Date.now();
   let lastError = '';
@@ -199,7 +227,7 @@ const postSyncPayload = async ({ webhook, token, payload, waitMs, retryMs }) => 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}`, 'X-CNB-Sync-Token': token } : {})
+          ...(token ? { Authorization: `Bearer ${token}`, 'X-CNB-Sync-Token': token } : {})
         },
         body: JSON.stringify(payload)
       });
@@ -279,6 +307,67 @@ const maybeStartWorkspace = async (args) => {
   };
 };
 
+const buildSyncPayload = ({ args, discovery, readiness, workspace }) => ({
+  customerId: args.customerId || undefined,
+  backendType: args.backendType,
+  port: args.port,
+  url: discovery.url,
+  healthUrl: readiness.healthUrl,
+  detectedFrom: discovery.source,
+  detectedAt: new Date().toISOString(),
+  workspace: process.env.CNB_WORKSPACE || args.cnbRepo || process.env.CNB_REPO_SLUG || process.env.GITHUB_REPOSITORY || undefined,
+  workspaceStart: workspace?.started || undefined,
+  workspaceDetail: workspace?.detail || undefined
+});
+
+const syncOnce = async ({ args, discovery, readiness, workspace, reason }) => {
+  const payload = buildSyncPayload({ args, discovery, readiness, workspace });
+
+  if (args.dryRun || !args.webhook) {
+    printJson({
+      ok: true,
+      mode: args.dryRun ? 'dry-run' : 'local-only',
+      reason,
+      payload
+    });
+    return;
+  }
+
+  const result = await postSyncPayload({
+    webhook: args.webhook,
+    token: args.token,
+    payload,
+    waitMs: args.waitMs,
+    retryMs: args.retryMs
+  });
+
+  if (!result.ok) {
+    throw new Error(`同步到 worker 失败：${result.error}`);
+  }
+
+  console.log(`[cnb-sync] ${reason} ok -> ${args.webhook}`);
+};
+
+const startHeartbeat = ({ args, discovery, readiness, workspace }) => {
+  if (args.heartbeatMs <= 0) {
+    console.log('[cnb-sync] heartbeat disabled');
+    return null;
+  }
+
+  console.log(`[cnb-sync] heartbeat enabled: every ${args.heartbeatMs}ms`);
+  return setInterval(() => {
+    void syncOnce({
+      args,
+      discovery,
+      readiness,
+      workspace,
+      reason: 'heartbeat'
+    }).catch((error) => {
+      console.error(`[cnb-sync] heartbeat failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }, args.heartbeatMs);
+};
+
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
   const workspace = await maybeStartWorkspace(args);
@@ -291,7 +380,7 @@ const main = async () => {
     console.log(`[cnb-sync] workspace start ok: ${workspace.started.url || workspace.detail?.webide || 'workspace started'}`);
   }
 
-  const discovery = resolveUrlFromEnv(args.port);
+  const discovery = await waitForDiscoveredUrl(args.port, args.waitMs, args.retryMs);
   if (!discovery.url) {
     throw new Error(`未能自动发现 CNB ${args.port} 端口公网地址，请检查 CNB_VSCODE_PROXY_URI 或直接设置 CNB_IMAGE_BACKEND_URL。`);
   }
@@ -303,52 +392,38 @@ const main = async () => {
     throw new Error(`已发现地址但后端未就绪：${readiness.error || 'unknown error'}`);
   }
 
-  const payload = {
-    customerId: args.customerId || undefined,
-    backendType: args.backendType,
-    port: args.port,
-    url: discovery.url,
-    healthUrl: readiness.healthUrl,
-    detectedFrom: discovery.source,
-    detectedAt: new Date().toISOString(),
-    workspace: process.env.CNB_WORKSPACE || args.cnbRepo || process.env.CNB_REPO_SLUG || process.env.GITHUB_REPOSITORY || undefined,
-    workspaceStart: workspace?.started || undefined,
-    workspaceDetail: workspace?.detail || undefined
-  };
+  await syncOnce({
+    args,
+    discovery,
+    readiness,
+    workspace,
+    reason: 'initial-sync'
+  });
 
-  if (args.dryRun || !args.webhook) {
-    printJson({
-      ok: true,
-      mode: args.dryRun ? 'dry-run' : 'local-only',
-      payload
-    });
-  } else {
-    const result = await postSyncPayload({
-      webhook: args.webhook,
-      token: args.token,
-      payload,
-      waitMs: args.waitMs,
-      retryMs: args.retryMs
-    });
-    if (!result.ok) {
-      throw new Error(`同步到 worker 失败：${result.error}`);
+  const heartbeatTimer = startHeartbeat({
+    args,
+    discovery,
+    readiness,
+    workspace
+  });
+
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
     }
-    printJson({
-      ok: true,
-      webhook: args.webhook,
-      payload,
-      responseStatus: result.status,
-      responseBody: result.body
-    });
-  }
+  };
 
   if (!child) {
     return;
   }
 
   await new Promise((resolve, reject) => {
-    child.once('error', reject);
+    child.once('error', (error) => {
+      stopHeartbeat();
+      reject(error);
+    });
     child.once('exit', (code) => {
+      stopHeartbeat();
       if (code && code !== 0) {
         reject(new Error(`后端进程退出，状态码 ${code}`));
       } else {

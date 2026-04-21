@@ -1,7 +1,7 @@
 import { App as CapacitorApp } from '@capacitor/app';
 import { RELEASE_INFO } from '../data/releaseInfo';
 import { isNativeCapacitorEnvironment } from '../utils/nativeRuntime';
-import { NativeApkUpdater } from './nativeApkUpdater';
+import { NativeApkUpdater, type NativeApkUpdateProgress } from './nativeApkUpdater';
 
 const UPDATE_PROMPT_STORAGE_KEY = 'moranjianghu.lastPromptedUpdateRelease';
 
@@ -23,6 +23,31 @@ export type UpdateManifest = {
 type UpdateManifestDocument = {
     latest?: UpdateManifest;
     history?: UpdateManifest[];
+};
+
+export type AppUpdateProgressState = NativeApkUpdateProgress & {
+    visible: boolean;
+};
+
+const appUpdateProgressListeners = new Set<(progress: AppUpdateProgressState | null) => void>();
+
+const emitAppUpdateProgress = (progress: AppUpdateProgressState | null) => {
+    appUpdateProgressListeners.forEach((listener) => {
+        try {
+            listener(progress);
+        } catch (error) {
+            console.warn('App update progress listener failed:', error);
+        }
+    });
+};
+
+export const subscribeAppUpdateProgress = (
+    listener: (progress: AppUpdateProgressState | null) => void
+): (() => void) => {
+    appUpdateProgressListeners.add(listener);
+    return () => {
+        appUpdateProgressListeners.delete(listener);
+    };
 };
 
 const parseVersionParts = (value: string): number[] => (
@@ -121,7 +146,10 @@ export const fetchLatestUpdateManifest = async (): Promise<UpdateManifest | null
     if (!RELEASE_INFO.updateManifestUrl) return null;
 
     try {
-        const requestUrl = new URL(RELEASE_INFO.updateManifestUrl, typeof window !== 'undefined' ? window.location.href : 'https://msjh.bacon.de5.net');
+        const requestUrl = new URL(
+            RELEASE_INFO.updateManifestUrl,
+            typeof window !== 'undefined' ? window.location.href : 'https://msjh.bacon.de5.net'
+        );
         requestUrl.searchParams.set('t', String(Date.now()));
         const response = await fetch(requestUrl.toString(), {
             cache: 'no-store',
@@ -180,10 +208,40 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
         throw new Error('缺少 APK 下载地址。');
     }
 
-    await NativeApkUpdater.downloadAndInstall({
-        url: targetUrl,
-        versionName: manifest.versionName || RELEASE_INFO.versionName
+    const versionName = manifest.versionName || RELEASE_INFO.versionName;
+    const listenerHandle = await NativeApkUpdater.addListener('updateProgress', (progress) => {
+        emitAppUpdateProgress({
+            visible: true,
+            ...progress
+        });
     });
+
+    emitAppUpdateProgress({
+        visible: true,
+        stage: 'preparing',
+        message: '正在准备下载更新包...',
+        versionName
+    });
+
+    try {
+        await NativeApkUpdater.downloadAndInstall({
+            url: targetUrl,
+            versionName
+        });
+    } catch (error) {
+        emitAppUpdateProgress({
+            visible: true,
+            stage: 'error',
+            message: error instanceof Error ? error.message : '更新失败',
+            versionName
+        });
+        throw error;
+    } finally {
+        window.setTimeout(() => {
+            emitAppUpdateProgress(null);
+        }, 2400);
+        void listenerHandle.remove();
+    }
 };
 
 export const checkForAppUpdate = async (options?: { silentNoUpdate?: boolean; auto?: boolean }) => {
