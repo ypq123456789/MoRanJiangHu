@@ -1042,7 +1042,7 @@ export const 执行主剧情发送工作流 = async (
                 };
 
                 finalState = deps.processResponseCommands(finalParsedResponse, mainCommandBaseState);
-                const calibratedFinalStory = await 同步剧情小说拆解时间校准({
+                const calibratedFinalStory = await 同步剧情小说分解时间校准({
                     previousStory: currentState.剧情,
                     nextStory: finalState.剧情,
                     currentGameTime: 环境时间转标准串(finalState.环境) || currentGameTime,

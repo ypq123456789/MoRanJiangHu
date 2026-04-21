@@ -104,18 +104,38 @@ const DetailCard: React.FC<{
     const areaStyle = 构建区域文字样式(visualConfig, '顶部栏');
     return (
         <div 
-            className={`absolute top-full mt-2 z-[100] animate-in fade-in slide-in-from-top-2 duration-300 ${className}`}
+            className={`absolute top-full mt-2 z-[100] pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-300 ${className}`}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
-            <div className={`relative w-64 md:w-80 bg-black/90 backdrop-blur-md border border-wuxia-gold/30 rounded-xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden group ${panelClassName || ''}`}>
+            <div
+                className={`relative w-64 md:w-80 bg-black/90 backdrop-blur-md border border-wuxia-gold/30 rounded-xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden group ${panelClassName || ''}`}
+                onClick={(event) => event.stopPropagation()}
+                onTouchEnd={(event) => event.stopPropagation()}
+            >
                 {/* Reference style elements */}
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-wuxia-gold/40 to-transparent"></div>
                 <div className="absolute -right-16 -top-16 w-32 h-32 bg-wuxia-gold/5 rounded-full blur-3xl group-hover:bg-wuxia-gold/10 transition-colors duration-500"></div>
                 
                 <h3 className="text-wuxia-gold font-bold text-lg mb-3 border-b border-wuxia-gold/10 pb-1 flex justify-between items-center" style={areaStyle}>
                     {title}
-                    {onClose && <button onClick={onClose} className="text-wuxia-gold/50 hover:text-wuxia-gold transition-colors text-xs p-1">✕</button>}
+                    {onClose && (
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onClose();
+                            }}
+                            onTouchEnd={(event) => {
+                                event.stopPropagation();
+                                onClose();
+                            }}
+                            className="text-wuxia-gold/50 hover:text-wuxia-gold transition-colors text-xs p-1"
+                            aria-label="关闭详情"
+                        >
+                            ✕
+                        </button>
+                    )}
                 </h3>
                 <div className="text-sm space-y-2 opacity-90 leading-relaxed" style={areaStyle}>
                     {content}
