@@ -112,11 +112,16 @@ const MobileQuickMenu: React.FC<Props> = ({
         MENU_META.equipment,
         MENU_META.inventory,
         MENU_META.social,
+        ...(enableKungfu ? [MENU_META.kungfu] : []),
         MENU_META.world,
         MENU_META.map,
+        MENU_META.team,
+        MENU_META.task,
+        MENU_META.story,
+        MENU_META.save,
         ...(enabled ? [MENU_META.music] : []),
         MENU_META.settings,
-    ]), [enabled]);
+    ]), [enableKungfu, enabled]);
 
     const allMenus = useMemo<MenuMeta[]>(() => ([
         MENU_META.character,
@@ -150,15 +155,15 @@ const MobileQuickMenu: React.FC<Props> = ({
     };
 
     return (
-        <div className="md:hidden pointer-events-none fixed inset-y-0 right-0 z-[86] flex items-end pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+34px)]">
-            <div className="pointer-events-auto relative flex items-end gap-2 pr-2">
+        <div className="md:hidden fixed right-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+118px)] z-[89] flex items-start gap-2 pointer-events-auto">
+            <div className="relative flex items-start gap-2">
                 {!collapsed && showAllMenus && (
-                    <div className="mb-2 max-h-[68vh] w-[170px] overflow-hidden rounded-3xl border border-wuxia-gold/14 bg-black/38 shadow-[0_14px_40px_rgba(0,0,0,0.24)] backdrop-blur-sm">
+                    <div className="max-h-[min(48vh,390px)] w-[172px] overflow-hidden rounded-3xl border border-wuxia-gold/14 bg-black/38 shadow-[0_14px_40px_rgba(0,0,0,0.24)] backdrop-blur-md">
                         <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                             <span className="text-[10px] tracking-[0.2em] text-wuxia-gold/70">全部功能</span>
                             <span className="text-[10px] text-gray-400">{allMenus.length} 项</span>
                         </div>
-                        <div className="grid max-h-[60vh] grid-cols-3 gap-2 overflow-y-auto p-2 no-scrollbar">
+                        <div className="grid max-h-[min(40vh,320px)] grid-cols-3 gap-2 overflow-y-auto p-2 no-scrollbar">
                             {allMenus.map((menu) => (
                                 <MenuTile
                                     key={menu.id}
@@ -172,14 +177,15 @@ const MobileQuickMenu: React.FC<Props> = ({
                     </div>
                 )}
 
-                <div className="relative flex flex-col items-end gap-2">
+                <div className="flex flex-col items-end gap-2">
                     <button
                         type="button"
                         onClick={() => {
                             if (!collapsed) setShowAllMenus(false);
                             setCollapsed(prev => !prev);
                         }}
-                        className="absolute -top-11 right-0 flex h-9 w-9 items-center justify-center rounded-xl border border-wuxia-gold/20 bg-black/24 text-wuxia-gold shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition-colors hover:border-wuxia-gold/40 hover:bg-black/36"
+                        className="flex h-10 w-10 items-center justify-center rounded-[20px] border border-wuxia-gold/24 bg-black/30 text-wuxia-gold shadow-[0_8px_22px_rgba(0,0,0,0.3)] backdrop-blur-md transition-colors hover:border-wuxia-gold/40 hover:bg-black/42"
+                        style={{ touchAction: 'manipulation' }}
                         aria-label={collapsed ? '展开功能栏' : '收起功能栏'}
                         title={collapsed ? '展开功能栏' : '收起功能栏'}
                     >
@@ -189,7 +195,7 @@ const MobileQuickMenu: React.FC<Props> = ({
                     </button>
 
                     {!collapsed && (
-                        <div className="flex max-h-[72vh] flex-col gap-1 overflow-y-auto rounded-[18px] border border-wuxia-gold/12 bg-black/14 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-sm no-scrollbar">
+                        <div className="flex max-h-[min(48vh,390px)] flex-col gap-1 overflow-y-auto rounded-[22px] border border-wuxia-gold/14 bg-black/18 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-md no-scrollbar">
                             {visibleMenus.map((menu) => (
                                 <RailButton
                                     key={menu.id}
@@ -237,7 +243,7 @@ const RailButton = ({
     <button
         type="button"
         onClick={onClick}
-        className={`group relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl border transition-all ${
+        className={`group relative flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-[18px] border transition-all ${
             active
                 ? 'border-wuxia-gold/60 bg-wuxia-gold/12 text-wuxia-gold shadow-[0_0_16px_rgba(230,200,110,0.14)]'
                 : 'border-wuxia-gold/12 bg-black/18 text-wuxia-gold/78 hover:border-wuxia-gold/32 hover:bg-black/28'
@@ -253,7 +259,7 @@ const RailButton = ({
             </>
         ) : null}
         <span className="relative z-10 flex h-4 w-4 items-center justify-center">
-            <IconGlyph name={icon} className="h-3.5 w-3.5" />
+            <IconGlyph name={icon} className="h-3.25 w-3.25" />
         </span>
     </button>
 );

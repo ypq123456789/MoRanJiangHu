@@ -1823,12 +1823,22 @@ export const useGame = () => {
 
     const NPC是否已有成功构图 = (npc: any, 构图列表: Array<'头像' | '半身' | '立绘'>): boolean => {
         const allowed = new Set(构图列表);
-        return 读取NPC图片记录列表(npc).some((item: any) => (
+        const hasSuccessfulHistory = 读取NPC图片记录列表(npc).some((item: any) => (
             item?.状态 === 'success'
             && typeof item?.构图 === 'string'
             && allowed.has(item.构图)
             && Boolean(获取图片展示地址(item))
         ));
+        if (hasSuccessfulHistory) return true;
+
+        if (allowed.has('头像')) {
+            const avatarUrl = typeof npc?.头像图片URL === 'string' ? npc.头像图片URL.trim() : '';
+            if (avatarUrl) {
+                return true;
+            }
+        }
+
+        return false;
     };
 
     const 构建主要角色资源缺口签名 = (npcList: any[]): string => {

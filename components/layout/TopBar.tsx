@@ -269,6 +269,29 @@ const toGameMinuteValue = (time: { year: number; month: number; day: number; hou
 
 type ExpandedType = 'weather' | 'environment' | 'time' | 'location' | 'festival' | 'journey' | null;
 
+const MobileInfoButton: React.FC<{
+    label: string;
+    active?: boolean;
+    highlight?: boolean;
+    title?: string;
+    onClick: () => void;
+}> = ({ label, active = false, highlight = false, title, onClick }) => (
+    <button
+        type="button"
+        onClick={onClick}
+        className={`flex h-8 min-w-[38px] items-center justify-center rounded-[18px] border px-1.5 text-[11px] font-semibold tracking-[0.04em] transition-all ${
+            active
+                ? 'border-wuxia-gold/70 bg-wuxia-gold/14 text-wuxia-gold shadow-[0_0_18px_rgba(230,200,110,0.14)]'
+                : 'border-wuxia-gold/18 bg-black/22 text-wuxia-gold/85 hover:border-wuxia-gold/38 hover:bg-black/34'
+        } ${highlight ? 'text-wuxia-gold' : ''}`}
+        style={{ touchAction: 'manipulation' }}
+        aria-label={label}
+        title={title || label}
+    >
+        <span className="leading-none">{label}</span>
+    </button>
+);
+
 const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festivals = [], visualConfig }) => {
     const [expandedType, setExpandedType] = useState<ExpandedType>(null);
     const [mobileCollapsed, setMobileCollapsed] = useState(false);
@@ -505,8 +528,8 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         <div className="w-full relative overflow-visible z-50 bg-[#000] pt-[var(--app-safe-top,env(safe-area-inset-top,0px))] md:h-[58px] md:min-h-[58px] md:pt-0" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
 
-            <div className="md:hidden pointer-events-none fixed inset-y-0 left-0 z-[85] flex items-start pt-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+12px)]">
-                <div className="pointer-events-auto flex items-start gap-2 pl-2">
+            <div className="md:hidden fixed left-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+60px)] z-[88] flex items-start gap-2 pointer-events-auto">
+                <div className="flex items-start gap-2">
                     <div className="flex flex-col items-center gap-2">
                         <button
                             type="button"
@@ -514,7 +537,8 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                 if (!mobileCollapsed) closeExpandedPanel();
                                 setMobileCollapsed(prev => !prev);
                             }}
-                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-wuxia-gold/20 bg-black/24 text-wuxia-gold shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition-colors hover:border-wuxia-gold/40 hover:bg-black/36"
+                            className="flex h-10 w-10 items-center justify-center rounded-[20px] border border-wuxia-gold/24 bg-black/30 text-wuxia-gold shadow-[0_8px_22px_rgba(0,0,0,0.3)] backdrop-blur-md transition-colors hover:border-wuxia-gold/40 hover:bg-black/42"
+                            style={{ touchAction: 'manipulation' }}
                             aria-label={mobileCollapsed ? '展开顶部信息栏' : '收起顶部信息栏'}
                             title={mobileCollapsed ? '展开顶部信息栏' : '收起顶部信息栏'}
                         >
@@ -524,22 +548,16 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                         </button>
 
                         {!mobileCollapsed && (
-                            <div className="flex flex-col gap-1.5 rounded-[18px] border border-wuxia-gold/12 bg-black/14 p-1.5 shadow-[0_10px_28px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+                            <div className="flex max-h-[min(46vh,380px)] flex-col gap-1.5 overflow-y-auto rounded-[22px] border border-wuxia-gold/14 bg-black/18 p-1.5 shadow-[0_12px_30px_rgba(0,0,0,0.24)] backdrop-blur-md no-scrollbar">
                                 {mobileItems.map((item) => (
-                                    <button
+                                    <MobileInfoButton
                                         key={item.type}
-                                        type="button"
+                                        label={item.label}
+                                        active={expandedType === item.type}
+                                        highlight={item.highlight}
                                         onClick={() => toggleExpanded(item.type)}
-                                        className={`group flex h-8 min-w-[42px] items-center justify-center rounded-xl border px-2 text-[11px] font-semibold tracking-[0.08em] transition-all ${
-                                            expandedType === item.type
-                                                ? 'border-wuxia-gold/60 bg-wuxia-gold/12 text-wuxia-gold shadow-[0_0_16px_rgba(230,200,110,0.14)]'
-                                                : 'border-wuxia-gold/12 bg-black/18 text-wuxia-gold/80 hover:border-wuxia-gold/32 hover:bg-black/28'
-                                        }`}
-                                        aria-label={item.label}
                                         title={`${item.label}：${item.value}`}
-                                    >
-                                        <span className={`leading-none ${item.highlight ? 'text-wuxia-gold' : ''}`}>{item.label}</span>
-                                    </button>
+                                    />
                                 ))}
                             </div>
                         )}
@@ -551,8 +569,8 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                             content={detailConfigs[expandedType].content}
                             onClose={closeExpandedPanel}
                             visualConfig={visualConfig}
-                            className="left-full top-0 mt-0"
-                            panelClassName="w-[min(72vw,320px)] max-w-[320px]"
+                            className="left-full top-0 ml-1 mt-0"
+                            panelClassName="w-[min(62vw,300px)] max-w-[300px]"
                         />
                     )}
                 </div>

@@ -1129,14 +1129,27 @@ export const 执行主剧情发送工作流 = async (
 
                 const queuedAiMsg: 聊天记录结构 = {
                     ...newAiMsg,
-                    structuredResponse: finalDisplayResponse,
-                    autoScrollToTurnIcon: true
+                    structuredResponse: finalDisplayResponse
                 };
-                deps.设置历史记录(prev => prev.map(item => (
-                    item.timestamp === aiTurnTimestamp && item.role === "assistant"
-                        ? { ...queuedAiMsg }
-                        : item
-                )));
+                deps.设置历史记录(prev => prev.map(item => {
+                    if (item.timestamp !== aiTurnTimestamp || item.role !== "assistant") {
+                        return item;
+                    }
+
+                    const prevStructured = item.structuredResponse ?? null;
+                    const nextStructured = queuedAiMsg.structuredResponse ?? null;
+                    const structuredChanged = JSON.stringify(prevStructured) !== JSON.stringify(nextStructured);
+
+                    if (!structuredChanged) {
+                        return item;
+                    }
+
+                    return {
+                        ...item,
+                        ...queuedAiMsg,
+                        autoScrollToTurnIcon: false
+                    };
+                }));
 
                 const queuedNpcList = deps.提取新增NPC列表(socialBeforeMainCommands, finalState.社交);
                 if (queuedNpcList.length > 0) {

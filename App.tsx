@@ -1279,7 +1279,7 @@ const App: React.FC = () => {
                 {/* Main Game Frame Container */}
                 <div className={`relative flex-1 flex flex-col w-full h-full overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
                     {isMobile && (
-                        <div className="absolute right-[52px] top-2 z-[65] flex flex-col gap-1.5">
+                        <div className="absolute right-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+10px)] z-[90] flex flex-col gap-1.5">
                             <button
                                 type="button"
                                 onClick={() => { void toggleAppFullscreen(); }}
@@ -1313,7 +1313,7 @@ const App: React.FC = () => {
                     )}
 
                     {/* 顶部导航栏 */}
-                    <div className={`shrink-0 z-40 bg-ink-black/90 border-b border-wuxia-gold/20 shadow-[0_10px_30px_rgba(0,0,0,0.8)] relative overflow-visible ${isMobile ? 'pointer-events-none h-0 border-b-0 bg-transparent shadow-none rounded-none mx-0 mt-0' : 'rounded-t-xl mx-1 mt-1'}`}>
+                    <div className={`shrink-0 z-40 bg-ink-black/90 border-b border-wuxia-gold/20 shadow-[0_10px_30px_rgba(0,0,0,0.8)] relative overflow-visible ${isMobile ? 'h-0 border-b-0 bg-transparent shadow-none rounded-none mx-0 mt-0' : 'rounded-t-xl mx-1 mt-1'}`}>
                         <TopBar 
                             环境={state.环境} 
                             游戏初始时间={state.游戏初始时间}
@@ -1352,7 +1352,7 @@ const App: React.FC = () => {
                                     chatContentHidden ? 'opacity-0' : 'opacity-100'
                                 }`}
                             ></div>
-                              <div className={`absolute top-3 z-30 flex items-center gap-2 ${isMobile ? 'right-[52px]' : 'right-3'}`}>
+                              <div className={isMobile ? 'fixed right-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+72px)] z-[91] flex items-center gap-2' : 'absolute right-3 top-3 z-30 flex items-center gap-2'}>
                                   {chatContentHidden && (
                                       <button
                                           type="button"
