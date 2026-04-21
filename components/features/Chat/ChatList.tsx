@@ -160,34 +160,6 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
         };
     }, [forceScrollToken, scrollRef, 清理隐藏按钮计时器]);
 
-    React.useEffect(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        if (待抑制自动滚动Ref.current) {
-            const targetScrollTop = 抑制滚动位置Ref.current;
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    if (scrollRef.current && targetScrollTop !== null) {
-                        scrollRef.current.scrollTop = targetScrollTop;
-                        set接近底部(判断是否接近底部(scrollRef.current));
-                    }
-                    待抑制自动滚动Ref.current = false;
-                    抑制滚动位置Ref.current = null;
-                });
-            });
-            return;
-        }
-        if (接近底部 && (loading || latestTurnAnchorIndex < 0)) {
-            el.scrollTop = el.scrollHeight;
-        }
-    }, [history, loading, 接近底部, latestTurnAnchorIndex, scrollRef, 判断是否接近底部]);
-
-    React.useEffect(() => {
-        return () => {
-            清理隐藏按钮计时器();
-        };
-    }, [清理隐藏按钮计时器]);
-
     // Build stable turn anchors from assistant structured responses.
     const turnAnchors = React.useMemo(() => {
         const anchors: Array<{ index: number; turn: number }> = [];
@@ -225,6 +197,34 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
             loading ? 'loading' : 'done'
         ].join(':');
     }, [history, latestTurnAnchorIndex, loading]);
+
+    React.useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        if (待抑制自动滚动Ref.current) {
+            const targetScrollTop = 抑制滚动位置Ref.current;
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (scrollRef.current && targetScrollTop !== null) {
+                        scrollRef.current.scrollTop = targetScrollTop;
+                        set接近底部(判断是否接近底部(scrollRef.current));
+                    }
+                    待抑制自动滚动Ref.current = false;
+                    抑制滚动位置Ref.current = null;
+                });
+            });
+            return;
+        }
+        if (接近底部 && (loading || latestTurnAnchorIndex < 0)) {
+            el.scrollTop = el.scrollHeight;
+        }
+    }, [history, loading, 接近底部, latestTurnAnchorIndex, scrollRef, 判断是否接近底部]);
+
+    React.useEffect(() => {
+        return () => {
+            清理隐藏按钮计时器();
+        };
+    }, [清理隐藏按钮计时器]);
 
     // Slice by real turns (assistant structured responses), not by message count.
     const sliceIndex = React.useMemo(() => {

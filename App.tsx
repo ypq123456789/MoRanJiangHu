@@ -141,6 +141,9 @@ class ModalErrorBoundary extends React.Component<
 
 const App: React.FC = () => {
     const { state, meta, setters, actions } = useGame();
+    const safeGameConfig = state.gameConfig ?? ({} as typeof state.gameConfig);
+    const safeCharacter = state.角色 ?? ({} as typeof state.角色);
+    const safeShowSaveLoad = state.showSaveLoad ?? { show: false, mode: 'save' as const };
     const [showCharacter, setShowCharacter] = React.useState(false);
     const [showImageManager, setShowImageManager] = React.useState(false);
     const [showWorldbookManager, setShowWorldbookManager] = React.useState(false);
@@ -727,7 +730,7 @@ const App: React.FC = () => {
         showNovelExport ? '导出小说' :
         showImageManager ? '图册' :
         showNovelDecompositionWorkbench ? '小说分解' :
-        state.showSaveLoad.show ? (state.showSaveLoad.mode === 'save' ? '保存' : '读取') :
+        safeShowSaveLoad.show ? (safeShowSaveLoad.mode === 'save' ? '保存' : '读取') :
         state.showSettings ? '设置' :
         showMobileMusic ? '音乐' :
         null;
@@ -751,7 +754,7 @@ const App: React.FC = () => {
         showNovelExport ? 'export_novel' :
         showImageManager ? 'image_manager' :
         showNovelDecompositionWorkbench ? 'novel_decomposition' :
-        state.showSaveLoad.show ? (state.showSaveLoad.mode === 'save' ? 'save' : 'load') :
+        safeShowSaveLoad.show ? (safeShowSaveLoad.mode === 'save' ? 'save' : 'load') :
         state.showSettings ? 'settings' :
         showMobileMusic ? 'music' :
         null;
@@ -1056,7 +1059,7 @@ const App: React.FC = () => {
             closeMobileMusic();
             return true;
         }
-        if (state.showSaveLoad.show) {
+        if (safeShowSaveLoad.show) {
             closeSaveLoad();
             return true;
         }
@@ -1206,7 +1209,8 @@ const App: React.FC = () => {
             )}
 
             {state.view === 'game' && (
-                /* Main Game Frame Container */
+                <ModalErrorBoundary title="主界面渲染失败">
+                {/* Main Game Frame Container */}
                 <div className={`relative flex-1 flex flex-col w-full h-full overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
                     {isMobile && (
                         <div className="absolute right-1.5 top-1.5 z-[65] flex flex-col gap-1.5">
@@ -1404,7 +1408,7 @@ const App: React.FC = () => {
                                 onOpenNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
                                 worldEvolutionEnabled={meta.worldEvolutionEnabled}
                                 worldEvolutionUpdating={meta.worldEvolutionUpdating}
-                                enableHeroinePlan={state.gameConfig.启用女主剧情规划 === true}
+                                enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
                                 enableKungfu={启用修炼体系}
                                 onSave={openSave}
                                 onLoad={openLoad}
@@ -1449,7 +1453,7 @@ const App: React.FC = () => {
                     <MobileQuickMenu
                         activeWindow={activeMobileWindowId}
                         onMenuClick={handleMobileMenuAction}
-                        enableHeroinePlan={state.gameConfig.启用女主剧情规划 === true}
+                        enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
                         enableKungfu={启用修炼体系}
                         enableImageManager={true}
                         enableNovelDecomposition={true}
@@ -1543,6 +1547,7 @@ const App: React.FC = () => {
                         </懒加载边界>
                     )}
                 </div>
+                </ModalErrorBoundary>
             )}
 
             {/* Global Golden Border Frame */}
@@ -1559,13 +1564,13 @@ const App: React.FC = () => {
             </div>}
 
             {/* Save/Load Modal */}
-            {state.showSaveLoad.show && (
+            {safeShowSaveLoad.show && (
                 <懒加载边界>
                     <SaveLoadModal 
                         onClose={closeSaveLoad}
                         onLoadGame={actions.handleLoadGame}
                         onSaveGame={actions.handleSaveGame}
-                        mode={state.showSaveLoad.mode}
+                        mode={safeShowSaveLoad.mode}
                         requestConfirm={requestConfirm}
                     />
                 </懒加载边界>
@@ -1986,8 +1991,8 @@ const App: React.FC = () => {
                                     socialList={state.社交}
                                     cultivationSystemEnabled={启用修炼体系}
                                     onClose={() => setters.setShowSocial(false)}
-                                    playerName={state.角色.姓名}
-                                    nsfwEnabled={state.gameConfig.启用NSFW模式 === true}
+                                    playerName={safeCharacter?.姓名 || ''}
+                                    nsfwEnabled={safeGameConfig?.启用NSFW模式 === true}
                                     onToggleMajorRole={actions.updateNpcMajorRole}
                                     onTogglePresence={actions.updateNpcPresence}
                                     onDeleteNpc={actions.removeNpc}
@@ -1997,8 +2002,8 @@ const App: React.FC = () => {
                                     socialList={state.社交}
                                     cultivationSystemEnabled={启用修炼体系}
                                     onClose={() => setters.setShowSocial(false)}
-                                    playerName={state.角色.姓名}
-                                    nsfwEnabled={state.gameConfig.启用NSFW模式 === true}
+                                    playerName={safeCharacter?.姓名 || ''}
+                                    nsfwEnabled={safeGameConfig?.启用NSFW模式 === true}
                                     onToggleMajorRole={actions.updateNpcMajorRole}
                                     onTogglePresence={actions.updateNpcPresence}
                                     onDeleteNpc={actions.removeNpc}
@@ -2011,12 +2016,12 @@ const App: React.FC = () => {
                         <懒加载边界>
                             {isMobile ? (
                                 <MobileKungfuModal
-                                    skills={state.角色.功法列表}
+                                    skills={safeCharacter?.功法列表 || []}
                                     onClose={() => setters.setShowKungfu(false)}
                                 />
                             ) : (
                                 <KungfuModal
-                                    skills={state.角色.功法列表}
+                                    skills={safeCharacter?.功法列表 || []}
                                     onClose={() => setters.setShowKungfu(false)}
                                 />
                             )}
@@ -2157,7 +2162,7 @@ const App: React.FC = () => {
                         </懒加载边界>
                     )}
 
-                    {state.showHeroinePlan && state.gameConfig.启用女主剧情规划 === true && (
+                    {state.showHeroinePlan && safeGameConfig?.启用女主剧情规划 === true && (
                         <懒加载边界>
                             {isMobile ? (
                                 <MobileHeroinePlanModal

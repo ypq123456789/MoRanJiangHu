@@ -3,6 +3,7 @@ package com.moranjianghu.game;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.webkit.WebView;
 
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -34,6 +35,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        WebView.setWebContentsDebuggingEnabled(true);
         registerPlugin(ApkUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
         configureWindowSurface();
