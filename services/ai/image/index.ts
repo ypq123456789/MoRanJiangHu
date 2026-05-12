@@ -8,6 +8,7 @@ export {
     generateSceneImagePrompt,
     构建最终图片提示词,
     persistImageAssetLocally,
+    修复部位特写底部缩略图栏,
     解析PNG文件元数据,
     提炼PNG画风标签,
     提取角色锚点提示词,

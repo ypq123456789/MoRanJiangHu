@@ -6,6 +6,7 @@ import type {
     生图任务来源类型,
 } from '../../types';
 import { 获取词组转化器预设上下文, type 当前可用接口结构 } from '../../utils/apiConfig';
+import { 生图最大自动重试次数, 执行生图模型调用带重试 } from '../../utils/imageGenerationRetry';
 import type { PNG解析参数结构, 角色锚点结构 } from '../../models/system';
 type 图片功能配置 = {
     总开关: boolean;
@@ -64,7 +65,7 @@ type NPC秘档部位生图工作流依赖 = {
     更新NPC香闺秘档部位结果: (npcKey: string, part: 香闺秘档部位类型, updater: (current: any) => any) => void;
 };
 
-const 默认额外负面提示词 = 'face, eyes, portrait, headshot, upper body, half body, full body, torso, abdomen, legs, arm, feet, hands, multiple people, extra legs, extra arms, extra breasts, extra nipples, extra fingers, three legs, three breasts, merged body parts, room focus, scenery focus, environment focus, background focus, wide shot, mid shot, text, watermark, speech bubble, dialogue box, blurry, low quality, bad anatomy';
+const 默认额外负面提示词 = 'face, eyes, portrait, headshot, upper body, half body, full body, torso, abdomen, legs, arm, feet, hands, multiple people, extra legs, extra arms, extra breasts, extra nipples, extra fingers, three legs, three breasts, merged body parts, duplicate anatomy, mirrored anatomy, multiple genitals, extra genitals, room focus, scenery focus, environment focus, background focus, wide shot, mid shot, collage, contact sheet, reference sheet, character sheet, split screen, panel layout, comic panel, manga panel, thumbnails, bottom strip, inset image, text, typography, letters, words, caption, subtitle, watermark, signature, logo, speech bubble, dialogue box, blurry, low quality, bad anatomy';
 const 默认裸体正向提示词 = 'nude, naked, unclothed';
 
 const 获取画风标签 = (style?: 当前可用接口结构['画风']): string => {
@@ -287,9 +288,10 @@ export const 执行NPC香闺秘档部位生图工作流 = async (
                 风格提示词输入: 兼容模式风格提示词 || undefined
             });
         const 特写附加正向提示词 = [强制裸体语义 ? 默认裸体正向提示词 : '', 前置正向提示词].filter(Boolean).join(', ');
+        const 特写尺寸 = 尺寸 || '1024x1280';
         const 最终提示词 = imageAIService.构建最终图片提示词(生图词组, imageApi!, {
             构图: '部位特写',
-            尺寸: 尺寸 || '1024x1024',
+            尺寸: 特写尺寸,
             附加正向提示词: 特写附加正向提示词,
             附加负面提示词: 合并负向画师串,
             PNG参数
@@ -343,15 +345,42 @@ export const 执行NPC香闺秘档部位生图工作流 = async (
             状态: 'pending' as const,
             错误信息: undefined
         }, { 同步最近结果: false });
-        const imageResult = await imageAIService.generateImageByPrompt(生图词组, imageApi!, options?.signal, {
-            构图: '部位特写',
-            尺寸: 尺寸 || '1024x1024',
-            附加正向提示词: 特写附加正向提示词,
-            附加负面提示词: 合并负向画师串,
-            跳过基础负面提示词: Boolean((画师串预设?.负面提示词 || '').trim() || (PNG画风预设?.负面提示词 || '').trim()),
-            PNG参数
-        });
-        const localizedImageResult = await imageAIService.persistImageAssetLocally(imageResult);
+        const imageResult = await 执行生图模型调用带重试(
+            () => imageAIService.generateImageByPrompt(生图词组, imageApi!, options?.signal, {
+                构图: '部位特写',
+                尺寸: 特写尺寸,
+                附加正向提示词: 特写附加正向提示词,
+                附加负面提示词: 合并负向画师串,
+                跳过基础负面提示词: Boolean((画师串预设?.负面提示词 || '').trim() || (PNG画风预设?.负面提示词 || '').trim()),
+                PNG参数
+            }),
+            {
+                signal: options?.signal,
+                onAttempt: (attempt, totalAttempts) => {
+                    deps.更新NPC生图任务(task.id, (currentTask) => ({
+                        ...currentTask,
+                        状态: 'running',
+                        重试次数: Math.max(0, attempt - 1),
+                        最大重试次数: 生图最大自动重试次数,
+                        进度阶段: 'generating',
+                        进度文本: `${part}词组转换完成，正在调用图片模型生成特写（第 ${attempt}/${totalAttempts} 次尝试）。`
+                    }));
+                },
+                onRetry: (attempt, totalAttempts, errorMessage) => {
+                    deps.更新NPC生图任务(task.id, (currentTask) => ({
+                        ...currentTask,
+                        状态: 'running',
+                        重试次数: attempt,
+                        最大重试次数: 生图最大自动重试次数,
+                        错误信息: errorMessage,
+                        进度阶段: 'generating',
+                        进度文本: `第 ${attempt}/${totalAttempts} 次${part}特写生成失败：${errorMessage}；正在自动重试。`
+                    }));
+                }
+            }
+        );
+        const fixedImageResult = await imageAIService.修复部位特写底部缩略图栏(imageResult);
+        const localizedImageResult = await imageAIService.persistImageAssetLocally(fixedImageResult);
         if (!localizedImageResult.图片URL && !localizedImageResult.本地路径) {
             throw new Error('图片已生成，但未得到可展示或可保存的图片资源。');
         }

@@ -65,6 +65,27 @@ const 取首个有效文本片段 = (...values: unknown[]): string => {
     }
     return '';
 };
+const 默认角色技艺 = ['炼器', '炼丹', '医术', '阵法', '符箓', '机关', '采集', '鉴定']
+    .map((名称) => ({ 名称, 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' }));
+const 标准化角色技艺 = (raw: any): Array<{ 名称: string; 等级: string; 熟练度: number; 描述: string }> => {
+    const source = Array.isArray(raw) ? raw : [];
+    const byName = new Map<string, { 名称: string; 等级: string; 熟练度: number; 描述: string }>();
+    source.forEach((item: any) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+        const 名称 = 规范化文本(item?.名称);
+        if (!名称) return;
+        byName.set(名称, {
+            名称,
+            等级: 规范化文本(item?.等级, '未入门') || '未入门',
+            熟练度: Math.max(0, Math.min(100, 规范化数值(item?.熟练度, 0))),
+            描述: 规范化文本(item?.描述, '尚未形成稳定技艺。') || '尚未形成稳定技艺。'
+        });
+    });
+    默认角色技艺.forEach((item) => {
+        if (!byName.has(item.名称)) byName.set(item.名称, { ...item });
+    });
+    return Array.from(byName.values());
+};
 const 生成物品名称 = (item: any): string => {
     const rawName = 规范化文本(item?.名称);
     if (rawName && !未命名物品正则.test(rawName)) return rawName;
@@ -607,6 +628,33 @@ const 规范化角色物品容器映射 = (rawRole?: any): 角色数据结构 =>
         .filter(Boolean)
         .map((item: any, idx: number) => ({ ...item, 索引: idx }));
     (role as any).功法列表 = Array.isArray((role as any).功法列表) ? (role as any).功法列表 : [];
+    (role as any).技艺 = 标准化角色技艺((role as any).技艺);
+
+    // 兜底：如果技艺全为"未入门/熟练度0"，根据角色信息自动给基础值
+    const 技艺列表 = (role as any).技艺 as Array<{ 名称: string; 等级: string; 熟练度: number; 描述: string }>;
+    const 全部为零 = 技艺列表.every((s) => s.熟练度 === 0 && (s.等级 === '未入门' || !s.等级));
+    if (全部为零) {
+        const 出身 = 规范化文本((role as any).出身背景?.名称) + 规范化文本((role as any).出身背景?.描述);
+        const 门派 = 规范化文本((role as any).所属门派ID);
+        const 背景 = `${出身} ${门派} ${规范化文本((role as any).性格)} ${规范化文本((role as any).外貌)}`;
+        const 推断 = (keywords: string[], skill: string, level: number) => {
+            if (keywords.some((kw) => 背景.includes(kw))) {
+                const item = 技艺列表.find((s) => s.名称 === skill);
+                if (item) { item.等级 = '入门'; item.熟练度 = level; item.描述 = `因出身经历而具备基础${skill}能力。`; }
+            }
+        };
+        推断(['药', '医', '治', '伤', '救'], '医术', 20);
+        推断(['铁', '锻', '匠', '器', '铸'], '炼器', 18);
+        推断(['丹', '炉', '药铺', '药堂'], '炼丹', 15);
+        推断(['猎', '山', '林', '野', '采', '农'], '采集', 22);
+        推断(['阵', '符', '术', '道', '玄'], '阵法', 12);
+        推断(['鉴', '商', '当铺', '古玩', '宝'], '鉴定', 16);
+        // 如果推断后仍全为零，给一个最低保底
+        if (技艺列表.every((s) => s.熟练度 === 0)) {
+            const fallback = 技艺列表.find((s) => s.名称 === '采集') || 技艺列表[0];
+            if (fallback) { fallback.等级 = '入门'; fallback.熟练度 = 10; fallback.描述 = '日常生活中积累的基础能力。'; }
+        }
+    }
 
     const rawEquip = role?.装备 && typeof role.装备 === 'object' ? role.装备 : ({} as any);
     role.装备 = { ...默认装备模板, ...(rawEquip as any) };
@@ -706,7 +754,14 @@ const 规范化角色物品容器映射 = (rawRole?: any): 角色数据结构 =>
         delete (role as any).最近生图结果;
     }
 
-    role.物品列表 = 补齐自动丹药预设(deduped);
+    role.物品列表 = deduped;
+    // 只有角色身上从未被系统补过（已补齐系统丹药预设 !== true）才补一次。
+    // 用户反馈：丹药用完后下回合又出来了——根因就是这里每回合都补一次。
+    const 是否已补过 = (role as any).已补齐系统丹药预设 === true;
+    if (!是否已补过) {
+        role.物品列表 = 补齐自动丹药预设(role.物品列表);
+        (role as any).已补齐系统丹药预设 = true;
+    }
     return role;
 };
 
@@ -938,11 +993,29 @@ const 是空NPC装备 = (value: unknown): boolean => {
     return !text || 空NPC装备正则.test(text);
 };
 
+const 疑似NPC装备说明文本 = (value: unknown): boolean => {
+    const text = 规范化文本(value);
+    if (!text) return false;
+    if (text.length > 24) return true;
+    if (/[\n\r{}[\]<>]/.test(text)) return true;
+    if (/^[\-*•\d.、\s]*(?:主武器|副武器|服装|饰品|内衣|内裤|袜饰|鞋履)\s*[：:]/.test(text)) return true;
+    if (/[。！？；;]/.test(text)) return true;
+    if (/(?:根据|由于|作为|建议|应该|可以|生成|创建|补齐|默认|装备为|穿着|身穿|手持|佩戴|携带|这名|该角色|此人|她|他).{4,}/.test(text)) return true;
+    return false;
+};
+
+const 清理NPC装备名称 = (value: unknown): string => {
+    const text = 规范化文本(value, '无') || '无';
+    if (是空NPC装备(text)) return '无';
+    if (疑似NPC装备说明文本(text)) return '无';
+    return text;
+};
+
 const 标准化NPC装备 = (raw: any): Record<string, string> => {
     const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     const out: Record<string, string> = { ...默认NPC装备 };
     NPC装备槽位.forEach((key) => {
-        out[key] = 规范化文本(source?.[key], '无') || '无';
+        out[key] = 清理NPC装备名称(source?.[key]);
     });
     return out;
 };
@@ -1042,7 +1115,7 @@ const 生成NPC默认装备 = (npc: any): Record<string, string> => {
     ].map((value) => 规范化文本(value)).filter(Boolean).join(' ');
     const isFemale = /女|小姐|姑娘|夫人|师姐|师妹|侍女/.test(text);
     const faction = 读取NPC门派组织(npc);
-    const factionPrefix = faction ? faction.replace(/(山庄|门|派|宗|宫|寨|帮|镖局|商会|书院|府|阁|堂)$/, '') : '';
+    const factionPrefix = faction ? faction.replace(/(?:山庄|镖局|商会|书院|门|派|宗|宫|寨|帮|府|阁|堂).*/, '') : '';
     const weapon = /医|药|丹/.test(text)
         ? '防身银针'
         : (factionPrefix ? `${factionPrefix}佩剑` : (isFemale ? '随身短剑' : '随身佩刀'));
@@ -1484,6 +1557,29 @@ const 标准化单个NPC = (rawNpc: any, fallbackIndex: number): any => {
     const BUFF = 标准化NPC状态效果(npc?.BUFF ?? npc?.buff ?? npc?.增益);
     const DEBUFF = 标准化NPC状态效果(npc?.DEBUFF ?? npc?.debuff ?? npc?.负面状态);
     const 技艺 = 标准化NPC技艺(npc?.技艺);
+    // 兜底：NPC 技艺全为0时根据身份推断
+    const npc全部为零 = 技艺.every((s: any) => s.熟练度 === 0 && (s.等级 === '未入门' || !s.等级));
+    if (npc全部为零) {
+        const npc身份文本 = [npc?.身份, npc?.简介, npc?.姓名, npc?.境界].filter(Boolean).join(' ');
+        const npc推断 = (keywords: string[], skill: string, level: number) => {
+            if (keywords.some((kw) => npc身份文本.includes(kw))) {
+                const item = 技艺.find((s: any) => s.名称 === skill);
+                if (item) { item.等级 = '入门'; item.熟练度 = level; item.描述 = `因身份经历而具备。`; }
+            }
+        };
+        npc推断(['药', '医', '大夫', '郎中', '治', '伤'], '医术', 25);
+        npc推断(['铁', '锻', '匠', '器', '铸', '兵'], '炼器', 20);
+        npc推断(['丹', '炉', '药师', '炼丹'], '炼丹', 22);
+        npc推断(['猎', '山', '林', '野', '采', '农', '樵'], '采集', 20);
+        npc推断(['阵', '符', '术', '道', '玄', '法'], '阵法', 15);
+        npc推断(['鉴', '商', '当铺', '古玩', '宝', '掌柜'], '鉴定', 18);
+        npc推断(['机关', '工', '巧', '墨'], '机关', 15);
+        // NPC 如果有境界说明是修炼者，至少给一项
+        if (技艺.every((s: any) => s.熟练度 === 0) && npc身份文本.match(/境|修|武|剑|刀|拳|掌|气|内力/)) {
+            const fallback = 技艺.find((s: any) => s.名称 === '采集') || 技艺[0];
+            if (fallback) { fallback.等级 = '入门'; fallback.熟练度 = 10; fallback.描述 = '江湖历练所得。'; }
+        }
+    }
     const 基础属性 = 标准化NPC基础属性(npc);
     const 战斗数值 = 标准化NPC战斗数值(npc);
     const 核心性格特征 = 取首个非空文本(npc?.核心性格特征);

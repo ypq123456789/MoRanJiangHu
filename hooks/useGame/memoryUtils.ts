@@ -73,6 +73,9 @@ export const 规范化记忆配置 = (raw?: Partial<记忆配置结构> | null):
     重要角色关键记忆条数N: Math.max(1, Number(raw?.重要角色关键记忆条数N) || 20),
     NPC记忆总结阈值: Math.max(5, Number(raw?.NPC记忆总结阈值) || 20),
     即时消息上传条数N: Math.max(1, Number(raw?.即时消息上传条数N) || 10),
+    剧情回忆检索基础超时秒数: Math.max(5, Number(raw?.剧情回忆检索基础超时秒数) || 25),
+    剧情回忆检索每10回合追加秒数: Math.max(0, Number(raw?.剧情回忆检索每10回合追加秒数) || 6),
+    剧情回忆检索最大超时秒数: Math.max(10, Number(raw?.剧情回忆检索最大超时秒数) || 180),
     短期转中期提示词: typeof raw?.短期转中期提示词 === 'string'
         ? raw.短期转中期提示词
         : 默认短期转中期提示词,

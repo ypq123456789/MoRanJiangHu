@@ -73,6 +73,7 @@ interface Props {
     onClearSceneHistory?: () => Promise<void> | void;
     onDeleteSceneQueueTask?: (taskId: string) => Promise<void> | void;
     onClearSceneQueue?: (mode?: 'all' | 'completed') => Promise<void> | void;
+    onClearItemImageHistory?: () => Promise<void> | void;
     onSaveSceneImageLocally?: (imageId: string) => Promise<void> | void;
     onSavePngStylePreset?: (preset: PNG画风预设结构) => Promise<PNG画风预设结构 | null | void> | PNG画风预设结构 | null | void;
     onDeletePngStylePreset?: (presetId: string) => Promise<void> | void;
@@ -123,6 +124,11 @@ const 状态文案: Record<图片生成状态类型, string> = {
     success: '成功',
     failed: '失败',
     pending: '生成中'
+};
+
+const 获取图片状态文案 = (result?: { 状态?: 图片生成状态类型; 来源?: string } | null): string => {
+    if ((result?.来源 || '') === 'hosted') return '无需生图';
+    return 状态文案[result?.状态 || 'success'];
 };
 
 const 队列状态样式: Record<NPC生图任务记录['状态'], string> = {
@@ -338,6 +344,7 @@ const ImageManagerModal: React.FC<Props> = ({
     onClearSceneHistory,
     onDeleteSceneQueueTask,
     onClearSceneQueue,
+    onClearItemImageHistory,
     onSaveSceneImageLocally,
     onSavePngStylePreset,
     onDeletePngStylePreset,
@@ -965,20 +972,27 @@ const ImageManagerModal: React.FC<Props> = ({
         });
     }, [combinedQueue, filters]);
 
-    const 图片统计 = React.useMemo(() => ({
-        total: records.length + ((Array.isArray(sceneArchive?.生图历史) ? sceneArchive.生图历史 : []).length),
-        success: records.filter((item) => (item.结果?.状态 || 'success') === 'success').length + (Array.isArray(sceneArchive?.生图历史) ? sceneArchive.生图历史 : []).filter((item) => (item?.状态 || 'success') === 'success').length,
-        failed: records.filter((item) => item.结果?.状态 === 'failed').length + (Array.isArray(sceneArchive?.生图历史) ? sceneArchive.生图历史 : []).filter((item) => item?.状态 === 'failed').length,
-        pending: records.filter((item) => item.结果?.状态 === 'pending').length + (Array.isArray(sceneArchive?.生图历史) ? sceneArchive.生图历史 : []).filter((item) => item?.状态 === 'pending').length
-    }), [records, sceneArchive]);
+    const 图片统计 = React.useMemo(() => {
+        const sceneHistoryCount = Array.isArray(sceneArchive?.生图历史) ? sceneArchive.生图历史 : [];
+        return {
+            total: records.length + sceneHistoryCount.length + itemSequenceList.length,
+            success: records.filter((item) => (item.结果?.状态 || 'success') === 'success').length + sceneHistoryCount.filter((item) => (item?.状态 || 'success') === 'success').length + itemSequenceList.filter((item) => (item.状态 || 'success') === 'success').length,
+            failed: records.filter((item) => item.结果?.状态 === 'failed').length + sceneHistoryCount.filter((item) => item?.状态 === 'failed').length + itemSequenceList.filter((item) => item.状态 === 'failed').length,
+            pending: records.filter((item) => item.结果?.状态 === 'pending').length + sceneHistoryCount.filter((item) => item?.状态 === 'pending').length + itemSequenceList.filter((item) => item.状态 === 'pending').length
+        };
+    }, [records, sceneArchive, itemSequenceList]);
 
-    const 队列统计 = React.useMemo(() => ({
-        total: combinedQueue.length,
-        queued: combinedQueue.filter((item) => item.状态 === 'queued').length,
-        running: combinedQueue.filter((item) => item.状态 === 'running').length,
-        success: combinedQueue.filter((item) => item.状态 === 'success').length,
-        failed: combinedQueue.filter((item) => item.状态 === 'failed').length
-    }), [combinedQueue]);
+    const 队列统计 = React.useMemo(() => {
+        const itemRunning = itemSequenceList.filter((item) => item.状态 === 'pending').length;
+        const itemFailed = itemSequenceList.filter((item) => item.状态 === 'failed').length;
+        return {
+            total: combinedQueue.length + itemRunning + itemFailed,
+            queued: combinedQueue.filter((item) => item.状态 === 'queued').length,
+            running: combinedQueue.filter((item) => item.状态 === 'running').length + itemRunning,
+            success: combinedQueue.filter((item) => item.状态 === 'success').length,
+            failed: combinedQueue.filter((item) => item.状态 === 'failed').length + itemFailed
+        };
+    }, [combinedQueue, itemSequenceList]);
 
     const sceneHistory = React.useMemo(() => {
         return (Array.isArray(sceneArchive?.生图历史) ? sceneArchive.生图历史 : [])
@@ -2725,7 +2739,7 @@ const ImageManagerModal: React.FC<Props> = ({
                                                 
                                                 <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-90 transition-opacity group-hover:opacity-100">
                                                     <span className={`text-[10px] px-2 py-0.5 rounded border inline-block w-fit backdrop-blur bg-black/60 shadow-md ${状态样式[status]}`}>
-                                                        {状态文案[status]}
+                                                        {获取图片状态文案(result)}
                                                     </span>
                                                     {当前用途标签.map((label) => (
                                                         <span
@@ -2899,14 +2913,19 @@ const ImageManagerModal: React.FC<Props> = ({
                                     <div className="text-cyan-200 font-serif text-base tracking-wider">物品生图序列</div>
                                     <div className="mt-1 text-[10px] text-cyan-100/50">按最近生成时间展示背包物品图标、特写与展示图。</div>
                                 </div>
-                                <div className="text-[11px] text-cyan-100/70">{itemSequenceList.length} 条</div>
+                                <div className="flex items-center gap-2">
+                                    <div className="text-[11px] text-cyan-100/70">{itemSequenceList.length} 条</div>
+                                    {onClearItemImageHistory && (
+                                        <button type="button" onClick={() => { void onClearItemImageHistory(); }} className="rounded border border-cyan-400/30 bg-cyan-950/30 px-2 py-1 text-[10px] text-cyan-200/80 hover:border-cyan-400/50 hover:text-cyan-100">清空</button>
+                                    )}
+                                </div>
                             </div>
                             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                                 {itemSequenceList.map((item) => (
                                     <div key={item.id} className="rounded border border-cyan-400/15 bg-black/35 px-3 py-2 text-[11px]">
                                         <div className="flex items-center justify-between gap-2">
                                             <span className="truncate font-serif text-cyan-100" title={item.物品名称}>{item.物品名称}</span>
-                                            <span className={`shrink-0 rounded border px-1.5 py-0.5 ${状态样式[item.状态 || 'success']}`}>{状态文案[item.状态 || 'success']}</span>
+                                            <span className={`shrink-0 rounded border px-1.5 py-0.5 ${状态样式[item.状态 || 'success']}`}>{获取图片状态文案(item)}</span>
                                         </div>
                                         <div className="mt-1 flex flex-wrap gap-2 text-cyan-100/55">
                                             <span>{item.构图 || '物品图'}</span>
@@ -3362,7 +3381,7 @@ const ImageManagerModal: React.FC<Props> = ({
                                                     
                                                     <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-90 transition-opacity group-hover:opacity-100">
                                                         <span className={`text-[10px] px-2 py-0.5 rounded border inline-block w-fit backdrop-blur bg-black/60 shadow-md ${状态样式[status]}`}>
-                                                            {状态文案[status]}
+                                                            {获取图片状态文案(result)}
                                                         </span>
                                                         {isCurrentWallpaper && (
                                                             <span className="rounded border border-wuxia-gold/60 bg-wuxia-gold/20 backdrop-blur-sm px-2 py-0.5 text-[10px] text-wuxia-gold shadow-[0_0_10px_rgba(212,175,55,0.3)] w-fit">
@@ -3527,7 +3546,7 @@ const ImageManagerModal: React.FC<Props> = ({
                                                 )}
                                                 <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-90 transition-opacity group-hover:opacity-100">
                                                     <span className={`text-[10px] px-2 py-0.5 rounded border inline-block w-fit backdrop-blur bg-black/60 shadow-md ${状态样式[status]}`}>
-                                                        {状态文案[status]}
+                                                        {获取图片状态文案(result)}
                                                     </span>
                                                     <span className="rounded border border-wuxia-gold/40 bg-black/60 backdrop-blur-sm px-2 py-0.5 text-[10px] text-wuxia-gold/80 shadow-md w-fit">
                                                         场景
@@ -3662,7 +3681,7 @@ const ImageManagerModal: React.FC<Props> = ({
                                             )}
                                             <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-90 transition-opacity group-hover:opacity-100">
                                                 <span className={`text-[10px] px-2 py-0.5 rounded border inline-block w-fit backdrop-blur bg-black/60 shadow-md ${状态样式[status]}`}>
-                                                    {状态文案[status]}
+                                                    {获取图片状态文案(result)}
                                                 </span>
                                                 <span className="rounded border border-wuxia-gold/40 bg-black/60 backdrop-blur-sm px-2 py-0.5 text-[10px] text-wuxia-gold/80 shadow-md w-fit">
                                                     角色
@@ -4838,20 +4857,21 @@ const ImageManagerModal: React.FC<Props> = ({
 
             {imageViewer && (
                 <div
-                    className="absolute inset-0 z-[250] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4"
+                    className="absolute inset-0 z-[250] bg-black/95 backdrop-blur-sm flex items-center justify-end p-4 pr-8"
                     onClick={() => setImageViewer(null)}
                 >
                     <div
-                        className="relative inline-flex w-fit max-w-[92vw] max-h-[94vh] rounded-lg overflow-hidden border border-wuxia-gold/20 shadow-[0_0_50px_rgba(212,175,55,0.16)]"
+                        className="relative inline-flex w-fit max-w-[85vw] max-h-[94vh] rounded-lg overflow-hidden border border-wuxia-gold/30 shadow-[0_0_60px_rgba(212,175,55,0.25)]"
                         onClick={(event) => event.stopPropagation()}
                     >
-                        <img src={imageViewer.src} alt={imageViewer.alt} className="max-w-[92vw] max-h-[94vh] object-contain bg-black" />
+                        <img src={imageViewer.src} alt={imageViewer.alt} className="max-w-[85vw] max-h-[94vh] object-contain bg-black" />
                         <button
                             type="button"
-                            className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center rounded-full bg-black/60 border border-gray-700 text-gray-300"
+                            className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 border-2 border-white/80 text-white shadow-[0_0_20px_rgba(220,38,38,0.6)] transition-all hover:scale-110"
                             onClick={() => setImageViewer(null)}
+                            title="关闭预览"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
                             </svg>
                         </button>

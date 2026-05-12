@@ -80,16 +80,70 @@ const handleNovelAiProxyRequest = async (
   }
 };
 
-const novelAiDevProxyPlugin = (): Plugin => ({
-  name: 'novelai-dev-proxy',
+const handlePucodingImageProxyRequest = async (
+  req: any,
+  res: any,
+  next: () => void,
+  logger: { error: (message: string) => void }
+) => {
+  if (!req.url) {
+    next();
+    return;
+  }
+
+  try {
+    if (!/^\/v1\/images\/(?:generations|edits)(?:[?#]|$)/i.test(req.url)) {
+      res.statusCode = 404;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: 'Unsupported pucoding image proxy path' }));
+      return;
+    }
+
+    const body = await 读取请求体(req);
+    const targetUrl = `https://pucoding.com${req.url}`;
+    const headers: Record<string, string> = {};
+    const authorization = req.headers.authorization;
+    const contentType = req.headers['content-type'];
+    const accept = req.headers.accept;
+    if (typeof authorization === 'string' && authorization.trim()) headers.authorization = authorization;
+    if (typeof contentType === 'string' && contentType.trim()) headers['content-type'] = contentType;
+    if (typeof accept === 'string' && accept.trim()) headers.accept = accept;
+
+    const result = await 执行NovelAI代理请求(targetUrl, req.method || 'POST', headers, body);
+    res.statusCode = result.status;
+    Object.entries(result.headers).forEach(([key, value]) => {
+      if (key.toLowerCase() === 'content-length') return;
+      res.setHeader(key, value);
+    });
+    res.end(result.body);
+  } catch (error: any) {
+    logger.error(`[pucoding-image-dev-proxy] ${error?.message || error}`);
+    res.statusCode = 502;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({
+      error: 'pucoding image dev proxy failed',
+      detail: error?.message || String(error),
+      cause: error?.cause?.message || error?.cause?.code || ''
+    }));
+  }
+};
+
+const imageDevProxyPlugin = (): Plugin => ({
+  name: 'image-dev-proxy',
   configurePreviewServer(server) {
     server.middlewares.use('/api/novelai', async (req, res, next) => {
       await handleNovelAiProxyRequest(req, res, next, server.config.logger);
+    });
+    server.middlewares.use('/api/pucoding-image', async (req, res, next) => {
+      await handlePucodingImageProxyRequest(req, res, next, server.config.logger);
     });
   },
   configureServer(server) {
     server.middlewares.use('/api/novelai', async (req, res, next) => {
       await handleNovelAiProxyRequest(req, res, next, server.config.logger);
+    });
+    server.middlewares.use('/api/pucoding-image', async (req, res, next) => {
+      await handlePucodingImageProxyRequest(req, res, next, server.config.logger);
     });
   }
 });
@@ -114,7 +168,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0'
     },
-    plugins: [react(), novelAiDevProxyPlugin(), stripSameOriginAssetCrossoriginPlugin()],
+    plugins: [react(), imageDevProxyPlugin(), stripSameOriginAssetCrossoriginPlugin()],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
@@ -182,7 +236,8 @@ export default defineConfig(({ mode }) => {
         'dist/**',
         '.tmp*/**',
         'test-results/**',
-        'tests/e2e-*.spec.mjs'
+        'tests/e2e-*.spec.mjs',
+        'tests/bugfix-*.spec.mjs'
       ]
     }
   };

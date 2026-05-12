@@ -3,6 +3,7 @@ import { NPC结构, 角色数据结构, 战斗状态结构 } from '../../../type
 import { IconSwords, IconYinYang } from '../../ui/Icons';
 import { 生成战斗可视化数据, 逻辑判断知识库 } from '../../../utils/rulebook';
 import { 计算角色总气血 } from '../../../utils/characterVitals';
+import BattleRoundAnimation from './BattleRoundAnimation';
 
 interface Props {
     character: 角色数据结构;
@@ -183,6 +184,19 @@ const 指标说明 = {
     目标: '本回合默认攻击目标。越过前排直打后排时，会比较身法差、距离和前排借机攻击风险。'
 };
 
+const 单位属性说明: Record<string, string> = {
+    气血: '气血：当前承伤余量，低气血会降低续航并提高失能风险。',
+    精力: '精力：影响身法、行动频率与攻势修正，精力低会更容易失速。',
+    内力: '内力：影响法术伤害、法术守势与部分内功消耗。',
+    力: '力量：影响攻势、近战伤害、破防压力与携带重物能力。',
+    敏: '敏捷：影响身法、移动预算、闪避、突进和远程节奏。',
+    体: '体质：影响气血承受、物理守势与持续作战稳定性。',
+    根: '根骨：影响法术守势、内力承载、抗性与内功根基。',
+    境层: '境界层级：按境界折算的战斗修正，会影响攻势、守势与法术抗压。',
+    掩体: '掩体：来自地形、盾甲或遮挡，主要提高远程物理守势。',
+    毒: '毒性影响：中毒、麻痹、腐蚀等负面影响，会压低攻势、守势、身法和续航。',
+};
+
 const 战斗指标条: React.FC<{ label: keyof typeof 指标说明; value: React.ReactNode; tone?: string }> = ({ label, value, tone = 'text-gray-100' }) => (
     <div title={指标说明[label]} className="rounded border border-white/10 bg-black/30 px-2 py-1">
         <div className="text-[9px] tracking-[0.18em] text-gray-500">{label}</div>
@@ -269,9 +283,6 @@ const 资源数字 = (current: unknown, max: unknown) => {
     return `${当前}/${上限}`;
 };
 
-const 读取单位攻击 = (unit: any) => 取数(unit?.攻击力 ?? unit?.战斗力);
-const 读取单位防御 = (unit: any) => 取数(unit?.防御力);
-
 const 战斗单位详情卡: React.FC<{
     unit: any;
     name: string;
@@ -299,9 +310,7 @@ const 战斗单位详情卡: React.FC<{
         : 'border-wuxia-gold/20 bg-wuxia-gold/10 text-wuxia-gold';
     const hpCurrent = unit?.当前血量 ?? unit?.当前气血;
     const hpMax = unit?.最大血量 ?? unit?.最大气血;
-    const statItems = [
-        ['攻', 读取单位攻击(unit)],
-        ['防', 读取单位防御(unit)],
+    const statItems: Array<[string, number]> = [
         ['力', 取数(unit?.力量)],
         ['敏', 取数(unit?.敏捷)],
         ['体', 取数(unit?.体质)],
@@ -321,13 +330,13 @@ const 战斗单位详情卡: React.FC<{
                 <div className="text-[10px] text-gray-500">{realm || '未明'}</div>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-                <div className="rounded border border-red-500/20 bg-red-950/20 px-2 py-1 text-red-100">气血 <b>{资源数字(hpCurrent, hpMax)}</b></div>
-                <div className="rounded border border-cyan-500/20 bg-cyan-950/20 px-2 py-1 text-cyan-100">精力 <b>{资源数字(unit?.当前精力, unit?.最大精力)}</b></div>
-                <div className="rounded border border-indigo-500/20 bg-indigo-950/20 px-2 py-1 text-indigo-100">内力 <b>{资源数字(unit?.当前内力, unit?.最大内力)}</b></div>
+                <div title={单位属性说明.气血} className="cursor-help rounded border border-red-500/20 bg-red-950/20 px-2 py-1 text-red-100">气血 <b>{资源数字(hpCurrent, hpMax)}</b></div>
+                <div title={单位属性说明.精力} className="cursor-help rounded border border-cyan-500/20 bg-cyan-950/20 px-2 py-1 text-cyan-100">精力 <b>{资源数字(unit?.当前精力, unit?.最大精力)}</b></div>
+                <div title={单位属性说明.内力} className="cursor-help rounded border border-indigo-500/20 bg-indigo-950/20 px-2 py-1 text-indigo-100">内力 <b>{资源数字(unit?.当前内力, unit?.最大内力)}</b></div>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-gray-200">
                 {statItems.map(([label, value]) => (
-                    <div key={label} className="rounded border border-white/10 bg-black/25 px-2 py-1">
+                    <div key={label} title={单位属性说明[label] || ''} className="cursor-help rounded border border-white/10 bg-black/25 px-2 py-1">
                         {label} <b className="font-mono text-gray-100">{value}</b>
                     </div>
                 ))}
@@ -447,7 +456,7 @@ const BattleModal: React.FC<Props> = ({ character, battle, teammates = [], conte
                 {/* 顶栏 */}
                 <div className="h-14 shrink-0 border-b border-wuxia-gold/10 bg-gradient-to-r from-black/80 to-black/40 flex items-center justify-between px-6 relative z-50">
                     <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full animate-pulse shadow-[0_0_10px_rgba(255,0,0,0.8)] ${battle?.是否战斗中 ? 'bg-red-500' : 'bg-wuxia-gold'}`}></div>
+                        <div className={`w-2 h-2 rounded-full animate-pulse shadow-[0_0_14px_rgba(255,0,0,1)] ${battle?.是否战斗中 ? 'bg-red-600' : 'bg-wuxia-gold'}`}></div>
                         <h3 className="text-wuxia-gold font-serif font-bold text-xl tracking-[0.4em] drop-shadow-md">
                             战斗局势
                             <span className="text-[10px] text-wuxia-gold/50 ml-2 font-mono tracking-widest border border-wuxia-gold/20 px-2 py-0.5 rounded-full">COMBAT</span>
@@ -552,6 +561,15 @@ const BattleModal: React.FC<Props> = ({ character, battle, teammates = [], conte
                                 <div className="rounded border border-white/10 bg-black/25 px-3 py-2 text-gray-300">移动消耗 = 水平距离 + 上坡高度*1.6 - 下坡高度*0.45，预算 = 身法</div>
                             </div>
                         </section>
+                        {battle?.是否战斗中 && (
+                            <section className="mb-4">
+                                <BattleRoundAnimation
+                                    character={character}
+                                    battle={battle}
+                                    compact={false}
+                                />
+                            </section>
+                        )}
                         <section className="mb-4 rounded-xl border border-white/10 bg-black/30 p-4">
                             <div className="mb-3 text-xs font-bold tracking-[0.22em] text-gray-300">计算规则</div>
                             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">

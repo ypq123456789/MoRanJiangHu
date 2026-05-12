@@ -112,6 +112,7 @@ type IndependentStageFailureParams = {
     stageId: IndependentStageId;
     stageLabel: string;
     errorText: string;
+    manualAttempt?: number;
 };
 
 interface Props {
@@ -261,14 +262,6 @@ const InputArea: React.FC<Props> = ({
     const handleSend = async () => {
         if (!content.trim()) return;
         if (loading || isPreparing) return;
-        if (postStoryQueueRunning) {
-            setErrorModal({
-                open: true,
-                title: '后台队列仍在处理',
-                content: '上一轮的后台队列还没结束，暂时不能继续下一次正文生成。请等待变量、世界和规划处理完成后再发送。'
-            });
-            return;
-        }
         setIsPreparing(true);
         setErrorModal(prev => ({ ...prev, open: false }));
         setParseRepairModal(prev => ({ ...prev, open: false, error: '' }));
@@ -292,6 +285,9 @@ const InputArea: React.FC<Props> = ({
                 onPlanningProgress: (progress) => 记录并设置队列进度('planning', progress, setPlanningProgress),
                 onVariableGenerationProgress: (progress) => 记录并设置队列进度('variable', progress, setVariableGenerationProgress),
                 onStageFailureDecision: async (params) => {
+                    if (params.stageId === 'planning' && (params.manualAttempt || 1) <= 1) {
+                        return 'skip';
+                    }
                     const message = `${params.stageLabel}请求失败：\n\n${params.errorText || '未知错误'}\n\n选择“重试”会重新执行当前阶段；选择“跳过”会继续后续阶段。`;
                     if (requestConfirm) {
                         const accepted = await requestConfirm({
@@ -323,6 +319,9 @@ const InputArea: React.FC<Props> = ({
                     onPlanningProgress: (progress) => 记录并设置队列进度('planning.retry', progress, setPlanningProgress),
                     onVariableGenerationProgress: (progress) => 记录并设置队列进度('variable.retry', progress, setVariableGenerationProgress),
                     onStageFailureDecision: async (params) => {
+                        if (params.stageId === 'planning' && (params.manualAttempt || 1) <= 1) {
+                            return 'skip';
+                        }
                         const message = `${params.stageLabel}请求失败：\n\n${params.errorText || '未知错误'}\n\n选择“重试”会重新执行当前阶段；选择“跳过”会继续后续阶段。`;
                         if (requestConfirm) {
                             const accepted = await requestConfirm({
@@ -555,7 +554,7 @@ const InputArea: React.FC<Props> = ({
         .map(normalizeOptionText)
         .filter(item => item.length > 0);
 
-    const busy = loading || isPreparing || variableGenerationRunning || postStoryQueueRunning;
+    const busy = loading || isPreparing || variableGenerationRunning;
     const recallRunning = isPreparing && !loading;
     const effectiveWorldEvolutionProgress = worldEvolutionProgress || openingWorldEvolutionProgress;
     const effectivePlanningProgress = planningProgress || openingPlanningProgress;
@@ -595,20 +594,65 @@ const InputArea: React.FC<Props> = ({
     };
 
     useEffect(() => {
-        const hasOpeningQueueProgress = [openingWorldEvolutionProgress, openingPlanningProgress]
-            .some((item) => item?.phase === 'start' || item?.phase === 'done' || item?.phase === 'error' || item?.phase === 'skipped' || item?.phase === 'cancelled');
-        if (hasOpeningQueueProgress) {
-            setQueueCollapsed(false);
+        const hasQueueProgress = [
+            polishProgress,
+            effectiveVariableGenerationProgress,
+            effectiveWorldEvolutionProgress,
+            effectivePlanningProgress
+        ].some((item) => item?.phase === 'start' || item?.phase === 'done' || item?.phase === 'error' || item?.phase === 'skipped' || item?.phase === 'cancelled');
+        const hasRunningQueueStage = [
+            polishProgress,
+            effectiveVariableGenerationProgress,
+            effectiveWorldEvolutionProgress,
+            effectivePlanningProgress
+        ].some((item) => item?.phase === 'start');
+        if (hasQueueProgress && (hasRunningQueueStage || postStoryQueueRunning)) {
+            // 不再自动展开面板，保持收缩状态让用户手动点开
         }
-    }, [openingWorldEvolutionProgress, openingPlanningProgress]);
+    }, [
+        postStoryQueueRunning,
+        polishProgress?.phase,
+        effectiveVariableGenerationProgress?.phase,
+        effectiveWorldEvolutionProgress?.phase,
+        effectivePlanningProgress?.phase
+    ]);
 
     useEffect(() => {
-        const hasMainQueueError = [polishProgress, worldEvolutionProgress, planningProgress]
+        const hasMainQueueError = [
+            polishProgress,
+            effectiveVariableGenerationProgress,
+            effectiveWorldEvolutionProgress,
+            effectivePlanningProgress
+        ]
             .some((item) => item?.phase === 'error');
         if (hasMainQueueError) {
-            setQueueCollapsed(false);
+            // 错误时也不自动展开，保持收缩
         }
-    }, [polishProgress, worldEvolutionProgress, planningProgress]);
+    }, [
+        polishProgress?.phase,
+        effectiveVariableGenerationProgress?.phase,
+        effectiveWorldEvolutionProgress?.phase,
+        effectivePlanningProgress?.phase
+    ]);
+
+    useEffect(() => {
+        if (!queueVisible || queueRunning) return;
+        const hasQueueError = pipelineStages.some((stage) => stage.progress?.phase === 'error');
+        if (hasQueueError) return;
+        const timerId = window.setTimeout(() => {
+            setQueueCollapsed(true);
+            setExpandedRawStageId(null);
+            setExpandedCommandStageId(null);
+        }, 1200);
+        return () => window.clearTimeout(timerId);
+    }, [
+        queueVisible,
+        queueRunning,
+        polishProgress?.phase,
+        effectiveVariableGenerationProgress?.phase,
+        effectiveWorldEvolutionProgress?.phase,
+        effectivePlanningProgress?.phase
+    ]);
 
     return (
         <div className="shrink-0 relative z-20 bg-gradient-to-t from-ink-black/90 via-ink-black/75 to-transparent pb-2 px-2 sm:px-4 flex flex-col gap-1 backdrop-blur-[2px]">
@@ -843,7 +887,7 @@ const InputArea: React.FC<Props> = ({
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                         </svg>
                     </button>
                 ) : (
                     <button 
@@ -982,7 +1026,10 @@ const InputArea: React.FC<Props> = ({
                                     style={{ clipPath: 'polygon(10% 0%, 90% 0%, 100% 100%, 0% 100%)' }}
                                     title="收起独立更新阶段队列"
                                 >
-                                    {queueRunning ? '运行中' : '收起队列'}
+                                    <span className="inline-flex items-center justify-center gap-2">
+                                        {queueRunning && <span className="inline-block w-3 h-3 border-2 border-wuxia-cyan/40 border-t-wuxia-cyan rounded-full animate-spin" />}
+                                        <span>{queueRunning ? `${currentRunningStage?.label || ''}运行中` : '收起队列'}</span>
+                                    </span>
                                 </button>
                             </div>
                         )}
@@ -991,11 +1038,14 @@ const InputArea: React.FC<Props> = ({
                                 <button
                                     type="button"
                                     onClick={() => setQueueCollapsed(false)}
-                                    className={`h-8 w-32 border text-sm tracking-[0.18em] transition hover:bg-neutral-950 ${queueBadgeClass}`}
+                                    className={`h-8 px-4 min-w-[8rem] border text-sm tracking-[0.18em] transition hover:bg-neutral-950 ${queueBadgeClass}`}
                                     style={{ clipPath: 'polygon(12% 0%, 88% 0%, 100% 100%, 0% 100%)' }}
                                     title="展开独立更新阶段队列"
                                 >
-                                    {queueRunning ? '队列中' : '队列'}
+                                    <span className="inline-flex items-center justify-center gap-2">
+                                        {queueRunning && <span className="inline-block w-3 h-3 border-2 border-wuxia-cyan/40 border-t-wuxia-cyan rounded-full animate-spin" />}
+                                        <span>{queueRunning ? `${currentRunningStage?.label || '队列'}运行中` : '队列'}</span>
+                                    </span>
                                 </button>
                             </div>
                         ) : (

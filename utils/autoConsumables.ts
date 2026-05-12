@@ -96,6 +96,13 @@ export const 补齐自动丹药预设 = (items: any[]): any[] => {
     return next;
 };
 
+/**
+ * 这些 ID 专门留给系统按生存与突破规则预设的基础丹药。
+ * 用来判断：角色用完后，不应该在下一回合被补齐逻辑再次塞回来。
+ */
+export const 自动预设丹药ID集合 = new Set(AUTO_CONSUMABLES.map((template) => template.id));
+export const 自动预设丹药名称集合 = new Set(AUTO_CONSUMABLES.map((template) => template.name));
+
 const 匹配效果 = (item: any, target: string): number => {
     const effects = Array.isArray(item?.使用效果) ? item.使用效果 : [];
     return effects.reduce((sum: number, effect: any) => {

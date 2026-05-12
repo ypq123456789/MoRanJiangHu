@@ -808,6 +808,7 @@ const 解析SSE文本XHR = (
 });
 
 const 写入流式诊断日志 = (message: string, detail?: Record<string, unknown>) => {
+    if (message.includes('stream chunk')) return;
     const payload = detail || {};
     try {
         if (typeof console !== 'undefined') {

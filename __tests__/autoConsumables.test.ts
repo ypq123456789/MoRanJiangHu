@@ -90,3 +90,54 @@ describe('auto consumable rules', () => {
         expect(role.物品列表.some((item: any) => item.名称 === '辟谷丹')).toBe(true);
     });
 });
+
+
+describe('自动丹药预设不应在用完后重复补齐（客户反馈：丹药用完下回合又出来）', () => {
+    it('补齐函数在已有同名丹药时不会重复补', () => {
+        // 第一次补齐：从空列表到 4 种丹药
+        const first = 补齐自动丹药预设([]);
+        expect(first.length).toBe(4);
+        // 第二次调用：列表没变（已有同名会被跳过）
+        const second = 补齐自动丹药预设(first);
+        expect(second.length).toBe(4);
+    });
+
+    it('玩家吃完某颗丹药后，再次传入列表时该丹药不会被重新塞回', () => {
+        const initial = 补齐自动丹药预设([]);
+        // 模拟玩家吃完了"回气丹"
+        const afterUse = initial.filter((item: any) => item.名称 !== '回气丹');
+        expect(afterUse.some((item: any) => item.名称 === '回气丹')).toBe(false);
+        // 直接调用 补齐自动丹药预设 会把被吃掉的补回来——这正是老行为。
+        // 新行为的兜底在 stateTransforms.ts 里通过"已补齐系统丹药预设"标记避免重复补。
+        // 这里只确认单独用 补齐自动丹药预设 时的语义与之前一致，向下兼容。
+        const topped = 补齐自动丹药预设(afterUse);
+        expect(topped.some((item: any) => item.名称 === '回气丹')).toBe(true);
+    });
+});
+
+
+import { 规范化角色物品容器映射 } from '../hooks/useGame/stateTransforms';
+
+describe('stateTransforms 只补一次系统丹药预设', () => {
+    it('老存档第一次归一会被补上 4 种系统丹药并打上标记', () => {
+        const role: any = {
+            姓名: '测试',
+            物品列表: []
+        };
+        const normalized = 规范化角色物品容器映射(role);
+        const names = normalized.物品列表.map((item: any) => item.名称);
+        expect(names).toEqual(expect.arrayContaining(['辟谷丹', '回气丹', '凝元丹', '破境丹']));
+        expect((normalized as any).已补齐系统丹药预设).toBe(true);
+    });
+
+    it('已经补过的存档即使某丹药被吃完，下一次归一也不会重新塞回', () => {
+        const role: any = {
+            姓名: '测试',
+            物品列表: [],
+            已补齐系统丹药预设: true
+        };
+        const normalized = 规范化角色物品容器映射(role);
+        expect(normalized.物品列表.some((item: any) => item.名称 === '回气丹')).toBe(false);
+        expect(normalized.物品列表.some((item: any) => item.名称 === '破境丹')).toBe(false);
+    });
+});

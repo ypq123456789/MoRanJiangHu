@@ -7,7 +7,7 @@ export type 生图任务来源类型 = 'auto' | 'manual' | 'retry';
 export type 生图构图类型 = '头像' | '半身' | '立绘' | '场景' | '部位特写' | '物品图标' | '物品特写' | '物品展示';
 export type 场景生成类型 = '场景快照' | '风景场景';
 export type 香闺秘档部位类型 = '胸部' | '小穴' | '屁穴';
-export type 图片记录来源类型 = 'generated' | 'upload';
+export type 图片记录来源类型 = 'generated' | 'upload' | 'hosted';
 export type 物品生图构图类型 = '物品图标' | '物品特写' | '物品展示';
 export type 物品生图渲染风格 = '写实道具' | '国风插画' | '像素图标' | '3D渲染';
 
@@ -168,6 +168,8 @@ export interface 物品生图任务记录 {
     图片URL?: string;
     本地路径?: string;
     错误信息?: string;
+    重试次数?: number;
+    最大重试次数?: number;
     进度阶段?: 'queued' | 'prompting' | 'generating' | 'saving' | 'success' | 'failed';
     进度文本?: string;
     额外要求?: string;
@@ -200,6 +202,8 @@ export interface NPC生图任务记录 {
     图片URL?: string;
     本地路径?: string;
     错误信息?: string;
+    重试次数?: number;
+    最大重试次数?: number;
     进度阶段?: 'queued' | 'prompting' | 'generating' | 'saving' | 'success' | 'failed';
     进度文本?: string;
     额外要求?: string;
@@ -228,6 +232,8 @@ export interface 场景生图任务记录 {
     图片URL?: string;
     本地路径?: string;
     错误信息?: string;
+    重试次数?: number;
+    最大重试次数?: number;
     进度阶段?: 'queued' | 'prompting' | 'generating' | 'saving' | 'success' | 'failed';
     进度文本?: string;
     来源回合?: number;

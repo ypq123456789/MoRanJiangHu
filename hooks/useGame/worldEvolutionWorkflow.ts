@@ -15,6 +15,7 @@ import { 构建同人运行时提示词包 } from '../../prompts/runtime/fandom'
 import { 获取激活小说拆分注入文本 } from '../../services/novelDecompositionInjection';
 import { 按功能开关过滤提示词内容, 裁剪修炼体系上下文数据 } from '../../utils/promptFeatureToggles';
 import { 提取响应规划文本 } from './thinkingContext';
+import { 创建工作流性能诊断 } from '../../utils/performanceDebug';
 
 export type 世界演变触发参数 = {
     来源?: 'manual' | 'auto_due' | 'story_dynamic' | 'story_dynamic_and_due';
@@ -95,6 +96,49 @@ const 序列化上下文命令 = (commands: any[]): string => (
         .join('\n')
 );
 
+const 世界演变请求超时毫秒 = 90000;
+
+const 创建世界演变超时错误 = (): Error => {
+    const error = new Error(`世界演变请求超时（${Math.max(1, Math.ceil(世界演变请求超时毫秒 / 1000))} 秒）`);
+    error.name = 'TimeoutError';
+    return error;
+};
+
+const 执行世界演变带超时 = async <T,>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+    const controller = new AbortController();
+    let timer: number | undefined;
+    const startedAt = Date.now();
+    console.info('[性能诊断][世界演变] 模型请求开始', {
+        timeoutMs: 世界演变请求超时毫秒
+    });
+    try {
+        const value = await Promise.race([
+            task(controller.signal),
+            new Promise<T>((_, reject) => {
+                timer = window.setTimeout(() => {
+                    controller.abort();
+                    reject(创建世界演变超时错误());
+                }, 世界演变请求超时毫秒);
+            })
+        ]);
+        console.info('[性能诊断][世界演变] 模型请求完成', {
+            elapsedMs: Date.now() - startedAt
+        });
+        return value;
+    } catch (error: any) {
+        console.warn('[性能诊断][世界演变] 模型请求失败', {
+            elapsedMs: Date.now() - startedAt,
+            name: error?.name || 'Error',
+            message: error?.message || String(error || '')
+        });
+        throw error;
+    } finally {
+        if (timer !== undefined) {
+            window.clearTimeout(timer);
+        }
+    }
+};
+
 export const 执行世界演变更新工作流 = async (
     params: 世界演变触发参数 | undefined,
     deps: 世界演变依赖
@@ -118,20 +162,29 @@ export const 执行世界演变更新工作流 = async (
         return { ok: false, phase: 'skipped', commands: [], updates: [], rawText: '', statusText: '世界演变更新中...' };
     }
 
+    const probe = 创建工作流性能诊断('世界演变', {
+        timeoutMs: 世界演变请求超时毫秒,
+        triggerSource,
+        dynamicHints: dynamicHints.length,
+        dueHints: dueHints.length,
+        historyCount: Array.isArray(deps.历史记录) ? deps.历史记录.length : 0,
+        applyCommands: params?.applyCommands !== false
+    });
+
     try {
         deps.世界演变进行中Ref.current = true;
         deps.set世界演变更新中(true);
         deps.set世界演变状态文本('世界演变更新中...');
 
         const worldStateBase = params?.stateBase;
-        const worldEnv = deps.规范化环境信息(worldStateBase?.环境 || deps.环境);
-        const worldRuntimeGameConfig = 规范化游戏设置(deps.gameConfig);
+        const worldEnv = probe.time('规范化世界演变环境', () => deps.规范化环境信息(worldStateBase?.环境 || deps.环境));
+        const worldRuntimeGameConfig = probe.time('规范化游戏设置', () => 规范化游戏设置(deps.gameConfig));
         const 启用修炼体系 = worldRuntimeGameConfig.启用修炼体系 !== false;
-        const worldState = 裁剪修炼体系上下文数据(
+        const worldState = probe.time('规范化并裁剪世界状态', () => 裁剪修炼体系上下文数据(
             deps.规范化世界状态(worldStateBase?.世界 || deps.世界),
             worldRuntimeGameConfig
-        );
-        const rawWorldStory = deps.规范化剧情状态(worldStateBase?.剧情 || deps.剧情, worldEnv);
+        ));
+        const rawWorldStory = probe.time('规范化世界演变剧情状态', () => deps.规范化剧情状态(worldStateBase?.剧情 || deps.剧情, worldEnv));
         const worldPrompt = (() => {
             const hit = deps.prompts.find(item => item.id === 'core_world');
             return 按功能开关过滤提示词内容(typeof hit?.内容 === 'string' ? hit.内容.trim() : '', worldRuntimeGameConfig);
@@ -151,18 +204,20 @@ export const 执行世界演变更新工作流 = async (
                 worldRuntimeGameConfig
             );
         })();
-        const fandomPromptBundle = 构建同人运行时提示词包({
+        const fandomPromptBundle = probe.time('构建同人运行时提示词包', () => 构建同人运行时提示词包({
             openingConfig: deps.开局配置,
             worldPrompt,
             realmPrompt
-        });
+        }));
         const worldStory = rawWorldStory;
-        const worldShortMemoryTexts = (Array.isArray(规范化记忆系统(deps.记忆系统).短期记忆) ? 规范化记忆系统(deps.记忆系统).短期记忆 : [])
+        const worldShortMemoryTexts = probe.time('提取短期记忆', () => (Array.isArray(规范化记忆系统(deps.记忆系统).短期记忆) ? 规范化记忆系统(deps.记忆系统).短期记忆 : [])
             .slice(-8)
             .map(item => (item || '').trim())
-            .filter(Boolean);
-        const worldScriptText = formatHistoryToScript(deps.按回合窗口裁剪历史(deps.历史记录, 6)) || '暂无';
-        const currentTurnBody = (() => {
+            .filter(Boolean));
+        const worldScriptText = probe.time('构建世界演变历史剧本文本', () => formatHistoryToScript(deps.按回合窗口裁剪历史(deps.历史记录, 6)) || '暂无', {
+            historyCount: Array.isArray(deps.历史记录) ? deps.历史记录.length : 0
+        });
+        const currentTurnBody = probe.time('提取当前回合正文', () => {
             const currentResponseBody = 提取响应完整正文文本(params?.currentResponse);
             if (currentResponseBody) return currentResponseBody;
             const history = Array.isArray(deps.历史记录) ? deps.历史记录 : [];
@@ -173,8 +228,8 @@ export const 执行世界演变更新工作流 = async (
                 if (body) return body;
             }
             return '';
-        })();
-        const currentTurnPlanText = (() => {
+        });
+        const currentTurnPlanText = probe.time('提取当前回合规划文本', () => {
             const currentResponsePlan = 提取响应规划文本(params?.currentResponse);
             if (currentResponsePlan) return currentResponsePlan;
             const history = Array.isArray(deps.历史记录) ? deps.历史记录 : [];
@@ -185,9 +240,18 @@ export const 执行世界演变更新工作流 = async (
                 if (plan) return plan;
             }
             return '';
-        })();
-        const currentTurnCommandsText = 序列化上下文命令(params?.currentResponse?.tavern_commands || []);
+        });
+        const currentTurnCommandsText = probe.time('序列化当前回合命令', () => 序列化上下文命令(params?.currentResponse?.tavern_commands || []), {
+            commandCount: Array.isArray(params?.currentResponse?.tavern_commands) ? params.currentResponse.tavern_commands.length : 0
+        });
         const envCanonical = 环境时间转标准串(worldStateBase?.环境 || deps.环境) || '';
+        probe.mark('世界演变基础上下文准备完成', {
+            scriptLength: worldScriptText.length,
+            currentBodyLength: currentTurnBody.length,
+            currentPlanLength: currentTurnPlanText.length,
+            currentCommandsLength: currentTurnCommandsText.length,
+            memoryCount: worldShortMemoryTexts.length
+        });
         const signature = [
             triggerSource,
             envCanonical,
@@ -198,11 +262,12 @@ export const 执行世界演变更新工作流 = async (
             currentTurnCommandsText
         ].join('::');
         if (!params?.force && signature === deps.世界演变去重签名Ref.current) {
+            probe.mark('跳过：重复世界演变任务');
             return { ok: false, phase: 'skipped', commands: [], updates: [], rawText: '', statusText: '相同世界演变任务已处理，已跳过。' };
         }
         deps.世界演变去重签名Ref.current = signature;
 
-        const worldContext = 构建世界演变上下文文本({
+        const worldContext = probe.time('构建世界演变上下文文本', () => 构建世界演变上下文文本({
             worldPrompt,
             worldEvolutionPrompt,
             envData: worldEnv,
@@ -216,22 +281,27 @@ export const 执行世界演变更新工作流 = async (
             currentGameTime: 环境时间转标准串(worldEnv) || '',
             dynamicHints,
             dueHints
+        }), {
+            dynamicHints: dynamicHints.length,
+            dueHints: dueHints.length
         });
-        const worldbookExtraPrompt = 按功能开关过滤提示词内容(构建世界书注入文本({
+        const worldbookExtraPrompt = probe.time('构建世界演变世界书注入', () => 按功能开关过滤提示词内容(构建世界书注入文本({
             books: deps.worldbooks,
             scopes: ['world_evolution'],
             environment: worldEnv,
             world: worldState,
             history: deps.历史记录,
             extraTexts: [currentTurnPlanText, ...dynamicHints, ...dueHints]
-        }).combinedText, worldRuntimeGameConfig);
-        const novelDecompositionPrompt = 按功能开关过滤提示词内容(await 获取激活小说拆分注入文本(
+        }).combinedText, worldRuntimeGameConfig), {
+            worldbookCount: Array.isArray(deps.worldbooks) ? deps.worldbooks.length : 0
+        });
+        const novelDecompositionPrompt = await probe.timeAsync('构建世界演变小说拆分注入', async () => 按功能开关过滤提示词内容(await 获取激活小说拆分注入文本(
             deps.apiSettings,
             'world_evolution',
             deps.开局配置,
             worldStory,
             worldStateBase?.角色?.姓名 || deps.角色?.姓名 || ''
-        ), worldRuntimeGameConfig);
+        ), worldRuntimeGameConfig));
         const worldExtraPrompt = [
             typeof worldRuntimeGameConfig.额外提示词 === 'string'
                 ? 按功能开关过滤提示词内容(worldRuntimeGameConfig.额外提示词.trim(), worldRuntimeGameConfig)
@@ -250,37 +320,56 @@ export const 执行世界演变更新工作流 = async (
             fandom: fandomPromptBundle.enabled
         });
         const 独立世界演变GPT模式 = worldRuntimeGameConfig.独立APIGPT模式?.世界演变 === true;
+        probe.mark('世界演变请求载荷准备完成', {
+            worldContextLength: worldContext.length,
+            extraPromptLength: worldExtraPrompt.length,
+            cotPseudoLength: worldCotPseudoPrompt.length,
+            cotPromptLength: worldCotPrompt.length,
+            fandomEnabled: fandomPromptBundle.enabled
+        });
 
-        const result = await textAIService.generateWorldEvolutionUpdate(
-            worldContext,
-            worldApi,
-            undefined,
-            worldExtraPrompt,
-            worldCotPseudoPrompt,
-            worldCotPrompt,
-            fandomPromptBundle.enabled,
-            独立世界演变GPT模式
-        );
-        const normalizedCommands = 规范化世界演变命令列表(result.commands as any);
+        const result = await probe.timeAsync('世界演变模型请求总耗时', () => 执行世界演变带超时(signal => (
+            textAIService.generateWorldEvolutionUpdate(
+                worldContext,
+                worldApi,
+                signal,
+                worldExtraPrompt,
+                worldCotPseudoPrompt,
+                worldCotPrompt,
+                fandomPromptBundle.enabled,
+                独立世界演变GPT模式
+            )
+        )), { timeoutMs: 世界演变请求超时毫秒 });
+        probe.mark('世界演变模型返回', {
+            rawCommandCount: Array.isArray(result.commands) ? result.commands.length : 0,
+            updatesCount: Array.isArray(result.updates) ? result.updates.length : 0,
+            rawTextLength: typeof result.rawText === 'string' ? result.rawText.length : 0
+        });
+        const normalizedCommands = probe.time('规范化世界演变命令', () => 规范化世界演变命令列表(result.commands as any));
         const rawCommandCount = Array.isArray(result.commands) ? result.commands.length : 0;
         const rawText = typeof result.rawText === 'string' ? result.rawText.trim() : '';
 
         if (normalizedCommands.length > 0) {
-            deps.processResponseCommands(
+            probe.time('应用世界演变命令', () => deps.processResponseCommands(
                 {
                     logs: [],
                     tavern_commands: normalizedCommands
                 },
                 params?.stateBase,
                 { applyState: params?.applyCommands !== false }
-            );
+            ), {
+                commandCount: normalizedCommands.length,
+                applyState: params?.applyCommands !== false
+            });
         }
 
-        const updates = (Array.isArray(result.updates) ? result.updates : [])
+        const updates = probe.time('整理世界演变摘要', () => (Array.isArray(result.updates) ? result.updates : [])
             .map(item => item.trim())
-            .filter(Boolean);
+            .filter(Boolean));
         if (updates.length > 0) {
-            deps.setWorldEvents(prev => [...updates, ...(Array.isArray(prev) ? prev : [])].slice(0, 30));
+            probe.time('写入世界事件列表', () => deps.setWorldEvents(prev => [...updates, ...(Array.isArray(prev) ? prev : [])].slice(0, 30)), {
+                updates: updates.length
+            });
         }
 
         const updateSummary = updates.length > 0
@@ -300,14 +389,22 @@ export const 执行世界演变更新工作流 = async (
         deps.set世界演变最近摘要(updates.slice(0, 8));
         deps.set世界演变最近原始消息(rawText);
         deps.set世界演变状态文本(updateSummary);
+        probe.mark('世界演变状态写入完成', {
+            normalizedCommands: normalizedCommands.length,
+            updates: updates.length,
+            statusTextLength: updateSummary.length
+        });
         if (
             params?.applyCommands !== false
             && (triggerSource === 'manual' || triggerSource === 'auto_due' || triggerSource === 'story_dynamic' || triggerSource === 'story_dynamic_and_due')
             && (normalizedCommands.length > 0 || updates.length > 0)
         ) {
             // 插入到对应回合下方（最近一个 assistant structuredResponse 之后）。
-            deps.追加系统消息(`[世界演变] ${updateSummary}`, { position: 'after_last_turn' });
+            probe.time('追加世界演变系统消息', () => deps.追加系统消息(`[世界演变] ${updateSummary}`, { position: 'after_last_turn' }));
         }
+        probe.mark('世界演变更新完成', {
+            phase: normalizedCommands.length > 0 || updates.length > 0 ? 'done' : 'skipped'
+        });
         return {
             ok: true,
             phase: normalizedCommands.length > 0 || updates.length > 0 ? 'done' : 'skipped',
@@ -317,7 +414,14 @@ export const 执行世界演变更新工作流 = async (
             statusText: updateSummary
         };
     } catch (error: any) {
-        const message = error?.message || '世界演变更新失败';
+        const message = error?.name === 'AbortError'
+            ? '世界演变请求已取消'
+            : (error?.message || '世界演变更新失败');
+        console.error('[世界演变] 更新失败', {
+            name: error?.name || 'Error',
+            message,
+            status: error?.status
+        });
         deps.set世界演变状态文本(message);
         if (params?.force || triggerSource === 'manual') {
             deps.追加系统消息(`[世界演变失败] ${message}`, { position: 'after_last_turn' });
@@ -331,6 +435,7 @@ export const 执行世界演变更新工作流 = async (
             statusText: message
         };
     } finally {
+        probe.end('释放世界演变进行中标记');
         deps.世界演变进行中Ref.current = false;
         deps.set世界演变更新中(false);
     }

@@ -57,7 +57,7 @@ const TaskModal: React.FC<Props> = ({ tasks, onDeleteTask, onClose }) => {
                 {/* 顶栏 */}
                 <div className="h-14 shrink-0 border-b border-wuxia-gold/10 bg-gradient-to-r from-black/80 to-black/40 flex items-center justify-between px-6 relative z-50">
                     <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.8)]"></div>
+                        <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse shadow-[0_0_14px_rgba(220,38,38,1)]"></div>
                         <h3 className="text-wuxia-gold font-serif font-bold text-xl tracking-[0.4em] drop-shadow-md">
                             江湖传书
                             <span className="text-[10px] text-wuxia-gold/50 ml-2 font-mono tracking-widest border border-wuxia-gold/20 px-2 py-0.5 rounded-full">MISSIONS & LETTERS</span>

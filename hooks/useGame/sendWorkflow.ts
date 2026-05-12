@@ -42,6 +42,7 @@ type 独立阶段失败决策参数 = {
     stageId: 独立阶段标识;
     stageLabel: string;
     errorText: string;
+    manualAttempt?: number;
 };
 
 type 规划分析进度 = {
@@ -89,6 +90,14 @@ const 计时同步队列步骤 = <T,>(label: string, run: () => T, details: Reco
         }
     }
 };
+
+const 让出主线程 = (): Promise<void> => new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+        setTimeout(resolve, 0);
+        return;
+    }
+    window.setTimeout(resolve, 0);
+});
 
 const 获取响应命令数量 = (response: Partial<GameResponse> | null | undefined): number => (
     Array.isArray(response?.tavern_commands) ? response.tavern_commands.length : 0
@@ -309,6 +318,7 @@ type 主剧情发送依赖 = {
         gameTime: string;
         response: GameResponse;
         shouldApply?: () => boolean;
+        onRetry?: (attempt: number, maxAttempts: number, reason: string) => void;
     }) => Promise<{ updated: boolean; message: string; rawText?: string; commands: any[]; storyPlanCommands?: any[]; heroinePlanCommands?: any[] }>;
     后台执行变量生成: (params: {
         snapshot: 回合快照结构;
@@ -392,7 +402,13 @@ export const 执行主剧情发送工作流 = async (
     let sendInput = extracted.cleanInput || content.trim();
     let recallTag = extracted.recallTag;
     let attachedRecallPreview = '';
-    const recallTimeoutMs = 25000;
+    // 动态超时：基础 + 每 10 回合追加，封顶上限。上下文越长，检索越慢，死板 25s 不够用。
+    const recallMemoryConfig = 规范化记忆配置(currentState.memoryConfig);
+    const recallBaseSeconds = Math.max(5, Number(recallMemoryConfig.剧情回忆检索基础超时秒数) || 25);
+    const recallPer10Seconds = Math.max(0, Number(recallMemoryConfig.剧情回忆检索每10回合追加秒数) || 6);
+    const recallMaxSeconds = Math.max(recallBaseSeconds, Number(recallMemoryConfig.剧情回忆检索最大超时秒数) || 180);
+    const recallScaledSeconds = recallBaseSeconds + Math.floor(Math.max(0, nextRound - 1) / 10) * recallPer10Seconds;
+    const recallTimeoutMs = Math.min(recallMaxSeconds, recallScaledSeconds) * 1000;
     const recallMaxAttempts = 2;
 
     const createRecallTimeoutError = () => {
@@ -583,6 +599,8 @@ export const 执行主剧情发送工作流 = async (
         onError?: (errorText: string) => void;
         onSkip?: (errorText: string) => void;
         getErrorText?: (error: any) => string;
+        useGlobalAutoRetry?: boolean;
+        skipFailureDecision?: boolean;
     }): Promise<{ completed: boolean; result?: T }> => {
         let manualAttempt = 0;
         while (true) {
@@ -590,7 +608,7 @@ export const 执行主剧情发送工作流 = async (
             params.beforeAttempt?.(manualAttempt);
             try {
                 const result = await deps.执行带自动重试的生成请求<T>({
-                    enabled: 独立阶段自动重试已启用,
+                    enabled: params.useGlobalAutoRetry !== false && 独立阶段自动重试已启用,
                     action: params.run,
                     onRetry: params.onAutoRetry
                 });
@@ -606,12 +624,17 @@ export const 执行主剧情发送工作流 = async (
                         || deps.格式化错误详情(error)
                         || error?.message
                         || '未知错误'
-                    );
+                );
                 params.onError?.(errorText);
+                if (params.skipFailureDecision) {
+                    params.onSkip?.(errorText);
+                    return { completed: false };
+                }
                 const decision = await 请求独立阶段失败决策({
                     stageId: params.stageId,
                     stageLabel: params.stageLabel,
-                    errorText
+                    errorText,
+                    manualAttempt
                 });
                 if (decision === 'retry') {
                     continue;
@@ -746,6 +769,8 @@ export const 执行主剧情发送工作流 = async (
         });
 
         const worldEvolutionSplitEnabled = 接口配置是否可用(获取世界演变接口配置(currentState.apiConfig));
+        // 让出主线程，避免连续深拷贝 + processResponseCommands 阻塞 UI 导致"未响应"
+        await 让出主线程();
         const mainCommandBaseState = {
             角色: deps.深拷贝(currentState.角色),
             环境: deps.深拷贝(currentState.环境),
@@ -758,6 +783,7 @@ export const 执行主剧情发送工作流 = async (
             剧情: deps.深拷贝(currentState.剧情),
             女主剧情规划: deps.深拷贝(currentState.女主剧情规划)
         };
+        await 让出主线程();
         let aiData = 按世界演变分流净化响应(aiResult.response, worldEvolutionSplitEnabled).response;
         let displayAiData = aiData;
 
@@ -775,6 +801,7 @@ export const 执行主剧情发送工作流 = async (
             ...aiData,
             tavern_commands: Array.isArray(aiData.tavern_commands) ? [...aiData.tavern_commands] : []
         };
+        await 让出主线程();
         let simulatedState = 计时同步队列步骤(
             "main.simulateResponseCommands",
             () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
@@ -824,6 +851,7 @@ export const 执行主剧情发送工作流 = async (
             );
             return simulatedState;
         };
+        await 让出主线程();
         const immediateState = 计时同步队列步骤(
             "main.applyImmediateResponseCommands",
             () => deps.processResponseCommands(finalParsedResponse, mainCommandBaseState),
@@ -1019,10 +1047,11 @@ export const 执行主剧情发送工作流 = async (
                     stageId: "variable",
                     stageLabel: "变量生成",
                     beforeAttempt: (attempt) => {
-                        if (attempt <= 1) return;
                         options?.onVariableGenerationProgress?.({
                             phase: "start",
-                            text: `正在重新执行变量生成...（第 ${attempt} 次手动重试）`
+                            text: attempt > 1
+                                ? `正在重新执行变量生成...（第 ${attempt} 次手动重试）`
+                                : "正在执行变量生成..."
                         });
                     },
                     onAutoRetry: (attempt, maxAttempts, reason) => {
@@ -1067,12 +1096,14 @@ export const 执行主剧情发送工作流 = async (
                     finalParsedResponse = variableGenerationResult.mergedParsed;
                     finalDisplayResponse = variableGenerationResult.mergedDisplayResponse;
                     displayAiData = variableGenerationResult.mergedDisplayResponse;
+                    await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "variable.simulateMergedResponseCommands",
                         () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
                         { commandCount: 获取响应命令数量(responseForExecution) }
                     );
                     if (Array.isArray(responseForExecution.tavern_commands) && responseForExecution.tavern_commands.length > 0) {
+                        await 让出主线程();
                         立即并入变量生成状态(responseForExecution);
                     }
                     if (variableGenerationResult.variableCalibration) {
@@ -1087,9 +1118,6 @@ export const 执行主剧情发送工作流 = async (
                         });
                     }
                 }
-
-                deps.set后台队列处理中(false);
-
                 let worldEvolutionResult: 世界演变执行结果 | null = null;
                 const 变量生成后命令数 = Array.isArray(responseForExecution.tavern_commands) ? responseForExecution.tavern_commands.length : 0;
                 if (worldEvolutionSplitEnabled) {
@@ -1178,6 +1206,7 @@ export const 执行主剧情发送工作流 = async (
                             ...worldEvolutionResult.commands
                         ]
                     };
+                    await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "world.simulateMergedResponseCommands",
                         () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
@@ -1188,6 +1217,7 @@ export const 执行主剧情发送工作流 = async (
                 const planningStage = await 执行可重试独立阶段({
                     stageId: "planning",
                     stageLabel: "规划分析",
+                    useGlobalAutoRetry: false,
                     beforeAttempt: (attempt) => {
                         options?.onPlanningProgress?.({
                             phase: "start",
@@ -1216,25 +1246,32 @@ export const 执行主剧情发送工作流 = async (
                         playerInput: sendInput,
                         gameTime: 环境时间转标准串(simulatedState.环境) || "未知时间",
                         response: responseForExecution,
-                        shouldApply: 本次仍是最新前台回合
+                        shouldApply: 本次仍是最新前台回合,
+                        onRetry: (attempt, maxAttempts, reason) => {
+                            options?.onPlanningProgress?.({
+                                phase: "start",
+                                text: `规划分析请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ""}`
+                            });
+                        }
                     }),
                     onError: (errorText) => {
                         options?.onPlanningProgress?.({
                             phase: "error",
-                            text: `${errorText || "规划分析失败"}\n等待选择：重试当前阶段，或跳过继续。`
+                            text: `${errorText || "规划分析失败"}\n规划分析失败不会阻塞本回合，已自动跳过。`
                         });
                     },
                     onSkip: (errorText) => {
                         options?.onPlanningProgress?.({
                             phase: "skipped",
-                            text: `规划分析失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ""}`
+                            text: `规划分析失败，已自动跳过；本回合正文和其他后台结果保留。${errorText ? `\n${errorText}` : ""}`
                         });
                     },
                     getErrorText: (error: any) => (
                         deps.提取原始报错详情(error)
                         || error?.message
                         || "规划分析失败"
-                    )
+                    ),
+                    skipFailureDecision: true
                 });
                 const planningResult = planningStage.result;
                 if (!本次仍是最新前台回合()) {
@@ -1266,6 +1303,7 @@ export const 执行主剧情发送工作流 = async (
                                 ...planningResult.commands
                             ]
                         };
+                        await 让出主线程();
                         simulatedState = 计时同步队列步骤(
                             "planning.simulateMergedResponseCommands",
                             () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
@@ -1280,6 +1318,7 @@ export const 执行主剧情发送工作流 = async (
                     tavern_commands: Array.isArray(responseForExecution.tavern_commands) ? [...responseForExecution.tavern_commands] : []
                 };
 
+                await 让出主线程();
                 finalState = 计时同步队列步骤(
                     "queue.finalApplyResponseCommands",
                     () => deps.processResponseCommands(finalParsedResponse, mainCommandBaseState),
@@ -1291,20 +1330,11 @@ export const 执行主剧情发送工作流 = async (
                     currentGameTime: 环境时间转标准串(finalState.环境) || currentGameTime,
                     openingConfig: currentState.开局配置
                 });
-                const storyChanged = 计时同步队列步骤(
-                    "queue.storyDeepCompare",
-                    () => JSON.stringify(calibratedFinalStory) !== JSON.stringify(finalState.剧情 || {}),
-                    {
-                        nextStoryKeys: calibratedFinalStory && typeof calibratedFinalStory === "object" ? Object.keys(calibratedFinalStory as Record<string, unknown>).length : 0
-                    }
-                );
-                if (storyChanged) {
-                    finalState = {
-                        ...finalState,
-                        剧情: deps.规范化剧情状态(calibratedFinalStory, finalState.环境)
-                    };
-                    deps.设置剧情(finalState.剧情);
-                }
+                finalState = {
+                    ...finalState,
+                    剧情: deps.规范化剧情状态(calibratedFinalStory, finalState.环境)
+                };
+                deps.设置剧情(finalState.剧情);
 
                 const queuedAiMsg: 聊天记录结构 = {
                     ...newAiMsg,
@@ -1324,21 +1354,6 @@ export const 执行主剧情发送工作流 = async (
                     if (fallbackIndex < 0) return [...prev, { ...queuedAiMsg, autoScrollToTurnIcon: false }];
                     return prev.map((item, index) => {
                         if (index !== fallbackIndex) return item;
-
-                        const prevStructured = item.structuredResponse ?? null;
-                        const nextStructured = queuedAiMsg.structuredResponse ?? null;
-                        const structuredChanged = 计时同步队列步骤(
-                            "queue.historyStructuredDeepCompare",
-                            () => JSON.stringify(prevStructured) !== JSON.stringify(nextStructured),
-                            {
-                                hasPrevStructured: Boolean(prevStructured),
-                                nextCommandCount: 获取响应命令数量(nextStructured as Partial<GameResponse> | null | undefined)
-                            }
-                        );
-
-                        if (!structuredChanged && item.structuredResponse) {
-                            return item;
-                        }
 
                         return {
                             ...item,
@@ -1451,4 +1466,3 @@ export const 执行主剧情发送工作流 = async (
         deps.recallAbortControllerRef.current = null;
     }
 };
-

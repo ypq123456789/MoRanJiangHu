@@ -491,6 +491,7 @@ html[data-theme="day"] {
 html[data-theme="day"] .left-panel-body,
 html[data-theme="day"] .equipment-modal-body,
 html[data-theme="day"] .inventory-modal-body,
+html[data-theme="day"] .sect-modal-body,
 html[data-theme="day"] .auction-house-modal,
 html[data-theme="day"] .narrator-renderer {
   color: var(--day-ink-strong) !important;
@@ -498,6 +499,7 @@ html[data-theme="day"] .narrator-renderer {
 
 html[data-theme="day"] .left-panel-body [style*="color"],
 html[data-theme="day"] .inventory-modal-body [style*="color"],
+html[data-theme="day"] .sect-modal-body [style*="color"],
 html[data-theme="day"] .narrator-renderer[style*="color"],
 html[data-theme="day"] .narrator-renderer [style*="color"],
 html[data-theme="day"] [style*="color: rgb(209, 213, 219"],
@@ -572,6 +574,11 @@ html[data-theme="day"] .inventory-modal-body [class*="text-slate-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-zinc-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-neutral-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-stone-"],
+html[data-theme="day"] .sect-modal-body [class*="text-gray-"],
+html[data-theme="day"] .sect-modal-body [class*="text-slate-"],
+html[data-theme="day"] .sect-modal-body [class*="text-zinc-"],
+html[data-theme="day"] .sect-modal-body [class*="text-neutral-"],
+html[data-theme="day"] .sect-modal-body [class*="text-stone-"],
 html[data-theme="day"] .auction-house-modal [class*="text-gray-"],
 html[data-theme="day"] .auction-house-modal [class*="text-slate-"],
 html[data-theme="day"] .auction-house-modal [class*="text-zinc-"],
@@ -596,6 +603,10 @@ html[data-theme="day"] .inventory-modal-body [class*="text-wuxia-gold"],
 html[data-theme="day"] .inventory-modal-body [class*="text-amber-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-yellow-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-orange-"],
+html[data-theme="day"] .sect-modal-body [class*="text-wuxia-gold"],
+html[data-theme="day"] .sect-modal-body [class*="text-amber-"],
+html[data-theme="day"] .sect-modal-body [class*="text-yellow-"],
+html[data-theme="day"] .sect-modal-body [class*="text-orange-"],
 html[data-theme="day"] .auction-house-modal [class*="text-wuxia-gold"],
 html[data-theme="day"] .auction-house-modal [class*="text-amber-"],
 html[data-theme="day"] .auction-house-modal [class*="text-yellow-"],
@@ -610,6 +621,8 @@ html[data-theme="day"] .equipment-modal-body [class*="text-emerald-"],
 html[data-theme="day"] .equipment-modal-body [class*="text-green-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-emerald-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-green-"],
+html[data-theme="day"] .sect-modal-body [class*="text-emerald-"],
+html[data-theme="day"] .sect-modal-body [class*="text-green-"],
 html[data-theme="day"] .auction-house-modal [class*="text-emerald-"],
 html[data-theme="day"] .auction-house-modal [class*="text-green-"] {
   color: #166534 !important;
@@ -621,6 +634,9 @@ html[data-theme="day"] .equipment-modal-body [class*="text-blue-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-sky-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-cyan-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-blue-"],
+html[data-theme="day"] .sect-modal-body [class*="text-sky-"],
+html[data-theme="day"] .sect-modal-body [class*="text-cyan-"],
+html[data-theme="day"] .sect-modal-body [class*="text-blue-"],
 html[data-theme="day"] .auction-house-modal [class*="text-sky-"],
 html[data-theme="day"] .auction-house-modal [class*="text-cyan-"],
 html[data-theme="day"] .auction-house-modal [class*="text-blue-"] {
@@ -631,6 +647,8 @@ html[data-theme="day"] .equipment-modal-body [class*="text-red-"],
 html[data-theme="day"] .equipment-modal-body [class*="text-rose-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-red-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-rose-"],
+html[data-theme="day"] .sect-modal-body [class*="text-red-"],
+html[data-theme="day"] .sect-modal-body [class*="text-rose-"],
 html[data-theme="day"] .auction-house-modal [class*="text-red-"],
 html[data-theme="day"] .auction-house-modal [class*="text-rose-"] {
   color: #b91c1c !important;
@@ -640,6 +658,8 @@ html[data-theme="day"] .equipment-modal-body [class*="text-purple-"],
 html[data-theme="day"] .equipment-modal-body [class*="text-violet-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-purple-"],
 html[data-theme="day"] .inventory-modal-body [class*="text-violet-"],
+html[data-theme="day"] .sect-modal-body [class*="text-purple-"],
+html[data-theme="day"] .sect-modal-body [class*="text-violet-"],
 html[data-theme="day"] .auction-house-modal [class*="text-purple-"],
 html[data-theme="day"] .auction-house-modal [class*="text-violet-"] {
   color: #7e22ce !important;
@@ -659,6 +679,14 @@ html[data-theme="day"] .inventory-modal-body [class*="bg-gray-8"],
 html[data-theme="day"] .inventory-modal-body [class*="bg-gray-9"],
 html[data-theme="day"] .inventory-modal-body [class*="bg-neutral-9"],
 html[data-theme="day"] .inventory-modal-body [class*="bg-[#"],
+html[data-theme="day"] .sect-modal-body [class*="bg-black"],
+html[data-theme="day"] .sect-modal-body [class*="bg-ink-black"],
+html[data-theme="day"] .sect-modal-body [class*="bg-ink-wash"],
+html[data-theme="day"] .sect-modal-body [class*="bg-gray-7"],
+html[data-theme="day"] .sect-modal-body [class*="bg-gray-8"],
+html[data-theme="day"] .sect-modal-body [class*="bg-gray-9"],
+html[data-theme="day"] .sect-modal-body [class*="bg-neutral-9"],
+html[data-theme="day"] .sect-modal-body [class*="bg-[#"],
 html[data-theme="day"] .auction-house-modal [class*="bg-black"],
 html[data-theme="day"] .auction-house-modal [class*="bg-gray-9"],
 html[data-theme="day"] .auction-house-modal [class*="bg-neutral-9"],
@@ -696,7 +724,8 @@ html[data-theme="day"] .auction-house-modal select,
 html[data-theme="day"] .auction-house-modal label,
 html[data-theme="day"] .auction-house-modal button,
 html[data-theme="day"] .equipment-modal-body button,
-html[data-theme="day"] .inventory-modal-body button {
+html[data-theme="day"] .inventory-modal-body button,
+html[data-theme="day"] .sect-modal-body button {
   color: var(--day-ink-strong) !important;
   background-color: rgba(255, 252, 244, 0.92) !important;
   border-color: var(--day-border) !important;
@@ -704,10 +733,28 @@ html[data-theme="day"] .inventory-modal-body button {
 
 html[data-theme="day"] .auction-house-modal button:disabled,
 html[data-theme="day"] .equipment-modal-body button:disabled,
-html[data-theme="day"] .inventory-modal-body button:disabled {
+html[data-theme="day"] .inventory-modal-body button:disabled,
+html[data-theme="day"] .sect-modal-body button:disabled {
   color: var(--day-ink-soft) !important;
   background-color: rgba(238, 231, 214, 0.82) !important;
   opacity: 0.72 !important;
+}
+
+html[data-theme="day"] .auction-house-modal button.auction-house-preview-close,
+html[data-theme="day"] .auction-house-modal [data-auction-preview-close="true"].auction-house-preview-close,
+.auction-house-modal button.auction-house-preview-close {
+  color: #ffffff !important;
+  background: #dc2626 !important;
+  background-color: #dc2626 !important;
+  border-color: #ffffff !important;
+}
+
+html[data-theme="day"] .auction-house-modal button.auction-house-preview-close:hover,
+html[data-theme="day"] .auction-house-modal [data-auction-preview-close="true"].auction-house-preview-close:hover,
+.auction-house-modal button.auction-house-preview-close:hover {
+  background: #ef4444 !important;
+  background-color: #ef4444 !important;
+  border-color: #ffffff !important;
 }
 
 html[data-theme="day"] .left-panel-body [class*="border-gray-"],
@@ -717,6 +764,9 @@ html[data-theme="day"] .equipment-modal-body [class*="border-white/"],
 html[data-theme="day"] .inventory-modal-body [class*="border-gray-"],
 html[data-theme="day"] .inventory-modal-body [class*="border-white/"],
 html[data-theme="day"] .inventory-modal-body [class*="border-wuxia-gold/"],
+html[data-theme="day"] .sect-modal-body [class*="border-gray-"],
+html[data-theme="day"] .sect-modal-body [class*="border-white/"],
+html[data-theme="day"] .sect-modal-body [class*="border-wuxia-gold/"],
 html[data-theme="day"] .auction-house-modal [class*="border-gray-"],
 html[data-theme="day"] .auction-house-modal [class*="border-white/"],
 html[data-theme="day"] .auction-house-modal [class*="border-wuxia-gold/"],
@@ -738,7 +788,12 @@ html[data-theme="day"] .equipment-modal-body [class*="opacity-60"],
 html[data-theme="day"] .inventory-modal-body [class*="opacity-30"],
 html[data-theme="day"] .inventory-modal-body [class*="opacity-40"],
 html[data-theme="day"] .inventory-modal-body [class*="opacity-50"],
-html[data-theme="day"] .inventory-modal-body [class*="opacity-60"] {
+html[data-theme="day"] .inventory-modal-body [class*="opacity-60"],
+html[data-theme="day"] .sect-modal-body [class*="opacity-20"],
+html[data-theme="day"] .sect-modal-body [class*="opacity-30"],
+html[data-theme="day"] .sect-modal-body [class*="opacity-40"],
+html[data-theme="day"] .sect-modal-body [class*="opacity-50"],
+html[data-theme="day"] .sect-modal-body [class*="opacity-60"] {
   opacity: 0.9 !important;
 }
 
@@ -746,9 +801,32 @@ html[data-theme="day"] .inventory-modal-body .drop-shadow-sm,
 html[data-theme="day"] .inventory-modal-body .drop-shadow-md,
 html[data-theme="day"] .equipment-modal-body .drop-shadow-sm,
 html[data-theme="day"] .equipment-modal-body .drop-shadow-md,
+html[data-theme="day"] .sect-modal-body .drop-shadow-sm,
+html[data-theme="day"] .sect-modal-body .drop-shadow-md,
 html[data-theme="day"] .auction-house-modal .drop-shadow-sm,
 html[data-theme="day"] .auction-house-modal .drop-shadow-md {
   filter: none !important;
+}
+
+/* 背包/装备/门派弹窗内层容器：白色主题下必须不透明，防止后面的地图等内容透出 */
+html[data-theme="day"] .inventory-modal-body > div,
+html[data-theme="day"] .equipment-modal-body > div {
+  background-color: #fffaf0 !important;
+  background-image: none !important;
+}
+
+html[data-theme="day"] .sect-modal-body > div,
+html[data-theme="day"] .sect-modal-body [class*="from-black"],
+html[data-theme="day"] .sect-modal-body [class*="to-black"] {
+  background: var(--day-paper-solid) !important;
+  background-color: var(--day-paper-solid) !important;
+  background-image: none !important;
+  color: var(--day-ink-strong) !important;
+}
+
+html[data-theme="day"] .sect-modal-body {
+  background: rgba(255, 252, 244, 0.78) !important;
+  background-color: rgba(255, 252, 244, 0.78) !important;
 }
 
 /* Day mode: preserve decorative chrome that should never become opaque paper blocks. */
@@ -1127,6 +1205,38 @@ html[data-theme="day"] .right-panel-bottom-fade {
     container-type: inline-size;
   }
 
+  .desktop-right-detail-modal .lazy-scroll-loading .lazy-scroll-shell {
+    display: flex;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0;
+    flex-direction: column;
+    justify-content: flex-start;
+    border-radius: 14px !important;
+    border-color: rgba(181, 130, 66, 0.32) !important;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.72), transparent 36%),
+      linear-gradient(180deg, rgba(255, 250, 240, 0.98), rgba(248, 241, 222, 0.94)) !important;
+    padding: 1rem !important;
+    text-align: left;
+    color: rgb(94, 58, 24) !important;
+    box-shadow: -12px 0 28px rgba(120, 82, 38, 0.2) !important;
+  }
+
+  .desktop-right-detail-modal .lazy-scroll-loading .lazy-scroll-title {
+    width: fit-content;
+    border-bottom: 1px solid rgba(212, 175, 55, 0.24);
+    padding-bottom: 0.45rem;
+    font-size: 0.78rem;
+  }
+
+  .desktop-right-detail-modal .lazy-scroll-loading .lazy-scroll-skeleton {
+    display: grid;
+    flex: 1 1 auto;
+    align-content: start;
+    opacity: 0.92;
+  }
+
   .desktop-right-detail-modal .fixed > div .w-\[340px\] {
     width: min(220px, 36%) !important;
   }
@@ -1377,6 +1487,28 @@ html[data-theme="day"] .right-panel-bottom-fade {
     width: 100% !important;
   }
 
+  .desktop-right-detail-modal--social:not(.desktop-right-detail-modal--fullscreen) .social-roster-card--selected {
+    background:
+      linear-gradient(90deg, rgba(255, 248, 225, 0.96), rgba(250, 236, 198, 0.86)) !important;
+    border-color: rgba(181, 130, 66, 0.78) !important;
+    color: rgb(65, 43, 24) !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45), 0 8px 18px rgba(75, 45, 18, 0.16) !important;
+  }
+
+  .desktop-right-detail-modal--social:not(.desktop-right-detail-modal--fullscreen) .social-roster-card--selected .social-roster-card__name {
+    color: rgb(118, 69, 24) !important;
+  }
+
+  .desktop-right-detail-modal--social:not(.desktop-right-detail-modal--fullscreen) .social-roster-card--selected .social-roster-card__meta,
+  .desktop-right-detail-modal--social:not(.desktop-right-detail-modal--fullscreen) .social-roster-card--selected .social-roster-card__relation {
+    color: rgba(75, 63, 38, 0.82) !important;
+  }
+
+  .desktop-right-detail-modal--social:not(.desktop-right-detail-modal--fullscreen) .social-roster-card--idle {
+    background: rgba(255, 252, 244, 0.66) !important;
+    border-color: rgba(161, 98, 7, 0.12) !important;
+  }
+
   .desktop-right-detail-modal--social:not(.desktop-right-detail-modal--fullscreen) .social-detail-pane {
     width: auto !important;
     min-width: 0 !important;
@@ -1436,8 +1568,8 @@ html[data-theme="day"] .right-panel-bottom-fade {
     border-right-width: 0 !important;
     border-bottom-width: 1px !important;
     flex: 0 0 auto !important;
-    max-height: 18rem !important;
-    overflow: hidden !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   .desktop-right-detail-modal--auction_house:not(.desktop-right-detail-modal--fullscreen) .auction-house-filter-panel > :first-child {
@@ -1460,7 +1592,7 @@ html[data-theme="day"] .right-panel-bottom-fade {
   .desktop-right-detail-modal--auction_house:not(.desktop-right-detail-modal--fullscreen) .auction-house-market-panel {
     margin-top: 0 !important;
     max-width: 100% !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   .desktop-right-detail-modal--auction_house:not(.desktop-right-detail-modal--fullscreen) .auction-house-market-list {

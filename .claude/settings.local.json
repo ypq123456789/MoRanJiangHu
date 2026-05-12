@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(ls:*)",
+      "Bash(node scripts/sync-release.mjs)",
+      "Bash(xxd)",
+      "Bash(cd:*)",
+      "Bash(python3 -c \":*)",
+      "Bash(sed -i 's/\"\"versionCode\"\": 69/\"\"versionCode\"\": 70/' release.config.json)",
+      "Bash(sed -i 's/\"\"versionName\"\": \"\"1.0.68\"\"/\"\"versionName\"\": \"\"1.0.69\"\"/' release.config.json)",
+      "Bash(python3:*)",
+      "Bash(npm run:*)",
+      "WebFetch(domain:msjh.bacon.de5.net)",
+      "WebFetch(domain:moranjianghu.648558021.workers.dev)",
+      "Bash(./gradlew.bat assembleRelease)",
+      "WebFetch(domain:download.bacon.de5.net)",
+      "Bash(sed -i 's/\"\"versionCode\"\": 70/\"\"versionCode\"\": 71/' release.config.json)",
+      "Bash(sed -i 's/\"\"versionName\"\": \"\"1.0.69\"\"/\"\"versionName\"\": \"\"1.0.70\"\"/' release.config.json)",
+      "Bash(sed -i 's/\"\"versionCode\"\": 71/\"\"versionCode\"\": 72/' release.config.json)",
+      "Bash(sed -i 's/\"\"versionName\"\": \"\"1.0.70\"\"/\"\"versionName\"\": \"\"1.0.71\"\"/' release.config.json)",
+      "Bash(curl:*)",
+      "Bash(node -e \":*)",
+      "Bash(node -e \"const p=require\\(''./package.json''\\); console.log\\(p.version\\);\")",
+      "Bash(npx wrangler@4 deploy)",
+      "Bash(grep -r \"1\\\\.0\\\\.99\" dist/assets/*.js)"
+    ]
+  }
+}

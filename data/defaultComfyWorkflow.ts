@@ -1,1 +1,152 @@
-export const 默认ComfyUI工作流JSON = "{\n  \"9\": {\n    \"inputs\": {\n      \"filename_prefix\": \"z-image/z\",\n      \"images\": [\n        \"43\",\n        0\n      ]\n    },\n    \"class_type\": \"SaveImage\",\n    \"_meta\": {\n      \"title\": \"保存图像\"\n    }\n  },\n  \"39\": {\n    \"inputs\": {\n      \"clip_name\": \"qwen_3_4b.safetensors\",\n      \"type\": \"lumina2\",\n      \"device\": \"default\"\n    },\n    \"class_type\": \"CLIPLoader\",\n    \"_meta\": {\n      \"title\": \"加载CLIP\"\n    }\n  },\n  \"40\": {\n    \"inputs\": {\n      \"vae_name\": \"ae.sft\"\n    },\n    \"class_type\": \"VAELoader\",\n    \"_meta\": {\n      \"title\": \"加载VAE\"\n    }\n  },\n  \"41\": {\n    \"inputs\": {\n      \"width\": \"__WIDTH__\",\n      \"height\": \"__HEIGHT__\",\n      \"batch_size\": 1\n    },\n    \"class_type\": \"EmptySD3LatentImage\",\n    \"_meta\": {\n      \"title\": \"空Latent图像（SD3）\"\n    }\n  },\n  \"42\": {\n    \"inputs\": {\n      \"conditioning\": [\n        \"45\",\n        0\n      ]\n    },\n    \"class_type\": \"ConditioningZeroOut\",\n    \"_meta\": {\n      \"title\": \"条件零化\"\n    }\n  },\n  \"43\": {\n    \"inputs\": {\n      \"samples\": [\n        \"44\",\n        0\n      ],\n      \"vae\": [\n        \"40\",\n        0\n      ]\n    },\n    \"class_type\": \"VAEDecode\",\n    \"_meta\": {\n      \"title\": \"VAE解码\"\n    }\n  },\n  \"44\": {\n    \"inputs\": {\n      \"seed\": \"__SEED__\",\n      \"steps\": \"__STEPS__\",\n      \"cfg\": \"__CFG__\",\n      \"sampler_name\": \"__SAMPLER__\",\n      \"scheduler\": \"__SCHEDULER__\",\n      \"denoise\": 1,\n      \"model\": [\n        \"48\",\n        0\n      ],\n      \"positive\": [\n        \"45\",\n        0\n      ],\n      \"negative\": [\n        \"42\",\n        0\n      ],\n      \"latent_image\": [\n        \"41\",\n        0\n      ]\n    },\n    \"class_type\": \"KSampler\",\n    \"_meta\": {\n      \"title\": \"K采样器\"\n    }\n  },\n  \"45\": {\n    \"inputs\": {\n      \"text\": \"__PROMPT__\",\n      \"clip\": [\n        \"39\",\n        0\n      ]\n    },\n    \"class_type\": \"CLIPTextEncode\",\n    \"_meta\": {\n      \"title\": \"CLIP文本编码\"\n    }\n  },\n  \"46\": {\n    \"inputs\": {\n      \"unet_name\": \"mPMix_NSFW_V9_fp8.safetensors\",\n      \"weight_dtype\": \"default\"\n    },\n    \"class_type\": \"UNETLoader\",\n    \"_meta\": {\n      \"title\": \"UNet加载器\"\n    }\n  },\n  \"47\": {\n    \"inputs\": {\n      \"shift\": 3,\n      \"model\": [\n        \"53\",\n        0\n      ]\n    },\n    \"class_type\": \"ModelSamplingAuraFlow\",\n    \"_meta\": {\n      \"title\": \"采样算法（AuraFlow）\"\n    }\n  },\n  \"48\": {\n    \"inputs\": {\n      \"model_name\": \"z_image_turbo_bf16.safetensors\"\n    },\n    \"class_type\": \"NunchakuZImageDiTLoader\",\n    \"_meta\": {\n      \"title\": \"Nunchaku Z-Image DiT Loader\"\n    }\n  },\n  \"49\": {\n    \"inputs\": {\n      \"unet_name\": \"qwen-image-2512-Q6_K.gguf\"\n    },\n    \"class_type\": \"UnetLoaderGGUF\",\n    \"_meta\": {\n      \"title\": \"Unet Loader (GGUF)\"\n    }\n  },\n  \"53\": {\n    \"inputs\": {\n      \"lora_name\": \"Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors\",\n      \"strength_model\": 1,\n      \"model\": [\n        \"46\",\n        0\n      ]\n    },\n    \"class_type\": \"LoraLoaderModelOnly\",\n    \"_meta\": {\n      \"title\": \"LoRA加载器（仅模型）\"\n    }\n  }\n}";
+const 默认ZImageTurboComfyUI工作流 = {
+  "9": {
+    "inputs": {
+      "filename_prefix": "z-image/z",
+      "images": [
+        "43",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "39": {
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "40": {
+    "inputs": {
+      "vae_name": "Flux_ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "41": {
+    "inputs": {
+      "width": "__WIDTH__",
+      "height": "__HEIGHT__",
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "Empty SD3 Latent Image"
+    }
+  },
+  "42": {
+    "inputs": {
+      "conditioning": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "Zero Out Negative Conditioning"
+    }
+  },
+  "43": {
+    "inputs": {
+      "samples": [
+        "44",
+        0
+      ],
+      "vae": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "44": {
+    "inputs": {
+      "seed": "__SEED__",
+      "steps": "__STEPS__",
+      "cfg": "__CFG__",
+      "sampler_name": "__SAMPLER__",
+      "scheduler": "__SCHEDULER__",
+      "denoise": 1,
+      "model": [
+        "47",
+        0
+      ],
+      "positive": [
+        "45",
+        0
+      ],
+      "negative": [
+        "42",
+        0
+      ],
+      "latent_image": [
+        "41",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "45": {
+    "inputs": {
+      "text": "__PROMPT__",
+      "clip": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "46": {
+    "inputs": {
+      "unet_name": "mPMix_NSFW_V9_fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load UNet"
+    }
+  },
+  "47": {
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "46",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "AuraFlow Sampling"
+    }
+  },
+  "49": {
+    "inputs": {
+      "unet_name": "qwen-image-2512-Q6_K.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader GGUF"
+    }
+  }
+};
+
+export const 默认ComfyUI工作流JSON = JSON.stringify(默认ZImageTurboComfyUI工作流, null, 2);
+export const 默认NSFWComfyUI工作流JSON = JSON.stringify(默认ZImageTurboComfyUI工作流, null, 2);

@@ -15,7 +15,8 @@ import { 获取文生图接口配置, 获取生图词组转化器接口配置, �
 import { 构建字体注入样式文本, 构建UI文字CSS变量 } from './utils/visualSettings';
 import { 获取图片资源文本地址 } from './utils/imageAssets';
 import { 生成物品图标 } from './services/ai/itemImageGeneration';
-import { 物品已有可用图标 } from './utils/itemImage';
+import { 合并物品图片档案, 物品已有可用图标 } from './utils/itemImage';
+import { 生图最大自动重试次数, 执行生图模型调用带重试, 读取生图错误文本 } from './utils/imageGenerationRetry';
 import { 丢弃背包物品, 是否杂物类物品 } from './utils/inventoryActions';
 import { MusicProvider } from './components/features/Music/MusicProvider';
 import { isNativeCapacitorEnvironment } from './utils/nativeRuntime';
@@ -23,8 +24,9 @@ import { isDynamicImportFetchError, lazyImportWithReload } from './utils/lazyImp
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
 import { checkForAppUpdate, subscribeAppUpdateProgress, type AppUpdateProgressState } from './services/appUpdate';
 import { RELEASE_INFO } from './data/releaseInfo';
-import { 读取拍卖行状态, 保存拍卖行状态, 清理并补货, 投放事件拍卖品, 从剧情响应构建拍卖行投放参数, 构建拍卖行存储作用域, 上架背包物品, 创建交易记录, 结算玩家寄售, type 拍卖行状态 } from './services/auctionHouse';
+import { 读取拍卖行状态, 保存拍卖行状态, 清理并补货, 投放事件拍卖品, 构建拍卖行存储作用域, 上架背包物品, 创建交易记录, 结算玩家寄售, 从势力互动投放拍卖品, type 拍卖行状态 } from './services/auctionHouse';
 import './services/diagnosticLog';
+import type { 物品生图结果 } from './types';
 
 const RELEASE_NOTES_SUPPRESS_DATE_KEY = 'moranjianghu.releaseNotesSuppressDate';
 const DESKTOP_DETAIL_WIDTHS_STORAGE_KEY = 'moranjianghu.desktopRightDetailWidths.v3';
@@ -32,6 +34,8 @@ const DESKTOP_DETAIL_MIN_WIDTH = 520;
 const DESKTOP_DETAIL_MAX_WIDTH = 1160;
 const DESKTOP_DETAIL_RIGHT_GAP = 12;
 const ITEM_AUTO_IMAGE_RETRY_INTERVAL = 10 * 60 * 1000;
+const ITEM_AUTO_IMAGE_AFTER_CHARACTER_SCENE_IDLE_DELAY = 2500;
+const IMAGE_TASK_BUSY_STATES = new Set(['queued', 'running']);
 
 const getDesktopDetailDefaultWidth = (_panelId: string | null): number => {
     return DESKTOP_DETAIL_MAX_WIDTH;
@@ -138,6 +142,8 @@ const TeamModal = 创建可预加载懒组件('team-modal', () => import('./comp
 const MobileTeamModal = 创建可预加载懒组件('mobile-team-modal', () => import('./components/features/Team/MobileTeamModal'));
 const KungfuModal = 创建可预加载懒组件('kungfu-modal', () => import('./components/features/Kungfu/KungfuModal'));
 const MobileKungfuModal = 创建可预加载懒组件('mobile-kungfu-modal', () => import('./components/features/Kungfu/MobileKungfuModal'));
+const SkillsPanel = 创建可预加载懒组件('skills-panel', () => import('./components/features/Skills/SkillsPanel'));
+const MobileSkillsPanel = 创建可预加载懒组件('mobile-skills-panel', () => import('./components/features/Skills/MobileSkillsPanel'));
 const WorldModal = 创建可预加载懒组件('world-modal', () => import('./components/features/World/WorldModal'));
 const MobileWorldModal = 创建可预加载懒组件('mobile-world-modal', () => import('./components/features/World/MobileWorldModal'));
 const MapModal = 创建可预加载懒组件('map-modal', () => import('./components/features/Map/MapModal'));
@@ -173,17 +179,44 @@ type 可选网络信息 = {
 
 const 桌面轻量预热目标 = [
     CharacterModal,
+    SettingsModal,
     InventoryModal,
+    EquipmentModal,
+    BattleModal,
+    TeamModal,
+    SocialModal,
+    KungfuModal,
+    WorldModal,
+    MapModal,
+    SectModal,
     TaskModal,
+    AgreementModal,
     StoryModal,
-    SaveLoadModal
+    HeroinePlanModal,
+    MemoryModal,
+    SaveLoadModal,
+    AuctionHouseModal,
+    NovelExportModal
 ] as const;
 
 const 移动端轻量预热目标 = [
     MobileCharacter,
+    MobileSettingsModal,
     MobileInventoryModal,
+    MobileBattleModal,
+    MobileTeamModal,
+    MobileSocial,
+    MobileKungfuModal,
+    MobileWorldModal,
+    MobileMapModal,
+    MobileSect,
     MobileTask,
-    MobileStory
+    MobileAgreementModal,
+    MobileStory,
+    MobileHeroinePlanModal,
+    MobileMemory,
+    SaveLoadModal,
+    AuctionHouseModal
 ] as const;
 
 const 网络较慢或节省流量 = (connection?: 可选网络信息 | null): boolean => {
@@ -199,12 +232,20 @@ const 网络较慢或节省流量 = (connection?: 可选网络信息 | null): bo
     return false;
 };
 const 懒加载占位: React.FC = () => (
-    <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/45 px-6 py-10 text-center backdrop-blur-[2px]">
+    <div className="lazy-scroll-loading pointer-events-none fixed inset-0 z-[260] flex items-center justify-center bg-[#f8f4e8]/70 px-6 py-10 text-center backdrop-blur-[2px]">
         <div
-            className="rounded-2xl border border-wuxia-gold/25 bg-black/78 px-6 py-5 tracking-[0.22em] text-wuxia-gold/85 shadow-[0_0_36px_rgba(0,0,0,0.52)]"
+            className="lazy-scroll-shell rounded-2xl border border-wuxia-gold/35 bg-[#fffaf0]/95 px-6 py-5 text-[#7a4a1f] shadow-[0_18px_42px_rgba(120,82,38,0.18)]"
             style={{ fontSize: 'var(--ui-compact-font-size, 14px)' }}
         >
-            卷轴展开中…
+            <div className="lazy-scroll-title tracking-[0.22em]">卷轴展开中…</div>
+            <div className="lazy-scroll-skeleton mt-5 grid gap-3 text-left" aria-hidden="true">
+                <div className="h-4 w-28 rounded-full bg-wuxia-gold/20" />
+                <div className="h-20 rounded-xl border border-wuxia-gold/20 bg-white/60" />
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="h-16 rounded-lg border border-wuxia-gold/15 bg-white/55" />
+                    <div className="h-16 rounded-lg border border-wuxia-gold/15 bg-white/55" />
+                </div>
+            </div>
         </div>
     </div>
 );
@@ -374,6 +415,9 @@ const App: React.FC = () => {
                 if (启用修炼体系) {
                     setters.setShowKungfu(true);
                 }
+                break;
+            case 'skills':
+                setters.setShowSkills(true);
                 break;
             case 'world':
                 setters.setShowWorld(true);
@@ -682,18 +726,22 @@ const App: React.FC = () => {
 
         const warmup = () => {
             if (cancelled || preloadTargets.length === 0) return;
+            const priorityCount = isMobile ? 5 : 9;
             preloadTargets.forEach((target, index) => {
+                const delay = index < priorityCount
+                    ? 240 + index * 140
+                    : 1800 + (index - priorityCount) * 320;
                 window.setTimeout(() => {
                     if (cancelled) return;
                     void target.preload?.();
-                }, 1200 + index * 360);
+                }, delay);
             });
         };
 
         if (typeof idleWindow.requestIdleCallback === 'function') {
-            idleId = idleWindow.requestIdleCallback(() => warmup(), { timeout: 2400 });
+            idleId = idleWindow.requestIdleCallback(() => warmup(), { timeout: 900 });
         } else {
-            timerId = window.setTimeout(warmup, 1800);
+            timerId = window.setTimeout(warmup, 700);
         }
 
         return () => {
@@ -896,8 +944,8 @@ const App: React.FC = () => {
         }
         return Array.from(areas);
     }, [latestAssistantMessage]);
-    const itemImageSequence = React.useMemo(() => (
-        (Array.isArray(state.角色?.物品列表) ? state.角色.物品列表 : []).flatMap((item: any) => {
+    const itemImageSequence = React.useMemo(() => {
+        const bagRecords = (Array.isArray(state.角色?.物品列表) ? state.角色.物品列表 : []).flatMap((item: any) => {
             const history = Array.isArray(item?.图片档案?.生图历史) ? item.图片档案.生图历史 : [];
             return history.map((record: any, index: number) => ({
                 id: `${item?.ID || item?.名称 || 'item'}_${record?.id || record?.生成时间 || index}`,
@@ -908,8 +956,22 @@ const App: React.FC = () => {
                 状态: record?.状态 || 'success',
                 构图: record?.构图
             }));
-        })
-    ), [state.角色?.物品列表]);
+        });
+        const auctionRecords = (Array.isArray(auctionHouseState?.拍卖品列表) ? auctionHouseState.拍卖品列表 : []).flatMap((entry: any) => {
+            const item = entry?.物品;
+            const history = Array.isArray(item?.图片档案?.生图历史) ? item.图片档案.生图历史 : [];
+            return history.map((record: any, index: number) => ({
+                id: `auction_${entry?.ID || 'item'}_${record?.id || record?.生成时间 || index}`,
+                物品名称: item?.名称 || '未命名物品',
+                物品类型: item?.类型,
+                物品品质: item?.品质,
+                生成时间: record?.生成时间,
+                状态: record?.状态 || 'success',
+                构图: record?.构图
+            }));
+        });
+        return [...bagRecords, ...auctionRecords];
+    }, [state.角色?.物品列表, auctionHouseState?.拍卖品列表]);
     const latestBattleContextText = React.useMemo(() => {
         const response = latestAssistantMessage?.structuredResponse;
         if (!response) return '';
@@ -935,34 +997,49 @@ const App: React.FC = () => {
             return settled.nextState;
         });
     }, [actions, auctionHouseScope, latestAssistantMessage, setters, state.角色]);
+    // [已移除] 拍卖行物品不再从主角剧情正文中提取，改为从世界势力互动事件中自然流出。
+    // 旧逻辑：从剧情响应构建拍卖行投放参数列表 → 投放事件拍卖品
+    // 新逻辑：世界演化 → 势力互动 → 世界.拍卖行待投放物品 → 从势力互动投放拍卖品
+
+    // 从世界势力互动中投放物品到拍卖行
+    const factionAuctionHandledRef = React.useRef<number>(0);
     React.useEffect(() => {
-        const response = latestAssistantMessage?.structuredResponse;
-        if (!response) return;
-        const signature = `${latestAssistantMessage.timestamp || 0}-${latestAssistantMessage.gameTime || ''}`;
-        if (auctionBridgeHandledRef.current.has(signature)) return;
-        auctionBridgeHandledRef.current.add(signature);
-        const bridge = 从剧情响应构建拍卖行投放参数(response, {
-            gameTime: latestAssistantMessage.gameTime || currentEnvTime,
-            place: state.环境?.具体地点 || state.环境?.小地点 || state.环境?.中地点 || state.环境?.大地点 || ''
-        });
-        if (!bridge.shouldDispatch || !bridge.params) return;
+        const pendingItems = Array.isArray(state.世界?.拍卖行待投放物品) ? state.世界.拍卖行待投放物品 : [];
+        if (pendingItems.length === 0) return;
+        // 用长度+首项名称作为去重签名，避免重复投放
+        const signature = `${pendingItems.length}_${pendingItems[0]?.名称 || ''}`;
+        const signatureHash = signature.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+        if (factionAuctionHandledRef.current === signatureHash) return;
+        factionAuctionHandledRef.current = signatureHash;
+        // 投放到拍卖行
         setAuctionHouseState((prev) => {
-            const next = 投放事件拍卖品(prev, bridge.params!);
-            保存拍卖行状态(next, auctionHouseScope);
+            const next = 从势力互动投放拍卖品(prev, pendingItems, { scope: auctionHouseScope });
             return next;
         });
-        console.info('[拍卖行桥接] 已从剧情回合投放事件货品', bridge.reason, bridge.params.事件名称);
-    }, [latestAssistantMessage, currentEnvTime, state.环境, auctionHouseScope]);
+        console.info('[拍卖行桥接] 已从势力互动投放', pendingItems.length, '件物品');
+    }, [state.世界?.拍卖行待投放物品, auctionHouseScope]);
 
     React.useEffect(() => {
         const feature = state.apiConfig?.功能模型占位;
         if (state.view !== 'game' || !feature?.文生图功能启用 || !feature?.物品生图启用) return;
-        const latestTurnSignature = latestAssistantMessage?.structuredResponse
-            ? `${latestAssistantMessage.timestamp || 0}-${latestAssistantMessage.gameTime || ''}`
-            : '';
-        if (!latestTurnSignature) return;
         const imageApi = 获取文生图接口配置(state.apiConfig);
         if (!接口配置是否可用(imageApi)) return;
+        const characterAndSceneTasks = [
+            ...(Array.isArray(meta.imageGenerationQueue) ? meta.imageGenerationQueue : []),
+            ...(Array.isArray(meta.sceneImageQueue) ? meta.sceneImageQueue : [])
+        ];
+        const hasCharacterOrSceneImageWork = characterAndSceneTasks.some((task: any) => (
+            IMAGE_TASK_BUSY_STATES.has(String(task?.状态 || ''))
+        ));
+        if (hasCharacterOrSceneImageWork) return;
+        
+        // 限制物品生图并发数量，避免一次性提交所有任务
+        const MAX_CONCURRENT_ITEM_IMAGE_TASKS = 1;
+        if (autoItemImageRunningRef.current.size >= MAX_CONCURRENT_ITEM_IMAGE_TASKS) return;
+        
+        let cancelled = false;
+        const idleTimer = window.setTimeout(() => {
+            if (cancelled) return;
 
         const now = Date.now();
         const bagItems = Array.isArray(state.角色?.物品列表) ? state.角色.物品列表 : [];
@@ -999,9 +1076,61 @@ const App: React.FC = () => {
         });
         if (!candidate) return;
 
-        let cancelled = false;
-        const controller = new AbortController();
+        const recordId = `item_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const modelName = imageApi.model || imageApi.图片后端类型 || 'image-model';
+        const 画风 = (feature?.自动物品生图画风 || '写实') as 物品生图结果['画风'];
+        const 渲染风格 = (feature?.自动物品生图渲染风格 || '写实道具') as 物品生图结果['渲染风格'];
+        const 尺寸 = (typeof feature?.自动物品生图分辨率 === 'string' && feature.自动物品生图分辨率.trim()) || '1024x1024';
+        const 写回候选物品 = (nextItem: any, shouldSave: boolean) => {
+            if (candidate.sourceLocation === '背包') {
+                const nextItems = bagItems.map((item: any) => 是同一个物品(item, candidate.item) ? nextItem : item);
+                const changed = nextItems.some((item: any, index: number) => item !== bagItems[index]);
+                if (changed) {
+                    const nextCharacter = { ...state.角色, 物品列表: nextItems };
+                    setters.setCharacter(nextCharacter);
+                    if (shouldSave) {
+                        void actions.performAutoSave?.({ role: nextCharacter, force: true });
+                    }
+                }
+            } else if (candidate.auctionId) {
+                setAuctionHouseState((prev) => {
+                    const list = Array.isArray(prev?.拍卖品列表) ? prev.拍卖品列表 : [];
+                    const next: 拍卖行状态 = {
+                        ...prev,
+                        拍卖品列表: list.map((entry: any) => entry.ID === candidate.auctionId ? { ...entry, 物品: nextItem } : entry)
+                    };
+                    if (shouldSave) {
+                        保存拍卖行状态(next, auctionHouseScope);
+                    }
+                    return next;
+                });
+            }
+        };
+        const 写回物品生图记录 = (status: 物品生图结果['状态'], errorMessage?: string) => {
+            const record: 物品生图结果 = {
+                id: recordId,
+                图片URL: undefined,
+                本地路径: undefined,
+                生图词组: '',
+                原始描述: JSON.stringify(candidate.item ?? {}, null, 2),
+                使用模型: modelName,
+                生成时间: Date.now(),
+                构图: '物品图标',
+                画风,
+                渲染风格,
+                尺寸,
+                状态: status,
+                错误信息: errorMessage,
+                来源: 'generated'
+            };
+            写回候选物品({
+                ...(candidate.item as any),
+                图片档案: 合并物品图片档案(candidate.item, record)
+            }, status === 'failed');
+        };
+
         autoItemImageRunningRef.current.add(candidate.key);
+        写回物品生图记录('pending');
         actions.pushNotification({
             title: '物品自动生图',
             message: `正在为「${candidate.item?.名称 || '无名物品'}」生成写实图标。`,
@@ -1009,32 +1138,25 @@ const App: React.FC = () => {
         });
         void (async () => {
             try {
-                const result = await 生成物品图标(candidate.item, state.apiConfig, {
-                    source: 'auto',
-                    sourceLocation: candidate.sourceLocation,
-                    imageApi,
-                    signal: controller.signal
-                });
-                if (cancelled) return;
-                if (candidate.sourceLocation === '背包') {
-                    const nextItems = bagItems.map((item: any) => 是同一个物品(item, candidate.item) ? result.nextItem : item);
-                    const changed = nextItems.some((item: any, index: number) => item !== bagItems[index]);
-                    if (changed) {
-                        const nextCharacter = { ...state.角色, 物品列表: nextItems };
-                        setters.setCharacter(nextCharacter);
-                        void actions.performAutoSave?.({ role: nextCharacter, force: true });
+                const result = await 执行生图模型调用带重试(
+                    () => 生成物品图标(candidate.item, state.apiConfig, {
+                        source: 'auto',
+                        sourceLocation: candidate.sourceLocation,
+                        imageApi,
+                        recordId
+                    }),
+                    {
+                        onAttempt: (attempt, totalAttempts) => {
+                            if (attempt > 1) {
+                                写回物品生图记录('pending', `正在自动重试物品生图（第 ${attempt}/${totalAttempts} 次尝试）。`);
+                            }
+                        },
+                        onRetry: (attempt, totalAttempts, errorMessage) => {
+                            写回物品生图记录('pending', `第 ${attempt}/${totalAttempts} 次生成失败：${errorMessage}；正在自动重试。`);
+                        }
                     }
-                } else if (candidate.auctionId) {
-                    setAuctionHouseState((prev) => {
-                        const list = Array.isArray(prev?.拍卖品列表) ? prev.拍卖品列表 : [];
-                        const next: 拍卖行状态 = {
-                            ...prev,
-                            拍卖品列表: list.map((entry: any) => entry.ID === candidate.auctionId ? { ...entry, 物品: result.nextItem } : entry)
-                        };
-                        保存拍卖行状态(next, auctionHouseScope);
-                        return next;
-                    });
-                }
+                );
+                写回候选物品(result.nextItem, true);
                 autoItemImageFailedAtRef.current.delete(candidate.key);
                 actions.pushNotification({
                     title: '物品图标已生成',
@@ -1043,18 +1165,25 @@ const App: React.FC = () => {
                 });
                 console.info('[物品自动生图] 已生成物品图标', candidate.sourceLocation, result.nextItem?.名称 || candidate.item?.名称);
             } catch (error) {
+                const errorMessage = 读取生图错误文本(error, '物品自动生图失败');
+                写回物品生图记录('failed', errorMessage);
                 autoItemImageFailedAtRef.current.set(candidate.key, Date.now());
                 console.warn('[物品自动生图] 生成失败', candidate.sourceLocation, candidate.item?.名称, error);
+                actions.pushNotification({
+                    title: '物品图标生成失败',
+                    message: `「${candidate.item?.名称 || '无名物品'}」已自动重试 ${生图最大自动重试次数} 次，仍未成功。`,
+                    tone: 'warning'
+                });
             } finally {
                 autoItemImageRunningRef.current.delete(candidate.key);
             }
         })();
-
+        }, ITEM_AUTO_IMAGE_AFTER_CHARACTER_SCENE_IDLE_DELAY);
         return () => {
             cancelled = true;
-            controller.abort();
+            window.clearTimeout(idleTimer);
         };
-    }, [state.view, state.apiConfig, state.角色, auctionHouseState, auctionHouseScope, setters, actions, latestAssistantMessage]);
+    }, [state.view, state.apiConfig, state.角色, auctionHouseState, auctionHouseScope, setters, actions, meta.imageGenerationQueue, meta.sceneImageQueue]);
 
     const activeMobileWindow =
         showCharacter ? '角色' :
@@ -1063,6 +1192,7 @@ const App: React.FC = () => {
         state.showInventory ? '背包' :
         state.showSocial ? '社交' :
         (启用修炼体系 && state.showKungfu) ? '功法' :
+        state.showSkills ? '技艺' :
         state.showWorld ? '世界' :
         state.showMap ? '地图' :
         state.showTeam ? '队伍' :
@@ -1088,6 +1218,7 @@ const App: React.FC = () => {
         state.showInventory ? 'inventory' :
         state.showSocial ? 'social' :
         (启用修炼体系 && state.showKungfu) ? 'kungfu' :
+        state.showSkills ? 'skills' :
         state.showWorld ? 'world' :
         state.showMap ? 'map' :
         state.showTeam ? 'team' :
@@ -1114,6 +1245,7 @@ const App: React.FC = () => {
         || state.showSocial
         || state.showTeam
         || (启用修炼体系 && state.showKungfu)
+        || state.showSkills
         || state.showWorld
         || state.showMap
         || state.showSect
@@ -1183,6 +1315,7 @@ const App: React.FC = () => {
         setters.setShowTeam(false);
         setters.setShowSocial(false);
         setters.setShowKungfu(false);
+        setters.setShowSkills(false);
         setters.setShowWorld(false);
         setters.setShowMap(false);
         setters.setShowSect(false);
@@ -1282,6 +1415,10 @@ const App: React.FC = () => {
         closeAllPanels();
         setters.setShowKungfu(true);
     }, [closeAllPanels, setters, 启用修炼体系]);
+    const openSkills = React.useCallback(() => {
+        closeAllPanels();
+        setters.setShowSkills(true);
+    }, [closeAllPanels, setters]);
     const openWorld = React.useCallback(() => {
         closeAllPanels();
         setters.setShowWorld(true);
@@ -1671,6 +1808,9 @@ const App: React.FC = () => {
                 if (启用修炼体系) {
                     setters.setShowKungfu(true);
                 }
+                break;
+            case '技艺':
+                setters.setShowSkills(true);
                 break;
             case '世界':
                 setters.setShowWorld(true);
@@ -2224,10 +2364,10 @@ const App: React.FC = () => {
                             className={`md:hidden shrink-0 h-[28px] bg-ink-black/88 border-t border-wuxia-gold/20 flex items-center font-mono text-wuxia-gold-dark relative overflow-hidden pb-[var(--app-safe-bottom,env(safe-area-inset-bottom,0px))] ${isMobile ? 'mx-0 mb-0' : 'mx-1 mb-1'}`}
                             style={{ fontSize: '11px' }}
                         >
-                            <div className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-[0.18em] text-transparent relative">
+                            <button type="button" onClick={openWorld} className="shrink-0 h-full px-2 flex items-center border-r border-gray-800 text-wuxia-gold/90 tracking-[0.18em] text-transparent relative hover:bg-wuxia-gold/10 transition-colors">
                                 <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold/90">世界大事</span>
                                 世界大事
-                            </div>
+                            </button>
                             <div className="flex-1 overflow-hidden relative h-full flex items-center">
                                 <div className="absolute left-0 top-0 bottom-0 w-5 bg-gradient-to-r from-ink-black to-transparent z-10 pointer-events-none"></div>
                                 <div className="absolute right-0 top-0 bottom-0 w-5 bg-gradient-to-l from-ink-black to-transparent z-10 pointer-events-none"></div>
@@ -2260,10 +2400,10 @@ const App: React.FC = () => {
                             className="hidden md:flex shrink-0 h-[37px] bg-ink-black/90 border-t border-wuxia-gold/20 justify-between px-4 items-center font-mono text-wuxia-gold-dark z-50 shadow-[0_-5px_15px_rgba(0,0,0,0.8)] relative rounded-b-xl mx-1 mb-1 overflow-hidden"
                             style={{ fontSize: 'var(--ui-compact-mono-font-size, 12px)' }}
                         >
-                            <div className="shrink-0 text-wuxia-gold font-bold mr-2 z-20 bg-ink-black/90 px-2 flex items-center h-full border-r border-gray-800 text-transparent relative">
+                            <button type="button" onClick={openWorld} className="shrink-0 text-wuxia-gold font-bold mr-2 z-20 bg-ink-black/90 px-2 flex items-center h-full border-r border-gray-800 text-transparent relative hover:bg-wuxia-gold/10 transition-colors cursor-pointer">
                                 <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold">【世界大事】</span>
                                 【世界大事】
-                            </div>
+                            </button>
 
                             <div className="flex-1 overflow-hidden relative h-full flex items-center mx-2">
                                 <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-ink-black to-transparent z-10 pointer-events-none"></div>
@@ -2292,8 +2432,8 @@ const App: React.FC = () => {
                             </div>
 
                             <div className="shrink-0 text-wuxia-gold font-bold ml-2 z-20 bg-ink-black/90 px-2 flex items-center h-full border-l border-gray-800 text-transparent relative">
-                                <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold">【V0.0.1】</span>
-                                【V0.0.1】
+                                <span className="absolute inset-0 flex items-center px-2 text-wuxia-gold">【V{RELEASE_INFO.versionName}】</span>
+                                【V{RELEASE_INFO.versionName}】
                             </div>
                         </div>
                     )}
@@ -2695,6 +2835,7 @@ const App: React.FC = () => {
                             onClearSceneHistory={actions.clearSceneImageHistory}
                             onDeleteSceneQueueTask={actions.removeSceneImageQueueTask}
                             onClearSceneQueue={actions.clearSceneImageQueue}
+                            onClearItemImageHistory={actions.clearItemImageHistory}
                             onSaveSceneImageLocally={actions.saveSceneImageLocally}
                             onSetPersistentWallpaper={actions.setPersistentWallpaper}
                             onClearPersistentWallpaper={actions.clearPersistentWallpaper}
@@ -2900,6 +3041,26 @@ const App: React.FC = () => {
                                 <KungfuModal
                                     skills={safeCharacter?.功法列表 || []}
                                     onClose={() => setters.setShowKungfu(false)}
+                                />
+                            )}
+                        </懒加载边界>
+                    )}
+
+                    {state.showSkills && (
+                        <懒加载边界>
+                            {isMobile ? (
+                                <MobileSkillsPanel
+                                    技艺列表={safeCharacter?.技艺 || []}
+                                    社交列表={state.社交}
+                                    典籍列表={safeCharacter?.功法列表 || []}
+                                    onClose={() => setters.setShowSkills(false)}
+                                />
+                            ) : (
+                                <SkillsPanel
+                                    技艺列表={safeCharacter?.技艺 || []}
+                                    社交列表={state.社交}
+                                    典籍列表={safeCharacter?.功法列表 || []}
+                                    onClose={() => setters.setShowSkills(false)}
                                 />
                             )}
                         </懒加载边界>

@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NPC结构 } from '../../../models/social';
 import type { 香闺秘档部位类型 } from '../../../models/imageGeneration';
 import { 构建NPC记忆展示结果 } from '../../../hooks/useGame/npcMemorySummary';
@@ -20,6 +21,8 @@ interface Props {
     onTogglePresence?: (npcId: string, nextIsPresent: boolean) => void;
     onDeleteNpc?: (npcId: string) => void;
 }
+
+const 是女性角色 = (npc?: NPC结构 | null): boolean => String((npc as any)?.性别 || '').trim() === '女';
 
 const SocialModal: React.FC<Props> = ({
     socialList,
@@ -44,6 +47,7 @@ const SocialModal: React.FC<Props> = ({
     const [香闺展示模式, set香闺展示模式] = useState<Record<string, 'text' | 'image'>>({});
     const [showFullBackground, setShowFullBackground] = useState(false);
     const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null);
+    const [imageViewerZoom, setImageViewerZoom] = useState(1);
 
     useEffect(() => {
         if (socialList.length === 0) {
@@ -66,6 +70,7 @@ const SocialModal: React.FC<Props> = ({
     useEffect(() => {
         setShowFullBackground(false);
         setImageViewer(null);
+        setImageViewerZoom(1);
     }, [selectedId]);
 
     const currentNPC = socialList.find((n, index) => 获取NPC稳定ID(n, index) === selectedId) || socialList[0];
@@ -73,7 +78,8 @@ const SocialModal: React.FC<Props> = ({
         () => currentNPC ? 构建NPC记忆展示结果(currentNPC.总结记忆, currentNPC.记忆) : { 总结记忆: [], 记忆: [], 原始总数: 0 },
         [currentNPC]
     );
-    const 展示女性扩展 = currentNPC?.性别 === '女' && Boolean(currentNPC?.是否主要角色);
+    const 当前角色是女性 = 是女性角色(currentNPC);
+    const 展示女性扩展 = 当前角色是女性 && Boolean(currentNPC?.是否主要角色);
     const 展示女性私密档案 = 展示女性扩展 && nsfwEnabled;
     const 取首个非空文本 = (...values: unknown[]): string => {
         for (const value of values) {
@@ -243,8 +249,28 @@ const SocialModal: React.FC<Props> = ({
     const 打开图片查看器 = (src?: string, alt?: string) => {
         const normalizedSrc = typeof src === 'string' ? src.trim() : '';
         if (!normalizedSrc) return;
+        setImageViewerZoom(1);
         setImageViewer({ src: normalizedSrc, alt: (alt || '图片预览').trim() || '图片预览' });
     };
+    const 关闭图片查看器 = () => {
+        setImageViewer(null);
+        setImageViewerZoom(1);
+    };
+    const 调整图片缩放 = (delta: number) => {
+        setImageViewerZoom((prev) => Math.min(3, Math.max(0.5, Number((prev + delta).toFixed(2)))));
+    };
+
+    useEffect(() => {
+        if (!imageViewer) return;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                关闭图片查看器();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [imageViewer]);
+
     const 香闺部位列表: Array<{ key: 香闺秘档部位类型; label: string; text: string }> = currentNPC ? [
         { key: '胸部', label: '胸部描述', text: 读取胸部描述(currentNPC) || '暂无记录' },
         { key: '小穴', label: '小穴描述', text: 读取小穴描述(currentNPC) || '暂无记录' },
@@ -315,37 +341,50 @@ const SocialModal: React.FC<Props> = ({
                         <div className="flex gap-3 overflow-x-auto overflow-y-hidden custom-scrollbar px-5 pb-4 snap-x snap-mandatory">
                         {socialList.map((npc, index) => {
                             const npcStableId = 获取NPC稳定ID(npc, index);
+                            const isSelected = selectedId === npcStableId;
+                            const npcIsFemale = 是女性角色(npc);
                             return (
                             <button
                                 key={npcStableId}
+                                aria-pressed={isSelected}
                                 onClick={() => {
                                     setSelectedId(npcStableId);
                                     onSelectedNpcIdChange?.(npcStableId);
                                 }}
-                                className={`w-[245px] h-[76px] shrink-0 snap-start text-left p-2.5 rounded-xl transition-all relative group overflow-hidden flex items-center gap-3 ${selectedId === npcStableId
-                                    ? 'bg-gradient-to-b from-wuxia-gold/18 to-wuxia-gold/5 border border-wuxia-gold/40 shadow-[0_0_15px_rgba(212,175,55,0.15)]'
-                                    : 'border border-transparent hover:border-white/10 hover:bg-white/[0.03]'
+                                className={`social-roster-card w-[245px] h-[76px] shrink-0 snap-start text-left p-2.5 rounded-xl transition-all relative group overflow-hidden flex items-center gap-3 ${isSelected
+                                    ? 'social-roster-card--selected bg-gradient-to-r from-wuxia-gold/24 via-wuxia-gold/12 to-white/[0.05] border border-wuxia-gold/70 shadow-[0_0_18px_rgba(212,175,55,0.24)] ring-1 ring-wuxia-gold/35'
+                                    : 'social-roster-card--idle border border-white/10 bg-white/[0.02] hover:border-wuxia-gold/35 hover:bg-wuxia-gold/8'
                                     }`}
                             >
-                                {selectedId === npcStableId && (
-                                    <div className="absolute left-3 right-3 bottom-0 h-0.5 bg-wuxia-gold shadow-[0_0_10px_rgba(212,175,55,0.8)] z-10"></div>
+                                {isSelected && (
+                                    <div className="social-roster-card__mark absolute left-0 top-2 bottom-2 w-1 rounded-r bg-wuxia-gold shadow-[0_0_10px_rgba(212,175,55,0.8)] z-10"></div>
                                 )}
 
                                 <div className="relative w-12 h-12 shrink-0 rounded-lg overflow-hidden border border-white/10 bg-black/50 group-hover:border-white/30 transition-colors">
                                     {提取头像图片地址(npc) ? (
-                                        <img src={提取头像图片地址(npc)} alt={npc.姓名} className="w-full h-full object-cover" />
+                                        <button
+                                            type="button"
+                                            className="block h-full w-full"
+                                            title="查看头像"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                打开图片查看器(提取头像图片地址(npc), `${npc.姓名} 头像`);
+                                            }}
+                                        >
+                                            <img src={提取头像图片地址(npc)} alt={npc.姓名} className="w-full h-full object-cover" />
+                                        </button>
                                     ) : (
-                                        <div className={`w-full h-full flex items-center justify-center font-serif font-bold text-lg ${npc.性别 === '女' ? 'text-pink-500/50' : 'text-blue-500/50'}`}>
+                                        <div className={`w-full h-full flex items-center justify-center font-serif font-bold text-lg ${npcIsFemale ? 'text-pink-500/50' : 'text-blue-500/50'}`}>
                                             {npc.姓名[0]}
                                         </div>
                                     )}
                                 </div>
 
                                 <div className="flex-1 min-w-0">
-                                    <div className={`font-serif font-bold text-base truncate ${selectedId === npcStableId ? 'text-wuxia-gold drop-shadow-sm' : 'text-gray-200'}`}>
+                                    <div className={`social-roster-card__name font-serif font-bold text-base truncate ${isSelected ? 'text-wuxia-gold drop-shadow-sm' : 'text-gray-200'}`}>
                                         {npc.姓名}
                                     </div>
-                                    <div className="text-[10px] text-gray-500 flex items-center gap-1.5 mt-0.5">
+                                    <div className="social-roster-card__meta text-[10px] text-gray-500 flex items-center gap-1.5 mt-0.5">
                                         {显示境界 && npc.境界 && (
                                             <>
                                                 <span className="truncate">{npc.境界}</span>
@@ -356,7 +395,7 @@ const SocialModal: React.FC<Props> = ({
                                             {npc.是否在场 ? '在场' : '离线'}
                                         </span>
                                     </div>
-                                    <div className="text-[10px] text-pink-400/80 mt-1 truncate">
+                                    <div className="social-roster-card__relation text-[10px] text-pink-400/80 mt-1 truncate">
                                         {npc.关系状态 || '萍水相逢'}
                                     </div>
                                 </div>
@@ -909,10 +948,16 @@ const SocialModal: React.FC<Props> = ({
                                                 )}
                                             </div>
                                         ) : (
-                                            <div className="h-full flex flex-col items-center justify-center opacity-30 bg-black/20 rounded-xl border border-dashed border-white/10 p-8 text-center min-h-[300px]">
-                                                <div className="text-4xl mb-4 font-serif text-wuxia-gold/50 inline-flex"><IconMars size={36} /></div>
-                                                <div className="text-sm font-serif text-gray-500 tracking-widest uppercase">男性同伴档案已折叠</div>
-                                                <div className="text-[10px] text-gray-600 mt-2 font-mono">CONFIDENTIAL INFO NOT AVAILABLE</div>
+                                            <div className="h-full flex flex-col items-center justify-center opacity-55 bg-black/20 rounded-xl border border-dashed border-white/10 p-8 text-center min-h-[300px]">
+                                                <div className="text-4xl mb-4 font-serif text-wuxia-gold/50 inline-flex">
+                                                    {当前角色是女性 ? <IconHeart size={36} /> : <IconMars size={36} />}
+                                                </div>
+                                                <div className="text-sm font-serif text-gray-500 tracking-widest uppercase">
+                                                    {当前角色是女性 ? '女性扩展档案待激活' : '男性同伴档案已折叠'}
+                                                </div>
+                                                <div className="text-[10px] text-gray-600 mt-2 font-mono">
+                                                    {当前角色是女性 ? 'SET AS IMPORTANT TO UNLOCK EXTENDED PROFILE' : 'CONFIDENTIAL INFO NOT AVAILABLE'}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -929,33 +974,39 @@ const SocialModal: React.FC<Props> = ({
                 </div>
             </div>
 
-            {imageViewer && (
+            {imageViewer && typeof document !== 'undefined' && createPortal((
                 <div
-                    className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn cursor-pointer"
-                    onClick={() => setImageViewer(null)}
+                    className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-sm flex items-center justify-end p-4 pr-8 animate-fadeIn cursor-pointer"
+                    onClick={关闭图片查看器}
                 >
-                    <div className="relative inline-flex w-fit max-w-[90vw] max-h-[95vh] rounded-lg shadow-[0_0_50px_rgba(212,175,55,0.15)] overflow-hidden cursor-default" onClick={e => e.stopPropagation()}>
-                        <button
-                            className="absolute left-2 top-2 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-gray-600 bg-black/75 text-gray-200 shadow-[0_0_24px_rgba(0,0,0,0.65)] backdrop-blur-md transition-all hover:border-red-400 hover:bg-red-400/10 hover:text-red-300"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setImageViewer(null);
-                            }}
-                            aria-label="关闭图片预览"
-                            title="关闭图片预览"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
+                    <button
+                        className="fixed right-5 top-5 z-[330] flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-red-600/95 text-white shadow-[0_0_24px_rgba(220,38,38,1)] backdrop-blur-md transition-all hover:scale-110 hover:bg-red-500 hover:shadow-[0_0_32px_rgba(220,38,38,1)]"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            关闭图片查看器();
+                        }}
+                        aria-label="关闭图片预览"
+                        title="关闭图片预览"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-7 h-7">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                    <div className="fixed right-5 top-20 z-[330] flex overflow-hidden rounded-full border border-white/20 bg-black/75 text-sm text-white shadow-lg backdrop-blur-md" onClick={(e) => e.stopPropagation()}>
+                        <button type="button" className="px-4 py-2 hover:bg-white/15" onClick={() => 调整图片缩放(-0.25)} aria-label="缩小图片">-</button>
+                        <button type="button" className="border-x border-white/15 px-4 py-2 hover:bg-white/15" onClick={() => setImageViewerZoom(1)} aria-label="重置缩放">{Math.round(imageViewerZoom * 100)}%</button>
+                        <button type="button" className="px-4 py-2 hover:bg-white/15" onClick={() => 调整图片缩放(0.25)} aria-label="放大图片">+</button>
+                    </div>
+                    <div className="relative flex h-[calc(100vh-2rem)] w-[min(85vw,calc(100vw-2rem))] items-center justify-end overflow-auto rounded-lg shadow-[0_0_50px_rgba(212,175,55,0.15)] cursor-default" onClick={e => e.stopPropagation()}>
                         <img
                             src={imageViewer.src}
                             alt={imageViewer.alt}
-                            className="max-w-full max-h-[95vh] object-contain rounded-lg"
+                            className="max-w-[85vw] max-h-[calc(100vh-2rem)] object-contain rounded-lg transition-transform duration-150 origin-center"
+                            style={{ transform: `scale(${imageViewerZoom})` }}
                         />
                     </div>
                 </div>
-            )}
+            ), document.body)}
         </div>
     );
 };

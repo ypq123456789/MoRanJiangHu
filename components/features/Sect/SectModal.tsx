@@ -107,7 +107,7 @@ const SectModal: React.FC<Props> = ({ sectData, currentTime, onClose, onOpenNpc,
     );
 
     return (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[200] hidden md:flex items-center justify-center p-4 animate-fadeIn">
+        <div className="sect-modal-body fixed inset-0 bg-black/90 backdrop-blur-sm z-[200] hidden md:flex items-center justify-center p-4 animate-fadeIn">
             <div className="bg-ink-black/95 border border-wuxia-gold/30 w-full max-w-6xl h-[700px] flex flex-col shadow-[0_0_80px_rgba(0,0,0,0.9)] relative overflow-hidden rounded-2xl">
                 
                 {/* --- Header --- */}
@@ -205,7 +205,7 @@ const SectModal: React.FC<Props> = ({ sectData, currentTime, onClose, onOpenNpc,
 
                                 <div className="grid grid-cols-2 gap-6">
                                      <div className="bg-black/30 border border-gray-700 p-6 rounded-lg">
-                                        <h4 className="text-gray-200 font-bold text-sm uppercase tracking-widest mb-4">晋升之路</h4>
+                                        <h4 className="text-gray-100 font-bold text-sm uppercase tracking-widest mb-4">晋升之路</h4>
                                         <div className="space-y-4 relative">
                                             {Object.entries(职位等级排序).sort((a,b) => a[1] - b[1]).map(([rank, lvl]) => {
                                                 const currentLvl = 职位等级排序[sectData.玩家职位] || 0;
@@ -220,14 +220,14 @@ const SectModal: React.FC<Props> = ({ sectData, currentTime, onClose, onOpenNpc,
                                                     <div key={rank} className={`flex items-center gap-4 ${isCurrent ? 'opacity-100' : contributionReady ? 'opacity-85' : 'opacity-60'}`}>
                                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs border ${
                                                             isCurrent ? 'bg-wuxia-gold text-black border-wuxia-gold' : 
-                                                            isPassed ? 'bg-gray-700 text-gray-200 border-gray-600' : contributionReady ? 'border-emerald-400 text-emerald-100' : 'border-gray-600 text-gray-300'
+                                                            isPassed ? 'bg-gray-700 text-gray-100 border-gray-600' : contributionReady ? 'border-emerald-400 text-emerald-100' : 'border-gray-600 text-gray-200'
                                                         }`}>
                                                             {lvl}
                                                         </div>
                                                         <div className="flex-1">
-                                                            <div className={`font-bold ${isCurrent ? 'text-wuxia-gold' : 'text-gray-200'}`}>{rank}</div>
-                                                            <div className="mt-1 text-xs text-gray-300">累计贡献 {累计贡献} / {required}</div>
-                                                            <div className="mt-1 text-[11px] text-gray-500">
+                                                            <div className={`font-bold ${isCurrent ? 'text-wuxia-gold' : 'text-gray-100'}`}>{rank}</div>
+                                                            <div className="mt-1 text-xs text-gray-200">累计贡献 {累计贡献} / {required}</div>
+                                                            <div className="mt-1 text-[11px] text-gray-400">
                                                                 {(职位特权[rank] || []).join(' · ') || '暂无特权'}
                                                             </div>
                                                         </div>
@@ -239,24 +239,24 @@ const SectModal: React.FC<Props> = ({ sectData, currentTime, onClose, onOpenNpc,
                                         </div>
                                      </div>
                                      <div className="bg-black/30 border border-gray-700 p-6 rounded-lg">
-                                         <h4 className="text-gray-200 font-bold text-sm uppercase tracking-widest mb-4">贡献总览</h4>
+                                         <h4 className="text-gray-100 font-bold text-sm uppercase tracking-widest mb-4">贡献总览</h4>
                                          <div className="grid grid-cols-2 gap-3 text-sm">
                                              <div className="rounded border border-wuxia-gold/20 bg-wuxia-gold/5 p-4">
-                                                 <div className="text-gray-300">可用贡献</div>
+                                                 <div className="text-gray-200">可用贡献</div>
                                                  <div className="mt-2 text-2xl font-mono font-bold text-wuxia-gold">{sectData.玩家贡献}</div>
                                              </div>
                                              <div className="rounded border border-emerald-400/20 bg-emerald-950/20 p-4">
-                                                 <div className="text-gray-300">累计贡献</div>
+                                                 <div className="text-gray-200">累计贡献</div>
                                                  <div className="mt-2 text-2xl font-mono font-bold text-emerald-200">{累计贡献}</div>
                                              </div>
                                          </div>
-                                         <p className="mt-4 text-sm leading-6 text-gray-300">晋升只看累计生成过的贡献点，聚宝阁兑换只消耗当前可用贡献。</p>
+                                         <p className="mt-4 text-sm leading-6 text-gray-200">晋升只看累计生成过的贡献点，聚宝阁兑换只消耗当前可用贡献。</p>
                                          <div className="mt-4 rounded border border-wuxia-gold/20 bg-black/25 p-3">
                                              <div className="text-xs tracking-widest text-wuxia-gold/70">当前身份特权</div>
-                                             <div className="mt-2 text-sm text-gray-200">{sectData.玩家职位} · 聚宝阁{当前折扣文本}</div>
+                                             <div className="mt-2 text-sm text-gray-100">{sectData.玩家职位} · 聚宝阁{当前折扣文本}</div>
                                              <div className="mt-2 flex flex-wrap gap-2">
                                                  {(职位特权[sectData.玩家职位] || ['基础门派事务']).map(item => (
-                                                     <span key={item} className="rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-gray-300">{item}</span>
+                                                     <span key={item} className="rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-gray-200">{item}</span>
                                                  ))}
                                              </div>
                                          </div>
@@ -378,23 +378,23 @@ const SectModal: React.FC<Props> = ({ sectData, currentTime, onClose, onOpenNpc,
                                          return (
                                              <div key={good.id} className="bg-black/40 border border-gray-700 p-4 rounded-lg flex flex-col gap-3 group hover:border-wuxia-gold/50 transition-colors">
                                                  <div className="flex justify-between items-start">
-                                                     <div className="font-bold text-gray-200">{good.物品名称}</div>
-                                                     <span className="text-xs bg-gray-800 text-gray-200 px-1.5 py-0.5 rounded">{good.类型}</span>
+                                                     <div className="font-bold text-gray-100">{good.物品名称}</div>
+                                                     <span className="text-xs bg-gray-800 text-gray-100 px-1.5 py-0.5 rounded">{good.类型}</span>
                                                  </div>
-                                                 <div className="text-sm text-gray-300">
+                                                 <div className="text-sm text-gray-200">
                                                      要求: <span className="text-gray-100">{good.要求职位}</span>
                                                  </div>
                                                  <div className="mt-auto pt-2 border-t border-gray-800 flex justify-between items-center">
                                                      <div className="text-wuxia-gold font-mono font-bold">
                                                          {discountedPrice} 贡献
                                                          {discountedPrice !== good.兑换价格 && (
-                                                             <span className="ml-2 text-xs text-gray-500 line-through">{good.兑换价格}</span>
+                                                             <span className="ml-2 text-xs text-gray-400 line-through">{good.兑换价格}</span>
                                                          )}
                                                      </div>
-                                                     <div className="text-xs text-gray-300">库存: {good.库存}</div>
+                                                     <div className="text-xs text-gray-200">库存: {good.库存}</div>
                                                  </div>
                                                  {当前折扣 > 0 && <div className="text-[11px] text-emerald-300">身份折扣：{当前折扣文本}</div>}
-                                                 <button className={`rounded px-3 py-2 text-sm font-bold transition-colors ${canExchange ? 'border border-wuxia-gold bg-wuxia-gold/15 text-wuxia-gold hover:bg-wuxia-gold hover:text-black' : 'border border-gray-700 bg-gray-900 text-gray-400 cursor-not-allowed'}`}>
+                                                 <button className={`rounded px-3 py-2 text-sm font-bold transition-colors ${canExchange ? 'border border-wuxia-gold bg-wuxia-gold/15 text-wuxia-gold hover:bg-wuxia-gold hover:text-black' : 'border border-gray-700 bg-gray-900 text-gray-300 cursor-not-allowed'}`}>
                                                      {canExchange ? '可兑换' : !职位可达(good.要求职位) ? '身份不足' : '贡献不足'}
                                                  </button>
                                              </div>

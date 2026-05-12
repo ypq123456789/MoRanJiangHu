@@ -563,10 +563,10 @@ export const JudgmentRenderer: React.FC<{ text: string; thoughtBlock?: JudgmentT
                                     'border-white/10 bg-white/5 text-gray-100'
                                 }`}
                             >
-                                <span className="mr-1.5 font-bold text-gray-50">{item.label}</span>
+                                <span className="mr-1.5 font-bold text-gray-200">{item.label}</span>
                                 <span className="mr-1.5 font-mono font-black">{formatBreakdownValue(item, kind)}</span>
                                 {item.description && (
-                                    <span className="text-gray-200">{item.description}</span>
+                                    <span className="text-gray-300">{item.description}</span>
                                 )}
                             </div>
                         );
@@ -585,7 +585,7 @@ export const JudgmentRenderer: React.FC<{ text: string; thoughtBlock?: JudgmentT
             {/* 动态背景发光 */}
             <div className={`absolute inset-0 w-full sm:w-11/12 md:w-5/6 lg:w-3/4 mx-auto rounded-xl ${theme.glow} opacity-40 blur-xl -z-10 transition-opacity group-hover:opacity-70`}></div>
             
-            <div className={`relative z-10 w-full sm:w-11/12 md:w-5/6 lg:w-3/4 border-2 ${theme.border} rounded-xl shadow-2xl overflow-hidden ${theme.bg} backdrop-blur-md`}>
+            <div className={`relative z-10 w-full sm:w-11/12 md:w-5/6 lg:w-3/4 border-2 ${theme.border} rounded-xl shadow-2xl overflow-hidden ${theme.bg} backdrop-blur-md`} style={{ isolation: 'isolate', backgroundColor: 'rgba(5,5,5,0.96)' }}>
                 {/* 顶部标题栏 */}
                 <button
                     type="button"

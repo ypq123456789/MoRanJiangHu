@@ -2,8 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useGitHubOAuth } from '../../../hooks/useGitHubOAuth';
 import {
     uploadToCloud,
+    uploadSettingsToCloud,
     downloadFromCloud,
+    downloadSettingsFromCloud,
     fetchSyncMetaData,
+    fetchSettingsSyncMetaData,
     getBoundRepoConfig,
     clearBoundRepoConfig,
     GITHUB_REPO_KEY
@@ -18,6 +21,8 @@ type GitHubSyncButtonProps = {
     className?: string;
     style?: React.CSSProperties;
 };
+
+type SyncMeta = { exists: boolean; updatedAt: string | null; url: string | null };
 
 const formatTime = (isoString: string | null) => {
     if (!isoString) return '从未同步';
@@ -79,7 +84,8 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
     } = useGitHubOAuth();
     const [isSyncing, setIsSyncing] = useState(false);
     const [showPanel, setShowPanel] = useState(false);
-    const [syncData, setSyncData] = useState<{ exists: boolean; updatedAt: string | null; url: string | null } | null>(null);
+    const [syncData, setSyncData] = useState<SyncMeta | null>(null);
+    const [settingsSyncData, setSettingsSyncData] = useState<SyncMeta | null>(null);
     const [isLoadingMeta, setIsLoadingMeta] = useState(false);
     const [repoName, setRepoName] = useState<string | null>(null);
     const [repoInput, setRepoInput] = useState('');
@@ -97,6 +103,7 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
         const repoToUse = validateRepoName(preferredRepo || '');
         if (!repoToUse) {
             setSyncData(null);
+            setSettingsSyncData(null);
             setIsLoadingMeta(false);
             return;
         }
@@ -104,8 +111,12 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
         setIsLoadingMeta(true);
         try {
             localStorage.setItem(GITHUB_REPO_KEY, repoToUse);
-            const data = await fetchSyncMetaData(token);
+            const [data, settingsData] = await Promise.all([
+                fetchSyncMetaData(token),
+                fetchSettingsSyncMetaData(token)
+            ]);
             setSyncData(data);
+            setSettingsSyncData(settingsData);
             setRepoName(getBoundRepoConfig());
         } finally {
             setIsLoadingMeta(false);
@@ -121,6 +132,7 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
             void refreshSyncMeta(cachedRepo);
         } else {
             setSyncData(null);
+            setSettingsSyncData(null);
         }
     }, [showPanel, token]);
 
@@ -175,6 +187,7 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
         setRepoName(null);
         setRepoInput('');
         setSyncData(null);
+        setSettingsSyncData(null);
     };
 
     const handleUpload = async () => {
@@ -223,15 +236,61 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
         }
     };
 
+    const handleUploadSettings = async () => {
+        if (!(await saveRepoBinding())) return;
+        if (!window.confirm('这只会上传当前本机的全部设置和设置引用的素材，不会上传任何存档，确定继续吗？')) return;
+        setIsSyncing(true);
+        setProgress(null);
+        try {
+            const success = await uploadSettingsToCloud(token!, setProgress);
+            if (success) {
+                alert('云端设置上传完成。');
+                await refreshSyncMeta(normalizedRepoInput);
+            } else {
+                alert('云端设置上传失败，请稍后重试。');
+            }
+        } catch (error: any) {
+            alert(`设置上传失败: ${error.message || '未知错误'}`);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleDownloadSettings = async () => {
+        if (!(await saveRepoBinding())) return;
+        if (!window.confirm('这只会下载云端设置并覆盖当前本机全部设置，不会下载或覆盖任何存档，且不可撤销，是否继续？')) return;
+        setIsSyncing(true);
+        setProgress(null);
+        try {
+            const result = await downloadSettingsFromCloud(token!, setProgress);
+            if (result.success) {
+                alert('云端设置恢复完成，页面即将刷新。');
+                window.location.reload();
+            } else {
+                alert(
+                    `云端设置同步失败\n` +
+                    `阶段: ${result.stageLabel}\n` +
+                    `原因: ${result.error || '未知错误'}\n` +
+                    `统计: 设置 ${result.importedSettingCount}/${result.settingCount}，资源 ${result.importedAssetCount}/${result.assetCount}\n` +
+                    `时间: ${result.timestamp}`
+                );
+            }
+        } catch (error: any) {
+            alert(`设置同步失败: ${error.message || '未知错误'}`);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const progressPercent = getProgressPercent(progress);
 
     if ((isLoggingIn && !showPanel) || (isSyncing && !showPanel)) {
         return (
             <div
-                className={`${containerClassName} flex items-center justify-center border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs md:text-sm font-serif tracking-wider text-wuxia-gold opacity-90`}
+                className={`${containerClassName} flex items-center justify-center border border-[#b88a4a]/45 bg-[#fff8ea]/95 px-3 py-2 text-xs md:text-sm font-serif tracking-wider text-[#7a3f12] shadow-[0_10px_28px_rgba(92,45,10,0.12)] opacity-95`}
                 style={containerStyle}
             >
-                <svg className="mr-2 h-4 w-4 animate-spin text-wuxia-gold" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="mr-2 h-4 w-4 animate-spin text-[#9a5a1f]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
@@ -253,8 +312,8 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                 }}
                 className={`${containerClassName} flex min-h-[40px] items-center gap-2 border px-3 py-2 text-xs md:text-sm font-serif transition-all duration-300 ${
                     token
-                        ? 'border-emerald-500/40 bg-black/60 text-emerald-400 hover:border-emerald-400 hover:bg-black/80 hover:text-emerald-300'
-                        : 'border-wuxia-gold/40 bg-black/60 text-wuxia-gold hover:border-wuxia-gold/80 hover:bg-black/80 hover:text-white'
+                        ? 'border-emerald-600/45 bg-emerald-50/95 text-emerald-800 shadow-[0_10px_28px_rgba(6,95,70,0.12)] hover:border-emerald-700 hover:bg-emerald-100'
+                        : 'border-[#b88a4a]/50 bg-[#fff8ea]/95 text-[#7a3f12] shadow-[0_10px_28px_rgba(92,45,10,0.12)] hover:border-[#9a5a1f] hover:bg-[#fff1d6]'
                 }`}
                 style={containerStyle}
                 title={token ? '管理 GitHub 云同步' : '登录 GitHub 并同步存档'}
@@ -266,13 +325,13 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
             </button>
 
             {showPanel && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 backdrop-blur-md md:p-4">
-                    <div className="relative flex max-h-[calc(100vh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-24px)] w-full max-w-[430px] flex-col overflow-hidden rounded-2xl border border-wuxia-gold/30 bg-gradient-to-b from-[#0b0b0b] to-[#040404] shadow-[0_0_50px_rgba(0,0,0,0.9)]">
-                        <div className="shrink-0 border-b border-wuxia-gold/15 px-4 pb-4 pt-[max(env(safe-area-inset-top),16px)] md:px-6 md:pt-5">
+                <div className="github-sync-backdrop fixed inset-0 z-50 flex items-center justify-center bg-[#f8f4e8] p-3 md:p-4">
+                    <div className="github-sync-panel relative flex max-h-[calc(100vh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-24px)] w-full max-w-[430px] flex-col overflow-hidden rounded-2xl border border-[#b88a4a]/45 bg-[#fffaf0] shadow-[0_24px_70px_rgba(92,45,10,0.22)]">
+                        <div className="shrink-0 border-b border-[#d8c4a2] bg-[#fff7e6] px-4 pb-4 pt-[max(env(safe-area-inset-top),16px)] md:px-6 md:pt-5">
                             <div className="flex items-center justify-between gap-4">
                                 <div>
-                                    <div className="text-lg font-serif font-bold tracking-[0.18em] text-wuxia-gold">GitHub 云同步</div>
-                                    <div className="mt-1 text-xs leading-5 text-gray-400">
+                                    <div className="text-lg font-serif font-bold tracking-[0.18em] text-[#7a3f12]">GitHub 云同步</div>
+                                    <div className="mt-1 text-xs leading-5 text-[#6f4a26]">
                                         {token
                                             ? '登录后可在手机与 PC 之间同步设置、存档与素材。'
                                             : isNativeApp
@@ -280,10 +339,10 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                                 : '网页端会跳转 GitHub OAuth 完成授权。'}
                                     </div>
                                 </div>
-                                    <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] leading-5 text-amber-200/90">
+                                    <div className="mt-3 rounded-xl border border-amber-700/25 bg-amber-100/65 px-3 py-2 text-[11px] leading-5 text-[#8a3a12]">
                                         云同步建议在直连网络下进行。开启 VPN、系统代理或浏览器代理时，上传速度可能明显变慢，甚至出现失败。
                                     </div>
-                                <button onClick={() => setShowPanel(false)} className="rounded-full border border-wuxia-gold/20 p-2 text-gray-400 transition-colors hover:text-wuxia-gold" title="关闭面板">
+                                <button onClick={() => setShowPanel(false)} className="rounded-full border border-[#b88a4a]/45 bg-[#fffaf0] p-2 text-[#8a5a2f] transition-colors hover:border-[#9a5a1f] hover:text-[#7a3f12]" title="关闭面板">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-5 w-5">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                     </svg>
@@ -292,11 +351,11 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                         </div>
 
                         {!token ? (
-                            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
-                                <div className="rounded-2xl border border-wuxia-gold/15 bg-black/35 p-4">
+                            <div className="min-h-0 flex-1 overflow-y-auto bg-[#fffaf0] px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
+                                <div className="rounded-2xl border border-[#d8c4a2] bg-[#fffdf6] p-4 shadow-[0_10px_24px_rgba(92,45,10,0.08)]">
                                     {isNativeApp ? (
                                         <>
-                                            <div className="text-sm leading-6 text-gray-300">
+                                            <div className="text-sm leading-6 text-[#4f2d16]">
                                                 1. 点下面按钮打开 GitHub 官方授权页
                                                 <br />
                                                 2. 在浏览器确认 GitHub 授权
@@ -304,40 +363,40 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                                 3. GitHub 回调会通过 Android app link / deep link 自动拉回 APK
                                             </div>
 
-                                            <div className="mt-4 rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 text-xs leading-6 text-sky-100/85">
-                                                <div className="font-semibold tracking-[0.16em] text-sky-200">当前 OAuth 回调</div>
-                                                <div className="mt-2 break-all font-mono text-[11px] text-sky-100/90">
+                                            <div className="mt-4 rounded-xl border border-sky-700/20 bg-sky-50/80 p-4 text-xs leading-6 text-sky-900">
+                                                <div className="font-semibold tracking-[0.16em] text-sky-800">当前 OAuth 回调</div>
+                                                <div className="mt-2 break-all font-mono text-[11px] text-sky-950">
                                                     {oauthRedirectUri}
                                                 </div>
-                                                <div className="mt-3 text-sky-100/70">
+                                                <div className="mt-3 text-sky-800/80">
                                                     如果你更想使用自定义 scheme，也可以把 GitHub OAuth App 的回调地址改成：
                                                 </div>
-                                                <div className="mt-1 break-all font-mono text-[11px] text-sky-100/90">
+                                                <div className="mt-1 break-all font-mono text-[11px] text-sky-950">
                                                     {nativeDeepLinkUri}
                                                 </div>
                                             </div>
 
                                             {oauthSession.status !== 'idle' && (
-                                                <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                                                    <div className="text-xs tracking-[0.18em] text-emerald-300/80">当前授权状态</div>
-                                                    <div className="mt-3 text-xs leading-5 text-gray-400">
+                                                <div className="mt-4 rounded-xl border border-emerald-700/20 bg-emerald-50/85 p-4">
+                                                    <div className="text-xs tracking-[0.18em] text-emerald-800">当前授权状态</div>
+                                                    <div className="mt-3 text-xs leading-5 text-[#5f3a1e]">
                                                         {oauthSession.message || '等待 GitHub 回调中。'}
                                                     </div>
-                                                    <div className="mt-2 text-[11px] leading-5 text-emerald-100/80">
+                                                    <div className="mt-2 text-[11px] leading-5 text-emerald-800/85">
                                                         如果没有自动拉起应用，可以重新打开授权页，或手动复制链接到系统浏览器继续完成授权。
                                                     </div>
                                                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
                                                         <button
                                                             type="button"
                                                             onClick={copyAuthorizationLink}
-                                                            className="rounded-lg border border-wuxia-gold/25 bg-black/50 px-3 py-2 text-sm text-wuxia-gold transition-colors hover:bg-black/70"
+                                                            className="rounded-lg border border-[#b88a4a]/45 bg-[#fff8ea] px-3 py-2 text-sm text-[#7a3f12] transition-colors hover:bg-[#fff1d6]"
                                                         >
                                                             复制授权链接
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={reopenAuthorizationPage}
-                                                            className="sm:col-span-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                                                            className="sm:col-span-2 rounded-lg border border-emerald-700/30 bg-emerald-100/80 px-3 py-2 text-sm text-emerald-800 transition-colors hover:bg-emerald-200/70"
                                                         >
                                                             重新打开 GitHub 授权页
                                                         </button>
@@ -347,11 +406,11 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                         </>
                                     ) : (
                                         <>
-                                            <div className="text-sm leading-6 text-gray-300">
+                                            <div className="text-sm leading-6 text-[#4f2d16]">
                                                 当前环境会跳转 GitHub 官方授权页，授权完成后自动回到游戏。
                                             </div>
                                             {!hasGitHubOAuthClientId && (
-                                                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+                                                <div className="mt-4 rounded-xl border border-amber-700/30 bg-amber-100/70 p-4 text-sm leading-6 text-[#8a3a12]">
                                                     当前部署没有注入 `VITE_GITHUB_CLIENT_ID`，网页端 GitHub 登录不可用。
                                                     请在 GitHub Actions Secret 中配置 `VITE_GITHUB_CLIENT_ID`，然后重新部署。
                                                 </div>
@@ -365,8 +424,8 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                         disabled={!hasGitHubOAuthClientId}
                                         className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold tracking-[0.18em] transition-all ${
                                             !hasGitHubOAuthClientId
-                                                ? 'cursor-not-allowed border-gray-800/80 bg-[#111] text-gray-600'
-                                                : 'border-wuxia-gold/30 bg-gradient-to-r from-wuxia-gold/10 via-wuxia-gold/5 to-wuxia-gold/10 text-wuxia-gold hover:border-wuxia-gold/60 hover:bg-black/70'
+                                                ? 'cursor-not-allowed border-[#d8c4a2] bg-[#e8ddca] text-[#9b8b74]'
+                                                : 'border-[#b88a4a]/45 bg-[#fff1d6] text-[#7a3f12] hover:border-[#9a5a1f] hover:bg-[#ffe8b5]'
                                         }`}
                                     >
                                         <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
@@ -378,47 +437,47 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                             </div>
                         ) : (
                             <>
-                                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
-                                    <div className="flex flex-col gap-4 text-sm text-gray-300">
-                                        <div className="rounded-2xl border border-wuxia-gold/15 bg-black/35 p-4">
-                                            <div className="flex items-center justify-between gap-3 border-b border-gray-800/80 pb-3">
-                                                <span className="text-gray-400">GitHub 授权状态</span>
-                                                <span className="flex items-center gap-2 text-emerald-400">
-                                                    <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+                                <div className="min-h-0 flex-1 overflow-y-auto bg-[#fffaf0] px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
+                                    <div className="flex flex-col gap-4 text-sm text-[#4f2d16]">
+                                        <div className="rounded-2xl border border-[#d8c4a2] bg-[#fffdf6] p-4 shadow-[0_10px_24px_rgba(92,45,10,0.08)]">
+                                            <div className="flex items-center justify-between gap-3 border-b border-[#d8c4a2] pb-3">
+                                                <span className="text-[#5f3a1e]">GitHub 授权状态</span>
+                                                <span className="flex items-center gap-2 text-emerald-800">
+                                                    <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.45)]"></span>
                                                     已登录
                                                 </span>
                                             </div>
 
                                             <div className="mt-4">
-                                                <label className="mb-2 block text-xs tracking-[0.14em] text-gray-400">目标私有仓库</label>
+                                                <label className="mb-2 block text-xs tracking-[0.14em] text-[#6f4a26]">目标私有仓库</label>
                                                 <div className="flex flex-col gap-2 sm:flex-row">
                                                     <input
                                                         value={repoInput}
                                                         onChange={(event) => setRepoInput(event.target.value)}
                                                         placeholder="例如 wuxia-cloud-save"
-                                                        className="min-w-0 flex-1 rounded-lg border border-wuxia-gold/20 bg-black/60 px-3 py-2 text-sm text-gray-100 outline-none transition-colors placeholder:text-gray-600 focus:border-wuxia-gold/60"
+                                                        className="min-w-0 flex-1 rounded-lg border border-[#b88a4a]/45 bg-[#fffaf0] px-3 py-2 text-sm text-[#4f2d16] outline-none transition-colors placeholder:text-[#9b8b74] focus:border-[#9a5a1f]"
                                                     />
                                                     <button
                                                         type="button"
                                                         onClick={() => void saveRepoBinding()}
-                                                        className="rounded-lg border border-wuxia-gold/25 bg-wuxia-gold/10 px-4 py-2 text-sm text-wuxia-gold transition-colors hover:bg-wuxia-gold/15"
+                                                        className="rounded-lg border border-[#b88a4a]/45 bg-[#fff1d6] px-4 py-2 text-sm text-[#7a3f12] transition-colors hover:border-[#9a5a1f] hover:bg-[#ffe8b5]"
                                                     >
                                                         绑定仓库
                                                     </button>
                                                 </div>
-                                                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-gray-500">
+                                                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#6f4a26]/80">
                                                     <span>只填仓库名，不要带用户名。</span>
                                                     {repoName && (
-                                                        <button onClick={handleChangeRepo} className="text-wuxia-gold/70 transition-colors hover:text-wuxia-gold">
+                                                        <button onClick={handleChangeRepo} className="text-[#7a3f12]/80 transition-colors hover:text-[#5f230e]">
                                                             清除绑定
                                                         </button>
                                                     )}
                                                 </div>
                                             </div>
 
-                                            <div className="mt-4 flex justify-between items-end border-b border-gray-800/80 pb-3">
-                                                <span className="text-gray-400">最近云端记录</span>
-                                                <span className={`text-right font-mono ${syncData?.exists ? 'text-wuxia-gold' : 'text-gray-600'}`}>
+                                            <div className="mt-4 flex justify-between items-end border-b border-[#d8c4a2] pb-3">
+                                                <span className="text-[#5f3a1e]">最近云端记录</span>
+                                                <span className={`text-right font-mono ${syncData?.exists ? 'text-[#7a3f12]' : 'text-[#9b8b74]'}`}>
                                                     {activeRepoName
                                                         ? isLoadingMeta
                                                             ? '查询中...'
@@ -429,23 +488,36 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                                 </span>
                                             </div>
 
-                                            {syncData?.url && (
+                                            <div className="mt-3 flex justify-between items-end border-b border-[#d8c4a2] pb-3">
+                                                <span className="text-[#5f3a1e]">最近云端设置</span>
+                                                <span className={`text-right font-mono ${settingsSyncData?.exists ? 'text-[#7a3f12]' : 'text-[#9b8b74]'}`}>
+                                                    {activeRepoName
+                                                        ? isLoadingMeta
+                                                            ? '查询中...'
+                                                            : settingsSyncData?.exists
+                                                                ? formatTime(settingsSyncData.updatedAt)
+                                                                : '暂无单独设置备份'
+                                                        : '尚未绑定仓库'}
+                                                </span>
+                                            </div>
+
+                                            {(syncData?.url || settingsSyncData?.url) && (
                                                 <a
-                                                    href={syncData.url}
+                                                    href={syncData?.url || settingsSyncData?.url || '#'}
                                                     target="_blank"
                                                     rel="noreferrer"
-                                                    className="mt-3 inline-flex text-xs text-wuxia-gold/60 underline decoration-wuxia-gold/30 underline-offset-2 transition-colors hover:text-wuxia-gold"
+                                                    className="mt-3 inline-flex text-xs text-[#7a3f12]/75 underline decoration-[#b88a4a]/50 underline-offset-2 transition-colors hover:text-[#5f230e]"
                                                 >
                                                     前往 GitHub Release 查看云端附件
                                                 </a>
                                             )}
-                                            <div className="mt-4 rounded-xl border border-amber-500/15 bg-amber-500/5 px-3 py-3 text-xs leading-5 text-amber-100/85">
+                                            <div className="mt-4 rounded-xl border border-amber-700/25 bg-amber-100/65 px-3 py-3 text-xs leading-5 text-[#8a3a12]">
                                                 如果上传速度只有几十 KB/s，或频繁出现上传失败，优先关闭 VPN、代理插件和系统代理后再重试，通常会明显改善。
                                             </div>
                                         </div>
 
                                         {isSyncing ? (
-                                            <div className="rounded-2xl border border-wuxia-gold/25 bg-wuxia-gold/5 p-4 text-wuxia-gold">
+                                            <div className="rounded-2xl border border-[#b88a4a]/35 bg-[#fff8ea] p-4 text-[#7a3f12] shadow-[0_10px_24px_rgba(92,45,10,0.08)]">
                                                 <div className="flex items-center justify-center gap-3">
                                                     <svg className="h-6 w-6 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                         <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -453,14 +525,14 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                                     </svg>
                                                     <span>{progress?.message || '云同步处理中...'}</span>
                                                 </div>
-                                                <div className="mt-3 flex justify-between text-xs text-wuxia-gold/80">
+                                                <div className="mt-3 flex justify-between text-xs text-[#7a3f12]/80">
                                                     <span>{progress?.direction === 'upload' ? '上传任务' : progress?.direction === 'download' ? '下载任务' : '同步任务'} · {getStageText(progress)}</span>
                                                     <span>{progress?.partCount ? `分卷 ${progress.partIndex}/${progress.partCount}` : '准备中'}</span>
                                                 </div>
-                                                <div className="mt-3 h-2 overflow-hidden rounded-full border border-wuxia-gold/10 bg-black/50">
-                                                    <div className="h-full bg-gradient-to-r from-wuxia-gold/40 via-wuxia-gold to-wuxia-gold/50 transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+                                                <div className="mt-3 h-2 overflow-hidden rounded-full border border-[#b88a4a]/25 bg-[#eadcc7]">
+                                                    <div className="h-full bg-gradient-to-r from-[#d8a44c] via-[#9a5a1f] to-[#d8a44c] transition-all duration-300" style={{ width: `${progressPercent}%` }} />
                                                 </div>
-                                                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-wuxia-gold/80">
+                                                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-[#7a3f12]/80">
                                                     <span>进度: {progressPercent.toFixed(1)}%</span>
                                                     <span className="text-right">速度: {formatSpeed(progress?.speedBytesPerSecond || 0)}</span>
                                                     <span>已传: {formatBytes(progress?.transferredBytes || 0)}</span>
@@ -472,12 +544,23 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                                 <button
                                                     type="button"
                                                     onClick={handleUpload}
-                                                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-700/60 bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-950 px-4 py-3 text-sm font-semibold tracking-[0.18em] text-emerald-100 shadow-[0_0_15px_rgba(52,211,153,0.15)] transition-all hover:border-emerald-400"
+                                                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-700/35 bg-emerald-100/85 px-4 py-3 text-sm font-semibold tracking-[0.18em] text-emerald-800 shadow-[0_10px_24px_rgba(6,95,70,0.10)] transition-all hover:border-emerald-700 hover:bg-emerald-200/75"
                                                 >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-4 w-4 text-emerald-400">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-4 w-4 text-emerald-700">
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 19.5v-15m0 0l-6.75 6.75M12 4.5l6.75 6.75" />
                                                     </svg>
                                                     上传到 GitHub 云端
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={handleUploadSettings}
+                                                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-700/35 bg-amber-100/85 px-4 py-3 text-sm font-semibold tracking-[0.18em] text-amber-900 shadow-[0_10px_24px_rgba(146,64,14,0.10)] transition-all hover:border-amber-700 hover:bg-amber-200/75"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-4 w-4 text-amber-800">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5v-9m0 0l-3.75 3.75M12 7.5l3.75 3.75M6 19.5h12" />
+                                                    </svg>
+                                                    只上传设置
                                                 </button>
 
                                                 <button
@@ -486,21 +569,37 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                                     disabled={!syncData?.exists}
                                                     className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold tracking-[0.18em] transition-all ${
                                                         !syncData?.exists
-                                                            ? 'cursor-not-allowed border-gray-800/80 bg-[#111] text-gray-700'
-                                                            : 'border-sky-700/60 bg-gradient-to-r from-sky-950 via-sky-900 to-sky-950 text-sky-100 shadow-[0_0_15px_rgba(56,189,248,0.15)] hover:border-sky-400'
+                                                            ? 'cursor-not-allowed border-[#d8c4a2] bg-[#e8ddca] text-[#9b8b74]'
+                                                            : 'border-sky-700/35 bg-sky-100/85 text-sky-800 shadow-[0_10px_24px_rgba(12,74,110,0.10)] hover:border-sky-700 hover:bg-sky-200/75'
                                                     }`}
                                                 >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`h-4 w-4 ${syncData?.exists ? 'text-sky-400' : 'text-gray-700'}`}>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`h-4 w-4 ${syncData?.exists ? 'text-sky-700' : 'text-[#9b8b74]'}`}>
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
                                                     </svg>
                                                     {syncData?.exists ? '下载并覆盖本地存档' : '当前仓库暂无可恢复的云端备份'}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDownloadSettings}
+                                                    disabled={!settingsSyncData?.exists}
+                                                    className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold tracking-[0.18em] transition-all ${
+                                                        !settingsSyncData?.exists
+                                                            ? 'cursor-not-allowed border-[#d8c4a2] bg-[#e8ddca] text-[#9b8b74]'
+                                                            : 'border-violet-700/35 bg-violet-100/85 text-violet-900 shadow-[0_10px_24px_rgba(91,33,182,0.10)] hover:border-violet-700 hover:bg-violet-200/75'
+                                                    }`}
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`h-4 w-4 ${settingsSyncData?.exists ? 'text-violet-800' : 'text-[#9b8b74]'}`}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5v9m0 0l-3.75-3.75M12 16.5l3.75-3.75M6 4.5h12" />
+                                                    </svg>
+                                                    {settingsSyncData?.exists ? '只下载并覆盖本地设置' : '暂无可恢复的云端设置'}
                                                 </button>
                                             </div>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="shrink-0 border-t border-wuxia-gold/10 px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
+                                <div className="shrink-0 border-t border-[#d8c4a2] bg-[#fff7e6] px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)] md:px-6">
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -508,7 +607,7 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                             logout();
                                             setShowPanel(false);
                                         }}
-                                        className="w-full rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-2 text-xs tracking-[0.14em] text-red-300 transition-colors hover:bg-red-500/10"
+                                        className="w-full rounded-lg border border-red-700/25 bg-red-50 px-4 py-2 text-xs tracking-[0.14em] text-red-700 transition-colors hover:bg-red-100"
                                     >
                                         解除当前设备上的 GitHub 授权
                                     </button>

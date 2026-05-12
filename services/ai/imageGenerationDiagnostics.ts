@@ -66,6 +66,91 @@ export const 判断疑似网络或跨域错误 = (error: any): boolean => {
         || /failed to fetch|networkerror|network error|load failed|fetch failed|cors|cross-origin|connection|refused|timeout|abort/.test(text);
 };
 
+const 清理末尾斜杠 = (value: string): string => value.replace(/\/+$/, '');
+
+const 获取运行时代理基础地址 = (): string => {
+    if (typeof window !== 'undefined' && /^https?:$/i.test(window.location.protocol)) {
+        return window.location.origin.replace(/\/+$/, '');
+    }
+    return (RELEASE_INFO.websiteUrl || 'https://msjh.bacon.de5.net').replace(/\/+$/, '');
+};
+
+export const 规范化OpenAI图片模型名称 = (modelRaw: string): string => {
+    const model = (modelRaw || '').trim();
+    return model.replace(/^gpt-iamge-/i, 'gpt-image-');
+};
+
+export const 规范化OpenAI图片基础地址 = (baseUrlRaw: string): string => {
+    const trimmed = 清理末尾斜杠((baseUrlRaw || '').trim());
+    if (!trimmed) return '';
+
+    try {
+        const url = new URL(trimmed);
+        const path = 清理末尾斜杠(url.pathname || '');
+        const lowerPath = path.toLowerCase();
+        const isKnownPucodingPage = /(^|\.)pucoding\.com$/i.test(url.hostname)
+            && (
+                lowerPath === '/playground/image'
+                || lowerPath === '/keys'
+                || lowerPath === '/dashboard/api-keys'
+                || lowerPath === '/docs/image-api'
+            );
+        if (isKnownPucodingPage) {
+            return url.origin;
+        }
+    } catch {
+        return trimmed;
+    }
+
+    return trimmed;
+};
+
+const 转换为运行时OpenAI图片代理端点 = (directEndpoint: string): string => {
+    if (!directEndpoint) return directEndpoint;
+    try {
+        const url = new URL(directEndpoint);
+        if (!/(^|\.)pucoding\.com$/i.test(url.hostname)) return directEndpoint;
+        if (!/^\/v1\/images\/(?:generations|edits)$/i.test(url.pathname)) return directEndpoint;
+        return `${获取运行时代理基础地址()}/api/pucoding-image${url.pathname}${url.search}`;
+    } catch {
+        return directEndpoint;
+    }
+};
+
+const 构建OpenAI图片直连生成端点 = (baseUrlRaw: string, customPathRaw?: string): string => {
+    const base = 规范化OpenAI图片基础地址(baseUrlRaw);
+    const customPath = (customPathRaw || '').trim();
+    if (/^https?:\/\//i.test(customPath)) {
+        const normalizedCustomBase = 规范化OpenAI图片基础地址(customPath);
+        if (normalizedCustomBase && normalizedCustomBase !== 清理末尾斜杠(customPath)) {
+            return 构建OpenAI图片直连生成端点(normalizedCustomBase);
+        }
+        return 清理末尾斜杠(customPath);
+    }
+    if (!base) return '';
+    if (customPath) {
+        const rawPath = customPath.startsWith('/') ? customPath : `/${customPath}`;
+        const normalizedPath = /\/v1$/i.test(base) && /^\/v1\//i.test(rawPath)
+            ? rawPath.replace(/^\/v1/i, '')
+            : rawPath;
+        return `${base}${normalizedPath}`;
+    }
+    if (/\/images\/generations$/i.test(base)) return base;
+    if (/\/v1$/i.test(base)) return `${base}/images/generations`;
+    return `${base}/v1/images/generations`;
+};
+
+export const 构建OpenAI图片生成端点 = (
+    baseUrlRaw: string,
+    customPathRaw?: string,
+    options?: { useRuntimeProxy?: boolean }
+): string => {
+    const directEndpoint = 构建OpenAI图片直连生成端点(baseUrlRaw, customPathRaw);
+    return options?.useRuntimeProxy
+        ? 转换为运行时OpenAI图片代理端点(directEndpoint)
+        : directEndpoint;
+};
+
 export const 构建ComfyUI连接失败提示 = (baseUrlRaw: string, error?: any): string => {
     const baseUrl = (baseUrlRaw || '').replace(/\/+$/, '') || '未填写';
     const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : '';

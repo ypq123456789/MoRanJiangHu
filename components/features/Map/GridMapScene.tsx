@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 世界数据结构 } from '../../../models/world';
 import { 环境信息结构 } from '../../../models/environment';
 import {
-    构建地图空间场景,
+    构建已补齐地图空间场景,
     补齐世界地图空间字段,
     归一化地图文本,
+    取地图层级显示名,
 } from '../../../utils/mapSpatial';
 
 interface Props {
@@ -66,11 +67,12 @@ const 生成等高线 = (
     mapHeight: number
 ): Array<Array<{ x: number; y: number }>> => {
     const layerText = 归一化地图文本(`${layer?.名称 || ''}${layer?.描述 || ''}`);
-    const shouldShowTerrain = buildings.length === 0 || ['山', '岭', '峰', '谷', '坡', '崖', '林', '溪', '野', '郊', '荒'].some((key) => layerText.includes(key));
-    if (!shouldShowTerrain) return [];
+    const hasTerrainHint = buildings.length === 0 || ['山', '岭', '峰', '谷', '坡', '崖', '林', '溪', '野', '郊', '荒'].some((key) => layerText.includes(key));
 
     const lines: Array<Array<{ x: number; y: number }>> = [];
-    const lineCount = Math.max(4, Math.min(8, Math.floor(mapHeight / 4)));
+    const lineCount = hasTerrainHint
+        ? Math.max(4, Math.min(8, Math.floor(mapHeight / 4)))
+        : Math.max(3, Math.min(5, Math.floor(mapHeight / 8)));
     for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
         const yBase = ((lineIndex + 1) / (lineCount + 1)) * mapHeight;
         const amplitude = 0.55 + (lineIndex % 3) * 0.22;
@@ -99,21 +101,16 @@ const 生成地貌区域 = (
     mapHeight: number
 ) => {
     const layerText = 归一化地图文本(`${layer?.名称 || ''}${layer?.描述 || ''}${layer?.归属?.中地点 || ''}${layer?.归属?.小地点 || ''}`);
-    const isSettlement = buildings.length > 0 && ['镇', '城', '坊', '市', '街', '巷', '村', '庄', '院', '宅'].some((key) => layerText.includes(key));
     const waterBias = ['溪', '河', '湖', '潭', '水', '江'].some((key) => layerText.includes(key));
-    const mountainBias = ['山', '岭', '峰', '谷', '坡', '崖', '林'].some((key) => layerText.includes(key));
     const waterPath = waterBias
         ? `M 0 ${mapHeight * 0.72} C ${mapWidth * 0.18} ${mapHeight * 0.62}, ${mapWidth * 0.32} ${mapHeight * 0.86}, ${mapWidth * 0.5} ${mapHeight * 0.72} S ${mapWidth * 0.82} ${mapHeight * 0.5}, ${mapWidth} ${mapHeight * 0.6} L ${mapWidth} ${mapHeight} L 0 ${mapHeight} Z`
         : `M 0 ${mapHeight * 0.78} C ${mapWidth * 0.18} ${mapHeight * 0.7}, ${mapWidth * 0.33} ${mapHeight * 0.92}, ${mapWidth * 0.52} ${mapHeight * 0.8} S ${mapWidth * 0.82} ${mapHeight * 0.66}, ${mapWidth} ${mapHeight * 0.74} L ${mapWidth} ${mapHeight} L 0 ${mapHeight} Z`;
-    const hillPath = mountainBias
-        ? `M 0 0 L ${mapWidth} 0 L ${mapWidth} ${mapHeight * 0.18} C ${mapWidth * 0.72} ${mapHeight * 0.12}, ${mapWidth * 0.58} ${mapHeight * 0.28}, ${mapWidth * 0.36} ${mapHeight * 0.2} S ${mapWidth * 0.12} ${mapHeight * 0.28}, 0 ${mapHeight * 0.16} Z`
-        : `M 0 0 L ${mapWidth} 0 L ${mapWidth} ${mapHeight * 0.12} C ${mapWidth * 0.7} ${mapHeight * 0.08}, ${mapWidth * 0.52} ${mapHeight * 0.18}, ${mapWidth * 0.28} ${mapHeight * 0.12} S ${mapWidth * 0.08} ${mapHeight * 0.2}, 0 ${mapHeight * 0.12} Z`;
     return {
         waterPath,
-        hillPath,
-        showWater: waterBias || isSettlement,
-        showHills: mountainBias || !isSettlement,
-        showGreen: isSettlement
+        hillPath: '',
+        showWater: waterBias,
+        showHills: false,
+        showGreen: false
     };
 };
 
@@ -140,7 +137,7 @@ const GridMapScene: React.FC<Props> = ({
     onOpenPerson,
 }) => {
     const normalizedWorld = useMemo(() => 补齐世界地图空间字段(world, { env }), [world, env]);
-    const defaultScene = useMemo(() => 构建地图空间场景(world, env, socialList, playerName), [world, env, socialList, playerName]);
+    const defaultScene = useMemo(() => 构建已补齐地图空间场景(normalizedWorld, env, socialList, playerName), [normalizedWorld, env, socialList, playerName]);
 
     const layers = Array.isArray(normalizedWorld.地图层级) ? normalizedWorld.地图层级 : [];
     const buildings = Array.isArray(normalizedWorld.地图建筑) ? normalizedWorld.地图建筑 : [];
@@ -187,6 +184,7 @@ const GridMapScene: React.FC<Props> = ({
         () => roads.filter((item) => item.所在层级ID === currentLayerId),
         [roads, currentLayerId]
     );
+    const shouldShowContourLines = true;
     const currentLayerPeople = useMemo(() => {
         const basePeople = persistentPeople.filter((item) => item.所在层级ID === currentLayerId);
         if (defaultScene.当前层级?.ID !== currentLayerId) {
@@ -199,7 +197,7 @@ const GridMapScene: React.FC<Props> = ({
             || (normalizedPlayerName && 归一化地图文本(item?.名称) === normalizedPlayerName)
         ));
         const taken = new Set(basePeople.map((item) => `${item.所在层级ID}|${归一化地图文本(item.名称)}`));
-        return [
+        const combined = [
             ...basePeople,
             ...extraPeople.filter((item) => {
                 const normalizedName = 归一化地图文本(item?.名称);
@@ -212,7 +210,35 @@ const GridMapScene: React.FC<Props> = ({
                 return true;
             }),
         ];
-    }, [persistentPeople, defaultScene.当前层级?.ID, defaultScene.当前层人物, currentLayerId, playerName]);
+
+        // B5 修复：地图 NPC 只允许显示"主角 + 社交面板已存在"的角色，避免出现社交里没有的"幽灵 NPC"。
+        const socialNameSet = new Set(
+            (Array.isArray(socialList) ? socialList : [])
+                .map((npc: any) => 归一化地图文本(npc?.姓名 || npc?.名称))
+                .filter(Boolean)
+        );
+        const socialIdSet = new Set(
+            (Array.isArray(socialList) ? socialList : [])
+                .map((npc: any) => (typeof npc?.id === 'string' ? npc.id.trim() : (typeof npc?.ID === 'string' ? npc.ID.trim() : '')))
+                .filter(Boolean)
+        );
+        return combined.filter((person: any) => {
+            // 主角/当前玩家始终保留
+            if (person?.是否当前玩家 === true) return true;
+            const normalizedName = 归一化地图文本(person?.名称);
+            if (normalizedPlayerName && normalizedName === normalizedPlayerName) return true;
+            if (normalizedName === '主角') return true;
+            const linkedId = typeof person?.关联NPC === 'string'
+                ? person.关联NPC.trim()
+                : (typeof person?.关联NPCID === 'string'
+                    ? person.关联NPCID.trim()
+                    : (typeof person?.npcId === 'string' ? person.npcId.trim() : ''));
+            if (linkedId && socialIdSet.has(linkedId)) return true;
+            if (normalizedName && socialNameSet.has(normalizedName)) return true;
+            // 其余视为幽灵 NPC，直接过滤
+            return false;
+        });
+    }, [persistentPeople, defaultScene.当前层级?.ID, defaultScene.当前层人物, currentLayerId, playerName, socialList]);
 
     const layerChain = useMemo(
         () => (selectedLayer ? 构建层级链(layers, selectedLayer.ID) : []),
@@ -228,13 +254,45 @@ const GridMapScene: React.FC<Props> = ({
         [layers, selectedLayer]
     );
 
+    const mapWidth = Math.max(12, Number(selectedLayer?.网格宽度) || 24);
+    const mapHeight = Math.max(12, Number(selectedLayer?.网格高度) || 24);
+    const mapEdgePadding = Math.max(4, Math.min(8, Math.max(mapWidth, mapHeight) * 0.12));
+
+    // 前端兜底：给没有坐标的 NPC 按稳定哈希分配一个靠近建筑入口/地图中心的位置。
+    const currentLayerPeopleWithFallback = useMemo(() => {
+        if (currentLayerPeople.length === 0) return currentLayerPeople;
+        const stableHash = (input: string): number => {
+            let h = 2166136261;
+            for (let i = 0; i < input.length; i += 1) { h ^= input.charCodeAt(i); h = Math.imul(h, 16777619); }
+            return h >>> 0;
+        };
+        const anchors: Array<{ x: number; y: number }> = [];
+        currentLayerBuildings.forEach((b: any) => {
+            if (!Array.isArray(b?.四角坐标) || b.四角坐标.length < 4) return;
+            const xs = b.四角坐标.map((p: any) => Number(p?.x) || 0);
+            const ys = b.四角坐标.map((p: any) => Number(p?.y) || 0);
+            anchors.push({ x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 });
+        });
+        if (anchors.length === 0) anchors.push({ x: mapWidth / 2, y: mapHeight / 2 });
+        return currentLayerPeople.map((person: any) => {
+            const px = Number(person?.坐标?.x);
+            const py = Number(person?.坐标?.y);
+            if (Number.isFinite(px) && Number.isFinite(py) && (px !== 0 || py !== 0)) return person;
+            const seed = stableHash(`${currentLayerId}|${person?.ID || person?.名称 || ''}`);
+            const anchor = anchors[seed % anchors.length];
+            const angle = ((seed >> 4) % 360) * (Math.PI / 180);
+            const radius = 1.2 + ((seed >> 8) % 100) / 60;
+            return { ...person, 坐标: { x: 约束数值(anchor.x + Math.cos(angle) * radius, 1, mapWidth - 1), y: 约束数值(anchor.y + Math.sin(angle) * radius, 1, mapHeight - 1) } };
+        });
+    }, [currentLayerPeople, currentLayerBuildings, currentLayerId, mapWidth, mapHeight]);
+
     const features = useMemo(() => {
         const list: Array<{ id: string; kind: 'building' | 'road' | 'person'; data: any }> = [];
         currentLayerBuildings.forEach((item) => list.push({ id: `building:${item.ID}`, kind: 'building', data: item }));
         currentLayerRoads.forEach((item) => list.push({ id: `road:${item.ID}`, kind: 'road', data: item }));
-        currentLayerPeople.forEach((item) => list.push({ id: `person:${item.ID}`, kind: 'person', data: item }));
+        currentLayerPeopleWithFallback.forEach((item) => list.push({ id: `person:${item.ID}`, kind: 'person', data: item }));
         return list;
-    }, [currentLayerBuildings, currentLayerRoads, currentLayerPeople]);
+    }, [currentLayerBuildings, currentLayerRoads, currentLayerPeopleWithFallback]);
 
     useEffect(() => {
         if (!features.some((item) => item.id === selectedFeatureId)) {
@@ -249,8 +307,6 @@ const GridMapScene: React.FC<Props> = ({
         [features, selectedFeatureId]
     );
 
-    const mapWidth = Math.max(12, Number(selectedLayer?.网格宽度) || 24);
-    const mapHeight = Math.max(12, Number(selectedLayer?.网格高度) || 24);
     const 约束标签X = (x: number, width: number) => Math.max(0.25, Math.min(mapWidth - width - 0.25, x - width / 2));
     const 匹配社交人物 = (person: any) => {
         const normalizedName = 归一化地图文本(person?.名称);
@@ -292,29 +348,38 @@ const GridMapScene: React.FC<Props> = ({
                 bounds = 扩展边界(bounds, point);
             });
         });
-        currentLayerPeople.forEach((person) => {
-            bounds = 扩展边界(bounds, person?.坐标);
+        currentLayerPeopleWithFallback.forEach((person) => {
+            const point = person?.坐标;
+            if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+            bounds = 扩展边界(bounds, { x: point.x - mapEdgePadding, y: point.y - mapEdgePadding });
+            bounds = 扩展边界(bounds, { x: point.x + mapEdgePadding, y: point.y + mapEdgePadding });
         });
-        if (!bounds) return { x: 0, y: 0, width: mapWidth, height: mapHeight };
+        if (!bounds) return { x: -mapEdgePadding, y: -mapEdgePadding, width: mapWidth + mapEdgePadding * 2, height: mapHeight + mapEdgePadding * 2 };
         const rawWidth = Math.max(8, bounds.maxX - bounds.minX);
         const rawHeight = Math.max(8, bounds.maxY - bounds.minY);
         const padding = Math.max(rawWidth, rawHeight) * 0.18 + 4;
-        const x = 约束数值(bounds.minX - padding, 0, Math.max(0, mapWidth - 1));
-        const y = 约束数值(bounds.minY - padding, 0, Math.max(0, mapHeight - 1));
-        const width = Math.min(mapWidth - x, rawWidth + padding * 2);
-        const height = Math.min(mapHeight - y, rawHeight + padding * 2);
+        const x = Math.max(-mapEdgePadding, bounds.minX - padding);
+        const y = Math.max(-mapEdgePadding, bounds.minY - padding);
+        const right = Math.min(mapWidth + mapEdgePadding, bounds.maxX + padding);
+        const bottom = Math.min(mapHeight + mapEdgePadding, bounds.maxY + padding);
+        const width = right - x;
+        const height = bottom - y;
         return { x, y, width: Math.max(1, width), height: Math.max(1, height) };
-    }, [currentLayerBuildings, currentLayerRoads, currentLayerPeople, mapWidth, mapHeight]);
+    }, [currentLayerBuildings, currentLayerRoads, currentLayerPeopleWithFallback, mapWidth, mapHeight, mapEdgePadding]);
     const mapViewBox = useMemo(() => {
         const zoom = 约束数值(mapZoom, 1, 8);
         const width = Math.max(1, contentBounds.width / zoom);
         const height = Math.max(1, contentBounds.height / zoom);
         const centerX = (mapFocusPoint?.x ?? (contentBounds.x + contentBounds.width / 2)) + mapPan.x;
         const centerY = (mapFocusPoint?.y ?? (contentBounds.y + contentBounds.height / 2)) + mapPan.y;
-        const x = 约束数值(centerX - width / 2, 0, Math.max(0, mapWidth - width));
-        const y = 约束数值(centerY - height / 2, 0, Math.max(0, mapHeight - height));
+        const minX = -mapEdgePadding;
+        const minY = -mapEdgePadding;
+        const maxX = Math.max(minX, mapWidth + mapEdgePadding - width);
+        const maxY = Math.max(minY, mapHeight + mapEdgePadding - height);
+        const x = 约束数值(centerX - width / 2, minX, maxX);
+        const y = 约束数值(centerY - height / 2, minY, maxY);
         return { x, y, width, height };
-    }, [contentBounds, mapFocusPoint, mapHeight, mapPan, mapWidth, mapZoom]);
+    }, [contentBounds, mapEdgePadding, mapFocusPoint, mapHeight, mapPan, mapWidth, mapZoom]);
     const handleMapWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
         event.preventDefault();
         const direction = event.deltaY < 0 ? 1 : -1;
@@ -353,25 +418,56 @@ const GridMapScene: React.FC<Props> = ({
         }
     }, []);
     const inverseViewScale = Math.max(mapViewBox.width / 92, mapViewBox.height / 56);
-    const buildingLabelFontSize = Math.max(0.76, 1.34 * inverseViewScale);
-    const personLabelFontSize = Math.max(0.68, 1.02 * inverseViewScale);
-    const personLabelHeight = Math.max(0.86, 1.34 * inverseViewScale);
-    const personMarkerRadius = Math.max(0.62, 0.9 * inverseViewScale);
-    const playerMarkerRadius = Math.max(0.82, 1.14 * inverseViewScale);
-    const personOuterRadius = Math.max(0.92, 1.32 * inverseViewScale);
+    const buildingLabelFontSize = Math.max(0.96, 1.55 * inverseViewScale);
+    const personLabelFontSize = Math.max(0.82, 1.05 * inverseViewScale);
+    const personLabelHeight = Math.max(0.98, 1.28 * inverseViewScale);
+    const personMarkerRadius = Math.max(0.26, 0.34 * inverseViewScale);
+    const playerMarkerRadius = Math.max(0.34, 0.46 * inverseViewScale);
+    const personOuterRadius = Math.max(0.36, 0.52 * inverseViewScale);
     const personLayouts = useMemo(() => {
         const placed: Array<{ x: number; y: number }> = [];
-        return currentLayerPeople.map((person, index) => {
+        const labelBoxes: Array<{ x: number; y: number; width: number; height: number }> = [];
+        const intersects = (
+            a: { x: number; y: number; width: number; height: number },
+            b: { x: number; y: number; width: number; height: number }
+        ) => (
+            a.x < b.x + b.width
+            && a.x + a.width > b.x
+            && a.y < b.y + b.height
+            && a.y + a.height > b.y
+        );
+        const scoreBox = (box: { x: number; y: number; width: number; height: number }) => {
+            let score = 0;
+            for (const placedBox of labelBoxes) {
+                if (intersects(box, placedBox)) score += 1000;
+            }
+            for (const point of placed) {
+                const closestX = 约束数值(point.x, box.x, box.x + box.width);
+                const closestY = 约束数值(point.y, box.y, box.y + box.height);
+                const distance = Math.hypot(point.x - closestX, point.y - closestY);
+                if (distance < personOuterRadius * 1.5) score += 180;
+            }
+            if (box.x <= 0.25 || box.y <= 0.25 || box.x + box.width >= mapWidth - 0.25 || box.y + box.height >= mapHeight - 0.25) {
+                score += 20;
+            }
+            return score;
+        };
+        const orderedPeople = [...currentLayerPeopleWithFallback].sort((a, b) => {
+            const priorityA = (a?.是否当前玩家 ? 2 : 0) + (selectedFeatureId === `person:${a?.ID}` ? 1 : 0);
+            const priorityB = (b?.是否当前玩家 ? 2 : 0) + (selectedFeatureId === `person:${b?.ID}` ? 1 : 0);
+            return priorityB - priorityA;
+        });
+        return orderedPeople.map((person, index) => {
             const source = person?.坐标 || { x: 0, y: 0 };
-            const minGap = personOuterRadius * 2.24;
+            const minGap = personOuterRadius * 3.15;
             let x = 约束数值(Number(source.x) || 0, personOuterRadius, Math.max(personOuterRadius, mapWidth - personOuterRadius));
             let y = 约束数值(Number(source.y) || 0, personOuterRadius, Math.max(personOuterRadius, mapHeight - personOuterRadius));
             const overlaps = (candidateX: number, candidateY: number) => placed.some((point) => Math.hypot(point.x - candidateX, point.y - candidateY) < minGap);
             if (overlaps(x, y)) {
                 let found = false;
-                for (let ring = 1; ring <= 5 && !found; ring += 1) {
-                    const radius = minGap * ring * 0.64;
-                    const slots = 8 + ring * 4;
+                for (let ring = 1; ring <= 7 && !found; ring += 1) {
+                    const radius = minGap * ring * 0.88;
+                    const slots = 10 + ring * 5;
                     for (let slot = 0; slot < slots; slot += 1) {
                         const angle = (Math.PI * 2 * slot) / slots + index * 0.43;
                         const candidateX = 约束数值((Number(source.x) || 0) + Math.cos(angle) * radius, personOuterRadius, Math.max(personOuterRadius, mapWidth - personOuterRadius));
@@ -386,9 +482,62 @@ const GridMapScene: React.FC<Props> = ({
                 }
             }
             placed.push({ x, y });
-            return { person, x, y, shifted: Math.hypot(x - (Number(source.x) || 0), y - (Number(source.y) || 0)) > 0.05 };
+            const isImportant = person?.是否当前玩家 || selectedFeatureId === `person:${person?.ID}`;
+            const labelText = person?.是否当前玩家 ? '主角' : String(person?.名称 || '').slice(0, isImportant ? 6 : 4);
+            const labelWidth = Math.max(2.75 * inverseViewScale, (labelText.length * 0.86 + 0.95) * inverseViewScale);
+            const offsets = [
+                { dx: 0, dy: -(personOuterRadius + personLabelHeight + 0.18 * inverseViewScale) },
+                { dx: 0, dy: personOuterRadius + 0.18 * inverseViewScale },
+                { dx: personOuterRadius + 0.36 * inverseViewScale, dy: -personLabelHeight / 2 },
+                { dx: -(personOuterRadius + labelWidth + 0.36 * inverseViewScale), dy: -personLabelHeight / 2 },
+                { dx: personOuterRadius + 0.36 * inverseViewScale, dy: -(personOuterRadius + personLabelHeight * 0.75) },
+                { dx: -(personOuterRadius + labelWidth + 0.36 * inverseViewScale), dy: -(personOuterRadius + personLabelHeight * 0.75) },
+                { dx: personOuterRadius + 0.36 * inverseViewScale, dy: personOuterRadius * 0.52 },
+                { dx: -(personOuterRadius + labelWidth + 0.36 * inverseViewScale), dy: personOuterRadius * 0.52 },
+            ];
+            let bestBox: { x: number; y: number; width: number; height: number } | null = null;
+            let bestScore = Number.POSITIVE_INFINITY;
+            offsets.forEach((offset, offsetIndex) => {
+                const rawX = offset.dx === 0 ? x - labelWidth / 2 : x + offset.dx;
+                const rawY = y + offset.dy;
+                const box = {
+                    x: 约束数值(rawX, 0.25, Math.max(0.25, mapWidth - labelWidth - 0.25)),
+                    y: 约束数值(rawY, 0.25, Math.max(0.25, mapHeight - personLabelHeight - 0.25)),
+                    width: labelWidth,
+                    height: personLabelHeight,
+                };
+                const score = scoreBox(box) + offsetIndex;
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestBox = box;
+                }
+            });
+            if (!bestBox) {
+                bestBox = {
+                    x: 约束标签X(x, labelWidth),
+                    y: 约束数值(y - personOuterRadius - personLabelHeight - 0.18 * inverseViewScale, 0.25, Math.max(0.25, mapHeight - personLabelHeight - 0.25)),
+                    width: labelWidth,
+                    height: personLabelHeight,
+                };
+            }
+            const labelVisible = isImportant || bestScore < 1000;
+            if (labelVisible) {
+                labelBoxes.push(bestBox);
+            }
+            return {
+                person,
+                x,
+                y,
+                labelText,
+                labelX: bestBox.x,
+                labelY: bestBox.y,
+                labelWidth: bestBox.width,
+                labelVisible,
+                shifted: Math.hypot(x - (Number(source.x) || 0), y - (Number(source.y) || 0)) > 0.05,
+                labelShifted: Math.hypot((bestBox.x + bestBox.width / 2) - x, (bestBox.y + bestBox.height / 2) - y) > personOuterRadius + personLabelHeight * 0.85,
+            };
         });
-    }, [currentLayerPeople, mapHeight, mapWidth, personOuterRadius]);
+    }, [currentLayerPeopleWithFallback, inverseViewScale, mapHeight, mapWidth, personLabelHeight, personOuterRadius, selectedFeatureId]);
 
     const npcDebugRows = useMemo(() => {
         const keys = [
@@ -423,7 +572,7 @@ const GridMapScene: React.FC<Props> = ({
 
     const detailTitle = selectedFeature?.data?.名称 || selectedLayer?.名称 || currentPlace;
     const detailType = selectedFeature?.kind === 'building'
-        ? '建筑面'
+        ? (selectedFeature.data?.分类 === '房间' || selectedFeature.data?.分类 === '外墙' || selectedFeature.data?.分类 === '门' ? '室内结构' : '建筑面')
         : selectedFeature?.kind === 'road'
             ? '道路线'
             : selectedFeature?.kind === 'person'
@@ -438,90 +587,36 @@ const GridMapScene: React.FC<Props> = ({
                 : `${selectedLayer?.描述 || '暂无描述。'}\n锚点：${selectedLayer ? 点位文本(selectedLayer.锚点坐标) : '无'}\n网格：${selectedLayer ? `${selectedLayer.网格宽度} x ${selectedLayer.网格高度}` : '无'}`;
 
     const layerSummaryText = selectedLayer
-        ? `${selectedLayer.层级} / 锚点 ${点位文本(selectedLayer.锚点坐标)} / ${selectedLayer.网格宽度}x${selectedLayer.网格高度}`
+        ? `${取地图层级显示名(selectedLayer.层级)} / 锚点 ${点位文本(selectedLayer.锚点坐标)} / ${selectedLayer.网格宽度}x${selectedLayer.网格高度}`
         : '暂无层级';
 
     return (
-        <div className="grid h-full min-h-0 grid-cols-1 gap-3">
-            <aside className={`order-2 min-h-0 overflow-hidden rounded-2xl border border-wuxia-gold/15 bg-black/35 ${compact ? 'p-3' : 'p-3.5'}`}>
-                <div className="mb-3 flex items-center justify-between gap-2 text-sm font-bold tracking-widest text-wuxia-gold/75">
-                    <span>地图层级</span>
-                    <span className="rounded border border-wuxia-gold/15 bg-black/35 px-2 py-0.5 font-mono text-gray-400">{layers.length}</span>
+        <div className={compact ? 'flex min-h-0 flex-col gap-3' : 'grid h-full min-h-0 grid-cols-[1fr_auto] gap-3'}>
+            <section className="order-1 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[#c7a56a]/45 bg-[#fffaf0]">
+                <div className="flex items-center justify-between gap-3 border-b border-[#d8c4a2] bg-[#fffdf6] px-4 py-3">
+                    <div className="min-w-0">
+                        <div className="truncate font-serif text-2xl font-bold text-[#7a3f12]">{selectedLayer?.名称 || '未命中层级'}</div>
+                        <div className="mt-1 truncate text-sm tracking-widest text-[#5f3a1e]">{env?.大地点 || '未知'} / {env?.中地点 || '未知'} / {env?.小地点 || '未知'} / {env?.具体地点 || '未知'}</div>
+                    </div>
+                    <div className="rounded-full border border-[#c7a56a]/55 bg-[#fff1d6] px-3 py-1 text-xs text-[#7a3f12]">
+                        建筑 {currentLayerBuildings.length} / 道路 {currentLayerRoads.length} / 人物 {currentLayerPeopleWithFallback.length}
+                    </div>
                 </div>
 
-                <div className="mb-3 rounded-xl border border-wuxia-gold/10 bg-black/30 p-3">
-                    <div className="text-xs font-bold tracking-[0.24em] text-wuxia-gold/60">当前路径</div>
-                    <div className="mt-2 text-base leading-7 text-gray-300">
-                        {layerChain.length > 0 ? layerChain.map((layer, index) => (
-                            <span key={layer.ID}>
-                                <span className={layer.ID === currentLayerId ? 'text-wuxia-gold' : ''}>{layer.名称}</span>
-                                {index < layerChain.length - 1 ? <span className="mx-1 text-gray-600">/</span> : null}
-                            </span>
-                        )) : '未命中层级'}
-                    </div>
-                    <div className="mt-2 text-sm text-gray-500">{layerSummaryText}</div>
-                </div>
-
-                <div className="grid max-h-[13rem] grid-cols-1 gap-2 overflow-y-auto pr-1 custom-scrollbar md:grid-cols-2 xl:grid-cols-3">
-                    {siblingLayers.map((layer) => {
-                        const active = layer.ID === currentLayerId;
-                        return (
-                            <button
-                                key={layer.ID}
-                                type="button"
-                                onClick={() => setSelectedLayerId(layer.ID)}
-                                className={`w-full rounded-xl border px-3 py-2 text-left transition-all ${
-                                    active
-                                        ? 'border-wuxia-gold/55 bg-wuxia-gold/12 text-wuxia-gold shadow-[0_0_16px_rgba(212,175,55,0.12)]'
-                                        : 'border-white/10 bg-black/25 text-gray-300 hover:border-wuxia-gold/25'
-                                }`}
-                            >
-                                <div className="flex items-center justify-between gap-2">
-                                    <span className="truncate font-serif text-base font-bold">{layer.名称}</span>
-                                    <span className="text-xs text-gray-500">{layer.层级}</span>
-                                </div>
-                                <div className="mt-1 truncate text-xs text-gray-500">
-                                    建筑 {layer.建筑物ID列表.length} / 道路 {layer.道路ID列表.length} / 人物 {layer.人物ID列表.length}
-                                </div>
-                            </button>
-                        );
-                    })}
-                </div>
-
-                {childLayers.length > 0 && (
-                    <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
-                        <div className="mb-2 text-xs font-bold tracking-[0.24em] text-wuxia-gold/60">下一级</div>
-                        <div className="flex flex-wrap gap-2">
-                            {childLayers.map((layer) => (
-                                <button
-                                    key={layer.ID}
-                                    type="button"
-                                    onClick={() => setSelectedLayerId(layer.ID)}
-                                    className="rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-[11px] text-gray-300 hover:border-wuxia-gold/25 hover:text-wuxia-gold"
-                                >
-                                    {layer.名称}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </aside>
-
-            <div className="order-1 grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-3">
-                <section className="min-h-0 overflow-hidden rounded-2xl border border-wuxia-gold/20 bg-[linear-gradient(180deg,rgba(19,16,12,0.96),rgba(6,6,5,0.98))]">
-                    <div className="flex items-center justify-between gap-3 border-b border-wuxia-gold/10 bg-black/35 px-4 py-3">
-                        <div className="min-w-0">
-                            <div className="truncate font-serif text-2xl font-bold text-wuxia-gold">{selectedLayer?.名称 || '未命中层级'}</div>
-                            <div className="mt-1 truncate text-sm tracking-widest text-gray-500">{env?.大地点 || '未知'} / {env?.中地点 || '未知'} / {env?.小地点 || '未知'} / {env?.具体地点 || '未知'}</div>
-                        </div>
-                        <div className="rounded-full border border-wuxia-gold/20 bg-wuxia-gold/10 px-3 py-1 text-xs text-wuxia-gold">
-                            建筑 {currentLayerBuildings.length} / 道路 {currentLayerRoads.length} / 人物 {currentLayerPeople.length}
-                        </div>
-                    </div>
-
-                    <div className={`relative ${compact ? 'h-[460px]' : 'h-full min-h-[560px]'} overflow-hidden overscroll-contain`} onWheel={handleMapWheel}>
-                        <div className="absolute right-3 top-3 z-10 rounded-full border border-wuxia-gold/20 bg-black/60 px-3 py-1 text-xs font-mono text-wuxia-gold/80">
+                <div className={`relative ${compact ? 'h-[520px]' : 'aspect-square w-full'} overflow-hidden overscroll-contain`} onWheel={handleMapWheel}>
+                        <div className="absolute right-3 top-3 z-10 rounded-full border border-[#c7a56a]/55 bg-[#fffaf0]/95 px-3 py-1 text-xs font-mono text-[#7a3f12]">
                             缩放 {mapZoom.toFixed(1)}x
+                        </div>
+                        <div className="absolute left-3 bottom-3 z-10 max-w-[calc(100%-1.5rem)] rounded-lg border border-[#c7a56a]/55 bg-[#fffaf0]/95 px-3 py-2 shadow-[0_8px_24px_rgba(92,45,10,0.12)]">
+                            <div className="mb-1 text-[10px] font-bold tracking-[0.18em] text-[#7a3f12]">图例</div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5f3a1e]">
+                                <span className="inline-flex items-center gap-1.5"><i className="h-0 w-5 border-t border-dashed border-[#7e5824]/70" />等高线</span>
+                                {terrainRegions.showWater && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-[#1d6384]/45 bg-[#4fafd3]/45" />水体</span>}
+                                <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-[#5c2d0a]/70 bg-[#f5e7c6]" />{selectedLayer?.层级 === '具体地点' && currentLayerRoads.length === 0 ? '房间/结构' : '建筑'}</span>
+                                {currentLayerRoads.length > 0 && <span className="inline-flex items-center gap-1.5"><i className="h-0 w-5 border-t-2 border-[#1f1b13]" />道路</span>}
+                                <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-[#5b4b8a] bg-[#c4b5fd]" />人物</span>
+                                <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-[#8a6a10] bg-[#f9d976]" />主角</span>
+                            </div>
                         </div>
                         <svg
                             className="absolute inset-0 h-full w-full cursor-grab active:cursor-grabbing touch-none"
@@ -538,15 +633,15 @@ const GridMapScene: React.FC<Props> = ({
                                     y={0}
                                     width={mapWidth}
                                     height={mapHeight}
-                                    fill="rgba(34, 80, 48, 0.08)"
+                                    fill="rgba(76, 130, 74, 0.12)"
                                     pointerEvents="none"
                                 />
                             )}
                             {terrainRegions.showHills && (
                                 <path
                                     d={terrainRegions.hillPath}
-                                    fill="rgba(74, 68, 43, 0.24)"
-                                    stroke="rgba(187, 247, 208, 0.14)"
+                                    fill="rgba(196, 157, 92, 0.24)"
+                                    stroke="rgba(126, 88, 36, 0.38)"
                                     strokeWidth={0.12}
                                     pointerEvents="none"
                                 />
@@ -554,8 +649,8 @@ const GridMapScene: React.FC<Props> = ({
                             {terrainRegions.showWater && (
                                 <path
                                     d={terrainRegions.waterPath}
-                                    fill="rgba(14, 78, 112, 0.24)"
-                                    stroke="rgba(125, 211, 252, 0.28)"
+                                    fill="rgba(79, 175, 211, 0.36)"
+                                    stroke="rgba(29, 99, 132, 0.55)"
                                     strokeWidth={0.12}
                                     pointerEvents="none"
                                 />
@@ -568,7 +663,7 @@ const GridMapScene: React.FC<Props> = ({
                                     y1={0}
                                     x2={index}
                                     y2={mapHeight}
-                                    stroke={index % 4 === 0 ? 'rgba(212,175,55,0.16)' : 'rgba(255,255,255,0.05)'}
+                                    stroke={index % 4 === 0 ? 'rgba(146,64,14,0.32)' : 'rgba(126,88,36,0.18)'}
                                     strokeWidth={index % 4 === 0 ? 0.12 : 0.06}
                                     pointerEvents="none"
                                 />
@@ -580,18 +675,18 @@ const GridMapScene: React.FC<Props> = ({
                                     y1={index}
                                     x2={mapWidth}
                                     y2={index}
-                                    stroke={index % 4 === 0 ? 'rgba(212,175,55,0.16)' : 'rgba(255,255,255,0.05)'}
+                                    stroke={index % 4 === 0 ? 'rgba(146,64,14,0.32)' : 'rgba(126,88,36,0.18)'}
                                     strokeWidth={index % 4 === 0 ? 0.12 : 0.06}
                                     pointerEvents="none"
                                 />
                             ))}
 
-                            {contourLines.map((points, index) => (
+                            {shouldShowContourLines && contourLines.map((points, index) => (
                                 <polyline
                                     key={`contour-${index}`}
                                     points={points.map((point) => `${point.x},${point.y}`).join(' ')}
                                     fill="none"
-                                    stroke={index % 2 === 0 ? 'rgba(125, 211, 252, 0.13)' : 'rgba(187, 247, 208, 0.12)'}
+                                    stroke={index % 2 === 0 ? 'rgba(126, 88, 36, 0.34)' : 'rgba(138, 90, 43, 0.24)'}
                                     strokeWidth={0.12}
                                     strokeDasharray="0.6 0.45"
                                     strokeLinecap="round"
@@ -662,39 +757,44 @@ const GridMapScene: React.FC<Props> = ({
                                     >
                                         <polygon
                                             points={四角转点串(building.四角坐标)}
-                                            fill={active ? 'rgba(245, 208, 92, 0.34)' : hit ? 'rgba(245, 158, 11, 0.24)' : 'rgba(255,255,255,0.12)'}
-                                            stroke={active ? 'rgba(249, 217, 118, 0.96)' : hit ? 'rgba(245, 158, 11, 0.72)' : 'rgba(229,231,235,0.35)'}
-                                            strokeWidth={active ? 0.32 : 0.2}
+                                            fill={active ? 'rgba(245, 196, 50, 0.42)' : hit ? 'rgba(245, 158, 11, 0.32)' : 'rgba(245, 231, 198, 0.58)'}
+                                            stroke={active ? 'rgba(120, 53, 15, 1)' : hit ? 'rgba(180, 83, 9, 0.92)' : 'rgba(92, 45, 10, 0.82)'}
+                                            strokeWidth={active ? 0.42 : 0.28}
                                             pointerEvents="none"
                                         />
                                         {showBuildingLabel && (
-                                            <text
-                                                x={center.x}
-                                                y={center.y}
-                                                textAnchor="middle"
-                                                dominantBaseline="middle"
-                                                fill={active || hit ? '#f8df9a' : 'rgba(229,231,235,0.78)'}
-                                                fontSize={buildingLabelFontSize}
-                                                pointerEvents="none"
-                                            >
-                                                {building.名称.slice(0, 6)}
-                                            </text>
+                                            <g pointerEvents="none">
+                                                <text
+                                                    x={center.x}
+                                                    y={center.y}
+                                                    textAnchor="middle"
+                                                    dominantBaseline="middle"
+                                                    fill="rgba(255,250,240,0.92)"
+                                                    stroke="rgba(255,250,240,0.92)"
+                                                    strokeWidth={0.38 * inverseViewScale}
+                                                    fontSize={buildingLabelFontSize}
+                                                >
+                                                    {building.名称.slice(0, 6)}
+                                                </text>
+                                                <text
+                                                    x={center.x}
+                                                    y={center.y}
+                                                    textAnchor="middle"
+                                                    dominantBaseline="middle"
+                                                    fill={active || hit ? '#7a2e0e' : '#3f2a14'}
+                                                    fontSize={buildingLabelFontSize}
+                                                >
+                                                    {building.名称.slice(0, 6)}
+                                                </text>
+                                            </g>
                                         )}
                                     </g>
                                 );
                             })}
 
-                            {personLayouts.map(({ person, x, y, shifted }) => {
+                            {personLayouts.map(({ person, x, y, labelText, labelX, labelY, labelWidth, labelVisible, shifted, labelShifted }) => {
                                 const active = selectedFeatureId === `person:${person.ID}`;
-                                const showLabel = true;
-                                const labelText = person.名称.slice(0, 6);
-                                const labelWidth = Math.max(3.1 * inverseViewScale, (labelText.length * 0.96 + 1.05) * inverseViewScale);
-                                const labelX = 约束标签X(x, labelWidth);
-                                const preferredLabelY = y - personOuterRadius - personLabelHeight - 0.18 * inverseViewScale;
-                                const fallbackLabelY = y + personOuterRadius + 0.18 * inverseViewScale;
-                                const labelY = preferredLabelY > 0.25
-                                    ? preferredLabelY
-                                    : Math.min(mapHeight - personLabelHeight - 0.25, fallbackLabelY);
+                                const showLabel = labelVisible;
                                 const markerRadius = person.是否当前玩家 ? playerMarkerRadius : personMarkerRadius;
                                 return (
                                     <g
@@ -743,11 +843,23 @@ const GridMapScene: React.FC<Props> = ({
                                         />
                                         {showLabel && (
                                             <>
+                                                {labelShifted && (
+                                                    <line
+                                                        x1={x}
+                                                        y1={y}
+                                                        x2={labelX + labelWidth / 2}
+                                                        y2={labelY + personLabelHeight / 2}
+                                                        stroke="rgba(15,23,42,0.32)"
+                                                        strokeWidth={0.05 * inverseViewScale}
+                                                        pointerEvents="none"
+                                                    />
+                                                )}
                                                 <rect
                                                     x={labelX}
                                                     y={labelY}
                                                     width={labelWidth}
                                                     height={personLabelHeight}
+                                                    data-map-person-label={person.ID}
                                                     rx={Math.max(0.12, 0.24 * inverseViewScale)}
                                                     fill={person.是否当前玩家 ? 'rgba(63, 49, 12, 0.92)' : 'rgba(5, 8, 14, 0.92)'}
                                                     stroke={active ? 'rgba(249, 217, 118, 0.86)' : 'rgba(255,255,255,0.28)'}
@@ -774,68 +886,137 @@ const GridMapScene: React.FC<Props> = ({
                     </div>
                 </section>
 
-                <section className={`grid gap-3 ${compact ? 'grid-cols-1' : 'grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]'}`}>
-                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                                <div className="truncate font-serif text-xl font-bold text-wuxia-gold">{detailTitle}</div>
-                                <div className="mt-1 text-xs tracking-widest text-gray-500">{detailType}</div>
-                            </div>
-                            {selectedFeature?.kind === 'person' && selectedFeature.data?.是否当前玩家 && (
-                                <span className="rounded-full border border-wuxia-gold/25 bg-wuxia-gold/10 px-2 py-1 text-xs text-wuxia-gold">当前位置</span>
-                            )}
+            <aside className={`${compact ? 'order-2 max-h-[520px] w-full' : 'order-2 w-[380px]'} min-h-0 flex flex-col gap-3 overflow-y-auto custom-scrollbar`}>
+                <div className="rounded-2xl border border-[#c7a56a]/45 bg-[#fffaf0] p-4">
+                    <div className="mb-3 flex items-center justify-between gap-2 text-sm font-bold tracking-widest text-[#7a3f12]">
+                        <span>地图层级</span>
+                        <span className="rounded border border-[#d8c4a2] bg-[#fffdf6] px-2 py-0.5 font-mono text-[#5f3a1e]">{layers.length}</span>
+                    </div>
+
+                    <div className="mb-3 rounded-xl border border-[#d8c4a2] bg-[#fffdf6] p-3">
+                        <div className="text-xs font-bold tracking-[0.24em] text-[#8a5a2f]">当前路径</div>
+                        <div className="mt-2 text-sm leading-6 text-[#4f2d16]">
+                            {layerChain.length > 0 ? layerChain.map((layer, index) => (
+                                <span key={layer.ID}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedLayerId(layer.ID)}
+                                        className={`rounded px-1.5 py-0.5 transition-colors ${layer.ID === currentLayerId ? 'bg-[#fff1d6] text-[#b45309] font-bold' : 'hover:bg-[#fff1d6] hover:text-[#b45309]'}`}
+                                    >
+                                        {layer.名称}
+                                    </button>
+                                    {index < layerChain.length - 1 ? <span className="mx-1 text-[#a87945]">/</span> : null}
+                                </span>
+                            )) : '未命中层级'}
                         </div>
-                        <p className="mt-3 whitespace-pre-line text-base leading-7 text-gray-300">{detailBody}</p>
-                        {selectedFeature?.kind === 'person' && !selectedFeature.data?.是否当前玩家 && onOpenPerson && (
+                        <div className="mt-2 text-xs text-[#6f4a26]">{layerSummaryText}</div>
+                    </div>
+
+                    <div className="space-y-2">
+                        {siblingLayers.map((layer) => {
+                            const active = layer.ID === currentLayerId;
+                            return (
+                                <button
+                                    key={layer.ID}
+                                    type="button"
+                                    onClick={() => setSelectedLayerId(layer.ID)}
+                                    className={`w-full rounded-xl border px-3 py-2 text-left transition-all ${
+                                        active
+                                            ? 'border-[#b45309] bg-[#fff1d6] text-[#7a3f12] shadow-[0_0_16px_rgba(180,83,9,0.12)]'
+                                            : 'border-[#d8c4a2] bg-[#fffdf6] text-[#4f2d16] hover:border-[#b45309]/55'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="truncate font-serif text-sm font-bold">{layer.名称}</span>
+                                        <span className="text-xs text-[#6f4a26]">{取地图层级显示名(layer.层级)}</span>
+                                    </div>
+                                    <div className="mt-1 text-xs text-[#6f4a26]">
+                                        建筑 {layer.建筑物ID列表.length} / 道路 {layer.道路ID列表.length} / 人物 {layer.人物ID列表.length}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {childLayers.length > 0 && (
+                        <div className="mt-3 rounded-xl border border-[#d8c4a2] bg-[#fffdf6] p-3">
+                            <div className="mb-2 text-xs font-bold tracking-[0.24em] text-[#8a5a2f]">下一级</div>
+                            <div className="flex flex-wrap gap-2">
+                                {childLayers.map((layer) => (
+                                    <button
+                                        key={layer.ID}
+                                        type="button"
+                                        onClick={() => setSelectedLayerId(layer.ID)}
+                                        className="rounded-full border border-[#d8c4a2] bg-[#fffaf0] px-3 py-1.5 text-[11px] text-[#4f2d16] hover:border-[#b45309]/55 hover:text-[#b45309]"
+                                    >
+                                        {layer.名称}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="rounded-2xl border border-[#c7a56a]/45 bg-[#fffaf0] p-4">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="min-w-0">
+                            <div className="truncate font-serif text-lg font-bold text-[#7a3f12]">{detailTitle}</div>
+                            <div className="mt-1 text-xs tracking-widest text-[#6f4a26]">{detailType}</div>
+                        </div>
+                        {selectedFeature?.kind === 'person' && selectedFeature.data?.是否当前玩家 && (
+                            <span className="rounded-full border border-[#c7a56a]/55 bg-[#fff1d6] px-2 py-1 text-xs text-[#7a3f12] whitespace-nowrap">当前位置</span>
+                        )}
+                    </div>
+                    <p className="whitespace-pre-line text-sm leading-6 text-[#4f2d16]">{detailBody}</p>
+                    {selectedFeature?.kind === 'person' && !selectedFeature.data?.是否当前玩家 && onOpenPerson && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const matchedNpc = 匹配社交人物(selectedFeature.data);
+                                onOpenPerson(matchedNpc ? { ...matchedNpc, 地图人物: selectedFeature.data } : selectedFeature.data);
+                            }}
+                            className="mt-3 w-full rounded-lg border border-[#b45309]/45 bg-[#fff1d6] px-3 py-2 text-xs font-bold text-[#7a3f12] hover:bg-[#b45309] hover:text-white transition-colors"
+                        >
+                            查看角色
+                        </button>
+                    )}
+                </div>
+
+                <div className="rounded-2xl border border-[#c7a56a]/45 bg-[#fffaf0] p-4">
+                    <div className="mb-2 text-xs font-bold tracking-widest text-[#8a5a2f]">当前层概况</div>
+                    <div className="space-y-2 text-sm text-[#4f2d16]">
+                        <div>当前命中地点：{currentPlace}</div>
+                        <div>层级链：{layerChain.length > 0 ? layerChain.map((layer) => layer.名称).join(' / ') : '未知'}</div>
+                        <div>建筑面：{currentLayerBuildings.length} 个</div>
+                        <div>道路线：{currentLayerRoads.length} 条</div>
+                        <div>人物点：{currentLayerPeopleWithFallback.length} 个</div>
+                    </div>
+
+                    {debugEnabled && (
+                        <>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    const matchedNpc = 匹配社交人物(selectedFeature.data);
-                                    onOpenPerson(matchedNpc ? { ...matchedNpc, 地图人物: selectedFeature.data } : selectedFeature.data);
-                                }}
-                                className="mt-3 rounded-lg border border-wuxia-gold/30 bg-wuxia-gold/10 px-3 py-2 text-xs font-bold text-wuxia-gold hover:bg-wuxia-gold hover:text-black"
+                                onClick={() => setShowNpcDebug((prev) => !prev)}
+                                className="mt-4 w-full rounded-lg border border-sky-600/35 bg-sky-50 px-3 py-2 text-xs text-sky-800"
                             >
-                                查看角色
+                                {showNpcDebug ? '收起 NPC 调试' : '展开 NPC 调试'}
                             </button>
-                        )}
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                        <div className="mb-2 text-xs font-bold tracking-widest text-wuxia-gold/70">当前层概况</div>
-                        <div className="space-y-2 text-base text-gray-300">
-                            <div>当前命中地点：{currentPlace}</div>
-                            <div>层级链：{layerChain.length > 0 ? layerChain.map((layer) => layer.名称).join(' / ') : '未知'}</div>
-                            <div>建筑面：{currentLayerBuildings.length} 个</div>
-                            <div>道路线：{currentLayerRoads.length} 条</div>
-                            <div>人物点：{currentLayerPeople.length} 个</div>
-                        </div>
-
-                        {debugEnabled && (
-                            <>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowNpcDebug((prev) => !prev)}
-                                    className="mt-4 rounded-lg border border-sky-400/25 bg-sky-950/20 px-3 py-2 text-xs text-sky-200"
-                                >
-                                    {showNpcDebug ? '收起 NPC 调试' : '展开 NPC 调试'}
-                                </button>
-                                {showNpcDebug && (
-                                    <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-xl border border-sky-400/20 bg-sky-950/10 p-3 custom-scrollbar">
-                                        {npcDebugRows.length > 0 ? npcDebugRows.map((row) => (
-                                            <div key={row.id} className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-[11px] text-gray-300">
-                                                <span className="text-gray-100">{row.name}</span>
-                                                <span className="mx-2 text-gray-600">/</span>
-                                                <span className={row.finalVisible ? 'text-emerald-300' : 'text-gray-500'}>{row.finalVisible ? '会显示' : '未命中'}</span>
-                                                <span className="ml-2 text-gray-500">{row.rawLocationText || '无位置字段'}</span>
-                                            </div>
-                                        )) : <div className="py-3 text-center text-xs text-gray-500">暂无 NPC 数据</div>}
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </section>
-            </div>
+                            {showNpcDebug && (
+                                <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-xl border border-sky-600/20 bg-sky-50 p-3 custom-scrollbar">
+                                    {npcDebugRows.length > 0 ? npcDebugRows.map((row) => (
+                                        <div key={row.id} className="rounded-lg border border-[#d8c4a2] bg-[#fffdf6] px-3 py-2 text-[11px] text-[#4f2d16]">
+                                            <span className="text-[#3f2a14]">{row.name}</span>
+                                            <span className="mx-2 text-[#a87945]">/</span>
+                                            <span className={row.finalVisible ? 'text-emerald-700' : 'text-[#6f4a26]'}>{row.finalVisible ? '会显示' : '未命中'}</span>
+                                            <span className="ml-2 text-[#6f4a26]">{row.rawLocationText || '无位置字段'}</span>
+                                        </div>
+                                    )) : <div className="py-3 text-center text-xs text-[#6f4a26]">暂无 NPC 数据</div>}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            </aside>
         </div>
     );
 };

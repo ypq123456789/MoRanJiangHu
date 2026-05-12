@@ -47,6 +47,13 @@ export interface 突破条件结构 {
     当前进度: string;
 }
 
+export interface 角色技艺 {
+    名称: string;
+    等级: string;
+    熟练度?: number;
+    描述?: string;
+}
+
 export interface 角色数据结构 {
     姓名: string;
     头像图片URL?: string;
@@ -113,6 +120,9 @@ export interface 角色数据结构 {
 
     // 功法列表
     功法列表: 功法结构[];
+
+    // 生活与江湖技艺
+    技艺: 角色技艺[];
 
     当前经验: number;
     升级经验: number;

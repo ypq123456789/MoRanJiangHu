@@ -1,0 +1,36 @@
+- generic [ref=e4]:
+  - generic [ref=e6]:
+    - button "GitHub 登录" [ref=e7] [cursor=pointer]:
+      - img [ref=e8]
+      - generic [ref=e10]: GitHub 登录
+    - button "全屏" [ref=e11] [cursor=pointer]
+  - generic [ref=e12]:
+    - heading "墨染江湖" [level=1] [ref=e14] [cursor=pointer]
+    - heading "无尽武林" [level=2] [ref=e17]
+    - generic [ref=e19]:
+      - generic [ref=e20]: bacon159 二创版本
+      - generic [ref=e21]: 本版本的部分功能、设置项和本地数据结构可能与原版或其他二创版本不同，跨版本导入存档/设置前请务必备份；不同版本之间可能不兼容。
+  - generic [ref=e22]:
+    - button "踏入江湖" [ref=e23] [cursor=pointer]:
+      - generic [ref=e25]: 踏入江湖
+    - button "重入江湖" [disabled] [ref=e28] [cursor=pointer]:
+      - generic [ref=e30]: 重入江湖
+    - button "图片管理" [ref=e33] [cursor=pointer]:
+      - generic [ref=e35]: 图片管理
+    - button "世界书管理" [ref=e38] [cursor=pointer]:
+      - generic [ref=e40]: 世界书管理
+    - button "小说拆解" [ref=e43] [cursor=pointer]:
+      - generic [ref=e45]: 小说拆解
+    - button "设置" [ref=e48] [cursor=pointer]:
+      - generic [ref=e50]: 设置
+  - generic [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - generic [ref=e56]: 发布信息
+        - generic [ref=e57]: Web / APK 当前统一版本 v1.0.72
+      - generic [ref=e58]: APK CODE 73
+    - generic [ref=e59]:
+      - button "GitHub 项目" [ref=e60] [cursor=pointer]
+      - button "APK 下载" [ref=e61] [cursor=pointer]
+      - button "更新日志" [ref=e62] [cursor=pointer]
+  - generic [ref=e63]: VER 1.0.72 · APK 73

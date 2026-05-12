@@ -96,6 +96,48 @@ const MemorySettings: React.FC<Props> = ({ settings, onSave }) => {
                         <span className="text-gray-500 text-xs">按回合计数；用于“即时 -&gt; 短期”滑动和 Script 上传窗口（开场AI=1，后续玩家+AI=1）</span>
                     </div>
                 </div>
+
+                <div className="space-y-2 bg-black/20 p-4 rounded border border-gray-800">
+                    <label className="text-xs text-wuxia-cyan font-bold uppercase tracking-widest">剧情回忆检索 · 基础超时 (秒)</label>
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="number"
+                            min="5" max="600"
+                            value={form.剧情回忆检索基础超时秒数 || 25}
+                            onChange={(e) => setForm({ ...form, 剧情回忆检索基础超时秒数: parseInt(e.target.value) || 25 })}
+                            className="bg-black/50 border border-gray-600 p-2 text-white font-mono w-24 text-center focus:border-wuxia-gold outline-none"
+                        />
+                        <span className="text-gray-500 text-xs">首次触发剧情回忆检索时的基础超时</span>
+                    </div>
+                </div>
+
+                <div className="space-y-2 bg-black/20 p-4 rounded border border-gray-800">
+                    <label className="text-xs text-wuxia-cyan font-bold uppercase tracking-widest">剧情回忆检索 · 每 10 回合追加 (秒)</label>
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="number"
+                            min="0" max="60"
+                            value={form.剧情回忆检索每10回合追加秒数 ?? 6}
+                            onChange={(e) => setForm({ ...form, 剧情回忆检索每10回合追加秒数: parseInt(e.target.value) || 0 })}
+                            className="bg-black/50 border border-gray-600 p-2 text-white font-mono w-24 text-center focus:border-wuxia-gold outline-none"
+                        />
+                        <span className="text-gray-500 text-xs">回合数越多上下文越长，越需要更久检索；此值会按 10 回合为单位累加</span>
+                    </div>
+                </div>
+
+                <div className="space-y-2 bg-black/20 p-4 rounded border border-gray-800">
+                    <label className="text-xs text-wuxia-cyan font-bold uppercase tracking-widest">剧情回忆检索 · 超时上限 (秒)</label>
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="number"
+                            min="10" max="1800"
+                            value={form.剧情回忆检索最大超时秒数 || 180}
+                            onChange={(e) => setForm({ ...form, 剧情回忆检索最大超时秒数: parseInt(e.target.value) || 180 })}
+                            className="bg-black/50 border border-gray-600 p-2 text-white font-mono w-24 text-center focus:border-wuxia-gold outline-none"
+                        />
+                        <span className="text-gray-500 text-xs">动态累加不会超过该上限；防止长档卡住过久</span>
+                    </div>
+                </div>
             </div>
 
             {/* Prompts */}

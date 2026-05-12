@@ -6,6 +6,8 @@ import { getCurrentAppRelease } from './appUpdate';
 const DAILY_LIMIT = 10;
 const RATE_LIMIT_STORAGE_KEY = 'moranjianghu.diagnosticReportRateLimit';
 const DEVICE_ID_STORAGE_KEY = 'moranjianghu.diagnosticReportDeviceId';
+const AUTO_REPORT_STORAGE_KEY = 'moranjianghu.diagnosticReportAutoUpload';
+const AUTO_REPORT_MIN_INTERVAL_MS = 60 * 1000;
 
 type RateLimitState = {
     date: string;
@@ -19,7 +21,10 @@ export type DiagnosticReportResult = {
     remainingToday: number;
 };
 
-const getTodayKey = (): string => new Date().toISOString().slice(0, 10);
+const getTodayKey = (): string => {
+    const chinaTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    return chinaTime.toISOString().slice(0, 10);
+};
 
 const readRateLimitState = (): RateLimitState => {
     try {
@@ -80,7 +85,10 @@ const countByLevel = (logs: DiagnosticLogEntry[]) => logs.reduce<Record<string, 
     return acc;
 }, {});
 
-const buildReportPayload = async (logs: DiagnosticLogEntry[]) => {
+const buildReportPayload = async (
+    logs: DiagnosticLogEntry[],
+    options?: { autoUpload?: boolean; triggerReason?: string }
+) => {
     const currentRelease = await getCurrentAppRelease().catch(() => ({
         versionCode: RELEASE_INFO.versionCode,
         versionName: RELEASE_INFO.versionName
@@ -108,6 +116,8 @@ const buildReportPayload = async (logs: DiagnosticLogEntry[]) => {
             reportedAt: new Date().toISOString()
         },
         summary: {
+            autoUpload: options?.autoUpload === true,
+            triggerReason: options?.triggerReason || '',
             total: logs.length,
             countByLevel: countByLevel(logs),
             latestError: logs.find((entry) => entry.level === 'error') || null
@@ -148,5 +158,62 @@ export const submitDiagnosticReport = async (entries?: DiagnosticLogEntry[]): Pr
         createdAt: String(payload.createdAt || ''),
         expiresAt: String(payload.expiresAt || ''),
         remainingToday: Math.max(0, Number(payload.remainingToday ?? (DAILY_LIMIT - nextState.count)) || 0)
+    };
+};
+
+const readAutoReportState = (): { lastAt: number; lastErrorId: string } => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(AUTO_REPORT_STORAGE_KEY) || '{}') as Partial<{ lastAt: number; lastErrorId: string }>;
+        return {
+            lastAt: Math.max(0, Math.floor(Number(parsed.lastAt) || 0)),
+            lastErrorId: typeof parsed.lastErrorId === 'string' ? parsed.lastErrorId : ''
+        };
+    } catch {
+        return { lastAt: 0, lastErrorId: '' };
+    }
+};
+
+const writeAutoReportState = (state: { lastAt: number; lastErrorId: string }) => {
+    try {
+        localStorage.setItem(AUTO_REPORT_STORAGE_KEY, JSON.stringify(state));
+    } catch {
+        // Automatic diagnostics are best-effort only.
+    }
+};
+
+export const submitAutomaticErrorDiagnosticReport = async (reason?: string): Promise<DiagnosticReportResult | null> => {
+    const logs = getDiagnosticLogs().slice(0, 200);
+    const latestError = logs.find((entry) => entry.level === 'error');
+    if (!latestError) return null;
+
+    const state = readAutoReportState();
+    const now = Date.now();
+    if (state.lastErrorId === latestError.id || now - state.lastAt < AUTO_REPORT_MIN_INTERVAL_MS) {
+        return null;
+    }
+
+    const endpoint = new URL('/api/diagnostics/report', buildApiBaseUrl()).toString();
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(await buildReportPayload(logs, {
+            autoUpload: true,
+            triggerReason: reason || latestError.message
+        }))
+    });
+    const payload = await response.json().catch(() => null) as any;
+    if (!response.ok || !payload?.ok || !payload?.id) {
+        return null;
+    }
+
+    writeAutoReportState({ lastAt: now, lastErrorId: latestError.id });
+
+    return {
+        id: String(payload.id),
+        createdAt: String(payload.createdAt || ''),
+        expiresAt: String(payload.expiresAt || ''),
+        remainingToday: Math.max(0, Number(payload.remainingToday ?? 0) || 0)
     };
 };

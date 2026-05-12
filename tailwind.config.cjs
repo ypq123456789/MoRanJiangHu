@@ -34,7 +34,8 @@ module.exports = {
         'slide-in': 'slideIn 0.3s ease-out forwards',
         fadeIn: 'fadeIn 0.3s ease-out forwards',
         marquee: 'marquee 60s linear infinite',
-        'marquee-linear': 'marqueeLinear var(--marquee-duration, 36s) linear infinite'
+        'marquee-linear': 'marqueeLinear var(--marquee-duration, 36s) linear infinite',
+        'damage-float': 'damageFloat 1.2s ease-out forwards'
       },
       keyframes: {
         slideIn: {
@@ -52,6 +53,11 @@ module.exports = {
         marqueeLinear: {
           '0%': { transform: 'translateX(0)' },
           '100%': { transform: 'translateX(-50%)' }
+        },
+        damageFloat: {
+          '0%': { transform: 'translateY(0) scale(0.8)', opacity: '1' },
+          '30%': { transform: 'translateY(-20px) scale(1.2)', opacity: '1' },
+          '100%': { transform: 'translateY(-60px) scale(0.9)', opacity: '0' }
         }
       }
     }

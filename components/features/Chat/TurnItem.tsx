@@ -369,10 +369,7 @@ const TurnItem: React.FC<Props> = ({
                         <div className="inline-flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-2.5 py-1 rounded-full bg-black/40 border border-white/5 shadow-sm max-w-full">
                             {variableGenerationPending ? (
                                 <div className="flex items-center gap-2 text-wuxia-cyan/80">
-                                    <span className="relative flex h-2 w-2">
-                                        <span className="absolute inline-flex h-full w-full rounded-full bg-wuxia-cyan/40 animate-ping"></span>
-                                        <span className="relative inline-flex h-2 w-2 rounded-full bg-wuxia-cyan/80"></span>
-                                    </span>
+                                    <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-wuxia-cyan/30 border-t-wuxia-cyan animate-spin"></span>
                                     <span className="font-mono font-bold tracking-[0.12em]" style={{ fontSize: 紧凑等宽字号 }}>变量生成中</span>
                                 </div>
                             ) : (

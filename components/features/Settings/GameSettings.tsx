@@ -10,6 +10,7 @@ interface Props {
 
 const GameSettings: React.FC<Props> = ({ settings, onSave }) => {
     const [form, setForm] = useState<游戏设置结构>(settings);
+    const [wordCountDraft, setWordCountDraft] = useState(() => String(settings.字数要求 ?? ''));
     const [showSuccess, setShowSuccess] = useState(false);
     const [openMenu, setOpenMenu] = useState<'perspective' | 'style' | 'ntl' | null>(null);
     const rootRef = useRef<HTMLDivElement | null>(null);
@@ -34,6 +35,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave }) => {
     ];
     useEffect(() => {
         setForm(settings);
+        setWordCountDraft(String(settings.字数要求 ?? ''));
     }, [settings]);
 
     useEffect(() => {
@@ -67,6 +69,16 @@ const GameSettings: React.FC<Props> = ({ settings, onSave }) => {
         const next = { ...form, ...patch };
         setForm(next);
         onSave(next);
+    };
+
+    const 提交字数要求 = () => {
+        const normalizedText = wordCountDraft.trim();
+        const parsed = Number(normalizedText);
+        const nextValue = Number.isFinite(parsed) && parsed > 0
+            ? Math.max(50, Math.floor(parsed))
+            : (Number.isFinite(Number(form.字数要求)) ? Math.max(50, Math.floor(Number(form.字数要求))) : 450);
+        setWordCountDraft(String(nextValue));
+        实时应用更新({ 字数要求: nextValue });
     };
 
     const 渲染内置下拉 = (params: {
@@ -142,13 +154,17 @@ const GameSettings: React.FC<Props> = ({ settings, onSave }) => {
                 <div className="space-y-2">
                     <label className="text-sm text-wuxia-cyan font-bold">字数要求</label>
                     <input 
-                        type="number"
-                        min={50}
-                        step={10}
-                        value={form.字数要求}
+                        type="text"
+                        inputMode="numeric"
+                        value={wordCountDraft}
                         onChange={(e) => {
-                            const n = Number(e.target.value);
-                            实时应用更新({ 字数要求: Number.isFinite(n) && n > 0 ? Math.max(50, Math.floor(n)) : 450 });
+                            setWordCountDraft(e.target.value.replace(/[^\d]/g, ''));
+                        }}
+                        onBlur={提交字数要求}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                            }
                         }}
                         className="w-full bg-black/50 border-2 border-transparent focus:border-wuxia-gold p-3 text-white outline-none rounded-md transition-all font-serif tracking-wider"
                         placeholder="例如 450"

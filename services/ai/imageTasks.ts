@@ -30,7 +30,10 @@ import { RELEASE_INFO } from '../../data/releaseInfo';
 import {
     判断疑似网络或跨域错误,
     构建ComfyUI精确连接失败提示,
-    构建通用生图连接失败提示
+    构建OpenAI图片生成端点,
+    构建通用生图连接失败提示,
+    规范化OpenAI图片基础地址,
+    规范化OpenAI图片模型名称
 } from './imageGenerationDiagnostics';
 
 export interface 图片生成结果 {
@@ -87,8 +90,11 @@ type NPC秘档部位提示词选项 = {
 };
 type 分词器任务类型 = '角色' | '场景' | '部位特写';
 
-const 自动去水印负面提示词 = 'text, watermark, signature, username, logo, artist name, web address, url, copyright, subtitle';
-const 默认NovelAI负面提示词 = 'photorealistic, realistic, 3d, rendering, unreal engine, octane render, real life, photography, bokeh, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, artist name, border, out of frame';
+const 自动去水印负面提示词 = 'text, typography, letters, words, numbers, caption, label, plaque, sign, inscription, Chinese characters, English letters, calligraphy, seal, stamp, watermark, signature, username, logo, artist name, web address, url, copyright, subtitle, subtitles, title, poster text, comic text, manga text, dialogue text, speech bubble, dialogue box, word balloon, UI overlay, interface text, date stamp, QR code, barcode, poster layout, magazine cover, comic page, comic panel, manga panel, callout, text box, white oval bubble, black outline bubble, overlay, title card, credits, framed text, floating label, name tag';
+const 全局无文字正向提示词 = 'plain single image, clean composition, no graphic design layout, no poster layout, no comic panel, no text overlay, no captions, no subtitles, no callout, no speech bubble, no watermark, no logo, no signature, no typography, no letters, no Chinese characters, no English letters';
+const 部位特写单图正向提示词 = 'single image, one frame, one subject only, extreme close-up macro crop, target fills the frame, plain blurred background, no collage, no panel layout, no reference sheet, no bottom strip';
+const 部位特写反拼贴负面提示词 = 'multiple views, split screen, panel layout, comic panel, comic page, manga panel, story panels, collage, contact sheet, reference sheet, character sheet, turnaround, comparison sheet, montage, triptych, diptych, quadriptych, grid layout, tiled composition, thumbnails, bottom strip, inset image, duplicate anatomy, mirrored anatomy, repeated organ, multiple organs, multiple nipples, extra nipples, multiple genitals, extra genitals';
+const 默认NovelAI负面提示词 = 'photorealistic, realistic, 3d, rendering, unreal engine, octane render, real life, photography, bokeh, lowres, bad anatomy, bad hands, text, typography, letters, words, numbers, caption, label, plaque, sign, inscription, Chinese characters, English letters, calligraphy, seal, stamp, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, logo, blurry, artist name, border, out of frame, subtitles, title, poster text, speech bubble, dialogue box, word balloon, UI overlay, date stamp, QR code, barcode';
 const 默认分词器AI角色提示词 = [
     '你是分词器大师。',
     '你的职责是把输入资料整理成稳定、可执行、可直接投喂图像模型的高质量提示词。',
@@ -145,7 +151,7 @@ const 获取NovelAI代理基础地址 = (baseUrlRaw: string): string => {
 };
 
 const 构建图片端点 = (baseUrlRaw: string, customPathRaw?: string): string => {
-    const normalizedBaseRaw = 规范化NovelAI基础地址(baseUrlRaw || '');
+    const normalizedBaseRaw = 规范化OpenAI图片基础地址(规范化NovelAI基础地址(baseUrlRaw || ''));
     const base = 清理末尾斜杠(normalizedBaseRaw || '');
     const customPath = (customPathRaw || '').trim();
     const novelAiProxyBase = 获取NovelAI代理基础地址(base);
@@ -157,20 +163,7 @@ const 构建图片端点 = (baseUrlRaw: string, customPathRaw?: string): string 
             : '/ai/generate-image';
         return `${novelAiProxyBase}/api/novelai${targetPath}`;
     }
-    if (/^https?:\/\//i.test(customPath)) {
-        return 清理末尾斜杠(customPath);
-    }
-    if (!base) return '';
-    if (customPath) {
-        const rawPath = customPath.startsWith('/') ? customPath : `/${customPath}`;
-        const normalizedPath = /\/v1$/i.test(base) && /^\/v1\//i.test(rawPath)
-            ? rawPath.replace(/^\/v1/i, '')
-            : rawPath;
-        return `${base}${normalizedPath}`;
-    }
-    if (/\/images\/generations$/i.test(base)) return base;
-    if (/\/v1$/i.test(base)) return `${base}/images/generations`;
-    return `${base}/v1/images/generations`;
+    return 构建OpenAI图片生成端点(base, customPath, { useRuntimeProxy: true });
 };
 
 const 推断图片Mime类型 = (fileName: string): string => {
@@ -1398,11 +1391,14 @@ export const 提取角色锚点提示词 = async (
 const 构建后置正向提示词 = (
     options?: { 构图?: '头像' | '半身' | '立绘' | '场景' | '部位特写'; 场景类型?: 场景生成类型; 尺寸?: string }
 ): string => {
-    return '';
+    return 合并正向提示词片段(
+        全局无文字正向提示词,
+        options?.构图 === '部位特写' ? 部位特写单图正向提示词 : ''
+    );
 };
 
 const 构图附加负面提示词映射: Partial<Record<'头像' | '半身' | '立绘' | '场景' | '部位特写', string>> = {
-    部位特写: 'multiple views, split screen, panel layout, comic panel, comic page, collage, contact sheet, reference sheet, character sheet, turnaround, comparison sheet, montage, triptych, diptych, quadriptych, grid layout, tiled composition'
+    部位特写: 部位特写反拼贴负面提示词
 };
 
 export const 构建最终图片提示词 = (
@@ -1551,6 +1547,71 @@ const 注入ComfyUI工作流占位符 = (
     return value;
 };
 
+const 判断ComfyUI正向文本编码节点 = (node: any): boolean => {
+    const classType = String(node?.class_type || '').toLowerCase();
+    const title = String(node?._meta?.title || node?.title || '').toLowerCase();
+    const text = String(node?.inputs?.text || '').toLowerCase();
+    return typeof node?.inputs?.text === 'string'
+        && /cliptextencode|textencode|prompt/.test(classType)
+        && !/negative|负向|负面|反向/.test(title)
+        && !/lowres|bad anatomy|worst quality|watermark|bad hands|blurry/.test(text);
+};
+
+const 判断ComfyUI负向文本编码节点 = (node: any): boolean => {
+    const classType = String(node?.class_type || '').toLowerCase();
+    const title = String(node?._meta?.title || node?.title || '').toLowerCase();
+    const text = String(node?.inputs?.text || '').toLowerCase();
+    return typeof node?.inputs?.text === 'string'
+        && /cliptextencode|textencode|prompt/.test(classType)
+        && (
+            /negative|负向|负面|反向/.test(title)
+            || /lowres|bad anatomy|worst quality|watermark|bad hands|blurry|__negative_prompt__|\{\{negative_prompt\}\}/.test(text)
+        );
+};
+
+const 补齐ComfyUI负向提示词节点 = (workflow: Record<string, unknown>, negativePrompt: string): Record<string, unknown> => {
+    if (!negativePrompt.trim()) return workflow;
+    const mutable = workflow as Record<string, any>;
+    const nodes = Object.entries(mutable).filter(([, node]) => node && typeof node === 'object');
+    if (nodes.some(([, node]) => 判断ComfyUI负向文本编码节点(node))) return workflow;
+
+    const zeroOutEntry = nodes.find(([, node]) => /conditioningzeroout/i.test(String((node as any)?.class_type || '')));
+    if (!zeroOutEntry) return workflow;
+    const [zeroOutNodeId] = zeroOutEntry;
+
+    const positiveEntry = nodes.find(([, node]) => 判断ComfyUI正向文本编码节点(node))
+        || nodes.find(([, node]) => typeof (node as any)?.inputs?.text === 'string');
+    const clipInput = (positiveEntry?.[1] as any)?.inputs?.clip;
+    if (!Array.isArray(clipInput)) return workflow;
+
+    const numericIds = Object.keys(mutable)
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id));
+    const negativeNodeId = String((numericIds.length ? Math.max(...numericIds) : 0) + 1);
+    mutable[negativeNodeId] = {
+        inputs: {
+            text: negativePrompt,
+            clip: clipInput
+        },
+        class_type: 'CLIPTextEncode',
+        _meta: {
+            title: 'Negative Prompt'
+        }
+    };
+
+    nodes.forEach(([, node]) => {
+        const inputs = (node as any)?.inputs;
+        if (!inputs || typeof inputs !== 'object') return;
+        Object.entries(inputs).forEach(([key, value]) => {
+            const isZeroOutLink = Array.isArray(value) && value[0] === zeroOutNodeId && value[1] === 0;
+            if (isZeroOutLink && /negative|负向|负面|反向/i.test(key)) {
+                inputs[key] = [negativeNodeId, 0];
+            }
+        });
+    });
+    return workflow;
+};
+
 const 构建ComfyUI工作流 = (
     workflowText: string,
     prompt: string,
@@ -1560,9 +1621,43 @@ const 构建ComfyUI工作流 = (
     pngParams?: PNG解析参数结构
 ): Record<string, unknown> => {
     const hasNegativePlaceholder = /(__NEGATIVE_PROMPT__|\{\{negative_prompt\}\})/.test(workflowText || '');
+    const hasConditioningZeroOut = /ConditioningZeroOut/i.test(workflowText || '');
+    // For ConditioningZeroOut workflows (Lumina2/Flux-like models):
+    // 1. Do NOT inject negative prompt into positive prompt
+    // 2. Strip ALL "no X" / "absolutely no X" anti-pattern phrases from positive prompt - these models
+    //    don't understand negation and will treat "no watermark, no text" as positive content,
+    //    generating those things (text, watermarks, speech bubbles, Chinese characters, etc.)
+    // 3. Strip Chinese characters from prompt - Lumina2 will render them as visible text on the image
+    let cleanedPrompt = prompt;
+    if (hasConditioningZeroOut) {
+        cleanedPrompt = prompt
+            // Remove "absolutely no X", "no X" patterns (greedy: captures multi-word objects)
+            .replace(/,?\s*absolutely\s+no\s+[^,\n]+/gi, '')
+            .replace(/,?\s*no\s+(?:graphic design layout|poster layout|comic panel|text overlay|captions|subtitles|callout|speech bubble|watermark|watermarks|logo|logos|signature|typography|letters|numbers|Chinese characters|English letters|collage|panel layout|reference sheet|bottom strip|card design|card frame|UI|UI icon layout|frame|badges|text|label|labels|inscription|ink painting|guofeng illustration)\b/gi, '')
+            .replace(/,?\s*plain single image\b/gi, '')
+            .replace(/,?\s*clean composition\b/gi, '')
+            // Remove Chinese characters and surrounding context labels (e.g. "form and materials: 中文描述")
+            .replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef，。！？、；：""''（）【】]+/g, '')
+            .replace(/\bform and materials:\s*$/gim, '')
+            .replace(/\bmaterial cues:\s*$/gim, '')
+            .replace(/\n\s*\n/g, '\n')
+            .replace(/,\s*,/g, ',')
+            .replace(/,\s*\n/g, '\n')
+            .replace(/\n\s*,/g, '\n')
+            .replace(/^[\s,\n]+|[\s,\n]+$/g, '')
+            .trim();
+    }
     const promptValue = hasNegativePlaceholder
-        ? prompt
-        : 为不支持独立负面字段的模型附加负面提示词(prompt, negativePrompt);
+        ? cleanedPrompt
+        : hasConditioningZeroOut
+            ? cleanedPrompt
+            : 为不支持独立负面字段的模型附加负面提示词(cleanedPrompt, negativePrompt);
+    const isZImageTurboWorkflow = /mPMix_NSFW_V9_fp8|qwen_3_4b\.safetensors|qwen-image-2512-Q6_K|res_multistep|sgm_uniform/i.test(workflowText || '');
+    const isQwenImageWorkflow = /qwen_image_fp8_e4m3fn|qwen_2\.5_vl_7b_fp8_scaled|qwen_image_vae/i.test(workflowText || '');
+    const defaultSteps = isZImageTurboWorkflow ? 9 : (isQwenImageWorkflow ? 20 : 28);
+    const defaultCfg = isZImageTurboWorkflow ? 1 : (isQwenImageWorkflow ? 2.5 : 7);
+    const defaultSampler = isZImageTurboWorkflow ? 'res_multistep' : 'euler';
+    const defaultScheduler = isZImageTurboWorkflow ? 'sgm_uniform' : (isQwenImageWorkflow ? 'simple' : 'normal');
     const replacements: Record<string, string | number> = {
         '__PROMPT__': promptValue,
         '{{prompt}}': promptValue,
@@ -1574,16 +1669,16 @@ const 构建ComfyUI工作流 = (
         '{{height}}': height,
         '__SIZE__': `${width}x${height}`,
         '{{size}}': `${width}x${height}`,
-        '__STEPS__': Math.max(1, Math.floor(Number(pngParams?.步数) || 28)),
-        '{{steps}}': Math.max(1, Math.floor(Number(pngParams?.步数) || 28)),
-        '__CFG__': Number.isFinite(Number(pngParams?.CFG强度)) ? Number(pngParams?.CFG强度) : 7,
-        '{{cfg}}': Number.isFinite(Number(pngParams?.CFG强度)) ? Number(pngParams?.CFG强度) : 7,
+        '__STEPS__': Math.max(1, Math.floor(Number(pngParams?.步数) || defaultSteps)),
+        '{{steps}}': Math.max(1, Math.floor(Number(pngParams?.步数) || defaultSteps)),
+        '__CFG__': Number.isFinite(Number(pngParams?.CFG强度)) ? Number(pngParams?.CFG强度) : defaultCfg,
+        '{{cfg}}': Number.isFinite(Number(pngParams?.CFG强度)) ? Number(pngParams?.CFG强度) : defaultCfg,
         '__CFG_RESCALE__': Number.isFinite(Number(pngParams?.CFG重缩放)) ? Number(pngParams?.CFG重缩放) : 0,
         '{{cfg_rescale}}': Number.isFinite(Number(pngParams?.CFG重缩放)) ? Number(pngParams?.CFG重缩放) : 0,
-        '__SAMPLER__': (pngParams?.采样器 || '').trim() || 'euler',
-        '{{sampler}}': (pngParams?.采样器 || '').trim() || 'euler',
-        '__SCHEDULER__': (pngParams?.噪声计划 || '').trim() || 'normal',
-        '{{scheduler}}': (pngParams?.噪声计划 || '').trim() || 'normal',
+        '__SAMPLER__': (pngParams?.采样器 || '').trim() || defaultSampler,
+        '{{sampler}}': (pngParams?.采样器 || '').trim() || defaultSampler,
+        '__SCHEDULER__': (pngParams?.噪声计划 || '').trim() || defaultScheduler,
+        '{{scheduler}}': (pngParams?.噪声计划 || '').trim() || defaultScheduler,
         '__SEED__': Number.isFinite(Number(pngParams?.随机种子)) ? Math.max(0, Math.floor(Number(pngParams?.随机种子))) : 0,
         '{{seed}}': Number.isFinite(Number(pngParams?.随机种子)) ? Math.max(0, Math.floor(Number(pngParams?.随机种子))) : 0,
         '__SMEA__': pngParams?.SMEA === true ? 'true' : 'false',
@@ -1592,7 +1687,11 @@ const 构建ComfyUI工作流 = (
         '{{smea_dyn}}': pngParams?.SMEA动态 === true ? 'true' : 'false'
     };
     const parsed = 解析ComfyUI工作流(workflowText);
-    return 注入ComfyUI工作流占位符(parsed, replacements) as Record<string, unknown>;
+    const injected = 注入ComfyUI工作流占位符(parsed, replacements) as Record<string, unknown>;
+    // For workflows using ConditioningZeroOut (Lumina2/Flux-like models), do NOT inject a negative
+    // prompt node - these models don't support negative conditioning and the ZeroOut is intentional.
+    if (hasConditioningZeroOut) return injected;
+    return 补齐ComfyUI负向提示词节点(injected, negativePrompt);
 };
 
 const 规范化SD采样器与调度器 = (pngParams?: PNG解析参数结构): { samplerName: string; scheduler?: string } => {
@@ -1690,6 +1789,35 @@ const 提取ComfyUI图片地址 = (
     return null;
 };
 
+const COMFYUI_POLL_TIMEOUT_MS = 3 * 60 * 1000;
+
+const 提取ComfyUI历史根节点 = (historyPayload: any): any => {
+    if (!historyPayload || typeof historyPayload !== 'object') return null;
+    return Array.isArray(historyPayload)
+        ? historyPayload[0]
+        : Object.values(historyPayload as Record<string, unknown>)[0];
+};
+
+const 提取ComfyUI失败信息 = (historyPayload: any): string | null => {
+    const root = 提取ComfyUI历史根节点(historyPayload);
+    if (!root || typeof root !== 'object') return null;
+    const status = (root as any).status && typeof (root as any).status === 'object' ? (root as any).status : {};
+    const statusText = typeof status.status_str === 'string' ? status.status_str.trim().toLowerCase() : '';
+    const completed = status.completed === true;
+    const messages = Array.isArray(status.messages) ? status.messages : [];
+    const executionError = messages.find((entry: any) => Array.isArray(entry) && String(entry[0] || '').toLowerCase().includes('error'));
+    if (statusText === 'error' || executionError) {
+        const detail = Array.isArray(executionError)
+            ? JSON.stringify(executionError[1] || executionError).slice(0, 800)
+            : '';
+        return `ComfyUI 工作流执行失败${detail ? `：${detail}` : ''}`;
+    }
+    if (completed && statusText === 'success' && !提取ComfyUI图片地址(historyPayload, '')) {
+        return 'ComfyUI 工作流已结束，但没有输出图片。请检查 workflow 的保存图片节点。';
+    }
+    return null;
+};
+
 type ComfyUI队列任务 = {
     baseUrl: string;
     apiConfig: 当前可用接口结构;
@@ -1774,8 +1902,12 @@ const 执行ComfyUI生图 = async (
     signal?.addEventListener('abort', handleAbort, { once: true });
 
     try {
+        const startedAt = Date.now();
         const historyEndpoint = `${baseUrl}/history/${encodeURIComponent(promptId)}`;
         while (true) {
+            if (Date.now() - startedAt > COMFYUI_POLL_TIMEOUT_MS) {
+                throw new Error(`ComfyUI 生图超过 ${Math.round(COMFYUI_POLL_TIMEOUT_MS / 1000)} 秒仍未返回图片，已自动判定本次尝试失败。`);
+            }
             let historyResponse: Response;
             try {
                 historyResponse = await fetch(historyEndpoint, {
@@ -1810,6 +1942,10 @@ const 执行ComfyUI生图 = async (
                         图片URL: imageUrl,
                         原始响应: historyText
                     };
+                }
+                const failureMessage = 提取ComfyUI失败信息(historyPayload);
+                if (failureMessage) {
+                    throw new Error(failureMessage);
                 }
             }
             await 等待(1000, signal);
@@ -2137,12 +2273,12 @@ const 香闺秘档部位描述字段映射: Record<香闺秘档部位类型, str
 
 const 构建香闺秘档部位特写说明 = (部位: 香闺秘档部位类型): string => {
     if (部位 === '胸部') {
-        return '胸部微距特写 (Breasts Macro Photography)。极近距离裁切，画面完全被胸部占据，聚焦于乳头纹理、乳晕色泽 (Pink nipples, Detailed areola) 以及皮肤的透光感 (Subsurface scattering)，背景需完全虚化或仅保留极小比例。';
+        return '胸部微距特写 (Breasts Macro Photography)。单张画面、单一主体、极近距离裁切，目标部位占据 90% 以上画面，聚焦于乳头纹理、乳晕色泽 (Pink nipples, Detailed areola) 以及皮肤的透光感 (Subsurface scattering)，背景必须简洁虚化，禁止参考页、拼贴、底部小图、分镜和任何文字水印。';
     }
     if (部位 === '小穴') {
-        return '阴部核心特写 (Crotch/Pussy Macro Focus)。超近距离紧裁切，聚焦于花径、湿润程度 (Wetness, Pussy juice) 以及皮肤纹理，强调真实的肉感与微距细节，严禁退回全身或半身视角。';
+        return '阴部核心特写 (Crotch/Pussy Macro Focus)。单张画面、单一主体、超近距离紧裁切，目标部位占据 90% 以上画面，聚焦于花径、湿润程度 (Wetness, Pussy juice) 以及皮肤纹理，强调真实的肉感与微距细节，严禁退回全身或半身视角，禁止参考页、拼贴、底部小图、分镜和任何文字水印。';
     }
-    return '后庭局部特写 (Ass/Anus Extreme Close-up)。超近距离裁切，画面被臀部与后庭占据，聚焦于皮肤褶皱、肉感 (Skin texture, Fleshy) 以及后庭细节 (Detailed anus)，强调微距级别的细节呈现。';
+    return '后庭局部特写 (Ass/Anus Extreme Close-up)。单张画面、单一主体、超近距离裁切，目标部位占据 90% 以上画面，聚焦于皮肤褶皱、肉感 (Skin texture, Fleshy) 以及后庭细节 (Detailed anus)，强调微距级别的细节呈现，禁止参考页、拼贴、底部小图、分镜和任何文字水印。';
 };
 
 const 强化香闺秘档特写词组 = (
@@ -2151,10 +2287,13 @@ const 强化香闺秘档特写词组 = (
 ): string => {
     const source = 清理生图词组输出(prompt);
     if (!source) return source;
-    const deny = /^(?:portrait|headshot|upper body|half body|waist-?up|full body|cowboy shot|wide shot|mid shot|long shot|standing|sitting|kneeling|running|walking|looking at viewer|face focus|facial focus|scenery|environment|landscape|room|indoors|outdoors|background|establishing shot)$/i;
-    return 去重提示词片段(按逗号拆分提示词(source))
+    const deny = /^(?:portrait|headshot|upper body|half body|waist-?up|full body|cowboy shot|wide shot|mid shot|long shot|standing|sitting|kneeling|running|walking|looking at viewer|face focus|facial focus|scenery|environment|landscape|room|indoors|outdoors|background|establishing shot|collage|contact sheet|reference sheet|character sheet|comic panel|manga panel|split screen|multiple views|thumbnail|thumbnails|bottom strip|speech bubble|dialogue box|watermark|signature|logo|text|caption|subtitle)$/i;
+    return 合并正向提示词片段(
+        部位特写单图正向提示词,
+        去重提示词片段(按逗号拆分提示词(source))
         .filter((token) => !deny.test(token))
-        .join(', ');
+            .join(', ')
+    );
 };
 
 export const buildNpcDirectImagePrompt = (
@@ -2176,12 +2315,20 @@ export const buildNpcDirectImagePrompt = (
         读取NPC字段文本(source, '衣着')
     ];
 
-    const 装备短语 = 读取NPC对象片段(source, '当前装备');
-    if (装备短语) fragments.push(`装备：${装备短语}`);
-    const 背包短语 = 读取NPC数组片段(source, '背包');
-    if (背包短语) fragments.push(`随身物品：${背包短语}`);
-    const 补充视觉设定 = 读取NPC对象片段(source, '补充视觉设定');
-    if (补充视觉设定) fragments.push(`补充设定：${补充视觉设定}`);
+    // 注意：装备 / 背包 / 补充视觉设定 这些字段在游戏里通常是"名称:值"的结构化数据，
+    // 直接拼进 prompt 会让大量生图模型（尤其是 ComfyUI 原生 SDXL/Flux/Z-image）把"名称"、"装备"、":"等
+    // 字符当作要画在图上的文字。本次（v1.0.113 诊断）用户反馈图上出现"名称:青钢剑 类型:武型 品质:良品"。
+    // 因此这里只把"值"展开进 prompt（如 "红色长袍, 玄铁剑"），**丢掉字段名和冒号**，避免模型学成文字标签。
+    const 展开对象为值 = (key: string): string[] => {
+        const source2 = (source as any)?.[key];
+        if (!source2 || typeof source2 !== 'object' || Array.isArray(source2)) return [];
+        return Object.values(source2 as Record<string, unknown>)
+            .map((v) => (typeof v === 'string' ? v.trim() : ''))
+            .filter((v) => Boolean(v) && v !== '无');
+    };
+    展开对象为值('当前装备').forEach((val) => fragments.push(val));
+    // 背包物品不进入 NPC 生图 prompt：它们是随身道具，不是穿戴，容易让模型把丹药瓶子画到人手里
+    展开对象为值('补充视觉设定').forEach((val) => fragments.push(val));
 
     if (isNovelAI) {
         const characterCountTag = 生成NovelAI人物数量标签(source);
@@ -3101,11 +3248,29 @@ export const generateNpcSecretPartImagePrompt = async (
         throw new Error(`${部位}描述为空，无法生成${部位}特写。`);
     }
 
+    // 只给词组转化器传目标部位 + 身体视觉相关字段，避免把整个 NPC JSON（含装备/背包/关系/记忆等）
+    // 拼进 prompt 导致文字泄漏或模型偏离目标。诊断 diag_20260511181203 中用户反馈图上出现
+    // "图片不可用"/大量杂乱文字，部分根因就是这里输入太长太杂。
+    const 视觉相关字段 = {
+        姓名: 读取NPC字段文本(source, '姓名'),
+        性别: 读取NPC字段文本(source, '性别'),
+        年龄: 读取NPC字段文本(source, '年龄'),
+        身份: 读取NPC字段文本(source, '身份'),
+        境界: 读取NPC字段文本(source, '境界'),
+        外貌: 读取NPC字段文本(source, '外貌'),
+        身材: 读取NPC字段文本(source, '身材'),
+        衣着: 读取NPC字段文本(source, '衣着'),
+        胸部描述: 读取NPC字段文本(source, '胸部描述'),
+        小穴描述: 读取NPC字段文本(source, '小穴描述'),
+        屁穴描述: 读取NPC字段文本(source, '屁穴描述'),
+        性癖: 读取NPC字段文本(source, '性癖'),
+        敏感点: 读取NPC字段文本(source, '敏感点')
+    };
     const 原始描述 = JSON.stringify({
         部位,
         描述字段,
         描述文本,
-        角色资料: source
+        视觉相关字段
     }, null, 2);
     const 词组转化器AI角色提示词 = (apiConfig.词组转化器AI角色提示词 || '').trim();
     const 相关转换提示词 = (apiConfig.词组转化器提示词 || '').trim();
@@ -3123,6 +3288,7 @@ export const generateNpcSecretPartImagePrompt = async (
         '任务：根据输入的角色资料、角色锚点和目标部位描述，生成稳定、可画的英文 tags。',
         '【输出策略】：可以使用 NovelAI 权重分组语法来组织构图、主体、局部细节和附加风格要求，但不要默认补充固定质量串或固定画风串。',
         '【构图规范】：极速聚焦（Macro Focus）。目标部位必须撑满画面，禁止任何退回半身、全身或普通人像的倾向。',
+        '【画面形态】：只能是单张完整画面、单一主体、单一镜头；禁止拼贴、参考页、分镜、宫格、底部小图、缩略图条和任何文字水印。',
         '【视觉纹理】：重点描述 skins texture, subsurface scattering, glistening moisture, soft shadows, rim lighting。',
         '【解剖约束】：严格执行“单体准则”。禁止出现重复乳头、多重生殖器或镜像复制。若资料中包含多项描述，应提炼为单一、稳定的视觉焦点。',
         '【风格对齐】：跟随输入资料、额外要求和风格词，不要擅自附加档案页、参考页、拼贴页、多分镜或固定古风底座。',
@@ -3135,6 +3301,7 @@ export const generateNpcSecretPartImagePrompt = async (
         '你是武侠/仙侠香闺秘档部位特写提示词转换器。',
         '任务：将角色资料、角色锚点与部位描述转化为稳定、可画的生图短语（英文 tags）。',
         '画面要求：纯粹的微距特写 (Macro shot)。目标部位占据 90% 以上画面，强调纹理、颜色、光泽与边缘细节。',
+        '画面形态：只能是单张完整画面、单一主体、单一镜头；禁止拼贴、参考页、分镜、宫格、底部小图、缩略图条和任何文字水印。',
         '禁止退步：严禁生成包含头部、四肢或大幅场景的提示词。',
         '单体约束：画面中只能有一个目标器官，严禁任何形式的解剖重复或畸变镜像。',
         '质感表现：优先体现肤质（如玉、细腻）、湿润感、光影层次（侧逆光、柔光）以及布料的物理挤压关系。',
@@ -3160,6 +3327,7 @@ export const generateNpcSecretPartImagePrompt = async (
         '重点：只保留目标部位特写和最小必要周边，让局部细节完整、清晰、可画。',
         '镜头要求：必须是 extreme close-up / ultra tight crop，目标部位占据画面主体，不能退成普通近景。',
         '数量要求：只允许一个目标部位，不允许重复、镜像复制、并排复制。',
+        '版式要求：只允许单张画面；禁止 collage, contact sheet, reference sheet, panel layout, thumbnails, bottom strip, speech bubble, text, watermark。',
         '禁止内容：face, portrait, upper body, half body, full body, legs, hands, multiple people, room focus, scenery focus。',
         兼容模式 && 风格提示词输入 ? `额外风格正面提示词：${风格提示词输入}` : '',
         额外要求 ? `附加要求：${额外要求}` : '附加要求：无'
@@ -3177,6 +3345,7 @@ export const generateNpcSecretPartImagePrompt = async (
         '画面要求：描述必须具体、可见、可画，优先写形状、颜色、肌理、湿润感、边缘和布料裁切。',
         '镜头要求：必须是 extreme close-up / ultra tight crop，目标部位占据画面主体，不能退成普通近景。',
         '数量要求：只允许一个目标部位，不允许重复、镜像复制、并排复制。',
+        '版式要求：只允许单张画面；禁止 collage, contact sheet, reference sheet, panel layout, thumbnails, bottom strip, speech bubble, text, watermark。',
         '禁止内容：face, portrait, upper body, half body, full body, legs, hands, multiple people, room focus, scenery focus。',
         '格式：请只输出 <提示词>...</提示词>。',
         兼容模式 && 风格提示词输入 ? `额外风格正面提示词：${风格提示词输入}` : '',
@@ -3540,7 +3709,24 @@ export const generateImageByPrompt = async (
     const backendType = apiConfig.图片后端类型 || 'openai';
     const shouldUseCustomOpenAIPayload = apiConfig.图片走OpenAI自定义格式 === true;
     const isChatCompletionsEndpoint = /\/chat\/completions$/i.test(endpoint);
-    const isGptImageModel = /^(gpt-image|chatgpt-image)/i.test((apiConfig.model || '').trim());
+    const imageModel = 规范化OpenAI图片模型名称(apiConfig.model || '');
+    const isGptImageModel = /^(gpt-image|chatgpt-image)/i.test(imageModel);
+    const endpointInfo = (() => {
+        try {
+            return new URL(endpoint);
+        } catch {
+            return null;
+        }
+    })();
+    const originalBaseHost = (() => {
+        try {
+            return new URL(规范化OpenAI图片基础地址(apiConfig.baseUrl)).hostname;
+        } catch {
+            return '';
+        }
+    })();
+    const isPucodingImageEndpoint = /(^|\.)pucoding\.com$/i.test(originalBaseHost)
+        || /\/api\/pucoding-image\/v1\/images\//i.test(endpointInfo?.pathname || '');
     const negativePromptText = promptBundle.最终负向提示词;
     const promptWithInlineNegative = promptBundle.带内联负面提示词的正向提示词;
     const shouldSkipBaseNegative = options?.跳过基础负面提示词 === true;
@@ -3591,7 +3777,7 @@ export const generateImageByPrompt = async (
     } else {
         requestBody = isChatCompletionsEndpoint
             ? {
-                model: apiConfig.model,
+                model: imageModel || apiConfig.model,
                 stream: false,
                 messages: [
                     {
@@ -3601,13 +3787,17 @@ export const generateImageByPrompt = async (
                 ]
             }
             : {
-                model: apiConfig.model,
+                model: imageModel || apiConfig.model,
                 prompt: promptWithInlineNegative,
                 n: 1,
                 size
             };
         if (isGptImageModel && !isChatCompletionsEndpoint) {
-            requestBody.moderation = 'auto';
+            if (isPucodingImageEndpoint) {
+                requestBody.response_format = 'b64_json';
+            } else {
+                requestBody.moderation = 'auto';
+            }
         }
         if (!isGptImageModel && (shouldUseCustomOpenAIPayload || responseFormat === 'b64_json')) {
             requestBody.response_format = responseFormat === 'b64_json'
@@ -3771,4 +3961,134 @@ export const persistImageAssetLocally = async (
         图片URL: undefined,
         本地路径: assetRef
     };
+};
+
+const 读取图片生成结果DataUrl = async (result: 图片生成结果): Promise<string> => {
+    const source = (result?.本地路径 || result?.图片URL || '').trim();
+    if (!source) return '';
+    if (/^data:image\//i.test(source)) return source;
+    if (!/^https?:\/\//i.test(source) && !/^blob:/i.test(source)) return '';
+    const response = await fetch(source);
+    if (!response.ok) {
+        throw new Error(`读取待处理图片失败: ${response.status}`);
+    }
+    return blob转DataUrl(await response.blob());
+};
+
+const 加载DataUrl图片 = async (dataUrl: string): Promise<HTMLImageElement> => {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('图片后处理失败：图片无法载入'));
+        image.src = dataUrl;
+    });
+};
+
+const 计算行差异 = (data: Uint8ClampedArray, width: number, yA: number, yB: number, step: number): number => {
+    let total = 0;
+    let count = 0;
+    for (let x = 0; x < width; x += step) {
+        const a = (yA * width + x) * 4;
+        const b = (yB * width + x) * 4;
+        total += Math.abs(data[a] - data[b]) + Math.abs(data[a + 1] - data[b + 1]) + Math.abs(data[a + 2] - data[b + 2]);
+        count += 1;
+    }
+    return count > 0 ? total / (count * 3) : 0;
+};
+
+const 计算区域边缘密度 = (data: Uint8ClampedArray, width: number, height: number, yStart: number, yEnd: number, step: number): number => {
+    let edges = 0;
+    let count = 0;
+    const start = Math.max(1, Math.min(height - 2, yStart));
+    const end = Math.max(start + 1, Math.min(height - 1, yEnd));
+    for (let y = start; y < end; y += step) {
+        for (let x = 1; x < width - 1; x += step) {
+            const current = (y * width + x) * 4;
+            const right = (y * width + Math.min(width - 1, x + step)) * 4;
+            const down = (Math.min(height - 1, y + step) * width + x) * 4;
+            const horizontal = Math.abs(data[current] - data[right]) + Math.abs(data[current + 1] - data[right + 1]) + Math.abs(data[current + 2] - data[right + 2]);
+            const vertical = Math.abs(data[current] - data[down]) + Math.abs(data[current + 1] - data[down + 1]) + Math.abs(data[current + 2] - data[down + 2]);
+            if (horizontal + vertical > 150) edges += 1;
+            count += 1;
+        }
+    }
+    return count > 0 ? edges / count : 0;
+};
+
+const 检测底部缩略图栏裁切线 = (ctx: CanvasRenderingContext2D, width: number, height: number): number | null => {
+    if (width < 256 || height < 256) return null;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const { data } = imageData;
+    const step = Math.max(2, Math.floor(Math.min(width, height) / 256));
+    const bottomStart = Math.floor(height * 0.78);
+    const middleStart = Math.floor(height * 0.46);
+    const middleEnd = Math.floor(height * 0.64);
+    const bottomEdgeDensity = 计算区域边缘密度(data, width, height, bottomStart, height, step);
+    const middleEdgeDensity = 计算区域边缘密度(data, width, height, middleStart, middleEnd, step);
+    if (bottomEdgeDensity < Math.max(0.11, middleEdgeDensity * 1.45)) return null;
+
+    let bestY = 0;
+    let bestDiff = 0;
+    const scanStart = Math.floor(height * 0.62);
+    const scanEnd = Math.floor(height * 0.9);
+    for (let y = scanStart; y < scanEnd; y += step) {
+        const diff = 计算行差异(data, width, Math.max(0, y - step), Math.min(height - 1, y + step), step);
+        if (diff > bestDiff) {
+            bestDiff = diff;
+            bestY = y;
+        }
+    }
+
+    const minCropY = Math.floor(height * 0.68);
+    const maxCropY = Math.floor(height * 0.9);
+    if (bestY < minCropY || bestY > maxCropY || bestDiff < 22) {
+        return Math.floor(height * 0.84);
+    }
+    return bestY;
+};
+
+export const 修复部位特写底部缩略图栏 = async (
+    result: 图片生成结果
+): Promise<图片生成结果> => {
+    if (typeof document === 'undefined') return result;
+    let dataUrl = '';
+    try {
+        dataUrl = await 读取图片生成结果DataUrl(result);
+    } catch {
+        return result;
+    }
+    if (!dataUrl) return result;
+
+    try {
+        const image = await 加载DataUrl图片(dataUrl);
+        const width = image.naturalWidth || image.width;
+        const height = image.naturalHeight || image.height;
+        if (!width || !height) return result;
+
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = width;
+        sourceCanvas.height = height;
+        const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+        if (!sourceCtx) return result;
+        sourceCtx.drawImage(image, 0, 0, width, height);
+
+        const cropY = 检测底部缩略图栏裁切线(sourceCtx, width, height);
+        if (!cropY || cropY >= Math.floor(height * 0.94)) return result;
+
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = width;
+        outputCanvas.height = cropY;
+        const outputCtx = outputCanvas.getContext('2d');
+        if (!outputCtx) return result;
+        outputCtx.drawImage(sourceCanvas, 0, 0, width, cropY, 0, 0, width, cropY);
+        const fixedDataUrl = outputCanvas.toDataURL('image/png');
+        return {
+            ...result,
+            图片URL: fixedDataUrl,
+            本地路径: undefined,
+            客户提示: result.客户提示 || '已自动裁切底部缩略图栏'
+        };
+    } catch {
+        return result;
+    }
 };

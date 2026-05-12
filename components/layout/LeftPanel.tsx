@@ -253,7 +253,7 @@ const LeftPanel: React.FC<Props> = ({ 角色, onOpenCharacter, onOpenVariableMan
     };
 
     return (
-        <div className="left-panel-body h-full flex flex-col p-3 border-r border-gray-900 relative overflow-hidden bg-transparent" style={areaStyle}>
+        <div className="left-panel-body h-full flex flex-col p-3 border-r border-gray-900 relative overflow-y-auto overflow-x-hidden no-scrollbar bg-transparent" style={areaStyle}>
             <input
                 ref={avatarInputRef}
                 type="file"

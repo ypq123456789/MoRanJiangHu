@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getRarityNameClass, getRarityStyles } from '../../ui/rarityStyles';
 import {
     自动装备最佳装备,
@@ -184,6 +185,7 @@ const InventoryModal: React.FC<Props> = ({ character, onClose, onCharacterChange
     const [activeCategory, setActiveCategory] = useState<ItemCategory>('全部');
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
     const [actionMessage, setActionMessage] = useState('');
+    const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null);
 
     const items = Array.isArray(character?.物品列表) ? character.物品列表 : [];
     const totalWeight = getSafeNumber(character?.当前负重);
@@ -325,7 +327,7 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
     };
 
     return (
-        <div className="inventory-modal-body fixed inset-0 z-[200] hidden items-center justify-center bg-black/90 p-3 backdrop-blur-sm animate-fadeIn md:flex">
+        <div className="inventory-modal-body fixed inset-0 z-[200] hidden items-center justify-center p-3 backdrop-blur-sm animate-fadeIn md:flex" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
             <div className="relative flex h-[92vh] max-h-[92vh] w-full max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-wuxia-gold/20 bg-ink-black/95 shadow-[0_0_80px_rgba(0,0,0,0.9)] shadow-wuxia-gold/10 2xl:max-w-[1780px]">
                 <div className="relative z-50 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-gradient-to-r from-black/80 to-black/40 px-6">
                     <div className="flex items-center gap-3">
@@ -491,23 +493,30 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                                                     </div>
                                                 ) : null}
 
-                                                <div className="absolute inset-0 flex items-center justify-center pb-5 transition-transform duration-300 group-hover:-translate-y-1">
-                                                    <div className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-black/45 shadow-inner ${styles.text}`}>
+                                                <div className="absolute inset-x-2 top-2 bottom-10 flex items-center justify-center overflow-hidden rounded-md border border-white/10 bg-black/30 shadow-inner transition-transform duration-300 group-hover:-translate-y-0.5">
+                                                    <div className={`flex h-full w-full items-center justify-center overflow-hidden ${styles.text}`}>
                                                         {itemIconImage ? (
-                                                            <img src={itemIconImage} alt={name} className="h-full w-full object-cover" loading="lazy" />
+                                                            <img
+                                                                src={itemIconImage}
+                                                                alt={name}
+                                                                className="h-full w-full object-cover"
+                                                                loading="lazy"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    setImageViewer({ src: itemIconImage, alt: name });
+                                                                }}
+                                                            />
                                                         ) : (
-                                                            renderItemIcon(getSafeText(item?.类型), 'h-5 w-5 opacity-90 drop-shadow-md group-hover:opacity-100')
+                                                            renderItemIcon(getSafeText(item?.类型), 'h-8 w-8 opacity-90 drop-shadow-md group-hover:opacity-100')
                                                         )}
                                                     </div>
                                                 </div>
 
-                                                <div className="absolute bottom-1.5 left-0 right-0 px-1.5 text-center">
+                                                <div className="absolute bottom-2 left-0 right-0 px-1.5 text-center">
                                                     <div className={`line-clamp-2 break-words text-[13px] font-bold leading-[1.1] tracking-wide drop-shadow-sm ${getRarityNameClass(getSafeText(item?.品质))}`}>
                                                         {name}
                                                     </div>
-                                                    {count > 1 ? (
-                                                        <div className="mt-0.5 font-mono text-xs text-gray-200">x{count}</div>
-                                                    ) : null}
+                                                    <div className="mt-0.5 font-mono text-xs text-gray-200">x{count}</div>
                                                 </div>
                                             </button>
                                         );
@@ -533,7 +542,14 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                                             getRarityStyles(getSafeText(selectedItem?.品质)).border
                                         } ${getRarityStyles(getSafeText(selectedItem?.品质)).bg}`}>
                                             {selectedIconImage ? (
-                                                <img src={selectedIconImage} alt={getSafeText(selectedItem?.名称, '物品图标')} className="h-full w-full object-cover" />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setImageViewer({ src: selectedIconImage, alt: getSafeText(selectedItem?.名称, '物品图标') })}
+                                                    className="h-full w-full overflow-hidden rounded-xl"
+                                                    aria-label={`放大查看${getSafeText(selectedItem?.名称, '物品图标')}`}
+                                                >
+                                                    <img src={selectedIconImage} alt={getSafeText(selectedItem?.名称, '物品图标')} className="h-full w-full object-cover" />
+                                                </button>
                                             ) : (
                                                 renderItemIcon(getSafeText(selectedItem?.类型), `h-6 w-6 drop-shadow-md ${getRarityStyles(getSafeText(selectedItem?.品质)).text}`)
                                             )}
@@ -680,6 +696,41 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                     </div>
                 </div>
             </div>
+            {imageViewer && typeof document !== 'undefined' && createPortal((
+                <div
+                    className="fixed inset-0 z-[360] flex items-center justify-center p-4 backdrop-blur-sm"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.88)' }}
+                    onClick={() => setImageViewer(null)}
+                    role="dialog"
+                    aria-label="物品图片预览"
+                >
+                    {/* 固定在屏幕右上角的主关闭按钮：即便图片超大也能第一眼看到 */}
+                    <button
+                        type="button"
+                        onClick={() => setImageViewer(null)}
+                        className="fixed z-[380] flex h-14 min-h-[56px] w-14 min-w-[56px] items-center justify-center rounded-full border-[3px] border-white bg-red-600 text-white shadow-[0_0_32px_rgba(220,38,38,0.9)] transition hover:scale-110 hover:bg-red-500 hover:shadow-[0_0_48px_rgba(248,113,113,1)]"
+                        style={{ top: 'max(env(safe-area-inset-top, 0px), 16px)', right: 'max(env(safe-area-inset-right, 0px), 16px)' }}
+                        aria-label="关闭图片预览"
+                        title="关闭图片预览"
+                    >
+                        <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.6} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                    {/* 底部可见的关闭提示按钮：作为第二入口，彻底避免"找不到退出" */}
+                    <button
+                        type="button"
+                        onClick={() => setImageViewer(null)}
+                        className="fixed bottom-6 left-1/2 z-[380] -translate-x-1/2 rounded-full border-2 border-white bg-red-600/95 px-5 py-2 text-sm font-bold tracking-widest text-white shadow-[0_0_16px_rgba(220,38,38,0.75)] hover:bg-red-500"
+                        style={{ bottom: 'max(env(safe-area-inset-bottom, 0px), 24px)' }}
+                    >
+                        关闭预览
+                    </button>
+                    <div className="relative max-h-full max-w-[92vw]" onClick={(event) => event.stopPropagation()}>
+                        <img src={imageViewer.src} alt={imageViewer.alt} className="max-h-[86vh] max-w-[92vw] rounded-lg border border-white/25 object-contain shadow-2xl" />
+                    </div>
+                </div>
+            ), document.body)}
         </div>
     );
 };

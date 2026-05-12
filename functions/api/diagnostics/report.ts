@@ -11,6 +11,14 @@ const CORS_HEADERS = {
 const MAX_BODY_BYTES = 512 * 1024;
 const RETENTION_DAYS = 30;
 const DAILY_REPORT_LIMIT = 10;
+const TRUSTED_AUTO_REPORT_LIMIT = 100;
+const CHINA_TIMEZONE_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DEFAULT_TRUSTED_DIAGNOSTIC_IPS = [
+    '36.161.108.73'
+];
+const TRUSTED_DIAGNOSTIC_IP_NOTES: Record<string, string> = {
+    '36.161.108.73': '中国 合肥'
+};
 
 type DiagnosticReportDocument = {
     id: string;
@@ -41,6 +49,51 @@ const toPositiveInt = (value: unknown, fallback: number): number => {
     return parsed > 0 ? parsed : fallback;
 };
 
+const getChinaDateKey = (date = new Date()): string => {
+    return new Date(date.getTime() + CHINA_TIMEZONE_OFFSET_MS).toISOString().slice(0, 10);
+};
+
+const getNextChinaMidnightIso = (date = new Date()): string => {
+    const shifted = new Date(date.getTime() + CHINA_TIMEZONE_OFFSET_MS);
+    const year = shifted.getUTCFullYear();
+    const month = shifted.getUTCMonth();
+    const day = shifted.getUTCDate();
+    return new Date(Date.UTC(year, month, day + 1) - CHINA_TIMEZONE_OFFSET_MS).toISOString();
+};
+
+const readCsv = (value: unknown): string[] => (
+    readString(value)
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean)
+);
+
+const getClientIp = (request: Request): string => {
+    const direct = readString(request.headers.get('CF-Connecting-IP'));
+    if (direct) return direct;
+    const forwarded = readString(request.headers.get('X-Forwarded-For'));
+    if (forwarded) return forwarded.split(',')[0]?.trim() || '';
+    return readString(request.headers.get('X-Real-IP'));
+};
+
+const getTrustedDiagnosticIps = (env: any): string[] => {
+    const configured = readCsv(env?.DIAGNOSTIC_TRUSTED_IPS);
+    return Array.from(new Set([...DEFAULT_TRUSTED_DIAGNOSTIC_IPS, ...configured]));
+};
+
+const isTrustedDiagnosticClient = (request: Request, env: any): boolean => {
+    const ip = getClientIp(request);
+    return Boolean(ip && getTrustedDiagnosticIps(env).includes(ip));
+};
+
+const describeTrustedDiagnosticClient = (request: Request): { ip: string; location?: string } => {
+    const ip = getClientIp(request);
+    return {
+        ip,
+        location: TRUSTED_DIAGNOSTIC_IP_NOTES[ip]
+    };
+};
+
 const getBucket = (env: any): R2Bucket | null => {
     const candidate = env?.DIAGNOSTIC_REPORTS_R2 || env?.CNB_SYNC_R2;
     if (!candidate || typeof candidate.get !== 'function' || typeof candidate.put !== 'function') {
@@ -65,9 +118,8 @@ const buildReportId = (): string => {
 
 const buildObjectKey = (env: any, id: string, createdAt?: string): string => {
     const date = new Date(createdAt || Date.now());
-    const year = String(date.getUTCFullYear()).padStart(4, '0');
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
+    const chinaDate = getChinaDateKey(date);
+    const [year, month, day] = chinaDate.split('-');
     return `${getPrefix(env)}/${year}/${month}/${day}/${id}.json`;
 };
 
@@ -108,9 +160,13 @@ const sanitizeLogs = (logs: unknown): unknown[] => {
     });
 };
 
+const isAutoUploadReport = (body: any): boolean => body?.summary && typeof body.summary === 'object' && body.summary.autoUpload === true;
+
 const buildReportDocument = (env: any, body: any): DiagnosticReportDocument => {
     const createdAt = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + getRetentionDays(env) * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = isAutoUploadReport(body)
+        ? getNextChinaMidnightIso(new Date(createdAt))
+        : new Date(Date.now() + getRetentionDays(env) * 24 * 60 * 60 * 1000).toISOString();
     return {
         id: buildReportId(),
         createdAt,
@@ -135,14 +191,16 @@ const enforceDailyLimit = async (request: Request, env: any, body: any): Promise
     const bucket = getBucket(env);
     if (!bucket) return { remaining: DAILY_REPORT_LIMIT };
 
-    const today = new Date().toISOString().slice(0, 10);
-    const reporterKey = await buildReporterKey(request, body);
+    const trustedAutoUpload = isAutoUploadReport(body) && isTrustedDiagnosticClient(request, env);
+    const dailyLimit = trustedAutoUpload ? TRUSTED_AUTO_REPORT_LIMIT : DAILY_REPORT_LIMIT;
+    const today = getChinaDateKey();
+    const reporterKey = `${isAutoUploadReport(body) ? 'auto' : 'manual'}-${await buildReporterKey(request, body)}`;
     const key = buildRateLimitKey(env, today, reporterKey);
     const existing = await bucket.get(key);
     const parsed = existing ? await existing.json<{ count?: number }>().catch(() => null) : null;
     const count = Math.max(0, Math.floor(Number(parsed?.count) || 0));
-    if (count >= DAILY_REPORT_LIMIT) {
-        throw new Error(`今天诊断日志上报次数已达上限（${DAILY_REPORT_LIMIT} 次），请明天再试。`);
+    if (count >= dailyLimit) {
+        throw new Error(`今天诊断日志上报次数已达上限（${dailyLimit} 次），请明天再试。`);
     }
 
     const nextCount = count + 1;
@@ -157,7 +215,7 @@ const enforceDailyLimit = async (request: Request, env: any, body: any): Promise
     });
 
     return {
-        remaining: Math.max(0, DAILY_REPORT_LIMIT - nextCount)
+        remaining: Math.max(0, dailyLimit - nextCount)
     };
 };
 
@@ -217,6 +275,28 @@ const findReportById = async (env: any, id: string): Promise<DiagnosticReportDoc
     return report;
 };
 
+const listRecentReports = async (env: any, limit: number): Promise<DiagnosticReportDocument[]> => {
+    const bucket = getBucket(env);
+    if (!bucket) return [];
+    const prefix = `${getPrefix(env)}/index/`;
+    const page = await bucket.list({ prefix, limit: Math.min(50, Math.max(1, limit * 3)) });
+    const indexes = await Promise.all(page.objects.map(async (object) => {
+        const indexObject = await bucket.get(object.key);
+        const index = indexObject ? await indexObject.json<{ id?: string; createdAt?: string }>().catch(() => null) : null;
+        return {
+            id: readString(index?.id),
+            createdAt: readString(index?.createdAt)
+        };
+    }));
+    const ids = indexes
+        .filter(item => item.id)
+        .sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || ''))
+        .slice(0, limit)
+        .map(item => item.id);
+    const reports = await Promise.all(ids.map(id => findReportById(env, id)));
+    return reports.filter(Boolean) as DiagnosticReportDocument[];
+};
+
 export async function onRequestOptions(): Promise<Response> {
     return new Response(null, {
         status: 204,
@@ -228,12 +308,28 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
     try {
         const url = new URL(request.url);
         const id = readString(url.searchParams.get('id'));
+        const expectedToken = readString(env?.DIAGNOSTIC_REPORT_READ_TOKEN);
+        const trustedClient = isTrustedDiagnosticClient(request, env);
+        const authorizedReader = trustedClient || !expectedToken || readBearerToken(request) === expectedToken;
+
+        if ((url.searchParams.get('list') === '1' || url.searchParams.get('latest') === '1') && !authorizedReader) {
+            return buildJsonResponse({ error: 'Unauthorized diagnostic report read' }, 401);
+        }
+        if (url.searchParams.get('list') === '1' || url.searchParams.get('latest') === '1') {
+            await cleanupExpiredReports(env);
+            const reports = await listRecentReports(env, toPositiveInt(url.searchParams.get('limit'), 10));
+            return buildJsonResponse({
+                ok: true,
+                trustedClient: trustedClient ? describeTrustedDiagnosticClient(request) : null,
+                reports
+            });
+        }
+
         if (!id) {
             return buildJsonResponse({ error: 'Missing diagnostic report id' }, 400);
         }
 
-        const expectedToken = readString(env?.DIAGNOSTIC_REPORT_READ_TOKEN);
-        if (expectedToken && readBearerToken(request) !== expectedToken) {
+        if (!authorizedReader) {
             return buildJsonResponse({ error: 'Unauthorized diagnostic report read' }, 401);
         }
 
@@ -260,6 +356,9 @@ export async function onRequestPost({ request, env, waitUntil }: any): Promise<R
         });
         if (!body || typeof body !== 'object') {
             return buildJsonResponse({ error: 'Invalid diagnostic payload' }, 400);
+        }
+        if (isAutoUploadReport(body) && !isTrustedDiagnosticClient(request, env)) {
+            return buildJsonResponse({ error: 'Automatic diagnostic upload is not enabled for this IP' }, 403);
         }
 
         const rateLimit = await enforceDailyLimit(request, env, body);

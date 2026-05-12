@@ -1,6 +1,6 @@
 import type { 角色数据结构, 角色金钱 } from '../models/character';
 import type { 游戏物品, 物品品质, 物品类型 } from '../models/item';
-import type { GameResponse } from '../types';
+import { 获取默认拍卖物品图片档案 } from '../data/defaultAuctionItemImages';
 import { recordDiagnosticLog } from './diagnosticLog';
 
 export type 拍卖品状态 = '上架中' | '已成交' | '已下架';
@@ -61,12 +61,6 @@ export interface 拍卖行事件投放参数 {
     有效天数?: number;
 }
 
-export interface 拍卖行剧情桥接结果 {
-    shouldDispatch: boolean;
-    reason: string;
-    params?: 拍卖行事件投放参数;
-}
-
 export interface 拍卖行状态 {
     拍卖品列表: 拍卖品记录[];
     交易记录: Array<拍卖品记录 | 交易记录>;
@@ -108,7 +102,6 @@ const 模板池: Array<{
     { 名称: '回春散', 类型: '消耗品', 品质: '凡品', 描述: '寻常药铺也不常备的小包伤药。', 标签: ['疗伤急需', '药市热卖'], 价格: 220 },
     { 名称: '寒潭玄铁屑', 类型: '材料', 品质: '上品', 描述: '据说取自北地寒潭边的废炉残料。', 标签: ['工坊抢料', '矿料见涨'], 价格: 4200, 主线类型: '秘境线' },
     { 名称: '残页·归云步', 类型: '秘籍', 品质: '上品', 描述: '纸页残缺，却仍能看出轻身法门的影子。', 标签: ['门中旧藏', '抄本暗流'], 价格: 6500, 主线类型: '宗门线' },
-    { 名称: '旧案铜牌', 类型: '杂物', 品质: '凡品', 描述: '背面刻着已经模糊的衙门押记。', 标签: ['线索热货', '旧案余波'], 价格: 360, 主线类型: '官府线' },
     { 名称: '乌金软甲', 类型: '防具', 品质: '极品', 描述: '入手微沉，甲片细密，像是大派内库流出的东西。', 标签: ['秘境余热', '护命刚需'], 价格: 18800, 主线类型: '秘境线' },
     { 名称: '无名刀谱拓本', 类型: '秘籍', 品质: '极品', 描述: '拓本刀意森寒，边角有新近翻阅痕迹。', 标签: ['黑市热单', '传承逸散'], 价格: 22000, 主线类型: '江湖线' },
     { 名称: '南荒毒砂', 类型: '材料', 品质: '良品', 描述: '密封在竹筒中，开封便有辛辣气味。', 标签: ['来路不净', '药师争货'], 价格: 1300 },
@@ -122,7 +115,7 @@ const 行情模板: Array<Omit<拍卖行情, 'ID' | '过期时间'>> = [
     { 标题: '药市缺货', 描述: '几家药铺同时收购伤药，消耗品价格顺势抬头。', 影响类型: '消耗品', 价格倍率: 1.22, 热点标签: '药市缺货' },
     { 标题: '工坊抢料', 描述: '铸坊接了大单，玄铁、毒砂等材料挂出便有人问价。', 影响类型: '材料', 价格倍率: 1.2, 热点标签: '工坊抢料' },
     { 标题: '宗门搜书', 描述: '几处宗门暗中寻访旧谱，秘籍类货品行情见涨。', 影响类型: '秘籍', 价格倍率: 1.25, 热点标签: '宗门搜书' },
-    { 标题: '雅玩回落', 描述: '富户收手观望，饰品与杂物更容易压价成交。', 影响类型: '全部', 价格倍率: 0.92, 热点标签: '雅玩回落' },
+    { 标题: '雅玩回落', 描述: '富户收手观望，饰品与旧玩更容易压价成交。', 影响类型: '饰品', 价格倍率: 0.92, 热点标签: '雅玩回落' },
 ];
 
 const 随机ID = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -132,6 +125,28 @@ const 读数 = (value: unknown, fallback = 0) => {
 };
 const 取数量 = (item: any) => Math.max(1, Math.floor(读数(item?.堆叠数量, 1)));
 const 是否装备类 = (type: unknown) => type === '武器' || type === '防具' || type === '饰品';
+const 是否允许自动拍卖行入市类型 = (type: unknown): boolean => (
+    type === '武器' || type === '防具' || type === '饰品' || type === '消耗品' || type === '材料' || type === '秘籍'
+);
+const 是否旧系统兜底拍卖品 = (entry: any): boolean => (
+    typeof entry?.卖家ID === 'string'
+    && entry.卖家ID.startsWith('system_')
+);
+const 规范化合并键文本 = (value: unknown) => (
+    typeof value === 'string'
+        ? value.replace(/\s+/g, '').replace(/[·\-—_]/g, '').trim()
+        : ''
+);
+const 生成拍卖物品合并键 = (item: any) => [
+    规范化合并键文本(item?.名称 || '无名物品'),
+    规范化合并键文本(item?.类型 || '杂物'),
+    规范化合并键文本(item?.品质 || '凡品')
+].join('|');
+const 是否可合并同类拍卖物品 = (item: any): boolean => (
+    item?.是否可堆叠 === true
+    || item?.类型 === '消耗品'
+    || item?.类型 === '材料'
+);
 const 读文本 = (value: unknown, fallback = '') => (typeof value === 'string' && value.trim() ? value.trim() : fallback);
 const 限制品质 = (value: unknown, fallback: 物品品质 = '上品'): 物品品质 => (
     value === '凡品' || value === '良品' || value === '上品' || value === '极品' || value === '绝世' || value === '传说'
@@ -250,7 +265,7 @@ const 规范化拍卖行状态 = (parsed: Partial<拍卖行状态> | null | unde
     最近补货时间: 读数(parsed?.最近补货时间),
     行情列表: Array.isArray(parsed?.行情列表) ? parsed.行情列表 : [],
     最近行情时间: 读数(parsed?.最近行情时间),
-});
+}, { 允许系统补货: false }); // 读取时不自动补货，等待剧情触发
 
 const 创建空拍卖行状态 = (): 拍卖行状态 => ({
     拍卖品列表: [],
@@ -261,15 +276,15 @@ const 创建空拍卖行状态 = (): 拍卖行状态 => ({
 });
 
 export const 读取拍卖行状态 = (scope?: string): 拍卖行状态 => {
-    if (typeof window === 'undefined') return 清理并补货(创建空拍卖行状态());
+    if (typeof window === 'undefined') return 清理并补货(创建空拍卖行状态(), { 允许系统补货: false });
     try {
         const scopedKey = 获取拍卖行存储键(scope);
         const raw = window.localStorage.getItem(scopedKey);
-        if (!raw) return 清理并补货(创建空拍卖行状态());
+        if (!raw) return 清理并补货(创建空拍卖行状态(), { 允许系统补货: false });
         const parsed = JSON.parse(raw) as Partial<拍卖行状态>;
         return 规范化拍卖行状态(parsed);
     } catch {
-        return 清理并补货(创建空拍卖行状态());
+        return 清理并补货(创建空拍卖行状态(), { 允许系统补货: false });
     }
 };
 
@@ -278,7 +293,7 @@ export const 保存拍卖行状态 = (state: 拍卖行状态, scope?: string) =>
     window.localStorage.setItem(获取拍卖行存储键(scope), JSON.stringify(state));
 };
 
-export const 创建默认拍卖行状态 = (): 拍卖行状态 => 清理并补货(创建空拍卖行状态());
+export const 创建默认拍卖行状态 = (): 拍卖行状态 => 清理并补货(创建空拍卖行状态(), { 允许系统补货: false }); // 新档不自动补货
 
 export const 生成行情列表 = (force = false, previous: 拍卖行情[] = [], previousTime = 0): { 行情列表: 拍卖行情[]; 最近行情时间: number } => {
     const now = Date.now();
@@ -298,26 +313,53 @@ export const 生成行情列表 = (force = false, previous: 拍卖行情[] = [],
     };
 };
 
-export const 清理并补货 = (state: 拍卖行状态): 拍卖行状态 => {
+export const 清理并补货 = (state: 拍卖行状态, options?: { 允许系统补货?: boolean }): 拍卖行状态 => {
     const now = Date.now();
     const 行情 = 生成行情列表(false, state.行情列表 || [], state.最近行情时间);
-    const cleaned = (state.拍卖品列表 || []).map((entry) => (
-        entry.状态 === '上架中' && entry.过期时间 < now
-            ? { ...entry, 状态: '已下架' as const }
-            : entry
-    ));
+    const cleaned = (state.拍卖品列表 || [])
+        .filter((entry) => !是否旧系统兜底拍卖品(entry))
+        .map((entry) => (
+            entry.状态 === '上架中' && entry.过期时间 < now
+                ? { ...entry, 状态: '已下架' as const }
+                : entry
+        ));
+    
+    // 统计当前在售拍品数量
     const activeCount = cleaned.filter((entry) => entry.状态 === '上架中').length;
-    const shouldRestock = activeCount <= 0 || (activeCount < 12 && now - 读数(state.最近补货时间) > 4 * HOUR_MS);
-    const restocked = shouldRestock
-        ? [
-            ...cleaned,
-            ...Array.from({ length: Math.max(0, 18 - activeCount) }, () => 生成系统拍卖品(行情.行情列表))
-        ]
-        : cleaned;
+    
+    // 只有明确允许系统补货时才补充兜底拍品
+    // 新档初始化时不应该有系统拍品，应该等待剧情触发
+    const shouldGenerateSystem = options?.允许系统补货 === true && activeCount < 12;
+    const targetCount = 12;
+    const needToGenerate = shouldGenerateSystem ? Math.max(0, targetCount - activeCount) : 0;
+    
+    // 生成系统拍品时检查去重，避免同名同品质物品重复
+    const existingKeys = new Set(
+        cleaned
+            .filter((entry) => entry.状态 === '上架中')
+            .map((entry) => 生成拍卖物品合并键(entry.物品))
+    );
+    
+    const newSystemAuctions: 拍卖品记录[] = [];
+    let attempts = 0;
+    const maxAttempts = needToGenerate * 3; // 最多尝试3倍次数
+    
+    while (newSystemAuctions.length < needToGenerate && attempts < maxAttempts) {
+        attempts++;
+        const auction = 生成系统拍卖品(行情.行情列表);
+        const key = 生成拍卖物品合并键(auction.物品);
+        
+        // 检查是否已存在相同物品
+        if (!existingKeys.has(key)) {
+            existingKeys.add(key);
+            newSystemAuctions.push(auction);
+        }
+    }
+    
     return {
         ...state,
-        拍卖品列表: restocked.slice(0, 90),
-        最近补货时间: shouldRestock ? now : 读数(state.最近补货时间),
+        拍卖品列表: [...cleaned, ...newSystemAuctions].slice(0, 90),
+        最近补货时间: newSystemAuctions.length > 0 ? now : 读数(state.最近补货时间),
         行情列表: 行情.行情列表,
         最近行情时间: 行情.最近行情时间,
     };
@@ -354,6 +396,7 @@ export const 生成系统拍卖品 = (行情列表: 拍卖行情[] = []): 拍卖
         当前耐久: template.类型 === '消耗品' ? 0 : 100,
         最大耐久: template.类型 === '消耗品' ? 0 : 100,
         词条列表: [],
+        图片档案: 获取默认拍卖物品图片档案(template.名称),
     };
     const seller = ['万宝牙行', '南市老铺', '过路镖客', '青衣掮客', '六扇门暗桩'][Math.floor(Math.random() * 5)];
     return {
@@ -441,16 +484,61 @@ export const 创建事件拍卖品 = (params: 拍卖行事件投放参数): 拍�
 };
 
 export const 投放事件拍卖品 = (state: 拍卖行状态, params: 拍卖行事件投放参数): 拍卖行状态 => {
-    const cleaned = 清理并补货(state);
+    const cleaned = 清理并补货(state, { 允许系统补货: true }); // 剧情触发时允许补货
     const auction = 创建事件拍卖品(params);
-    const duplicateKey = `${auction.关联事件 || ''}|${auction.物品?.名称 || ''}`;
-    const alreadyExists = (cleaned.拍卖品列表 || []).some((entry) => (
-        `${entry.关联事件 || ''}|${entry.物品?.名称 || ''}` === duplicateKey && entry.状态 === '上架中'
+    if (!是否允许自动拍卖行入市类型(auction.物品?.类型)) {
+        recordDiagnosticLog('info', ['拍卖行事件投放已拦截', auction.物品?.名称 || '', auction.物品?.类型 || '', '非自动入市类型']);
+        return cleaned;
+    }
+    const duplicateKey = 生成拍卖物品合并键(auction.物品);
+    const activeList = cleaned.拍卖品列表 || [];
+    const duplicateIndex = activeList.findIndex((entry) => (
+        entry.状态 === '上架中'
+        && 生成拍卖物品合并键(entry.物品) === duplicateKey
     ));
-    if (alreadyExists) return cleaned;
+    if (duplicateIndex >= 0) {
+        const existing = activeList[duplicateIndex];
+        if (!是否可合并同类拍卖物品(existing?.物品) && !是否可合并同类拍卖物品(auction?.物品)) {
+            return cleaned;
+        }
+        const existingCount = 取数量(existing.物品);
+        const incomingCount = 取数量(auction.物品);
+        const nextCount = existingCount + incomingCount;
+        const existingUnitPrice = Math.max(1, Math.floor(读数(existing.一口价, existing.当前价格) / existingCount));
+        const incomingUnitPrice = Math.max(1, Math.floor(读数(auction.一口价, auction.当前价格) / incomingCount));
+        const mergedUnitPrice = Math.max(1, Math.floor((existingUnitPrice + incomingUnitPrice) / 2));
+        const mergedPrice = Math.max(1, mergedUnitPrice * nextCount);
+        const mergedEntry: 拍卖品记录 = {
+            ...existing,
+            物品: {
+                ...existing.物品,
+                堆叠数量: nextCount,
+                是否可堆叠: true,
+                最大堆叠: Math.max(读数(existing.物品?.最大堆叠, 99), nextCount),
+                价值: mergedPrice
+            },
+            起拍价: Math.max(1, Math.floor(mergedPrice * 0.7)),
+            一口价: mergedPrice,
+            当前价格: Math.max(1, Math.floor(mergedPrice * 0.7)),
+            过期时间: Math.max(读数(existing.过期时间), 读数(auction.过期时间)),
+            市场标签: Array.from(new Set([...(existing.市场标签 || []), ...(auction.市场标签 || [])])),
+            来源描述: existing.来源描述 || auction.来源描述,
+            是否限时热点: existing.是否限时热点 || auction.是否限时热点,
+        };
+        const nextList = [...activeList];
+        nextList[duplicateIndex] = mergedEntry;
+        return {
+            ...cleaned,
+            拍卖品列表: nextList.slice(0, 90),
+            交易记录: [
+                创建交易记录('事件投放', '同类货品合并', `「${mergedEntry.物品?.名称 || '无名物品'}」已有同类拍品，已合并为 ${nextCount} 件一组。`),
+                ...(cleaned.交易记录 || []),
+            ].slice(0, 40),
+        };
+    }
     return {
         ...cleaned,
-        拍卖品列表: [auction, ...(cleaned.拍卖品列表 || [])].slice(0, 90),
+        拍卖品列表: [auction, ...activeList].slice(0, 90),
         交易记录: [
             创建交易记录('事件投放', '事件货品入市', `「${auction.物品?.名称 || '无名物品'}」因「${params.事件名称}」流入拍卖行。`),
             ...(cleaned.交易记录 || []),
@@ -465,97 +553,49 @@ export const 投放事件拍卖品并保存 = (params: 拍卖行事件投放参�
     return next;
 };
 
-const 提取响应文本 = (response: GameResponse): string => {
-    const logsText = Array.isArray(response?.logs)
-        ? response.logs.map((log) => `${log?.sender || '旁白'}：${log?.text || ''}`).join('\n')
-        : '';
-    return [
-        logsText,
-        Array.isArray(response?.dynamic_world) ? response.dynamic_world.join('\n') : '',
-        response?.shortTerm || '',
-        response?.t_state || '',
-        response?.t_branch || ''
-    ].filter(Boolean).join('\n').trim();
-};
+/**
+ * 从世界势力互动中投放物品到拍卖行。
+ * 读取 `世界.拍卖行待投放物品` 缓冲区，将物品转化为拍卖品记录并清空缓冲区。
+ */
+export const 从势力互动投放拍卖品 = (
+    state: 拍卖行状态,
+    pendingItems: Array<{ 名称: string; 类型: string; 品质: string; 描述?: string; 来源势力?: string; 事件摘要?: string }>,
+    options?: { scope?: string }
+): 拍卖行状态 => {
+    if (!Array.isArray(pendingItems) || pendingItems.length === 0) return state;
 
-const 猜测主线类型 = (text: string): 主线流向 | undefined => {
-    if (/秘境|遗迹|古墓|洞府|宝库|机关|残卷/u.test(text)) return '秘境线';
-    if (/官府|悬赏|缉拿|捕快|衙门|朝廷|军械/u.test(text)) return '官府线';
-    if (/宗门|门派|师门|藏经|传承|掌门/u.test(text)) return '宗门线';
-    if (/江湖|黑市|镖局|客栈|帮会|散修/u.test(text)) return '江湖线';
-    return undefined;
-};
-
-const 猜测物品类型 = (text: string): 物品类型 => {
-    if (/剑|刀|枪|弓|兵刃|武器/u.test(text)) return '武器';
-    if (/甲|衣|护腕|护符|防具/u.test(text)) return '防具';
-    if (/丹|药|酒|符|消耗/u.test(text)) return '消耗品';
-    if (/矿|木|铁|砂|材料/u.test(text)) return '材料';
-    if (/秘籍|残卷|功法|心法|拓本/u.test(text)) return '秘籍';
-    if (/佩|簪|玉|珠|戒|饰/u.test(text)) return '饰品';
-    return '杂物';
-};
-
-const 猜测物品品质 = (text: string): 物品品质 => {
-    if (/传说|神兵|天阶|绝代/u.test(text)) return '传说';
-    if (/绝世|孤本|秘藏|镇派/u.test(text)) return '绝世';
-    if (/极品|上乘|珍品|稀世/u.test(text)) return '极品';
-    if (/上品|精良|罕见/u.test(text)) return '上品';
-    if (/良品|不错/u.test(text)) return '良品';
-    return '上品';
-};
-
-export const 从剧情响应构建拍卖行投放参数 = (response: GameResponse, context?: { gameTime?: string; place?: string }): 拍卖行剧情桥接结果 => {
-    const text = 提取响应文本(response);
-    if (!text) return { shouldDispatch: false, reason: '本回合无可分析文本' };
-    const auctionIntent = /拍卖行|牙行|黑市|寄售|流入市面|市面流通|有人出货|暗中兜售|悬赏流出|任务奖励|稀有物|秘宝|残卷/u.test(text);
-    const rareIntent = /传说|绝世|极品|稀世|孤本|镇派|秘藏|神兵|残卷|宝库|遗迹/u.test(text);
-
-    const mainline = 猜测主线类型(text);
-    const type = 猜测物品类型(text);
-    const quality = 猜测物品品质(text);
-    const eventName = [
-        context?.gameTime,
-        context?.place,
-        mainline || '江湖风闻'
-    ].filter(Boolean).join(' · ') || `江湖风闻 ${Date.now().toString(36)}`;
-    const namePrefix = mainline === '秘境线' ? '秘境遗物'
-        : mainline === '官府线' ? '悬赏旧物'
-            : mainline === '宗门线' ? '宗门旧藏'
-                : '江湖暗货';
-    const locationPrefix = 读文本(context?.place, '本地');
-    const clueName = (text.match(/「([^」]{2,14})」/u)?.[1] || text.match(/“([^”]{2,14})”/u)?.[1] || '').trim();
-    const itemName = clueName
-        ? `${locationPrefix}·${clueName}`
-        : `${locationPrefix}·${namePrefix}`;
-    const priceBase = quality === '传说' ? 88000
-        : quality === '绝世' ? 52000
-            : quality === '极品' ? 24000
-                : quality === '上品' ? 8200
-                    : 2600;
-
-    return {
-        shouldDispatch: true,
-        reason: auctionIntent ? '命中拍卖行/市场投放语义' : rareIntent ? '命中稀有物语义' : '按本回合剧情变量生成市场货品',
-        params: {
+    let nextState = { ...state };
+    for (const item of pendingItems) {
+        if (!item.名称 || !item.类型) continue;
+        const eventName = item.事件摘要 || `势力流通 · ${item.名称}`;
+        const 来源描述 = item.来源势力
+            ? `因「${item.事件摘要 || '势力互动'}」从${item.来源势力}流出`
+            : `势力互动流出`;
+        nextState = 投放事件拍卖品(nextState, {
             事件名称: eventName,
-            来源描述: `由本回合剧情线索自然流入市场：${text.slice(0, 120)}`,
-            主线类型: mainline,
-            卖家名称: mainline === '官府线' ? '悬赏牙人' : mainline === '宗门线' ? '宗门掮客' : '江湖掮客',
+            来源描述,
+            主线类型: '江湖线',
+            卖家名称: item.来源势力 || '江湖散货',
+            卖家ID: `faction_${(item.来源势力 || 'unknown').replace(/\s/g, '_')}`,
             物品: {
-                名称: itemName,
-                类型: type,
-                品质: quality,
-                描述: `受本回合剧情、地点与人物动向牵动而流入拍卖行的${quality}${type}，线索来自：${text.slice(0, 80)}。`,
-                价值: priceBase
+                名称: item.名称,
+                类型: item.类型 as any,
+                品质: item.品质 as any,
+                描述: item.描述 || `${item.名称}，来自势力流通。`,
+                堆叠数量: 1,
             },
-            市场标签: ['剧情流入', context?.place || '', mainline || '', quality].filter(Boolean),
-            价格倍率: auctionIntent ? 1.12 : rareIntent ? 1.28 : 1.04,
-            是否限时热点: rareIntent,
-            有效天数: rareIntent ? 2 : 4
-        }
-    };
+            市场标签: ['势力流通'],
+            有效天数: 7,
+        });
+    }
+
+    if (options?.scope) {
+        保存拍卖行状态(nextState, options.scope);
+    }
+    recordDiagnosticLog('info', ['拍卖行势力互动投放', `${pendingItems.length}件物品`]);
+    return nextState;
 };
+
 
 export const 创建玩家拍卖品 = (character: 角色数据结构, item: 游戏物品, price: number, currency: 拍卖货币 = '铜钱'): 拍卖品记录 => ({
     ID: 随机ID('auction'),

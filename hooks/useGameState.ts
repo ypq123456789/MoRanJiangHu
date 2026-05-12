@@ -95,6 +95,16 @@ export const useGameState = () => {
         },
         物品列表: [],
         功法列表: [],
+        技艺: [
+            { 名称: '炼器', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+            { 名称: '炼丹', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+            { 名称: '医术', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+            { 名称: '阵法', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+            { 名称: '符箓', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+            { 名称: '机关', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+            { 名称: '采集', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+            { 名称: '鉴定', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' }
+        ],
         当前经验: 0,
         升级经验: 0,
         玩家BUFF: [],
@@ -165,6 +175,7 @@ export const useGameState = () => {
     const [showSocial, setShowSocial] = useState(false);
     const [showTeam, setShowTeam] = useState(false); 
     const [showKungfu, setShowKungfu] = useState(false);
+    const [showSkills, setShowSkills] = useState(false);
     const [showWorld, setShowWorld] = useState(false); 
     const [showMap, setShowMap] = useState(false);
     const [showSect, setShowSect] = useState(false);
@@ -197,6 +208,9 @@ export const useGameState = () => {
         重要角色关键记忆条数N: 20,
         NPC记忆总结阈值: 20,
         即时消息上传条数N: 10,
+        剧情回忆检索基础超时秒数: 25,
+        剧情回忆检索每10回合追加秒数: 6,
+        剧情回忆检索最大超时秒数: 180,
         短期转中期提示词: 默认短期转中期提示词,
         中期转长期提示词: 默认中期转长期提示词,
         NPC记忆总结提示词: 默认NPC记忆总结提示词
@@ -209,6 +223,9 @@ export const useGameState = () => {
         重要角色关键记忆条数N: Math.max(1, Number(raw?.重要角色关键记忆条数N ?? 默认记忆配置.重要角色关键记忆条数N) || 默认记忆配置.重要角色关键记忆条数N),
         NPC记忆总结阈值: Math.max(5, Number(raw?.NPC记忆总结阈值 ?? 默认记忆配置.NPC记忆总结阈值) || 默认记忆配置.NPC记忆总结阈值),
         即时消息上传条数N: Math.max(1, Number(raw?.即时消息上传条数N ?? 默认记忆配置.即时消息上传条数N) || 默认记忆配置.即时消息上传条数N),
+        剧情回忆检索基础超时秒数: Math.max(5, Number(raw?.剧情回忆检索基础超时秒数 ?? 默认记忆配置.剧情回忆检索基础超时秒数) || 默认记忆配置.剧情回忆检索基础超时秒数),
+        剧情回忆检索每10回合追加秒数: Math.max(0, Number(raw?.剧情回忆检索每10回合追加秒数 ?? 默认记忆配置.剧情回忆检索每10回合追加秒数) || 默认记忆配置.剧情回忆检索每10回合追加秒数),
+        剧情回忆检索最大超时秒数: Math.max(10, Number(raw?.剧情回忆检索最大超时秒数 ?? 默认记忆配置.剧情回忆检索最大超时秒数) || 默认记忆配置.剧情回忆检索最大超时秒数),
         NPC记忆总结提示词: typeof raw?.NPC记忆总结提示词 === 'string' && raw.NPC记忆总结提示词.trim().length > 0
             ? raw.NPC记忆总结提示词
             : 默认记忆配置.NPC记忆总结提示词
@@ -257,6 +274,9 @@ export const useGameState = () => {
         checkSaves();
     }, [view]);
 
+    // 在初始化读取 savedTheme 之前，避免把内存默认值 'day' 写回 IDB 覆盖用户已保存的主题
+    const 主题持久化就绪Ref = useRef(false);
+
     // Init Settings
     useEffect(() => {
         const init = async () => {
@@ -294,6 +314,9 @@ export const useGameState = () => {
                 if (savedMemoryConfig) setMemoryConfig(规范化记忆配置(savedMemoryConfig as Partial<记忆配置结构>));
 
             } catch (e) { console.error(e); }
+            finally {
+                主题持久化就绪Ref.current = true;
+            }
         };
         init();
     }, []);
@@ -332,7 +355,11 @@ export const useGameState = () => {
     // Theme Application
     useEffect(() => {
         应用主题到根元素(currentTheme, document.documentElement);
-        dbService.保存设置(设置键.应用主题, currentTheme);
+        // 关键：只有在 init 从 IDB 读出 savedTheme 之后，才允许把 currentTheme 写回 IDB。
+        // 否则首次挂载时内存默认值 'day' 会抢先覆盖用户已持久化的主题，导致"主题保存不上"。
+        if (主题持久化就绪Ref.current) {
+            dbService.保存设置(设置键.应用主题, currentTheme);
+        }
     }, [currentTheme]);
 
     return {
@@ -365,6 +392,7 @@ export const useGameState = () => {
         showSocial, setShowSocial,
         showTeam, setShowTeam,
         showKungfu, setShowKungfu,
+        showSkills, setShowSkills,
         showWorld, setShowWorld,
         showMap, setShowMap,
         showSect, setShowSect,

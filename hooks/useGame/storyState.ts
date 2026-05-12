@@ -56,6 +56,10 @@ const 门派职位贡献门槛: Record<string, number> = {
 const 标准门派职位列表 = Object.keys(职位等级排序);
 
 const 补全门派职位 = (source: any, totalContribution = 0, fallback = '无'): string => {
+    let contributionRank = totalContribution > 0 ? '杂役弟子' : '无';
+    Object.entries(门派职位贡献门槛).forEach(([rank, required]) => {
+        if (totalContribution >= required) contributionRank = rank;
+    });
     const candidates = [
         source?.玩家职位,
         source?.门派职位,
@@ -66,17 +70,19 @@ const 补全门派职位 = (source: any, totalContribution = 0, fallback = '无'
         fallback,
     ].map((item) => 取文本(item)).filter(Boolean);
     const exact = candidates.find((item) => 标准门派职位列表.includes(item));
-    if (exact) return exact;
+    if (exact) {
+        return (职位等级排序[contributionRank] || 0) > (职位等级排序[exact] || 0) ? contributionRank : exact;
+    }
     const matched = candidates
         .map((item) => 标准门派职位列表.find((rank) => item.includes(rank)))
         .find(Boolean);
-    if (matched) return matched;
-    if (fallback !== '无') return fallback;
-    let inferred = '杂役弟子';
-    Object.entries(门派职位贡献门槛).forEach(([rank, required]) => {
-        if (totalContribution >= required) inferred = rank;
-    });
-    return totalContribution > 0 ? inferred : '无';
+    if (matched) {
+        return (职位等级排序[contributionRank] || 0) > (职位等级排序[matched] || 0) ? contributionRank : matched;
+    }
+    if (fallback !== '无') {
+        return (职位等级排序[contributionRank] || 0) > (职位等级排序[fallback] || 0) ? contributionRank : fallback;
+    }
+    return contributionRank;
 };
 
 const 取布尔 = (value: any, fallback = false): boolean => (
@@ -195,6 +201,16 @@ export const 创建开场空白角色 = (): 角色数据结构 => ({
     },
     物品列表: [],
     功法列表: [],
+    技艺: [
+        { 名称: '炼器', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+        { 名称: '炼丹', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+        { 名称: '医术', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+        { 名称: '阵法', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+        { 名称: '符箓', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+        { 名称: '机关', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+        { 名称: '采集', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' },
+        { 名称: '鉴定', 等级: '未入门', 熟练度: 0, 描述: '尚未形成稳定技艺。' }
+    ],
     当前经验: 0,
     升级经验: 0,
     玩家BUFF: [],
@@ -567,7 +583,10 @@ export const 创建开场空白世界 = (): 世界数据结构 => ({
     地图层级: [],
     地图建筑: [],
     地图道路: [],
-    地图人物: []
+    地图人物: [],
+    势力列表: [],
+    势力互动历史: [],
+    拍卖行待投放物品: []
 });
 
 export const 规范化世界状态 = (raw?: any): 世界数据结构 => {
@@ -699,7 +718,11 @@ export const 规范化世界状态 = (raw?: any): 世界数据结构 => {
         地图层级: Array.isArray(world?.地图层级) ? world.地图层级 : [],
         地图建筑: Array.isArray(world?.地图建筑) ? world.地图建筑 : [],
         地图道路: Array.isArray(world?.地图道路) ? world.地图道路 : [],
-        地图人物: Array.isArray(world?.地图人物) ? world.地图人物 : []
+        地图人物: Array.isArray(world?.地图人物) ? world.地图人物 : [],
+        // 势力系统（旧存档兼容：缺失时默认为空数组）
+        势力列表: Array.isArray(world?.势力列表) ? world.势力列表 : [],
+        势力互动历史: Array.isArray(world?.势力互动历史) ? world.势力互动历史 : [],
+        拍卖行待投放物品: Array.isArray(world?.拍卖行待投放物品) ? world.拍卖行待投放物品 : []
     };
 
     return 补齐世界地图空间字段(normalizedWorld);

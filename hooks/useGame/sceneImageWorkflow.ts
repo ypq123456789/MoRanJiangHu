@@ -1,6 +1,7 @@
 import * as imageAIService from '../../services/ai/image';
 import type { 场景生图任务记录, 生图任务来源类型, 接口设置结构 } from '../../types';
 import { 获取词组转化器预设上下文, type 当前可用接口结构 } from '../../utils/apiConfig';
+import { 生图最大自动重试次数, 执行生图模型调用带重试 } from '../../utils/imageGenerationRetry';
 import type { PNG解析参数结构, 角色锚点结构 } from '../../models/system';
 
 type PNG画风预设摘要 = {
@@ -266,15 +267,41 @@ export const 执行场景生图工作流 = async (
                 摘要: params.摘要
             }
         }));
-        const imageResult = await imageAIService.generateImageByPrompt(生图词组, imageApiForTask, params.signal, {
-            构图: '场景',
-            场景类型,
-            附加正向提示词: 前置正向提示词,
-            附加负面提示词,
-            跳过基础负面提示词: Boolean((画师串预设?.负面提示词 || '').trim() || (PNG画风预设?.负面提示词 || '').trim()),
-            尺寸: params.尺寸,
-            PNG参数
-        });
+        const imageResult = await 执行生图模型调用带重试(
+            () => imageAIService.generateImageByPrompt(生图词组, imageApiForTask, params.signal, {
+                构图: '场景',
+                场景类型,
+                附加正向提示词: 前置正向提示词,
+                附加负面提示词,
+                跳过基础负面提示词: Boolean((画师串预设?.负面提示词 || '').trim() || (PNG画风预设?.负面提示词 || '').trim()),
+                尺寸: params.尺寸,
+                PNG参数
+            }),
+            {
+                signal: params.signal,
+                onAttempt: (attempt, totalAttempts) => {
+                    deps.更新场景生图任务(task.id, (currentTask) => ({
+                        ...currentTask,
+                        状态: 'running',
+                        重试次数: Math.max(0, attempt - 1),
+                        最大重试次数: 生图最大自动重试次数,
+                        进度阶段: 'generating',
+                        进度文本: `词组转换完成，正在生成场景快照（第 ${attempt}/${totalAttempts} 次尝试）。`
+                    }));
+                },
+                onRetry: (attempt, totalAttempts, errorMessage) => {
+                    deps.更新场景生图任务(task.id, (currentTask) => ({
+                        ...currentTask,
+                        状态: 'running',
+                        重试次数: attempt,
+                        最大重试次数: 生图最大自动重试次数,
+                        错误信息: errorMessage,
+                        进度阶段: 'generating',
+                        进度文本: `第 ${attempt}/${totalAttempts} 次场景生成失败：${errorMessage}；正在自动重试。`
+                    }));
+                }
+            }
+        );
         const localizedImageResult = await imageAIService.persistImageAssetLocally(imageResult);
         if (!当前任务允许写入()) return;
         if (!localizedImageResult.图片URL && !localizedImageResult.本地路径) {

@@ -15,7 +15,7 @@
     角色锚点特征结构,
     图片词组序列化策略类型
 } from '../models/system';
-import { 默认ComfyUI工作流JSON } from '../data/defaultComfyWorkflow';
+import { 默认ComfyUI工作流JSON, 默认NSFWComfyUI工作流JSON } from '../data/defaultComfyWorkflow';
 import { 默认文章优化提示词 } from '../prompts/runtime/defaults';
 
 export const 供应商标签: Record<接口供应商类型, string> = {
@@ -590,7 +590,7 @@ export const 默认功能模型占位: 功能模型占位配置结构 = {
     NSFW生图模型API地址: '',
     NSFW生图模型API密钥: '',
     当前NSFW图片后端发现ID: '',
-    NSFWComfyUI工作流JSON: 默认ComfyUI工作流JSON,
+    NSFWComfyUI工作流JSON: 默认NSFWComfyUI工作流JSON,
     文生图接口路径模式: 'preset',
     文生图预设接口路径: 'openai_images',
     文生图接口路径: '',
@@ -613,7 +613,7 @@ export const 默认功能模型占位: 功能模型占位配置结构 = {
     NovelAI采样器: 'k_euler_ancestral',
     NovelAI噪点表: 'karras',
     NovelAI步数: 28,
-    NovelAI负面提示词: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
+    NovelAI负面提示词: 'lowres, bad anatomy, bad hands, text, typography, letters, words, numbers, caption, label, plaque, sign, inscription, Chinese characters, English letters, calligraphy, seal, stamp, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, logo, artist name, web address, url, copyright, subtitle, subtitles, title, poster text, comic text, manga text, dialogue text, speech bubble, dialogue box, word balloon, UI overlay, date stamp, QR code, barcode, blurry',
     NPC生图使用词组转化器: true,
     词组转化兼容模式: false,
     香闺秘档特写强制裸体语义: false,
@@ -1221,7 +1221,7 @@ const 标准化功能模型占位 = (raw: any): 功能模型占位配置结构 =
         NSFW生图模型API地址: 读取字符串(raw?.NSFW生图模型API地址),
         NSFW生图模型API密钥: 读取字符串(raw?.NSFW生图模型API密钥),
         当前NSFW图片后端发现ID: 读取字符串(raw?.当前NSFW图片后端发现ID),
-        NSFWComfyUI工作流JSON: 读取字符串(raw?.NSFWComfyUI工作流JSON) || 默认ComfyUI工作流JSON,
+        NSFWComfyUI工作流JSON: 读取字符串(raw?.NSFWComfyUI工作流JSON) || 默认NSFWComfyUI工作流JSON,
         文生图接口路径模式: raw?.文生图接口路径模式 === 'custom' ? 'custom' : 'preset',
         文生图预设接口路径: raw?.文生图预设接口路径 === 'openai_chat'
             || raw?.文生图预设接口路径 === 'novelai_generate'
@@ -1753,6 +1753,18 @@ export const 获取剧情规划接口配置 = (settings: 接口设置结构): �
     return 获取规划分析接口配置(settings);
 };
 
+// ComfyUI 已发现后端缓存（前置声明，供 获取文生图接口配置 使用）
+let 已发现ComfyUI后端缓存: Array<{ url: string }> | null = null;
+let 已发现ComfyUI后端缓存时间 = 0;
+const 已发现ComfyUI后端缓存有效期 = 60_000;
+
+const 获取已发现ComfyUI后端内部 = (): Array<{ url: string }> => {
+    if (已发现ComfyUI后端缓存 && Date.now() - 已发现ComfyUI后端缓存时间 < 已发现ComfyUI后端缓存有效期) {
+        return 已发现ComfyUI后端缓存;
+    }
+    return [];
+};
+
 export const 获取文生图接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {
     const current = 获取当前接口配置(settings);
     if (!current) return null;
@@ -1769,7 +1781,14 @@ export const 获取文生图接口配置 = (settings: 接口设置结构): 当�
     const imageBaseUrl = 读取字符串(feature?.文生图模型API地址).trim();
     const imageApiKey = 读取字符串(feature?.文生图模型API密钥).trim();
     const 图片后端可复用主接口地址 = 图片后端类型 === 'openai' || 图片后端类型 === 'novelai';
-    const resolvedImageBaseUrl = imageBaseUrl || (图片后端可复用主接口地址 ? current.baseUrl : '');
+    // ComfyUI 后端：如果 API 地址为空但有已选发现后端 ID，从缓存中解析地址
+    let resolvedImageBaseUrl = imageBaseUrl || (图片后端可复用主接口地址 ? current.baseUrl : '');
+    if (!resolvedImageBaseUrl && 图片后端类型 === 'comfyui') {
+        const candidates = 获取已发现ComfyUI后端内部();
+        if (candidates.length > 0 && candidates[0].url) {
+            resolvedImageBaseUrl = candidates[0].url.replace(/\/+$/, '');
+        }
+    }
     const supplier = resolvedImageBaseUrl ? 推断供应商(resolvedImageBaseUrl) : current.供应商;
     const 图片后端需要鉴权 = 图片后端类型 === 'openai' || 图片后端类型 === 'novelai';
     const 图片接口路径模式 = feature?.文生图接口路径模式 === 'custom' ? 'custom' : 'preset';
@@ -1963,15 +1982,12 @@ const 构建NSFW兜底配置 = (settings: 接口设置结构, sharedConfig: 当�
     return null;
 };
 
-let 已发现ComfyUI后端缓存: Array<{ url: string }> | null = null;
-let 已发现ComfyUI后端缓存时间 = 0;
-const 已发现ComfyUI后端缓存有效期 = 60_000;
-
 export const 刷新已发现ComfyUI后端缓存 = async (registryUrl?: string): Promise<Array<{ url: string }>> => {
     try {
-        const { fetchDiscoveredImageBackends } = await import('../services/ai/imageBackendRegistry');
+        const { fetchDiscoveredImageBackends, sortDiscoveredImageBackendsByPreference } = await import('../services/ai/imageBackendRegistry');
         const items = await fetchDiscoveredImageBackends(registryUrl, 'comfyui');
-        已发现ComfyUI后端缓存 = items.map((item) => ({ url: item.url }));
+        已发现ComfyUI后端缓存 = sortDiscoveredImageBackendsByPreference(items, 'global')
+            .map((item) => ({ url: item.url }));
         已发现ComfyUI后端缓存时间 = Date.now();
         return 已发现ComfyUI后端缓存;
     } catch {

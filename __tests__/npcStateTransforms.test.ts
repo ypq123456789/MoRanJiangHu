@@ -34,4 +34,28 @@ describe('NPC old save compatibility', () => {
         expect(npc.当前装备.服装).not.toBe('无');
         expect(npc.背包.length).toBeGreaterThan(0);
     });
+
+    it('replaces explanatory prose in NPC equipment slots with safe item names', () => {
+        const [npc] = 规范化社交列表([
+            {
+                id: 'npc_bad_equipment_text',
+                姓名: '林婉',
+                性别: '女',
+                身份: '青云门外门弟子',
+                境界: '开脉第一重',
+                当前装备: {
+                    主武器: '根据她青云门外门弟子的身份，应该生成一柄轻便佩剑。',
+                    服装: '服装：青云门外门弟子青衫；饰品：身份腰牌',
+                    鞋履: '轻便布靴'
+                },
+                背包: []
+            }
+        ], { 合并同名: false });
+
+        expect(npc.当前装备.主武器).toBe('青云佩剑');
+        expect(npc.当前装备.服装).toBe('青云绣裙');
+        expect(npc.当前装备.鞋履).toBe('轻便布靴');
+        expect(npc.当前装备.主武器).not.toContain('根据');
+        expect(npc.当前装备.服装).not.toContain('服装：');
+    });
 });

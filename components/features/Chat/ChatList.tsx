@@ -394,7 +394,7 @@ const ChatList: React.FC<Props> = ({ history, loading, scrollRef, onUpdateHistor
                     return (
                         <div key={absoluteIdx} className="flex w-full justify-center mb-4 opacity-70">
                             <div className="bg-red-900/20 text-red-400 px-4 py-1 border border-red-900/50 font-mono" style={{ fontSize: 紧凑等宽字号 }}>
-                                [{(msg.role as string).toUpperCase()}] {msg.content}
+                                [{String(msg.role ?? 'unknown').toUpperCase()}] {msg.content}
                             </div>
                         </div>
                     );

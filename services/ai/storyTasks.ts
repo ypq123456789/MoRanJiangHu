@@ -1398,6 +1398,64 @@ const 解析规划补丁结果 = (
     };
 };
 
+const 构建规划分析消息链 = (
+    params: {
+        playerName: string;
+        currentStoryJson: string;
+        currentHeroinePlanJson: string;
+        worldJson: string;
+        socialJson: string;
+        envJson: string;
+        recentBodiesText: string;
+        currentPlanText?: string;
+        auditFocusText: string;
+        heroineEnabled?: boolean;
+        ntlEnabled?: boolean;
+        fandomEnabled?: boolean;
+        extraPrompt?: string;
+        gptMode?: boolean;
+    },
+    options?: { forceUserTrigger?: boolean }
+): 通用消息[] => {
+    const aiRolePrompt = 构建AI角色声明提示词(params.playerName);
+    const cotPseudoPrompt = 替换COT伪装身份占位(默认COT伪装历史消息提示词.trim(), aiRolePrompt);
+    const normalizedExtraPrompt = typeof params.extraPrompt === 'string' ? params.extraPrompt.trim() : '';
+    const fandomSystemPrompt = params.fandomEnabled ? 同人规划分析附加系统提示词 : '';
+    const fandomCotPrompt = params.fandomEnabled ? 同人规划分析附加COT提示词 : '';
+    const taskPrompt = `【本次任务】\n${构建统一规划分析用户提示词({
+        currentStoryJson: params.currentStoryJson,
+        currentHeroinePlanJson: params.currentHeroinePlanJson,
+        worldJson: params.worldJson,
+        socialJson: params.socialJson,
+        envJson: params.envJson,
+        recentBodiesText: params.recentBodiesText,
+        currentPlanText: params.currentPlanText,
+        auditFocusText: params.auditFocusText,
+        heroineEnabled: params.heroineEnabled === true
+    })}`;
+    const useUserTrigger = params.gptMode === true || options?.forceUserTrigger === true;
+    return 规范化文本补全消息链([
+        { role: 'system', content: `【AI角色】\n${aiRolePrompt}` },
+        {
+            role: 'system',
+            content: `【系统提示词】\n${构建统一规划分析系统提示词({
+                heroineEnabled: params.heroineEnabled === true,
+                ntl: params.ntlEnabled === true,
+                fandom: params.fandomEnabled === true
+            })}`
+        },
+        ...(fandomSystemPrompt ? [{ role: 'system' as const, content: `【同人规划补充】\n${fandomSystemPrompt}` }] : []),
+        { role: 'system', content: `【结构参考与更新规则】\n${构建统一规划分析专用上下文()}` },
+        ...(normalizedExtraPrompt ? [{ role: 'system' as const, content: `【附加世界书】\n${normalizedExtraPrompt}` }] : []),
+        { role: 'system', content: `【统一COT】\n${统一规划分析COT提示词}` },
+        ...(fandomCotPrompt ? [{ role: 'system' as const, content: `【同人规划COT】\n${fandomCotPrompt}` }] : []),
+        ...(useUserTrigger ? [{ role: 'system' as const, content: '请在内部完成规划分析思考，最终只输出 <thinking>、<说明>、<命令> 三段；不要输出额外解释。' }] : []),
+        { role: useUserTrigger ? 'user' as const : 'assistant' as const, content: taskPrompt },
+        ...(!useUserTrigger ? [{ role: 'user' as const, content: '开始任务' }] : []),
+        ...(!useUserTrigger ? [{ role: 'assistant' as const, content: cotPseudoPrompt }] : [])
+    ], { 保留System: true, 合并同角色: false });
+};
+
 export const generatePlanningAnalysis = async (
     params: {
         playerName: string;
@@ -1419,47 +1477,20 @@ export const generatePlanningAnalysis = async (
     signal?: AbortSignal
 ): Promise<PlanningAnalysisResult> => {
     if (!apiConfig.apiKey) throw new Error('Missing API Key');
-    const aiRolePrompt = 构建AI角色声明提示词(params.playerName);
-    const cotPseudoPrompt = 替换COT伪装身份占位(默认COT伪装历史消息提示词.trim(), aiRolePrompt);
-    const normalizedExtraPrompt = typeof params.extraPrompt === 'string' ? params.extraPrompt.trim() : '';
-    const fandomSystemPrompt = params.fandomEnabled ? 同人规划分析附加系统提示词 : '';
-    const fandomCotPrompt = params.fandomEnabled ? 同人规划分析附加COT提示词 : '';
-    const rawText = await 请求模型文本(apiConfig, 规范化文本补全消息链([
-        { role: 'system', content: `【AI角色】\n${aiRolePrompt}` },
-        {
-            role: 'system',
-            content: `【系统提示词】\n${构建统一规划分析系统提示词({
-                heroineEnabled: params.heroineEnabled === true,
-                ntl: params.ntlEnabled === true,
-                fandom: params.fandomEnabled === true
-            })}`
-        },
-        ...(fandomSystemPrompt ? [{ role: 'system' as const, content: `【同人规划补充】\n${fandomSystemPrompt}` }] : []),
-        { role: 'system', content: `【结构参考与更新规则】\n${构建统一规划分析专用上下文()}` },
-        ...(normalizedExtraPrompt ? [{ role: 'system' as const, content: `【附加世界书】\n${normalizedExtraPrompt}` }] : []),
-        { role: 'system', content: `【统一COT】\n${统一规划分析COT提示词}` },
-        ...(fandomCotPrompt ? [{ role: 'system' as const, content: `【同人规划COT】\n${fandomCotPrompt}` }] : []),
-        {
-            role: params.gptMode ? 'user' as const : 'assistant' as const,
-            content: `【本次任务】\n${构建统一规划分析用户提示词({
-                currentStoryJson: params.currentStoryJson,
-                currentHeroinePlanJson: params.currentHeroinePlanJson,
-                worldJson: params.worldJson,
-                socialJson: params.socialJson,
-                envJson: params.envJson,
-                recentBodiesText: params.recentBodiesText,
-                currentPlanText: params.currentPlanText,
-                auditFocusText: params.auditFocusText,
-                heroineEnabled: params.heroineEnabled === true
-            })}`
-        },
-        ...(!params.gptMode ? [{ role: 'user' as const, content: '开始任务' }] : []),
-        { role: 'assistant', content: cotPseudoPrompt }
-    ], { 保留System: true, 合并同角色: false }), {
+    const request = (forceUserTrigger = false) => 请求模型文本(apiConfig, 构建规划分析消息链(params, { forceUserTrigger }), {
         temperature: 0.3,
         signal,
         errorDetailLimit: Number.POSITIVE_INFINITY
     });
+    let rawText = '';
+    try {
+        rawText = await request(false);
+    } catch (error: any) {
+        const message = String(error?.message || error || '');
+        const shouldRetryWithUserTrigger = params.gptMode !== true && /(messages?|role|assistant|last message|final message|pre[- ]?fill|tool|400|invalid_request)/i.test(message);
+        if (!shouldRetryWithUserTrigger || signal?.aborted) throw error;
+        rawText = await request(true);
+    }
     return { ...解析规划补丁结果(rawText, '统一规划分析'), rawText };
 };
 

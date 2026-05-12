@@ -20,6 +20,7 @@ import { 构建同人运行时提示词包 } from '../../prompts/runtime/fandom'
 import { 获取激活小说拆分注入文本 } from '../../services/novelDecompositionInjection';
 import { 按功能开关过滤提示词内容, 裁剪修炼体系上下文数据 } from '../../utils/promptFeatureToggles';
 import { 同步剧情小说分解时间校准 } from '../../services/novelDecompositionCalibration';
+import { 创建工作流性能诊断 } from '../../utils/performanceDebug';
 
 type 规划更新工作流依赖 = {
     apiConfig: any;
@@ -123,16 +124,45 @@ const 执行规划分析带超时 = async <T,>(task: (signal: AbortSignal) => Pr
     }
 };
 
-const 执行规划分析带超时和重试 = async <T,>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+const 提取规划分析重试原因 = (error: any): string => {
+    if (typeof error?.message === 'string' && error.message.trim()) return error.message.trim();
+    if (typeof error === 'string' && error.trim()) return error.trim();
+    return '规划分析请求失败';
+};
+
+const 执行规划分析带超时和重试 = async <T,>(
+    task: (signal: AbortSignal) => Promise<T>,
+    onRetry?: (attempt: number, maxAttempts: number, reason: string) => void
+): Promise<T> => {
     let lastError: any = null;
     for (let attempt = 1; attempt <= 规划分析自动重试最大次数; attempt += 1) {
+        const attemptStartedAt = Date.now();
+        console.info('[性能诊断][规划分析] 模型请求尝试开始', {
+            attempt,
+            maxAttempts: 规划分析自动重试最大次数,
+            timeoutMs: 规划分析请求超时毫秒,
+            maxPossibleRequestMs: 规划分析请求超时毫秒 * 规划分析自动重试最大次数
+        });
         try {
-            return await 执行规划分析带超时(task);
+            const value = await 执行规划分析带超时(task);
+            console.info('[性能诊断][规划分析] 模型请求尝试完成', {
+                attempt,
+                elapsedMs: Date.now() - attemptStartedAt
+            });
+            return value;
         } catch (error: any) {
             lastError = error;
+            console.warn('[性能诊断][规划分析] 模型请求尝试失败', {
+                attempt,
+                elapsedMs: Date.now() - attemptStartedAt,
+                name: error?.name || 'Error',
+                message: error?.message || String(error || '')
+            });
             if (error?.name === 'AbortError' || attempt >= 规划分析自动重试最大次数) {
                 throw error;
             }
+            const reason = 提取规划分析重试原因(error);
+            onRetry?.(attempt + 1, 规划分析自动重试最大次数, reason);
             console.warn(`[规划分析] 请求失败，自动重试 ${attempt + 1}/${规划分析自动重试最大次数}`, error);
         }
     }
@@ -229,6 +259,7 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
         gameTime: string;
         response: GameResponse;
         shouldApply?: () => boolean;
+        onRetry?: (attempt: number, maxAttempts: number, reason: string) => void;
     }): Promise<统一规划分析结果> => {
         if (deps.规划分析进行中Ref?.current) {
             return {
@@ -243,9 +274,18 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
         if (deps.规划分析进行中Ref) {
             deps.规划分析进行中Ref.current = true;
         }
+        const probe = 创建工作流性能诊断('规划分析', {
+            timeoutMs: 规划分析请求超时毫秒,
+            maxAttempts: 规划分析自动重试最大次数,
+            maxPossibleRequestMs: 规划分析请求超时毫秒 * 规划分析自动重试最大次数,
+            historyCount: Array.isArray(deps.历史记录) ? deps.历史记录.length : 0,
+            gameTime: params.gameTime,
+            playerInputLength: typeof params.playerInput === 'string' ? params.playerInput.length : 0
+        });
         try {
-        const planningApi = 获取规划分析接口配置(deps.apiConfig);
+        const planningApi = probe.time('读取规划分析接口配置', () => 获取规划分析接口配置(deps.apiConfig));
         if (!接口配置是否可用(planningApi)) {
+            probe.mark('跳过：规划分析接口不可用');
             return {
                 updated: false,
                 message: '规划分析独立模型未配置，已跳过。',
@@ -256,17 +296,27 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             };
         }
 
-        const latestBodyText = deps.提取响应完整正文文本(params.response);
-        const currentPlanText = 提取响应规划文本(params.response);
-        const recentBodyRounds = deps.收集最近完整正文回合({
+        const latestBodyText = probe.time('提取当前正文', () => deps.提取响应完整正文文本(params.response), {
+            responseLogs: Array.isArray(params.response?.logs) ? params.response.logs.length : 0
+        });
+        const currentPlanText = probe.time('提取当前规划文本', () => 提取响应规划文本(params.response));
+        const recentBodyRounds = probe.time('收集最近正文回合', () => deps.收集最近完整正文回合({
             history: deps.历史记录,
             currentPlayerInput: params.playerInput,
             currentGameTime: params.gameTime,
             currentResponse: params.response,
             maxTurns: 3
+        }));
+        const recentBodiesText = probe.time('构建最近正文上下文', () => deps.构建最近完整正文上下文(recentBodyRounds), {
+            recentRounds: Array.isArray(recentBodyRounds) ? recentBodyRounds.length : 0
         });
-        const recentBodiesText = deps.构建最近完整正文上下文(recentBodyRounds);
+        probe.mark('正文上下文完成', {
+            latestBodyLength: latestBodyText.length,
+            currentPlanLength: currentPlanText.length,
+            recentBodiesLength: recentBodiesText.length
+        });
         if (!recentBodiesText) {
+            probe.mark('跳过：缺少正文上下文');
             return {
                 updated: false,
                 message: '未收集到可用于规划分析的完整正文，已跳过。',
@@ -295,11 +345,11 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             const raw = typeof hit?.内容 === 'string' ? hit.内容.trim() : '';
             return raw.includes('开局后此处会被完整替换') ? '' : raw;
         })();
-        const fandomPromptBundle = 构建同人运行时提示词包({
+        const fandomPromptBundle = probe.time('构建同人运行时提示词包', () => 构建同人运行时提示词包({
             openingConfig: deps.开局配置,
             worldPrompt,
             realmPrompt
-        });
+        }));
         const fandomEnabled = fandomPromptBundle.enabled;
         const activeStoryPlan = fandomEnabled
             ? deps.规范化同人剧情规划状态(params.state.同人剧情规划)
@@ -329,7 +379,7 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
                 : [])
         ]);
 
-        const worldbookExtra = 按功能开关过滤提示词内容(构建世界书注入文本({
+        const worldbookExtra = probe.time('构建规划世界书注入', () => 按功能开关过滤提示词内容(构建世界书注入文本({
             books: Array.isArray(deps.worldbooks) ? deps.worldbooks : [],
             scopes: heroineEnabled ? ['story_plan', 'heroine_plan'] : ['story_plan'],
             environment: params.state.环境,
@@ -337,14 +387,17 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             world: params.state.世界,
             history: deps.历史记录,
             extraTexts: [params.playerInput, latestBodyText, currentPlanText, ...auditFocus]
-        }).combinedText, normalizedGameConfig);
-        const novelDecompositionPrompt = 按功能开关过滤提示词内容(await 获取激活小说拆分注入文本(
+        }).combinedText, normalizedGameConfig), {
+            worldbookCount: Array.isArray(deps.worldbooks) ? deps.worldbooks.length : 0,
+            auditFocusCount: auditFocus.length
+        });
+        const novelDecompositionPrompt = await probe.timeAsync('构建规划小说拆分注入', async () => 按功能开关过滤提示词内容(await 获取激活小说拆分注入文本(
             deps.apiConfig,
             'planning',
             deps.开局配置,
             alignedStoryForPlanning,
             deps.角色?.姓名 || ''
-        ), normalizedGameConfig);
+        ), normalizedGameConfig));
         const planningExtraPrompt = [
             worldbookExtra,
             novelDecompositionPrompt,
@@ -365,25 +418,39 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             normalizedGameConfig
         );
 
-        const result = await 执行规划分析带超时((signal) => textAIService.generatePlanningAnalysis({
+        const currentStoryJson = probe.time('序列化剧情规划载荷', () => JSON.stringify(planningStoryPayload, null, 2));
+        const currentHeroinePlanJson = probe.time('序列化女主规划载荷', () => JSON.stringify(planningHeroinePayload, null, 2));
+        const worldJson = probe.time('序列化世界载荷', () => JSON.stringify(
+            裁剪修炼体系上下文数据(deps.规范化世界状态(params.state.世界), normalizedGameConfig),
+            null,
+            2
+        ));
+        const socialJson = probe.time('序列化社交载荷', () => JSON.stringify(
+            裁剪修炼体系上下文数据(deps.规范化社交列表(params.state.社交), normalizedGameConfig),
+            null,
+            2
+        ));
+        const envJson = probe.time('序列化环境载荷', () => JSON.stringify(
+            裁剪修炼体系上下文数据(deps.规范化环境信息(params.state.环境), normalizedGameConfig),
+            null,
+            2
+        ));
+        probe.mark('规划分析请求载荷准备完成', {
+            storyJsonLength: currentStoryJson.length,
+            heroineJsonLength: currentHeroinePlanJson.length,
+            worldJsonLength: worldJson.length,
+            socialJsonLength: socialJson.length,
+            envJsonLength: envJson.length,
+            extraPromptLength: planningExtraPrompt.length
+        });
+
+        const result = await probe.timeAsync('规划分析模型请求总耗时', () => 执行规划分析带超时和重试((signal) => textAIService.generatePlanningAnalysis({
             playerName: (deps.角色?.姓名 || '').trim() || '未命名',
-            currentStoryJson: JSON.stringify(planningStoryPayload, null, 2),
-            currentHeroinePlanJson: JSON.stringify(planningHeroinePayload, null, 2),
-            worldJson: JSON.stringify(
-                裁剪修炼体系上下文数据(deps.规范化世界状态(params.state.世界), normalizedGameConfig),
-                null,
-                2
-            ),
-            socialJson: JSON.stringify(
-                裁剪修炼体系上下文数据(deps.规范化社交列表(params.state.社交), normalizedGameConfig),
-                null,
-                2
-            ),
-            envJson: JSON.stringify(
-                裁剪修炼体系上下文数据(deps.规范化环境信息(params.state.环境), normalizedGameConfig),
-                null,
-                2
-            ),
+            currentStoryJson,
+            currentHeroinePlanJson,
+            worldJson,
+            socialJson,
+            envJson,
             recentBodiesText,
             currentPlanText,
             auditFocusText: auditFocus.length > 0 ? auditFocus.join('\n') : '常规回合固定审计',
@@ -392,15 +459,31 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             fandomEnabled,
             extraPrompt: planningExtraPrompt,
             gptMode: 独立规划分析GPT模式
-        }, planningApi, signal));
+        }, planningApi, signal), params.onRetry), {
+            timeoutMs: 规划分析请求超时毫秒,
+            maxAttempts: 规划分析自动重试最大次数
+        });
+        probe.mark('规划分析模型返回', {
+            shouldUpdate: result.shouldUpdate,
+            rawCommandCount: Array.isArray(result.commands) ? result.commands.length : 0,
+            rawTextLength: typeof result.rawText === 'string' ? result.rawText.length : 0,
+            reasonLength: typeof result.reason === 'string' ? result.reason.length : 0
+        });
 
-        const storyCommands = 过滤规划补丁命令(result.commands, ['剧情', 'gameState.剧情']);
-        const storyPlanCommands = 过滤规划补丁命令(result.commands, activeStoryPlanTargets);
+        const storyCommands = probe.time('过滤剧情补丁命令', () => 过滤规划补丁命令(result.commands, ['剧情', 'gameState.剧情']));
+        const storyPlanCommands = probe.time('过滤剧情规划补丁命令', () => 过滤规划补丁命令(result.commands, activeStoryPlanTargets));
         const heroinePlanCommands = heroineEnabled
-            ? 过滤规划补丁命令(result.commands, activeHeroinePlanTargets)
+            ? probe.time('过滤女主规划补丁命令', () => 过滤规划补丁命令(result.commands, activeHeroinePlanTargets))
             : [];
         const commands = [...storyCommands, ...storyPlanCommands, ...heroinePlanCommands];
+        probe.mark('规划补丁命令过滤完成', {
+            effectiveCommands: commands.length,
+            storyCommands: storyCommands.length,
+            storyPlanCommands: storyPlanCommands.length,
+            heroinePlanCommands: heroinePlanCommands.length
+        });
         if (!result.shouldUpdate || commands.length === 0) {
+            probe.mark('跳过：无有效规划补丁');
             return {
                 updated: false,
                 message: result.reason || '规划分析未产生有效补丁，已跳过。',
@@ -412,6 +495,7 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             };
         }
         if (params.shouldApply && !params.shouldApply()) {
+            probe.mark('丢弃：规划分析结果过期');
             return {
                 updated: false,
                 message: '新的正文回合已经开始，本轮规划分析结果已过期并丢弃。',
@@ -423,7 +507,7 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             };
         }
 
-        const patched = 应用规划补丁命令({
+        const patched = probe.time('应用规划补丁命令', () => 应用规划补丁命令({
             commands,
             env: params.state.环境,
             social: params.state.社交,
@@ -433,14 +517,15 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             heroinePlan: params.state.女主剧情规划,
             fandomStoryPlan: params.state.同人剧情规划,
             fandomHeroinePlan: params.state.同人女主剧情规划
-        });
-        const syncedPatchedStory = await 同步剧情小说分解时间校准({
+        }), { commandCount: commands.length });
+        const syncedPatchedStory = await probe.timeAsync('同步小说分解时间校准', () => 同步剧情小说分解时间校准({
             previousStory: params.state.剧情,
             nextStory: patched.story,
             currentGameTime: params.gameTime,
             openingConfig: deps.开局配置
-        });
+        }));
         if (params.shouldApply && !params.shouldApply()) {
+            probe.mark('丢弃：补丁应用后结果过期');
             return {
                 updated: false,
                 message: '新的正文回合已经开始，本轮规划分析结果已过期并丢弃。',
@@ -451,18 +536,21 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
                 heroinePlanCommands: []
             };
         }
-        deps.设置剧情(syncedPatchedStory);
-        if (fandomEnabled) {
-            deps.设置同人剧情规划(patched.fandomStoryPlan);
-        } else {
-            deps.设置剧情规划(patched.storyPlan);
-        }
-        if (heroineEnabled && !fandomEnabled) {
-            deps.设置女主剧情规划(patched.heroinePlan);
-        }
-        if (heroineEnabled && fandomEnabled) {
-            deps.设置同人女主剧情规划(patched.fandomHeroinePlan);
-        }
+        probe.time('写入规划分析状态', () => {
+            deps.设置剧情(syncedPatchedStory);
+            if (fandomEnabled) {
+                deps.设置同人剧情规划(patched.fandomStoryPlan);
+            } else {
+                deps.设置剧情规划(patched.storyPlan);
+            }
+            if (heroineEnabled && !fandomEnabled) {
+                deps.设置女主剧情规划(patched.heroinePlan);
+            }
+            if (heroineEnabled && fandomEnabled) {
+                deps.设置同人女主剧情规划(patched.fandomHeroinePlan);
+            }
+        });
+        probe.mark('调度规划分析自动存档');
         void deps.performAutoSave({
             story: syncedPatchedStory,
             storyPlan: patched.storyPlan,
@@ -473,6 +561,7 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             force: true
         });
 
+        probe.mark('规划分析更新完成', { appliedCommands: commands.length });
         return {
             updated: true,
             message: result.reason || `统一规划分析已应用 ${commands.length} 条补丁命令。`,
@@ -483,6 +572,7 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             heroinePlanCommands
         };
         } finally {
+            probe.end('释放规划分析进行中标记');
             if (deps.规划分析进行中Ref) {
                 deps.规划分析进行中Ref.current = false;
             }
