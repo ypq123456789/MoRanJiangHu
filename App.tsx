@@ -1487,6 +1487,20 @@ const App: React.FC = () => {
         actions.pushNotification({ title: '杂物已丢弃', message, tone: 'success' });
         return { ok: true as const, message };
     }, [actions, setters, state.角色]);
+    const handleDeleteMemory = React.useCallback((round: number) => {
+        const prevMemorySystem = state.记忆系统;
+        if (!prevMemorySystem) return;
+
+        const nextMemorySystem = {
+            ...prevMemorySystem,
+            回忆档案: (Array.isArray(prevMemorySystem.回忆档案) ? prevMemorySystem.回忆档案 : [])
+                .filter(item => item?.回合 !== round)
+        };
+
+        actions.updateMemorySystem(nextMemorySystem);
+        void actions.performAutoSave?.({ memory: nextMemorySystem, force: true });
+        actions.pushNotification({ title: '记忆已删除', message: `回合 ${round} 的回忆档案已被移除。`, tone: 'success' });
+    }, [actions, setters, state.记忆系统]);
     const openNovelExport = React.useCallback(() => {
         closeAllPanels();
         setShowNovelExport(true);
@@ -2180,7 +2194,7 @@ const App: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => actions.dismissNotification(toast.id)}
-                                            className="shrink-0 opacity-70 hover:opacity-100"
+                                            className="shrink-0 opacity-70 hover-opacity-100"
                                             style={{ fontSize: 'var(--ui-micro-font-size, 12px)' }}
                                         >
                                             关闭
@@ -2347,6 +2361,7 @@ const App: React.FC = () => {
                             onSaveVisual={actions.saveVisualSettings}
                             onSaveGame={actions.saveGameSettings}
                             onSaveMemory={actions.saveMemorySettings}
+                            onDeleteMemory={handleDeleteMemory}
                             onCreateNpc={actions.createNpcManually}
                             onSaveNpc={actions.updateNpcManually}
                             onDeleteNpc={actions.deleteNpcManually}
@@ -2384,6 +2399,7 @@ const App: React.FC = () => {
                             onSaveVisual={actions.saveVisualSettings}
                             onSaveGame={actions.saveGameSettings}
                             onSaveMemory={actions.saveMemorySettings}
+                            onDeleteMemory={handleDeleteMemory}
                             onCreateNpc={actions.createNpcManually}
                             onSaveNpc={actions.updateNpcManually}
                             onDeleteNpc={actions.deleteNpcManually}
