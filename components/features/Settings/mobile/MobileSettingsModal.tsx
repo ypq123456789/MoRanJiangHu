@@ -78,6 +78,7 @@ interface Props {
     onSaveVisual: (config: 视觉设置结构) => void;
     onSaveGame?: (config: 游戏设置结构) => void;
     onSaveMemory?: (config: 记忆配置结构) => void;
+    onDeleteMemory?: (round: number) => void;
     onCreateNpc: (seed?: Partial<NPC结构>) => NPC结构 | void;
     onSaveNpc: (npcId: string, npc: NPC结构) => void;
     onDeleteNpc: (npcId: string) => void;
@@ -96,7 +97,7 @@ interface Props {
 const MobileSettingsModal: React.FC<Props> = ({
     activeTab, onTabChange, onClose,
     apiConfig, visualConfig, gameConfig, memoryConfig, prompts, festivals, currentTheme, history, memorySystem, socialList, runtimeState, currentStory, openingConfig, contextSnapshot,
-    onSaveApi, onSaveVisual, onSaveGame, onSaveMemory, onCreateNpc, onSaveNpc, onDeleteNpc, onStartNpcMemorySummary, onUploadNpcImage, onReplaceVariableSection, onApplyVariableCommand, onUpdatePrompts, onUpdateFestivals, onThemeChange,
+    onSaveApi, onSaveVisual, onSaveGame, onSaveMemory, onDeleteMemory, onCreateNpc, onSaveNpc, onDeleteNpc, onStartNpcMemorySummary, onUploadNpcImage, onReplaceVariableSection, onApplyVariableCommand, onUpdatePrompts, onUpdateFestivals, onThemeChange,
     onReturnToHome, isHome, requestConfirm
 }) => {
     const tabItems = [
@@ -187,7 +188,7 @@ const MobileSettingsModal: React.FC<Props> = ({
         }
         if (activeTab === 'music') return <MusicSettings />;
         if (activeTab === 'storage') return <StorageManager requestConfirm={requestConfirm} />;
-        if (activeTab === 'history') return <HistoryViewer history={history} memorySystem={memorySystem} />;
+        if (activeTab === 'history') return <HistoryViewer history={history} memorySystem={memorySystem} onDeleteMemory={onDeleteMemory} />;
         if (activeTab === 'logs') return <LogViewer />;
         if (activeTab === 'context' && contextSnapshot) {
             return (
