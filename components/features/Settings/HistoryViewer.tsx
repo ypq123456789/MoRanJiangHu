@@ -4,6 +4,7 @@ import { 聊天记录结构, 记忆系统结构 } from '../../../types';
 interface Props {
     history?: 聊天记录结构[];
     memorySystem?: 记忆系统结构;
+    onDeleteMemory?: (round: number) => void; // 新增：删除记忆的回调函数，传入要删除的回合数
 }
 
 type 回忆展示结构 = {
@@ -31,7 +32,7 @@ const 拆分即时与短期 = (entry: string): { 即时内容: string; 短期摘
 const 格式化回忆名称 = (round: number): string => `【回忆${String(Math.max(1, round)).padStart(3, '0')}】`;
 const 格式化回合显示 = (round: number): string => (round === 1 ? '开场剧情' : `回合：${round}`);
 
-const HistoryViewer: React.FC<Props> = ({ history = [], memorySystem }) => {
+const HistoryViewer: React.FC<Props> = ({ history = [], memorySystem, onDeleteMemory }) => {
     const [query, setQuery] = useState('');
     const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
@@ -100,6 +101,14 @@ const HistoryViewer: React.FC<Props> = ({ history = [], memorySystem }) => {
         });
     }, [allMemories, query]);
 
+    // 新增：处理删除点击事件
+    const handleDeleteClick = (e: React.MouseEvent, round: number) => {
+        e.stopPropagation(); // 阻止事件冒泡，防止点击删除按钮时触发展开/收起
+        if (window.confirm(`确定要删除回合 ${round} 的记忆吗？此操作不可逆！`)) {
+            onDeleteMemory?.(round);
+        }
+    };
+
     return (
         <div className="h-full flex flex-col animate-fadeIn">
             <h3 className="text-wuxia-gold font-serif font-bold text-lg mb-4 shrink-0">互动历史存档</h3>
@@ -146,6 +155,18 @@ const HistoryViewer: React.FC<Props> = ({ history = [], memorySystem }) => {
                                         <div className="text-xs text-wuxia-cyan mb-1">原文</div>
                                         <div className="text-sm text-gray-400 whitespace-pre-wrap leading-relaxed">{item.原文 || '（无原文）'}</div>
                                     </div>
+
+                                    {/* 新增：删除按钮区域 */}
+                                    {onDeleteMemory && (
+                                        <div className="border-t border-gray-800/50 pt-3 flex justify-end">
+                                            <button
+                                                onClick={(e) => handleDeleteClick(e, item.回合)}
+                                                className="px-3 py-1 text-xs text-red-400 border border-red-400/30 rounded hover:bg-red-400/10 hover:border-red-400/60 transition-colors"
+                                            >
+                                                删除此记忆
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
