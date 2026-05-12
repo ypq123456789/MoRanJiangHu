@@ -1494,7 +1494,11 @@ const App: React.FC = () => {
         const nextMemorySystem = {
             ...prevMemorySystem,
             回忆档案: (Array.isArray(prevMemorySystem.回忆档案) ? prevMemorySystem.回忆档案 : [])
-                .filter(item => item?.回合 !== round)
+                .filter(item => item?.回合 !== round),
+            即时记忆: (Array.isArray(prevMemorySystem.即时记忆) ? prevMemorySystem.即时记忆 : [])
+                .filter((_, index) => index + 1 !== round),
+            短期记忆: (Array.isArray(prevMemorySystem.短期记忆) ? prevMemorySystem.短期记忆 : [])
+                .filter((_, index) => index + 1 !== round)
         };
 
         actions.updateMemorySystem(nextMemorySystem);
@@ -2194,7 +2198,7 @@ const App: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => actions.dismissNotification(toast.id)}
-                                            className="shrink-0 opacity-70 hover-opacity-100"
+                                            className="shrink-0 opacity-70 hover:opacity-100"
                                             style={{ fontSize: 'var(--ui-micro-font-size, 12px)' }}
                                         >
                                             关闭

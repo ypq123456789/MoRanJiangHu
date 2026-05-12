@@ -37,7 +37,7 @@ const HistoryViewer: React.FC<Props> = ({ history = [], memorySystem, onDeleteMe
     const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
     const allMemories = useMemo<回忆展示结构[]>(() => {
-        if (Array.isArray(memorySystem?.回忆档案) && memorySystem!.回忆档案.length > 0) {
+        if (Array.isArray(memorySystem?.回忆档案)) {
             return memorySystem!.回忆档案
                 .map((item, idx) => ({
                     名称: typeof item?.名称 === 'string' && item.名称.trim() ? item.名称.trim() : 格式化回忆名称(idx + 1),
