@@ -311,6 +311,7 @@ type 主剧情发送当前状态 = {
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
     开局配置?: OpeningConfig;
+    游戏初始时间?: string;
     loading: boolean;
     gameConfig: any;
     apiConfig: any;
@@ -756,7 +757,8 @@ export const 执行主剧情发送工作流 = async (
                 约定列表: currentState.约定列表,
                 剧情: deps.规范化剧情状态(currentState.剧情, currentState.环境),
                 女主剧情规划: deps.规范化女主剧情规划状态(currentState.女主剧情规划),
-                开局配置: currentState.开局配置
+                开局配置: currentState.开局配置,
+                游戏初始时间: currentState.游戏初始时间 || ''
             },
             {
                 ...(recallContextActiveForMain

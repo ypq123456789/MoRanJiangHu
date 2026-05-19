@@ -2912,6 +2912,7 @@ export const useGame = () => {
                 同人剧情规划,
                 同人女主剧情规划,
                 开局配置,
+                游戏初始时间,
                 loading,
                 gameConfig,
                 apiConfig,

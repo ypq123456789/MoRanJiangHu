@@ -508,3 +508,23 @@ If the task is "confirm this UI works" and the opening flow depends on external 
 - Direct `#aimode` hash navigation in the tutorial center is supported.
 - Verification: `npm.cmd run build` passed after the AI mode tutorial update.
 - The build touched release metadata via `release:sync`; `data/releaseInfo.ts` and `public/release-info.json` had no content diff ignoring EOL and should not be included as release changes unless publishing.
+
+## 2026-05-19 Time Anchor And Journey-Day Rollback Defense
+
+- Player report: in-game starting time was around April, but during play the date suddenly flipped to "one day before the current real-world date", which also reset the displayed journey day count.
+- Root cause analysis covered three layers:
+  - The system prompt only carried `环境.时间` (current snapshot) per turn; `游戏初始时间` was never injected, so the model had no anchor to keep year/month/day stable across turns.
+  - `prompts/core/timeProgress.ts` only required forward motion but did not forbid year/month/day rollback, reset, or using the model's own training/real-world date as the in-game date.
+  - `hooks/useGame/responseCommandProcessor.ts` accepted any `set 环境.时间 = ...` value with no validation, and never blocked attempts to overwrite `游戏初始时间`, so a single bad command could rewrite the snapshot and the journey-day derivation in `utils/gameTimeJourney.ts` would then visibly flip.
+- Three-layer fix applied as defense in depth:
+  - Prompt layer: `prompts/core/timeProgress.ts` adds section "0.1 时间锚点完整性（硬约束）" — `环境.时间` is monotonically non-decreasing; year/month/day must not roll back; do not use the model's training date or current real-world date; `游戏初始时间` is opening-only and never rewritten; when uncertain, keep the previous value or move forward only by minutes.
+  - Context layer: `hooks/useGame/systemPromptBuilder.ts` now derives `开局时间` and `已游玩天数` from `游戏初始时间` and `环境.时间`, then injects both into `orderedEnv` right after `时间`. `游戏初始时间` flows through `hooks/useGame.ts` → `hooks/useGame/sendWorkflow.ts` → `systemPromptBuilder`.
+  - Command layer: `hooks/useGame/responseCommandProcessor.ts` adds `是否游戏初始时间命令`, `是否环境时间命令`, and `是否时间回退或异常重置` guards. Any `set 游戏初始时间 = ...` command is dropped. `set 环境.时间 = ...` is dropped when the new value is earlier than the previous snapshot, equals the placeholder `1:01:01:00:00`, or fails to parse.
+- Files touched:
+  - `prompts/core/timeProgress.ts`
+  - `hooks/useGame/systemPromptBuilder.ts`
+  - `hooks/useGame/sendWorkflow.ts`
+  - `hooks/useGame.ts`
+  - `hooks/useGame/responseCommandProcessor.ts`
+- Verification: `npm.cmd run build` passed. Build again touched release metadata via `release:sync`; `data/releaseInfo.ts` and `public/release-info.json` were restored because this was not a release task.
+- No deploy was triggered for this fix (per the No Auto-Deploy Rule). Customer-facing changelog text proposed for the next release: "修复 AI 在游玩中偶尔把游戏内日期/历程天数重置成现实时间前一天的问题——新增时间锚点硬约束、每回合向 AI 同步开局时间与已游玩天数，并在命令落地前拦截一切时间回退/重置写入。"

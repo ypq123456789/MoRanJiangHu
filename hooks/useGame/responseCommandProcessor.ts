@@ -15,6 +15,58 @@ import { applyStateCommand, normalizeStateCommandKey } from '../../utils/stateHe
 import { 规范化任务列表自动结算 } from '../../utils/taskCompat';
 import { sanitizeInventoryCommand } from './inventoryCommandGuard';
 
+const 占位开局时间 = '1:01:01:00:00';
+
+const 解析标准时间天值 = (raw?: string): number | null => {
+    if (typeof raw !== 'string') return null;
+    const match = raw.trim().match(/^(\d{1,6}):(\d{1,2}):(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (![year, month, day].every(Number.isFinite)) return null;
+    return (Math.trunc(year) * 12 + Math.max(0, Math.trunc(month) - 1)) * 31 + Math.max(0, Math.trunc(day) - 1);
+};
+
+const 解析标准时间分值 = (raw?: string): number | null => {
+    if (typeof raw !== 'string') return null;
+    const match = raw.trim().match(/^(\d{1,6}):(\d{1,2}):(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+    const dayValue = (Math.trunc(year) * 12 + Math.max(0, Math.trunc(month) - 1)) * 31 + Math.max(0, Math.trunc(day) - 1);
+    return ((dayValue * 24) + Math.trunc(hour)) * 60 + Math.trunc(minute);
+};
+
+const 是否环境时间命令 = (rawKey: string): boolean => {
+    const normalizedKey = normalizeStateCommandKey(rawKey);
+    return normalizedKey === 'gameState.环境.时间';
+};
+
+const 是否游戏初始时间命令 = (rawKey: string): boolean => {
+    const normalizedKey = normalizeStateCommandKey(rawKey || '');
+    if (normalizedKey === 'gameState.游戏初始时间') return true;
+    const trimmed = (rawKey || '').trim();
+    return trimmed === '游戏初始时间' || trimmed === 'gameState.游戏初始时间';
+};
+
+const 是否时间回退或异常重置 = (oldTime: unknown, newValue: unknown): boolean => {
+    const newCanonical = typeof newValue === 'string' ? newValue.trim() : '';
+    if (!newCanonical) return true;
+    if (newCanonical === 占位开局时间) return true;
+    const newMinutes = 解析标准时间分值(newCanonical);
+    if (newMinutes == null) return true;
+    const oldCanonical = typeof oldTime === 'string' ? oldTime.trim() : '';
+    if (!oldCanonical || oldCanonical === 占位开局时间) return false;
+    const oldMinutes = 解析标准时间分值(oldCanonical);
+    if (oldMinutes == null) return false;
+    return newMinutes < oldMinutes;
+};
+
 export type 响应命令处理状态 = {
     角色: 角色数据结构;
     环境: 环境信息结构;
@@ -915,6 +967,14 @@ export const 执行响应命令处理 = (
                 responseFactText
             );
             if (!safeCmd) return;
+            if (是否游戏初始时间命令(safeCmd.key)) {
+                return;
+            }
+            if (是否环境时间命令(safeCmd.key) && safeCmd.action === 'set') {
+                if (是否时间回退或异常重置(envBuffer?.时间, safeCmd.value)) {
+                    return;
+                }
+            }
             const result = applyStateCommand(
                 charBuffer,
                 envBuffer,

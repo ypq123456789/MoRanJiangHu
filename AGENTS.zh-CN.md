@@ -501,3 +501,23 @@
 - 教程中心支持直接通过 `#aimode` hash 打开 AI 模型模式教程。
 - 验证：AI 模式教程更新后，`npm.cmd run build` 已通过。
 - 构建会因 `release:sync` 触碰 release 元数据；`data/releaseInfo.ts` 与 `public/release-info.json` 忽略行尾后无内容差异，除非正式发布，否则不应作为 release 变更提交。
+
+## 2026-05-19 时间锚点与历程天数防回退修复
+
+- 玩家反馈：游戏内起始时间本来是四月多，但游玩中突然变成"现实时间前一天"，连带 TopBar 显示的历程天数被重置。
+- 根因分为三层：
+  - 系统提示词每回合只塞 `环境.时间`（当前快照），从未注入 `游戏初始时间` 锚点，AI 看不到开局基准，无法保证跨回合的年/月/日稳定。
+  - `prompts/core/timeProgress.ts` 仅要求时间向前推进，没有禁止年/月/日回退、清零，也没有禁止套用模型训练日期或当前现实日期。
+  - `hooks/useGame/responseCommandProcessor.ts` 对 `set 环境.时间 = ...` 不做任何校验，也不拦截改写 `游戏初始时间` 的命令；一旦 AI 写入异常值，快照立刻被覆盖，`utils/gameTimeJourney.ts` 派生出的历程天数就会肉眼可见地跳变。
+- 三层防御已经全部落地（defense in depth）：
+  - 提示词层：`prompts/core/timeProgress.ts` 新增第 0.1 节"时间锚点完整性（硬约束）"——`环境.时间` 单向非减，禁止年/月/日倒退，禁止套用 AI 模型训练日期或现实日期，`游戏初始时间` 仅在开局第 0 回合写入一次永不可改写，拿不准时保留旧值或只推进若干分钟。
+  - 上下文层：`hooks/useGame/systemPromptBuilder.ts` 用 `游戏初始时间` 与 `环境.时间` 派生 `开局时间` 与 `已游玩天数`，并把两者注入 `orderedEnv`，紧跟在 `时间` 之后。`游戏初始时间` 通过 `hooks/useGame.ts` → `hooks/useGame/sendWorkflow.ts` → `systemPromptBuilder` 透传到位。
+  - 命令层：`hooks/useGame/responseCommandProcessor.ts` 新增 `是否游戏初始时间命令`、`是否环境时间命令`、`是否时间回退或异常重置` 三个守卫函数。`set 游戏初始时间 = ...` 命令一律丢弃；`set 环境.时间 = ...` 在新值早于旧快照、等于占位 `1:01:01:00:00`、或解析失败时整条丢弃。
+- 涉及文件：
+  - `prompts/core/timeProgress.ts`
+  - `hooks/useGame/systemPromptBuilder.ts`
+  - `hooks/useGame/sendWorkflow.ts`
+  - `hooks/useGame.ts`
+  - `hooks/useGame/responseCommandProcessor.ts`
+- 验证：`npm.cmd run build` 已通过。构建再次因 `release:sync` 触碰 release 元数据；本次不是发布，已恢复 `data/releaseInfo.ts` 与 `public/release-info.json`。
+- 本次修复未触发任何部署（遵守"禁止自动部署规则"）。下次发布时面向客户的更新日志建议措辞："修复 AI 在游玩中偶尔把游戏内日期/历程天数重置成现实时间前一天的问题——新增时间锚点硬约束、每回合向 AI 同步开局时间与已游玩天数，并在命令落地前拦截一切时间回退/重置写入。"

@@ -12,6 +12,21 @@ import { 规范化记忆配置 } from './memoryUtils';
 import { 格式化短期记忆展示文本 } from './memoryUtils';
 import { 构建NPC上下文 } from './npcContext';
 import { normalizeCanonicalGameTime, 环境时间转标准串, 结构化时间转标准串 } from './timeUtils';
+import { 计算游戏历程天数 } from '../../utils/gameTimeJourney';
+
+const 解析标准时间为天数片段 = (raw?: string): { year: number; month: number; day: number; hour: number; minute: number } | null => {
+    const canonical = normalizeCanonicalGameTime(raw || '');
+    if (!canonical) return null;
+    const match = canonical.match(/^(\d{1,6}):(\d{2}):(\d{2}):(\d{2}):(\d{2})$/);
+    if (!match) return null;
+    return {
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+        hour: Number(match[4]),
+        minute: Number(match[5])
+    };
+};
 import { 规范化游戏设置 } from '../../utils/gameSettings';
 import {
     构建世界书注入文本,
@@ -326,6 +341,18 @@ export const 构建系统提示词 = ({
         const source = payload || {};
         const env = 规范化环境信息(source?.环境);
         const role = source?.角色 && typeof source.角色 === 'object' ? source.角色 : {};
+        const 开局锚点原始 = typeof source?.游戏初始时间 === 'string' ? source.游戏初始时间.trim() : '';
+        const 开局时间标准串 = (() => {
+            const canonical = normalizeCanonicalGameTime(开局锚点原始);
+            return canonical || 开局锚点原始 || '';
+        })();
+        const 当前时间标准串 = 环境时间转标准串(env) || '';
+        const 已游玩天数 = (() => {
+            const currentPiece = 解析标准时间为天数片段(当前时间标准串);
+            const initialPiece = 解析标准时间为天数片段(开局时间标准串);
+            if (!currentPiece || !initialPiece) return 0;
+            return 计算游戏历程天数(currentPiece, initialPiece);
+        })();
         const 取文本 = (value: any) => (typeof value === 'string' ? value : '');
         const 取数值 = (value: any, fallback: number = 0) => (
             typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -351,7 +378,9 @@ export const 构建系统提示词 = ({
             return fallback || '';
         })();
         const orderedEnv = {
-            时间: 环境时间转标准串(env) || '',
+            时间: 当前时间标准串,
+            开局时间: 开局时间标准串,
+            已游玩天数: 已游玩天数,
             大地点: 取文本(env?.大地点),
             中地点: 取文本(env?.中地点),
             小地点: 取文本(env?.小地点),
