@@ -36,15 +36,18 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
         expect(logs[0].text).toContain('\n\n');
     });
 
-    it('keeps quoted dialogue from narration renderable as character bubbles', () => {
+    it('keeps quoted dialogue from narration as narration without bracket labels', () => {
         const logs = 规范化可渲染对白日志([{
             sender: '旁白',
             text: '杨培强停下手里的动作。一个清冷的女声从侧后方传来。俞月荷正站在门边，低声说道：“你动作能不能轻一点？如果里面装的是玻璃安瓿瓶，你刚才那一下，至少报废了我们半个月的口粮。”'
         }] as any);
-        expect(logs.some((item: any) => item.sender === '俞月荷' && item.text.includes('动作能不能轻一点'))).toBe(true);
+        expect(logs).toEqual([{
+            sender: '旁白',
+            text: '杨培强停下手里的动作。一个清冷的女声从侧后方传来。俞月荷正站在门边，低声说道：“你动作能不能轻一点？如果里面装的是玻璃安瓿瓶，你刚才那一下，至少报废了我们半个月的口粮。”'
+        }]);
     });
 
-    it('protects line breaks inside quoted dialogue before detecting character bubbles', () => {
+    it('protects line breaks inside quoted narration without inferring speaker', () => {
         const logs = 规范化可渲染对白日志([{
             sender: '旁白',
             text: [
@@ -56,33 +59,31 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
 
         expect(logs).toEqual([
             {
-                sender: '叶青',
-                text: '先别兑换，确认任务世界和限制条件。如果主神限制热武器，我们就换侦查能力。'
+                sender: '旁白',
+                text: '叶青压低声音说道：“先别兑换，确认任务世界和限制条件。如果主神限制热武器，我们就换侦查能力。”'
             }
         ]);
     });
 
-    it('merges adjacent log entries when an opening quote was split across logs', () => {
+    it('merges adjacent narration entries when an opening quote was split across logs', () => {
         const logs = 规范化可渲染对白日志([
             { sender: '旁白', text: '叶青压低声音说道：“先别兑换，' },
             { sender: '旁白', text: '确认任务世界和限制条件。”她看向主神光球。' }
         ] as any);
 
         expect(logs).toEqual([
-            { sender: '叶青', text: '先别兑换，确认任务世界和限制条件。' },
-            { sender: '旁白', text: '她看向主神光球。' }
+            { sender: '旁白', text: '叶青压低声音说道：“先别兑换，确认任务世界和限制条件。”她看向主神光球。' }
         ]);
     });
 
-    it('does not include action tails in inferred speaker names', () => {
+    it('does not infer speaker names from action tails', () => {
         const logs = 规范化可渲染对白日志([
             { sender: '旁白', text: '叶青点点头说道：“我去检查补给箱，' },
             { sender: '旁白', text: '看看有没有止血喷雾。”白光重新稳定。' }
         ] as any);
 
         expect(logs).toEqual([
-            { sender: '叶青', text: '我去检查补给箱，看看有没有止血喷雾。' },
-            { sender: '旁白', text: '白光重新稳定。' }
+            { sender: '旁白', text: '叶青点点头说道：“我去检查补给箱，看看有没有止血喷雾。”白光重新稳定。' }
         ]);
     });
 
@@ -103,7 +104,7 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
         ]);
     });
 
-    it('splits bare colon speaker lines from old narration into character bubbles', () => {
+    it('keeps bare colon speaker lines from old narration as narration', () => {
         const logs = 规范化可渲染对白日志([{
             sender: '旁白',
             text: [
@@ -114,9 +115,7 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
         }] as any);
 
         expect(logs).toEqual([
-            { sender: '旁白', text: '门外有人走来。' },
-            { sender: '林婉儿', text: '我也看到这个bug了，有些角色说话的时候对话框就没了。' },
-            { sender: '旁白', text: '她抬头看你。' }
+            { sender: '旁白', text: '门外有人走来。\n林婉儿（皱眉）：我也看到这个bug了，有些角色说话的时候对话框就没了。\n她抬头看你。' }
         ]);
     });
 
@@ -146,7 +145,7 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
         ]);
     });
 
-    it('keeps bare colon protocol labels as narration', () => {
+    it('keeps all bare colon lines as narration', () => {
         const logs = 规范化可渲染对白日志([{
             sender: '旁白',
             text: [
@@ -157,8 +156,7 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
         }] as any);
 
         expect(logs).toEqual([
-            { sender: '旁白', text: '地点：杨家堡后院\n任务：检查对话框' },
-            { sender: '林婉儿', text: '真正的对白才需要头像。' }
+            { sender: '旁白', text: '地点：杨家堡后院\n任务：检查对话框\n林婉儿：真正的对白才需要头像。' }
         ]);
     });
 
@@ -201,16 +199,19 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
         ]);
     });
 
-    it('only promotes unlabeled follow-up lines when they look like oral speech', () => {
+    it('does not promote unlabeled follow-up lines that look like oral speech', () => {
         const oral = 规范化可渲染对白日志([{
             sender: '旁白',
             text: '俞月荷冷笑一声，将表格拍在桌上。\n三百点？你真觉得这点贡献够换一整箱药？'
         }] as any);
 
-        expect(oral.some((item: any) => item.sender === '俞月荷' && item.text.includes('三百点'))).toBe(true);
+        expect(oral).toEqual([{
+            sender: '旁白',
+            text: '俞月荷冷笑一声，将表格拍在桌上。\n三百点？你真觉得这点贡献够换一整箱药？'
+        }]);
     });
 
-    it('promotes quoted oral speech after voice and gaze cues without explicit said tags', () => {
+    it('keeps quoted oral speech after voice and gaze cues as narration without bracket labels', () => {
         const logs = 规范化可渲染对白日志([{
             sender: '旁白',
             text: [
@@ -220,7 +221,21 @@ describe('dialogueLogNormalizer story readability cleanup', () => {
             ].join('\n\n')
         }] as any);
 
-        expect(logs.some((item: any) => item.sender === '秦映雪' && item.text.includes('制式消音器'))).toBe(true);
-        expect(logs.some((item: any) => item.sender === '秦映雪' && item.text.includes('如果你觉得这玩意儿'))).toBe(true);
+        expect(logs).toHaveLength(1);
+        expect(logs[0].sender).toBe('旁白');
+        expect(logs[0].text).toContain('制式消音器');
+        expect(logs[0].text).toContain('如果你觉得这玩意儿');
+    });
+
+    it('keeps unlabeled quoted exclamations as narration', () => {
+        const logs = 规范化可渲染对白日志([{
+            sender: '旁白',
+            text: '吴杰涛的手猛地一抖……\n“我操……”'
+        }] as any);
+
+        expect(logs).toEqual([{
+            sender: '旁白',
+            text: '吴杰涛的手猛地一抖……\n“我操……”'
+        }]);
     });
 });

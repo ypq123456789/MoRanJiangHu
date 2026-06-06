@@ -247,7 +247,7 @@ const 是否像引号对白内容 = (text: string): boolean => {
 
 const 人物动作动词正则 = /^(?:将|把|给|向|对|朝|走|站|坐|停|回|转|看|望|抬|低|点|摇|皱|叹|笑|冷笑|苦笑|轻笑|沉|伸|握|按|收|拔|举|放|推|扶|拂|敛|挑|倒|取|递|开口|提醒|解释|说道|说|道|问|答)/;
 const 无标签言语引导正则 = /^(.{1,32}?)(?:说|说道|道|问|问道|喊|喊道|喝|喝道|答|答道|回|回道|唤|唤道|骂|骂道|笑|笑道|叹|叹道|吩咐|提醒|解释|应|应道|接|接道|开口|继续|补充|又道)\s*[：:，,]\s*(.{2,500})$/;
-const 方括号说话人行正则 = /^[【\[]\s*([A-Za-z0-9_\u4e00-\u9fff·]{1,16})\s*[】\]]\s*(.{1,800})$/;
+const 方括号说话人行正则 = /^【\s*([A-Za-z0-9_\u4e00-\u9fff·]{1,16})\s*】\s*(.{1,800})$/;
 const 裸冒号说话人行正则 = /^([A-Za-z][A-Za-z0-9_· -]{1,23}|[\u4e00-\u9fff]{2,4})(?:[（(][^）)\n]{1,16}[）)])?\s*[:：]\s*(.{1,800})$/u;
 const 裸冒号非对白标签集合 = new Set([
     '地点', '时间', '天气', '任务', '命令', '短期记忆', '中期记忆', '长期记忆', '即时记忆',
@@ -409,7 +409,6 @@ const 拆分旁白夹杂无标签对白 = (log: GameLog): GameLog[] => {
     if (!source || !source.includes('\n')) return [log];
 
     const result: GameLog[] = [];
-    let pendingSpeaker = '';
     for (const rawLine of source.split('\n')) {
         const line = rawLine.trim();
         if (!line) continue;
@@ -429,42 +428,13 @@ const 拆分旁白夹杂无标签对白 = (log: GameLog): GameLog[] => {
                 && !拟声词正则.test(speech)
             ) {
                 result.push({ sender: bracketSpeakerName, text: speech });
-                pendingSpeaker = bracketSpeakerName;
                 continue;
             }
         }
-
-        const colonSpeaker = line.match(裸冒号说话人行正则);
-        const colonSpeakerName = 清理说话人(colonSpeaker?.[1] || '');
-        const colonSpeech = (colonSpeaker?.[2] || '').trim();
-        if (
-            colonSpeaker
-            && colonSpeakerName
-            && !裸冒号非对白标签集合.has(colonSpeakerName)
-            && colonSpeech
-            && !拟声词正则.test(colonSpeech)
-        ) {
-            result.push({ sender: colonSpeakerName, text: colonSpeech });
-            pendingSpeaker = colonSpeakerName;
-            continue;
-        }
-
-        const guided = line.match(无标签言语引导正则);
-        const guidedSpeaker = 清理说话人(guided?.[1] || '');
-        if (guided && guidedSpeaker) {
-            result.push({ sender: guidedSpeaker, text: (guided[2] || '').trim() });
-            pendingSpeaker = guidedSpeaker;
-            continue;
-        }
-
-        if (pendingSpeaker && 是否像无标签口语(line)) {
-            result.push({ sender: pendingSpeaker, text: line });
-            pendingSpeaker = '';
-            continue;
-        }
-
+        // Only explicit bracketed speakers are treated as character lines.
+        // All other forms (colon labels, implied/guided lines, or unlabeled speech)
+        // are considered narration.
         result.push({ sender: '旁白', text: line });
-        pendingSpeaker = 提取动作行说话人(line);
     }
 
     return result.length > 1 ? 合并相邻同发送者(result) : [log];
@@ -580,22 +550,14 @@ const 拆分旁白夹杂对白 = (log: GameLog, knownSpeakers: string[]): GameLo
         const quoteEnd = 引号对白正则.lastIndex;
         const speech = (match[1] || '').trim();
         const prefix = source.slice(0, quoteStart);
-        let speaker = 推断说话人(prefix, knownSpeakers);
-        let inferredFromSuffix = false;
-        if (!speaker) {
-            speaker = 推断后置信息说话人(source.slice(quoteEnd), knownSpeakers);
-            inferredFromSuffix = Boolean(speaker);
-        }
-        if (!speaker && lastSpeaker && 是否像引号对白内容(speech)) {
-            speaker = lastSpeaker;
-        }
-
-        const hasLeadingCue = 是否像说话引导(prefix, speaker);
-        const hasReliableSpeakerCue = hasLeadingCue || inferredFromSuffix || (!!lastSpeaker && speaker === lastSpeaker);
-        if (!speech || !speaker || (!hasReliableSpeakerCue && !是否像引号对白内容(speech))) continue;
-        if (!inferredFromSuffix && speaker !== lastSpeaker && !hasLeadingCue) continue;
-
-        const before = 移除尾部说话引导(source.slice(cursor, quoteStart), speaker);
+        // Only accept explicit bracketed speaker immediately before the quote.
+        const prefixSegment = source.slice(Math.max(0, quoteStart - 40), quoteStart);
+        const bracketMatch = prefixSegment.match(/【\s*([^】【]{1,16})\s*】\s*$/);
+        if (!speech || !bracketMatch) continue;
+        const speaker = 清理说话人(bracketMatch[1] || '');
+        if (!speaker) continue;
+        const bracketStart = quoteStart - prefixSegment.length + (bracketMatch.index ?? 0);
+        const before = 移除尾部说话引导(source.slice(cursor, bracketStart), speaker);
         if (before.trim()) parts.push({ sender: '旁白', text: before.trim() });
         parts.push({ sender: speaker, text: speech });
         lastSpeaker = speaker;

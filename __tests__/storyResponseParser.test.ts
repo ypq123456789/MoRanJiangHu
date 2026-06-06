@@ -87,7 +87,7 @@ describe('storyResponseParser', () => {
         ]);
     });
 
-    it('splits quoted dialogue embedded in narrator lines into character logs', () => {
+    it('keeps quoted dialogue embedded in narrator lines as narration without bracket labels', () => {
         const parsed = parseStoryRawText([
             '<正文>',
             '【旁白】晨风卷过演武场，杨镇远负手站在石阶前，沉声道：“剑势散了，脚下也浮。再走一遍。”',
@@ -97,11 +97,10 @@ describe('storyResponseParser', () => {
         ].join('\n'));
 
         expect(parsed.logs).toEqual([
-            { sender: '旁白', text: '晨风卷过演武场，杨镇远负手站在石阶前' },
-            { sender: '杨镇远', text: '剑势散了，脚下也浮。再走一遍。' },
-            { sender: '旁白', text: '杨培强收剑回身' },
-            { sender: '杨培强', text: '侄儿明白。' },
-            { sender: '旁白', text: '杨镇远点了点头，目光仍落在剑尖上。' }
+            {
+                sender: '旁白',
+                text: '晨风卷过演武场，杨镇远负手站在石阶前，沉声道：“剑势散了，脚下也浮。再走一遍。”\n杨培强收剑回身，说道：“侄儿明白。”杨镇远点了点头，目光仍落在剑尖上。'
+            }
         ]);
     });
 
@@ -151,7 +150,7 @@ describe('storyResponseParser', () => {
         ]);
     });
 
-    it('parses bare colon speaker lines as dialogue turns', () => {
+    it('keeps bare colon speaker lines as narration', () => {
         const parsed = parseStoryRawText([
             '<正文>',
             '林婉儿：我也看到这个bug了，有些角色说话的时候对话框就没了。',
@@ -160,11 +159,11 @@ describe('storyResponseParser', () => {
         ].join('\n'), { validateDialogueFormat: true });
 
         expect(parsed.logs).toEqual([
-            { sender: '林婉儿', text: '我也看到这个bug了，有些角色说话的时候对话框就没了。' }
+            { sender: '旁白', text: '林婉儿：我也看到这个bug了，有些角色说话的时候对话框就没了。' }
         ]);
     });
 
-    it('parses colon speaker lines with action hints without promoting protocol labels', () => {
+    it('keeps colon speaker lines with action hints as narration', () => {
         const parsed = parseStoryRawText([
             '<正文>',
             '地点：杨家堡后院',
@@ -175,19 +174,23 @@ describe('storyResponseParser', () => {
         ].join('\n'), { validateDialogueFormat: true });
 
         expect(parsed.logs).toEqual([
-            { sender: '旁白', text: '地点：杨家堡后院\n任务：检查对话框' },
-            { sender: '林婉儿', text: '真正的对白才需要头像。' }
+            { sender: '旁白', text: '地点：杨家堡后院\n任务：检查对话框\n林婉儿（皱眉）：真正的对白才需要头像。' }
         ]);
     });
 
-    it('still rejects likely unlabeled oral dialogue during strict parsing', () => {
-        expect(() => parseStoryRawText([
+    it('keeps likely unlabeled oral dialogue during strict parsing', () => {
+        const parsed = parseStoryRawText([
             '<正文>',
             '俞月荷冷笑一声，将表格拍在桌上。',
             '三百点？你真觉得这点贡献够换一整箱药？',
             '</正文>',
             '<短期记忆>俞月荷质疑贡献兑换。</短期记忆>'
-        ].join('\n'), { validateDialogueFormat: true })).toThrow(/疑似角色「俞月荷」/);
+        ].join('\n'), { validateDialogueFormat: true });
+
+        expect(parsed.logs).toEqual([{
+            sender: '旁白',
+            text: '俞月荷冷笑一声，将表格拍在桌上。\n三百点？你真觉得这点贡献够换一整箱药？'
+        }]);
     });
 
     it('keeps only fully quoted single-speaker text as character bubbles for rendering', () => {

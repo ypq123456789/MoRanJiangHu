@@ -663,17 +663,11 @@ const 正文冒号说话人排除集合 = new Set([
     '基础', '环境', '状态', '幸运', '装备', '结果', '奖励', '获得', '失去'
 ]);
 
-const 解析无括号正文发送者行 = (line: string): { sender: string; text: string } | null => {
-    const match = (line || '').trim().match(/^([A-Za-z][A-Za-z0-9_· -]{1,23}|[\u4e00-\u9fff]{2,4})(?:[（(][^）)\n]{1,16}[）)])?\s*[:：]\s*(.+)$/u);
-    if (!match) return null;
-    const sender = 规范化日志发送者(match[1] || '');
-    if (!sender) return null;
-    if (正文冒号说话人排除集合.has(sender)) return null;
-    if (!是否可信正文标签发送者(sender, { allowUnknownName: true })) return null;
-    return {
-        sender,
-        text: (match[2] || '').trim()
-    };
+const 解析无括号正文发送者行 = (_line: string): { sender: string; text: string } | null => {
+    // Disabled: only explicit bracketed speakers 【角色名】 are allowed to mark dialogue.
+    // Treat bare-colon lines (如 `角色: 文本`) as narration. Return null to prevent
+    // implicit speaker extraction.
+    return null;
 };
 
 const 解析判定日志行 = (line: string): { sender: string; text: string; trailingBody?: string } | null => {
@@ -885,23 +879,8 @@ const 是否像无标签口语行 = (line: string): boolean => {
     return 无标签口语起始正则.test(text) || /[？?！!]$/.test(text) || /(?:吧|吗|呢|啊|罢|了)$/.test(text);
 };
 
-const 检测正文对白格式问题 = (body: string): string | null => {
-    const lines = (body || '')
-        .replace(/\r\n/g, '\n')
-        .split('\n')
-        .map(line => line.trim())
-        .filter(Boolean)
-        .filter(line => !是否判定日志文本(line));
-    if (lines.length < 2) return null;
-    if (lines.some(line => /^【\s*[^】]+?\s*】/.test(line))) return null;
-
-    for (let index = 0; index < lines.length - 1; index += 1) {
-        const speaker = 提取无标签动作行人物名(lines[index]);
-        if (speaker && 是否像无标签口语行(lines[index + 1])) {
-            return `疑似角色「${speaker}」的对白没有使用【角色名】标签`;
-        }
-    }
-    return null;
+const 检测正文对话格式问题 = (_body: string): string | null => {
+  return null;
 };
 
 const 清理命令尾部分隔符 = (source: string): string => {
@@ -1300,7 +1279,7 @@ const 解析标签协议响应 = (content: string, options?: Required<StoryParse
         .join('\n\n');
 
     const dialogueFormatIssue = options?.validateDialogueFormat
-        ? 检测正文对白格式问题(bodyJudgeExtraction.cleanBody)
+        ? 检测正文对话格式问题(bodyJudgeExtraction.cleanBody)
         : null;
     if (dialogueFormatIssue) {
         throw new StoryResponseParseError(
