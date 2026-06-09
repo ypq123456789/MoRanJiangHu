@@ -1,4 +1,4 @@
-import type { ModeRuntimeProfile, 题材模式类型, 性别比例配置, 开局生成性别类型 } from '../models/system';
+import type { CurrencySystem, CurrencyUnit, ModeRuntimeProfile, 题材模式类型, 性别比例配置, 开局生成性别类型 } from '../models/system';
 import { 获取题材模式配置, 规范化题材模式 } from '../data/workshopThemes/topicModeThemeData';
 import { 获取世界观货币层级配置 } from './currencyDisplay';
 
@@ -49,6 +49,61 @@ const 规范化开局生成性别列表 = (value: unknown, fallback: 开局生�
 const 读取正整数 = (value: unknown, fallback: number): number => {
     const numeric = Math.floor(Number(value));
     return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+};
+
+const 读取非空字符串 = (value: unknown): string => (
+    typeof value === 'string' ? value.trim() : ''
+);
+
+export const 规范化显式CurrencySystem = (value: unknown): CurrencySystem | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const raw = value as Record<string, unknown>;
+    const id = 读取非空字符串(raw.id);
+    const name = 读取非空字符串(raw.name);
+    const baseUnitId = 读取非空字符串(raw.baseUnitId);
+    if (!id || !name || !baseUnitId) return undefined;
+    if (raw.formatStyle !== undefined && raw.formatStyle !== 'single' && raw.formatStyle !== 'compound') return undefined;
+    if (!Array.isArray(raw.units) || raw.units.length <= 0) return undefined;
+
+    const seenIds = new Set<string>();
+    const units: CurrencyUnit[] = [];
+    for (const item of raw.units) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined;
+        const unitRaw = item as Record<string, unknown>;
+        const unitId = 读取非空字符串(unitRaw.id);
+        const unitName = 读取非空字符串(unitRaw.name);
+        if (!unitId || !unitName || seenIds.has(unitId)) return undefined;
+        const baseRate = Number(unitRaw.baseRate);
+        const order = Number(unitRaw.order);
+        if (!Number.isInteger(baseRate) || baseRate <= 0) return undefined;
+        if (!Number.isFinite(order)) return undefined;
+        if (unitRaw.aliases !== undefined && (!Array.isArray(unitRaw.aliases) || !unitRaw.aliases.every((alias) => typeof alias === 'string'))) {
+            return undefined;
+        }
+        const symbol = 读取非空字符串(unitRaw.symbol);
+        const aliases = Array.isArray(unitRaw.aliases)
+            ? unitRaw.aliases.map((alias) => alias.trim()).filter(Boolean)
+            : [];
+        seenIds.add(unitId);
+        units.push({
+            id: unitId,
+            name: unitName,
+            ...(symbol ? { symbol } : {}),
+            baseRate,
+            order,
+            ...(aliases.length > 0 ? { aliases: Array.from(new Set(aliases)) } : {})
+        });
+    }
+
+    const baseUnit = units.find((unit) => unit.id === baseUnitId);
+    if (!baseUnit || baseUnit.baseRate !== 1) return undefined;
+    return {
+        id,
+        name,
+        baseUnitId,
+        units,
+        ...(raw.formatStyle === 'single' || raw.formatStyle === 'compound' ? { formatStyle: raw.formatStyle } : {})
+    };
 };
 
 export const 拆分模式配置短语 = (value: unknown): string[] => {
@@ -511,6 +566,7 @@ export const 规范化模式运行时配置 = (raw?: any, fallbackMode?: unknown
     const baseMode = 规范化题材模式(raw?.identity?.baseMode || fallback.identity.baseMode);
     const official = 构建官方模式运行时配置基础(baseMode);
     const resource = raw?.items?.resourceToggles || {};
+    const currencySystem = 规范化显式CurrencySystem(raw?.economy?.currencySystem);
     const 旧资源转列表 = (r: Record<string, boolean>): string[] => {
         const list: string[] = [];
         if (r.food) list.push('饱腹');
@@ -543,6 +599,7 @@ export const 规范化模式运行时配置 = (raw?: any, fallbackMode?: unknown
                 upperToMiddleRate: 读取正整数(raw?.economy?.currencyTiers?.upperToMiddleRate, official.economy.currencyTiers.upperToMiddleRate),
                 middleToLowerRate: 读取正整数(raw?.economy?.currencyTiers?.middleToLowerRate, official.economy.currencyTiers.middleToLowerRate)
             },
+            ...(currencySystem ? { currencySystem } : {}),
             marketName: 文本(raw?.economy?.marketName, official.economy.marketName),
             marketVerb: 文本(raw?.economy?.marketVerb, official.economy.marketVerb),
             allowedItemTypes: 拆分模式配置短语(raw?.economy?.allowedItemTypes).length ? 拆分模式配置短语(raw.economy.allowedItemTypes) : official.economy.allowedItemTypes,
@@ -755,9 +812,22 @@ const 构建官方模式运行时配置基础 = (mode?: unknown): ModeRuntimePro
     };
 };
 
+const 渲染动态货币体系摘要 = (currencySystem?: CurrencySystem): string => {
+    if (!currencySystem) return '';
+    const units = currencySystem.units
+        .map((unit) => {
+            const symbol = unit.symbol ? `；符号=${unit.symbol}` : '';
+            const aliases = unit.aliases?.length ? `；别名=${unit.aliases.join('、')}` : '';
+            return `${unit.name}${symbol}；baseRate=${unit.baseRate}${aliases}`;
+        })
+        .join(' | ');
+    return `动态货币体系：${currencySystem.name}；baseUnitId=${currencySystem.baseUnitId}；单位=${units}`;
+};
+
 export const 渲染模式运行时配置世界书内容 = (profile: ModeRuntimeProfile): string => ([
     `题材身份：${profile.identity.displayName}（继承 ${profile.identity.baseMode}；现代=${profile.identity.isModern ? '是' : '否'}；修炼=${profile.identity.usesCultivation ? '是' : '否'}；生存=${profile.identity.isSurvival ? '是' : '否'}；同人/IP=${profile.identity.isFandomIp ? '是' : '否'}）`,
     `经济系统：市场=${profile.economy.marketName}；行为=${profile.economy.marketVerb}；上层=${profile.economy.currencyTiers.upperName}；中层=${profile.economy.currencyTiers.middleName}；底层=${profile.economy.currencyTiers.lowerName}；汇率=${profile.economy.currencyTiers.upperToMiddleRate}/${profile.economy.currencyTiers.middleToLowerRate}`,
+    渲染动态货币体系摘要(profile.economy.currencySystem),
     `时间系统：显示=${profile.time.displayFormat}；历法=${profile.time.calendarName}；叙事=${profile.time.narrativeStyle}；时段=${profile.time.dayPeriodNames.join('、')}；允许=${profile.time.allowedTimeTerms.join('、') || '无'}；禁用=${profile.time.bannedTimeTerms.join('、') || '无'}；推进=${profile.time.progressionPrompt}`,
     `组织系统：组织=${profile.organization.organizationName}；成员=${profile.organization.memberName}；贡献=${profile.organization.contributionName}；等级=${profile.organization.rankNames.join('、')}`,
     `能力系统：主轴=${profile.ability.primaryAxis}；阶段=${profile.ability.progressionNames.join('、')}；技艺=${profile.ability.skillPool.join('、')}；结算=${profile.ability.combatResolution}`,
@@ -768,7 +838,7 @@ export const 渲染模式运行时配置世界书内容 = (profile: ModeRuntimeP
     `生图系统：服饰=${profile.image.characterClothingEra}；场景=${profile.image.sceneMaterials}；物品=${profile.image.itemRealismPrompt}；负面=${profile.image.negativePrompt}`,
     `开局系统：背景=${profile.opening.defaultBackgrounds.join('、')}；天赋=${profile.opening.defaultTalents.join('、')}；切入=${profile.opening.cutInTemplates.join('、')}；初始任务=${profile.opening.initialQuestTemplates.join('、')}；允许生成性别=${profile.opening.allowedGeneratedGenders.join('、')}；性别锁定=${profile.opening.lockGeneratedGenders ? '是' : '否'}`,
     `校验系统：禁词=${profile.validation.bannedWords.join('、')}；冲突检测=${profile.validation.conflictChecks.join('、')}；迁移清理=${profile.validation.migrationCleanupRules.join('、')}`
-]).join('\n');
+]).filter(Boolean).join('\n');
 
 export const 获取题材顶部时间显示格式 = (
     runtimeProfile?: ModeRuntimeProfile | null,

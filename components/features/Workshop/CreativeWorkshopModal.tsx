@@ -3,7 +3,7 @@ import { 从模式世界书提取提示词, 创意工坊模块分区, type 创�
 import type { 接口设置结构, ModeRuntimeProfile, 世界书结构 } from '../../../types';
 import type { 题材模式类型 } from '../../../models/system';
 import { 题材模式配置表, 题材模式顺序 } from '../../../utils/topicModeProfiles';
-import { 构建官方模式运行时配置, 规范化模式运行时配置, 渲染模式运行时配置世界书内容 } from '../../../utils/modeRuntimeProfile';
+import { 构建官方模式运行时配置, 规范化模式运行时配置, 渲染模式运行时配置世界书内容, 规范化显式CurrencySystem } from '../../../utils/modeRuntimeProfile';
 import { 开局生成性别选项 } from '../../../utils/openingConfig';
 import {
     编辑创意工坊模块,
@@ -29,7 +29,7 @@ const 可展示工坊类型: 创意工坊模块类型[] = ['topic', 'comfy_workf
 const 可展示工坊类型集合 = new Set<创意工坊模块类型>(可展示工坊类型);
 const 可展示工坊分区 = 创意工坊模块分区.filter((section) => 可展示工坊类型集合.has(section.id));
 const 默认生成性别占位 = `${开局生成性别选项.map((item) => item.value).join('、')}；留空默认全选`;
-type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig';
+type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig' | 'currencySystemJson';
 type 运行时配置字段 = { label: string; path: string[]; type?: 运行时配置字段类型; placeholder?: string; boolGroup?: { label: string; key: string }[] };
 type 运行时配置分区 = { title: string; fields: 运行时配置字段[] };
 
@@ -56,6 +56,7 @@ const 运行时配置分区列表: 运行时配置分区[] = [
             { label: '底层货币名称', path: ['economy', 'currencyTiers', 'lowerName'] },
             { label: '上转中汇率', path: ['economy', 'currencyTiers', 'upperToMiddleRate'] },
             { label: '中转底汇率', path: ['economy', 'currencyTiers', 'middleToLowerRate'] },
+            { label: '高级 currencySystem JSON', path: ['economy', 'currencySystem'], type: 'currencySystemJson' },
             { label: '题材货币说明', path: ['economy', 'primaryCurrency'], type: 'textarea' },
             { label: '底层记账单位', path: ['economy', 'accountingUnit'] },
             { label: '旧兼容换算说明', path: ['economy', 'exchangeRules'], type: 'textarea' },
@@ -299,6 +300,7 @@ const 读取运行时路径值 = (profile: ModeRuntimeProfile, path: string[]): 
 const 格式化运行时字段值 = (profile: ModeRuntimeProfile, field: 运行时配置字段): string => {
     const value = 读取运行时路径值(profile, field.path);
     if (typeof value === 'undefined' || value === null) return '';
+    if (field.type === 'currencySystemJson') return JSON.stringify(value, null, 2);
     if (field.type === 'record') {
         if (typeof value === 'object' && !Array.isArray(value)) {
             return Object.entries(value).map(([k, v]) => `${k}=${v}`).join('\n');
@@ -307,6 +309,11 @@ const 格式化运行时字段值 = (profile: ModeRuntimeProfile, field: 运行�
     }
     if (Array.isArray(value)) return value.join('、');
     return typeof value === 'string' ? value : String(value ?? '');
+};
+
+const 格式化CurrencySystemJson = (profile: ModeRuntimeProfile): string => {
+    const value = profile.economy.currencySystem;
+    return value ? JSON.stringify(value, null, 2) : '';
 };
 
 const 写入运行时路径值 = (profile: ModeRuntimeProfile, path: string[], value: any): ModeRuntimeProfile => {
@@ -750,6 +757,8 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
     const [editingEntryId, setEditingEntryId] = useState('');
     const [editingDraft, setEditingDraft] = useState({ title: '', subtitle: '', description: '', tags: '', contributor: '', anonymous: false });
     const [contributionDraft, setContributionDraft] = useState<贡献草稿>(() => 空贡献草稿());
+    const [currencySystemJsonDraft, setCurrencySystemJsonDraft] = useState(() => 格式化CurrencySystemJson(空贡献草稿().modeRuntimeProfile));
+    const [currencySystemJsonError, setCurrencySystemJsonError] = useState('');
     const [showContributionForm, setShowContributionForm] = useState(true);
     const jsonImportInputRef = useRef<HTMLInputElement | null>(null);
     const contributionModule = useMemo(() => 构建贡献模块(contributionDraft, contributor), [contributionDraft, contributor]);
@@ -774,6 +783,47 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                 && 分割短语(contributionDraft.talentSuggestions).length > 0
                 && worldDetailsReady
     );
+    useEffect(() => {
+        if (currencySystemJsonError) return;
+        setCurrencySystemJsonDraft(格式化CurrencySystemJson(contributionDraft.modeRuntimeProfile));
+    }, [contributionDraft.modeRuntimeProfile.economy.currencySystem, currencySystemJsonError]);
+
+    const 更新CurrencySystemJson = (value: string) => {
+        setCurrencySystemJsonDraft(value);
+        const trimmed = value.trim();
+        if (!trimmed) {
+            setCurrencySystemJsonError('');
+            setContributionDraft((prev) => {
+                const nextProfile = 写入运行时路径值(prev.modeRuntimeProfile, ['economy', 'currencySystem'], undefined);
+                return {
+                    ...prev,
+                    modeRuntimeProfile: 规范化模式运行时配置(nextProfile, prev.mode)
+                };
+            });
+            return;
+        }
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(trimmed);
+        } catch (error) {
+            setCurrencySystemJsonError(error instanceof Error ? `JSON 解析失败：${error.message}` : 'JSON 解析失败');
+            return;
+        }
+        const currencySystem = 规范化显式CurrencySystem(parsed);
+        if (!currencySystem) {
+            setCurrencySystemJsonError('currencySystem 结构非法：请检查 id/name/baseUnitId、units、baseRate、order、aliases 和 baseUnit。');
+            return;
+        }
+        setCurrencySystemJsonError('');
+        setContributionDraft((prev) => {
+            const nextProfile = 写入运行时路径值(prev.modeRuntimeProfile, ['economy', 'currencySystem'], currencySystem);
+            return {
+                ...prev,
+                modeRuntimeProfile: 规范化模式运行时配置(nextProfile, prev.mode)
+            };
+        });
+    };
+
     const 更新运行时配置字段 = (field: 运行时配置字段, value: any) => {
         setContributionDraft((prev) => {
             const parsedValue = field.type === 'list'
@@ -1644,6 +1694,23 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                                                                                 }}
                                                                                 placeholder='{"levelNames":[],"parseRules":[]}'
                                                                                 className="mt-1 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-wuxia-gold/45 font-mono" />
+                                                                        </label>
+                                                                    );
+                                                                }
+                                                                if (fieldType === 'currencySystemJson') {
+                                                                    return (
+                                                                        <label key={key} className="block text-xs text-gray-300 sm:col-span-2">
+                                                                            {field.label}
+                                                                            <textarea value={currencySystemJsonDraft}
+                                                                                onChange={(event) => 更新CurrencySystemJson(event.target.value)}
+                                                                                placeholder='{"id":"modern-credit","name":"现代信用点","baseUnitId":"credit","formatStyle":"single","units":[{"id":"credit","name":"信用点","symbol":"点","baseRate":1,"order":1,"aliases":["信用","点数"]}]}'
+                                                                                className={`mt-1 min-h-36 w-full resize-y rounded-lg border ${currencySystemJsonError ? 'border-red-400/60' : 'border-white/10'} bg-black/30 px-3 py-2 font-mono text-sm leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-wuxia-gold/45`} />
+                                                                            <div className="mt-1 text-[11px] leading-5 text-gray-400">
+                                                                                留空会清除显式 currencySystem，旧三层 currencyTiers 仍作为兼容 fallback。合法 JSON 会写入 economy.currencySystem。
+                                                                            </div>
+                                                                            {currencySystemJsonError && (
+                                                                                <div className="mt-1 text-[11px] leading-5 text-red-300">{currencySystemJsonError}</div>
+                                                                            )}
                                                                         </label>
                                                                     );
                                                                 }

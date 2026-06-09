@@ -25,7 +25,7 @@ import {
     计算角色货币底层总值,
     toBaseAmount
 } from '../utils/currencyDisplay';
-import { 规范化模式运行时配置 } from '../utils/modeRuntimeProfile';
+import { 渲染模式运行时配置世界书内容, 规范化模式运行时配置 } from '../utils/modeRuntimeProfile';
 
 const 无限流运行时配置 = 规范化模式运行时配置(undefined, '无限流');
 
@@ -435,5 +435,109 @@ describe('货币显示', () => {
         expect(fallbackSystem.baseUnitId).toBe('base');
         expect(formatCurrencyBaseAmount(Number.NaN, fallbackSystem)).toBe('0 货币');
         expect(toBaseAmount(Number.NaN, 'missing', fallbackSystem)).toBe(0);
+    });
+
+    it('模式运行时规范化会保留合法 currencySystem', () => {
+        const profile = 规范化模式运行时配置({
+            identity: { baseMode: '现代都市' },
+            economy: {
+                currencySystem: {
+                    id: 'modern-credit',
+                    name: '现代信用点',
+                    baseUnitId: 'credit',
+                    formatStyle: 'single',
+                    units: [
+                        { id: 'credit', name: '信用点', symbol: '点', baseRate: 1, order: 1, aliases: ['信用', '点数'] }
+                    ]
+                }
+            }
+        } as any, '现代都市');
+
+        expect(profile.economy.currencySystem).toEqual({
+            id: 'modern-credit',
+            name: '现代信用点',
+            baseUnitId: 'credit',
+            formatStyle: 'single',
+            units: [
+                { id: 'credit', name: '信用点', symbol: '点', baseRate: 1, order: 1, aliases: ['信用', '点数'] }
+            ]
+        });
+    });
+
+    it('非法 currencySystem 会被丢弃且旧 currencyTiers fallback 仍保留', () => {
+        const profile = 规范化模式运行时配置({
+            identity: { baseMode: '武侠' },
+            economy: {
+                currencyTiers: {
+                    upperName: '金',
+                    middleName: '银',
+                    lowerName: '铜',
+                    upperToMiddleRate: 10,
+                    middleToLowerRate: 100
+                },
+                currencySystem: {
+                    id: 'bad',
+                    name: '坏配置',
+                    baseUnitId: 'gold',
+                    units: [
+                        { id: 'gold', name: '金', baseRate: 100, order: 2 }
+                    ]
+                }
+            }
+        } as any, '武侠');
+
+        expect(profile.economy.currencySystem).toBeUndefined();
+        expect(profile.economy.currencyTiers).toEqual({
+            upperName: '金',
+            middleName: '银',
+            lowerName: '铜',
+            upperToMiddleRate: 10,
+            middleToLowerRate: 100
+        });
+    });
+
+    it('运行时配置世界书有 currencySystem 时会追加动态货币摘要', () => {
+        const profile = 规范化模式运行时配置({
+            identity: { baseMode: '仙侠' },
+            economy: {
+                currencySystem: {
+                    id: 'spirit-stones',
+                    name: '灵石体系',
+                    baseUnitId: 'low',
+                    formatStyle: 'compound',
+                    units: [
+                        { id: 'high', name: '上品灵石', symbol: '上灵', baseRate: 10000, order: 3, aliases: ['上品'] },
+                        { id: 'mid', name: '中品灵石', baseRate: 100, order: 2, aliases: ['中品'] },
+                        { id: 'low', name: '下品灵石', baseRate: 1, order: 1, aliases: ['下品'] }
+                    ]
+                }
+            }
+        } as any, '仙侠');
+        const text = 渲染模式运行时配置世界书内容(profile);
+
+        expect(text).toContain('动态货币体系：灵石体系');
+        expect(text).toContain('baseUnitId=low');
+        expect(text).toContain('上品灵石；符号=上灵；baseRate=10000；别名=上品');
+        expect(text).toContain('下品灵石；baseRate=1；别名=下品');
+    });
+
+    it('运行时配置世界书无 currencySystem 时旧三层摘要不变', () => {
+        const profile = 规范化模式运行时配置({
+            identity: { baseMode: '武侠' },
+            economy: {
+                currencyTiers: {
+                    upperName: '金元宝',
+                    middleName: '银子',
+                    lowerName: '铜钱',
+                    upperToMiddleRate: 100,
+                    middleToLowerRate: 1000
+                }
+            }
+        } as any, '武侠');
+        const text = 渲染模式运行时配置世界书内容(profile);
+
+        expect(text).toContain('经济系统：');
+        expect(text).toContain('上层=金元宝；中层=银子；底层=铜钱；汇率=100/1000');
+        expect(text).not.toContain('动态货币体系');
     });
 });
