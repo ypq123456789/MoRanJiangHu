@@ -56,7 +56,7 @@ ${构建修炼体系附加块('├─ 当前内力/最大内力: number')}
 ├─ 当前口渴/最大口渴: number
 ├─ 当前负重/最大负重: number
 ├─ 当前坐标X/当前坐标Y: number
-├─ 金钱: { 金元宝:number, 银子:number, 铜钱:number }
+├─ 金钱: { 金元宝:number, 银子:number, 铜钱:number, baseAmount?:number }
 ├─ 力量/敏捷/体质/根骨/悟性/福源: number
 ├─ 头部当前血量/头部最大血量/头部状态: number|string
 ├─ 胸部当前血量/胸部最大血量/胸部状态: number|string
@@ -114,6 +114,17 @@ ${构建修炼体系附加块(`
 ### 3.5 【类型别名】角色.突破条件[i]
 角色.突破条件[i] = { 名称:string, 描述:string, 要求:string, 当前进度:string }
 `)}
+
+### 3.6 【类型别名】可选货币体系 CurrencySystem
+开局运行配置可选包含：modeRuntimeProfile.economy.currencySystem?: CurrencySystem
+CurrencySystem = { id:string, name:string, baseUnitId:string, formatStyle?:"single"|"compound", units:Array<CurrencyUnit> }
+CurrencyUnit = { id:string, name:string, symbol?:string, baseRate:number, order:number, aliases?:string[] }
+说明：
+- currencySystem 是可选字段，不要求每个世界都输出；缺失时程序继续使用旧三层货币 fallback。
+- 角色.金钱 的金元宝/银子/铜钱三层兼容字段必须保留；baseAmount 是程序结算用最小单位，可缺省由程序补齐。
+- 现代/都市可用单币种元、信用点；古代/武侠可用金/银/铜；修仙可用极品/上品/中品/下品灵石；末世可用信用点、物资券、瓶盖、子弹；无限流可用奖励点、支线剧情。
+- 所有 baseRate 必须是正整数；baseUnitId 对应单位的 baseRate 必须为 1；order 越大表示越高等级货币；普通世界 1-4 个单位即可。
+- 交易、购买、出售和拍卖结算由程序按 baseAmount 处理，AI 不要在剧情或变量里手动乱算汇率。
 
 ## 4. 社交
 社交[i]

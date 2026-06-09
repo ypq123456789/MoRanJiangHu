@@ -4,6 +4,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import LeftPanel from '../components/layout/LeftPanel';
 import { 创建开场空白角色 } from '../hooks/useGame/storyState';
 import { 设置默认技艺运行时配置, 规范化角色物品容器映射 } from '../hooks/useGame/stateTransforms';
+import { 核心_数据格式 } from '../prompts/core/data';
+import { 开场初始化任务提示词 } from '../prompts/runtime/opening';
+import { 构建变量模型职责提示词 } from '../prompts/runtime/variableModel';
 import { 默认游戏设置 } from '../utils/gameSettings';
 import {
     formatCurrencyBaseAmount,
@@ -151,6 +154,17 @@ const makeInfiniteCharacter = () => ({
 } as any);
 
 describe('货币显示', () => {
+    it('AI 提示词支持可选 currencySystem 且保留旧三层货币兼容', () => {
+        const variablePrompt = 构建变量模型职责提示词();
+
+        expect(开场初始化任务提示词).toContain('modeRuntimeProfile.economy.currencySystem');
+        expect(开场初始化任务提示词).toContain('若不输出 `currencySystem`，程序会继续使用旧三层货币 fallback');
+        expect(核心_数据格式.内容).toContain('currencySystem 是可选字段');
+        expect(核心_数据格式.内容).toContain('金元宝/银子/铜钱三层兼容字段必须保留');
+        expect(variablePrompt).toContain('units[].name/symbol/aliases');
+        expect(variablePrompt).toContain('普通回合不要擅自改写或重建 `currencySystem`');
+    });
+
     it('无限流左侧栏货币槽位使用短标签而不是提示词长文', () => {
         const slots = 获取世界观货币槽位(无限流开局配置, makeInfiniteCharacter());
         expect(slots.map((slot) => slot.label)).toEqual(['C级支线剧情', 'D级支线剧情', '奖励点']);
