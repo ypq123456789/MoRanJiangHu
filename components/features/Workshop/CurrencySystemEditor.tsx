@@ -130,12 +130,12 @@ const CurrencySystemEditor: React.FC<Props> = ({ profile, onApply, onClear }) =>
                         onChange={(event) => 更新字段({ formatStyle: event.target.value as CurrencySystem['formatStyle'] })}
                         className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45"
                     >
-                        <option value="single">single</option>
-                        <option value="compound">compound</option>
+                        <option value="single">单一显示</option>
+                        <option value="compound">复合显示</option>
                     </select>
                 </label>
                 <label className="block text-xs text-gray-300">
-                    基础单位 baseUnitId
+                    基础单位
                     <select
                         value={draft.baseUnitId}
                         onChange={(event) => 更新字段({ baseUnitId: event.target.value })}
@@ -163,32 +163,34 @@ const CurrencySystemEditor: React.FC<Props> = ({ profile, onApply, onClear }) =>
                         </div>
                         <div className="mt-2 grid gap-2 sm:grid-cols-3">
                             <label className="block text-[11px] text-gray-400">
-                                id
+                                单位ID
                                 <input value={unit.id} onChange={(event) => 更新单位(index, { id: event.target.value })}
                                     className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45" />
+                                <div className="mt-1 leading-4 text-gray-500">用于程序识别，建议使用英文或拼音，不要重复。</div>
                             </label>
                             <label className="block text-[11px] text-gray-400">
-                                name
+                                单位名称
                                 <input value={unit.name} onChange={(event) => 更新单位(index, { name: event.target.value })}
                                     className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45" />
                             </label>
                             <label className="block text-[11px] text-gray-400">
-                                symbol
+                                符号
                                 <input value={unit.symbol || ''} onChange={(event) => 更新单位(index, { symbol: event.target.value })}
                                     className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45" />
                             </label>
                             <label className="block text-[11px] text-gray-400">
-                                baseRate
+                                折算为基础单位
                                 <input type="number" min={1} step={1} value={unit.baseRate} onChange={(event) => 更新单位(index, { baseRate: Number(event.target.value) })}
                                     className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45" />
+                                <div className="mt-1 leading-4 text-gray-500">例如：若基础单位是铜钱，元宝填 100000 表示 1 元宝 = 100000 铜钱。</div>
                             </label>
                             <label className="block text-[11px] text-gray-400">
-                                order
+                                显示顺序
                                 <input type="number" step={1} value={unit.order} onChange={(event) => 更新单位(index, { order: Number(event.target.value) })}
                                     className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45" />
                             </label>
                             <label className="block text-[11px] text-gray-400 sm:col-span-3">
-                                aliases
+                                别名
                                 <input value={格式化别名(unit.aliases)} onChange={(event) => 更新单位(index, { aliases: 分割别名(event.target.value) })}
                                     placeholder="多个别名用逗号、顿号或换行分隔"
                                     className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-sm text-gray-100 outline-none placeholder:text-gray-500 focus:border-wuxia-gold/45" />
