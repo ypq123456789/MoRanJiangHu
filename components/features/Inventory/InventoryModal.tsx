@@ -14,7 +14,7 @@ import { 获取物品明细分组 } from '../../../utils/rulebook';
 import { 是否杂物类物品 } from '../../../utils/inventoryActions';
 import { 规范化消耗品使用效果 } from '../../../utils/itemEffects';
 import { 获取题材界面文案 } from '../../../utils/resourceLabels';
-import { 获取世界观货币卡片信息, 获取背包货币物品聚合列表, 获取货币显示模式, 获取货币完整单位标签 } from '../../../utils/currencyDisplay';
+import { 格式化世界观BaseAmount, 获取世界观BaseAmount单位标签, 获取世界观货币卡片信息, 获取背包货币物品聚合列表, 获取货币显示模式, 获取货币完整单位标签 } from '../../../utils/currencyDisplay';
 
 interface Props {
     character: any;
@@ -250,7 +250,9 @@ const InventoryModal: React.FC<Props> = ({ character, openingConfig, onClose, on
         sum + getSafeNumber(item?.价值) * getSafeNumber(item?.堆叠数量, 1)
     ), 0);
     const currencyMode = 获取货币显示模式(openingConfig, character);
-    const valueUnit = 获取货币完整单位标签('铜钱', currencyMode);
+    const legacyValueUnit = 获取货币完整单位标签('铜钱', currencyMode);
+    const valueUnit = 获取世界观BaseAmount单位标签(openingConfig, character, legacyValueUnit);
+    const totalValueText = 格式化世界观BaseAmount(totalValue, openingConfig, character, `${totalValue.toLocaleString()} ${legacyValueUnit}`);
     const 货币卡片 = 获取世界观货币卡片信息(openingConfig, character);
     const 货币物品列表 = useMemo(() => 获取背包货币物品聚合列表(items), [items]);
     const selectedEquipSlots = selectedItem ? 获取物品可装备槽位(selectedItem) : [];
@@ -509,7 +511,7 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                                     <svg className="h-3.5 w-3.5 opacity-80" viewBox="0 0 24 24" fill="currentColor">
                                         <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 100-16 8 8 0 000 16zm-1-8H9v-2h2V8h2v2h2v2h-2v2h-2v-2z" />
                                     </svg>
-                                    {totalValue.toLocaleString()} {valueUnit}
+                                    {totalValueText}
                                 </div>
                             </div>
                             <div className="rounded-lg border border-wuxia-gold/10 bg-black/35 p-3">

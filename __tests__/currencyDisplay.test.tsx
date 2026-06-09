@@ -7,11 +7,13 @@ import {
     formatCurrencyBaseAmount,
     fromBaseAmount,
     获取默认CurrencySystemFromProfile,
+    获取世界观BaseAmount单位标签,
     获取世界观简短货币汇率说明,
     获取世界观货币槽位,
     获取角色金钱BaseAmount,
     底层总值转角色金钱,
     格式化角色金钱行,
+    格式化世界观BaseAmount,
     规范化角色金钱,
     计算角色货币底层总值,
     toBaseAmount
@@ -41,6 +43,48 @@ const 无限流开局配置 = {
         附加角色替换规则列表: [],
         启用附加小说: false,
         附加小说数据集ID: ''
+    }
+} as any;
+
+const 单币种货币开局配置 = {
+    ...无限流开局配置,
+    题材模式: '现代都市',
+    modeRuntimeProfile: {
+        ...无限流运行时配置,
+        economy: {
+            ...(无限流运行时配置 as any).economy,
+            currencySystem: {
+                id: 'modern-yuan',
+                name: '人民币',
+                baseUnitId: 'yuan',
+                formatStyle: 'single',
+                units: [
+                    { id: 'yuan', name: '元', symbol: '¥', baseRate: 1, order: 1, aliases: ['人民币', '现金'] }
+                ]
+            }
+        }
+    }
+} as any;
+
+const 三层CurrencySystem开局配置 = {
+    ...无限流开局配置,
+    题材模式: '武侠',
+    modeRuntimeProfile: {
+        ...无限流运行时配置,
+        economy: {
+            ...(无限流运行时配置 as any).economy,
+            currencySystem: {
+                id: 'ancient-money',
+                name: '古代钱制',
+                baseUnitId: 'copper',
+                formatStyle: 'compound',
+                units: [
+                    { id: 'gold', name: '金', baseRate: 10000, order: 3, aliases: ['金元宝'] },
+                    { id: 'silver', name: '银', baseRate: 100, order: 2, aliases: ['银子'] },
+                    { id: 'copper', name: '铜', baseRate: 1, order: 1, aliases: ['铜钱'] }
+                ]
+            }
+        }
     }
 } as any;
 
@@ -144,6 +188,40 @@ describe('货币显示', () => {
         expect(formatCurrencyBaseAmount(123456, currencySystem)).toBe('123,456 ¥');
         expect(toBaseAmount(88, '人民币', currencySystem)).toBe(88);
         expect(fromBaseAmount(88, currencySystem)).toEqual({ yuan: 88 });
+    });
+
+    it('没有 currencySystem 时世界观 baseAmount UI 包装保持旧底层单位显示', () => {
+        expect(获取世界观BaseAmount单位标签(无限流开局配置, makeInfiniteCharacter(), '奖励点')).toBe('奖励点');
+        expect(格式化世界观BaseAmount(123456, 无限流开局配置, makeInfiniteCharacter(), '123,456 奖励点')).toBe('123,456 奖励点');
+    });
+
+    it('有单币种 currencySystem 时世界观 baseAmount UI 包装优先使用动态货币', () => {
+        expect(获取世界观BaseAmount单位标签(单币种货币开局配置, makeInfiniteCharacter(), '信用点')).toBe('¥');
+        expect(格式化世界观BaseAmount(123456, 单币种货币开局配置, makeInfiniteCharacter(), '123,456 信用点')).toBe('123,456 ¥');
+    });
+
+    it('有三层 currencySystem 时世界观 baseAmount UI 包装可以复合显示', () => {
+        expect(获取世界观BaseAmount单位标签(三层CurrencySystem开局配置, makeInfiniteCharacter(), '铜钱')).toBe('铜');
+        expect(格式化世界观BaseAmount(12345, 三层CurrencySystem开局配置, makeInfiniteCharacter(), '12,345 铜钱')).toBe('1 金 / 23 银 / 45 铜');
+    });
+
+    it('左侧栏有 currencySystem 时钱财显示使用 baseAmount 格式化', () => {
+        const character = makeInfiniteCharacter();
+        character.金钱 = {
+            金元宝: 0,
+            银子: 5,
+            铜钱: 2000,
+            baseAmount: 123456
+        };
+        const html = renderToStaticMarkup(
+            <LeftPanel
+                角色={character}
+                openingConfig={单币种货币开局配置}
+                gameConfig={{ ...默认游戏设置, 启用修炼体系: false, 启用饱腹口渴系统: false }}
+            />
+        );
+
+        expect(html).toContain('123,456 ¥');
     });
 
     it('古代三层 CurrencySystem 可以从 baseAmount 拆分格式化', () => {

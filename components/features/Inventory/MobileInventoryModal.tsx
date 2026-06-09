@@ -13,7 +13,7 @@ import { 获取物品已选图标地址 } from '../../../utils/itemImage';
 import { 获取物品明细分组 } from '../../../utils/rulebook';
 import { 是否杂物类物品 } from '../../../utils/inventoryActions';
 import { 获取题材界面文案 } from '../../../utils/resourceLabels';
-import { 获取世界观货币卡片信息, 获取背包货币物品聚合列表, 获取货币显示模式, 获取货币完整单位标签 } from '../../../utils/currencyDisplay';
+import { 获取世界观BaseAmount单位标签, 获取世界观货币卡片信息, 获取背包货币物品聚合列表, 获取货币显示模式, 获取货币完整单位标签 } from '../../../utils/currencyDisplay';
 
 interface Props {
     character: any;
@@ -176,7 +176,8 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
     const selectedEquipSlots = selectedItem ? 获取物品可装备槽位(selectedItem) : [];
     const selectedCanEquip = selectedItem ? 是否可装备物品(selectedItem) : false;
     const currencyMode = 获取货币显示模式(openingConfig, character);
-    const valueUnit = 获取货币完整单位标签('铜钱', currencyMode);
+    const legacyValueUnit = 获取货币完整单位标签('铜钱', currencyMode);
+    const valueUnit = 获取世界观BaseAmount单位标签(openingConfig, character, legacyValueUnit);
     const 货币卡片 = 获取世界观货币卡片信息(openingConfig, character);
     const 货币物品列表 = useMemo(() => 获取背包货币物品聚合列表(items), [items]);
     const selectedDetailGroups = selectedItem ? 获取物品明细分组(selectedItem, { 价值单位: valueUnit }) : [];

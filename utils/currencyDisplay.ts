@@ -387,6 +387,41 @@ export const formatCurrencyBaseAmount = (
         .join(' / ');
 };
 
+const 获取显式世界观CurrencySystem = (
+    openingConfig?: OpeningConfig | null,
+    character?: Partial<角色数据结构> | null
+): CurrencySystem | null => {
+    if (!openingConfig?.modeRuntimeProfile?.economy?.currencySystem) return null;
+    return 获取默认CurrencySystemFromProfile(
+        openingConfig.modeRuntimeProfile,
+        获取货币显示模式(openingConfig, character)
+    );
+};
+
+export const 获取世界观BaseAmount单位标签 = (
+    openingConfig?: OpeningConfig | null,
+    character?: Partial<角色数据结构> | null,
+    fallback = ''
+): string => {
+    const system = 获取显式世界观CurrencySystem(openingConfig, character);
+    if (!system) return fallback;
+    const baseUnit = 获取CurrencyUnit(system.baseUnitId, system);
+    return baseUnit.symbol || baseUnit.name;
+};
+
+export const 格式化世界观BaseAmount = (
+    baseAmount: number,
+    openingConfig?: OpeningConfig | null,
+    character?: Partial<角色数据结构> | null,
+    fallback?: string
+): string => {
+    const system = 获取显式世界观CurrencySystem(openingConfig, character);
+    if (system) return formatCurrencyBaseAmount(baseAmount, system);
+    if (fallback != null) return fallback;
+    const mode = 获取货币显示模式(openingConfig, character);
+    return `${读取非负整数金额(baseAmount).toLocaleString('zh-CN')} ${获取货币完整单位标签('铜钱', mode, openingConfig?.modeRuntimeProfile)}`;
+};
+
 const 计算角色三层货币底层总值 = (
     money?: Partial<角色金钱> | null,
     profile?: ModeRuntimeProfile | null,
