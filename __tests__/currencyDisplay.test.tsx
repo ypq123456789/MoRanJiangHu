@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import LeftPanel from '../components/layout/LeftPanel';
+import { 规范化新开局轻量CurrencySystem } from '../components/features/NewGame/NewGameCurrencySystemSetup';
 import { 创建开场空白角色 } from '../hooks/useGame/storyState';
 import { 设置默认技艺运行时配置, 规范化角色物品容器映射 } from '../hooks/useGame/stateTransforms';
 import { 核心_数据格式 } from '../prompts/core/data';
@@ -643,6 +644,68 @@ describe('货币显示', () => {
             expect.objectContaining({ id: 'copper', name: '铜币', baseRate: 1 })
         ]);
         expect(校验CurrencySystem草稿(system).errors).toEqual([]);
+    });
+
+    it('新开局轻量单币种编辑可以生成合法 currencySystem', () => {
+        const result = 规范化新开局轻量CurrencySystem({
+            id: 'custom-currency-system',
+            name: '信用点体系',
+            baseUnitId: 'credit',
+            formatStyle: 'single',
+            units: [
+                { id: 'credit', name: '信用点', symbol: '点', baseRate: 1, order: 99 }
+            ]
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.currencySystem).toMatchObject({
+            id: 'custom-currency-system',
+            name: '信用点体系',
+            baseUnitId: 'credit',
+            formatStyle: 'single',
+            units: [
+                { id: 'credit', name: '信用点', symbol: '点', baseRate: 1, order: 1 }
+            ]
+        });
+        expect(result.currencySystem?.units[0].aliases).toEqual(expect.arrayContaining(['信用点', '点', '基础货币']));
+    });
+
+    it('新开局轻量多单位编辑会自动生成 order 和 aliases', () => {
+        const result = 规范化新开局轻量CurrencySystem({
+            id: 'custom-currency-system',
+            name: '三层货币',
+            baseUnitId: 'copper',
+            formatStyle: 'compound',
+            units: [
+                { id: 'gold', name: '金', baseRate: 10000, order: 0 },
+                { id: 'silver', name: '银', symbol: '两', baseRate: 100, order: 0 },
+                { id: 'copper', name: '铜', baseRate: 1, order: 0 }
+            ]
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.currencySystem?.units.map((unit) => unit.order)).toEqual([3, 2, 1]);
+        expect(result.currencySystem?.units[0].aliases).toEqual(expect.arrayContaining(['金', '上层货币']));
+        expect(result.currencySystem?.units[1].aliases).toEqual(expect.arrayContaining(['银', '两', '中层货币']));
+        expect(result.currencySystem?.units[2].aliases).toEqual(expect.arrayContaining(['铜', '底层货币']));
+    });
+
+    it('新开局轻量编辑删除基础单位后会自动兜底到有效 baseUnitId', () => {
+        const result = 规范化新开局轻量CurrencySystem({
+            id: 'custom-currency-system',
+            name: '剩余货币',
+            baseUnitId: 'missing',
+            formatStyle: 'compound',
+            units: [
+                { id: 'gold', name: '金', baseRate: 100, order: 0 },
+                { id: 'silver', name: '银', baseRate: 1, order: 0 }
+            ]
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.currencySystem?.baseUnitId).toBe('silver');
+        expect(result.currencySystem?.units.some((unit) => unit.id === result.currencySystem?.baseUnitId)).toBe(true);
+        expect(result.currencySystem?.units.find((unit) => unit.id === 'silver')?.baseRate).toBe(1);
     });
 
     it('校验 helper 能返回具体错误信息', () => {

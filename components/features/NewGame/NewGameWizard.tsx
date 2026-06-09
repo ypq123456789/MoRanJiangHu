@@ -3,12 +3,18 @@ import GameButton from '../../ui/GameButton';
 import { 接口设置结构, OpeningConfig, WorldGenConfig, 小说拆分数据集结构, 角色数据结构, 天赋结构, 背景结构, 游戏难度, 初始伙伴配置结构, 世界书结构 } from '../../../types';
 import { 预设天赋, 预设背景, 获取题材预设天赋, 获取题材预设背景 } from '../../../data/presets';
 import type { 开局预设方案结构 } from '../../../data/newGamePresets';
-import { 从模式世界书提取提示词, type 创意工坊模块条目, type 创意工坊模块类型, type 创意工坊世界细节生成配置 } from '../../../data/creativeWorkshopModules';
-import type { 题材模式类型 } from '../../../models/system';
+import {
+  从模式世界书提取显示词,
+  type 创意工坊模块条目,
+  type 创意工坊模块类型,
+  type 创意工坊世界细节生成配置
+} from '../../../data/creativeWorkshopModules';
+import type { CurrentSystem, 题材模式类型 } from '../../../models/system';
 import { OrnateBorder } from '../../ui/decorations/OrnateBorder';
 import InlineSelect from '../../ui/InlineSelect';
 import NewGameDiyTools from './NewGameDiyTools';
 import GeneratedGenderSelector from './GeneratedGenderSelector';
+import NewGameCurrencySystemSetup from './NewGameCurrencySystemSetup';
 import * as dbService from '../../../services/dbService';
 import { 读取小说拆分数据集列表 } from '../../../services/novelDecompositionStore';
 import { 合并去重开局预设方案, 标准化开局预设方案, 生成自定义开局预设ID, 自定义开局预设存储键, 构建开局运行时快照, 构建预设表单恢复结果, 构建预设直开恢复结果, 获取快速重开运行时恢复参数 } from '../../../utils/customNewGamePresets';
@@ -278,6 +284,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     const [创意工坊注入状态, 设置创意工坊注入状态] = useState('');
     const [创意工坊注入中, 设置创意工坊注入中] = useState(false);
     const [activeModuleExtraRules, setActiveModuleExtraRules] = useState('');
+    const [货币已手动修改, 设置货币已手动修改] = useState(false);
 
     // Custom Inputs
     const [customTalent, setCustomTalent] = useState<天赋结构>({ 名称: '', 描述: '', 效果: '' });
@@ -935,8 +942,30 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
         允许生成性别: 规范化开局生成性别列表(modeRuntimeProfile?.opening?.allowedGeneratedGenders),
         生成性别锁定: modeRuntimeProfile?.opening?.lockGeneratedGenders === true
     });
+    const 保留自定义货币系统 = (modeRuntimeProfile: NonNullable<OpeningConfig['modeRuntimeProfile']>) => {
+        const currentCurrencySystem = openingConfig.modeRuntimeProfile?.economy.currencySystem;
+        if (!货币已手动修改 || !currentCurrencySystem) return modeRuntimeProfile;
+        return {
+            ...modeRuntimeProfile,
+            economy: {
+                ...modeRuntimeProfile.economy,
+                currencySystem: currentCurrencySystem as CurrencySystem
+            }
+        };
+    };
+    const 更新开局货币系统 = (nextProfile: NonNullable<OpeningConfig['modeRuntimeProfile']>) => {
+        设置货币已手动修改(true);
+        setOpeningConfig((prev) => ({
+            ...prev,
+            modeRuntimeProfile: nextProfile
+        }));
+        setWorldConfig((prev) => ({
+            ...prev,
+            modeRuntimeProfile: nextProfile
+        }));
+    };
     const 更新题材模式 = (题材模式: OpeningConfig['题材模式']) => {
-        const modeRuntimeProfile = 构建官方模式运行时配置(题材模式);
+        const modeRuntimeProfile = 保留自定义货币系统(构建官方模式运行时配置(题材模式));
         设置模式包背景列表([]);
         设置模式包天赋列表([]);
         设置模式包世界书列表([]);
@@ -990,10 +1019,10 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
             const module = await 下载创意工坊模块(entry);
             const mode = 读取模块模式(module);
             if (mode) 更新题材模式(mode);
-            const modeRuntimeProfile = 规范化模式运行时配置(
+            const modeRuntimeProfile = 保留自定义货币系统(规范化模式运行时配置(
                 module.modeRuntimeProfile || (module.payload as any)?.modeRuntimeProfile,
                 mode || openingConfig.题材模式
-            );
+            ));
             const resolvedMode = modeRuntimeProfile.identity.baseMode as 题材模式类型;
             const moduleBackgrounds = 提取模块背景列表(module);
             const moduleTalents = 提取模块天赋列表(module);
@@ -2024,6 +2053,19 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                             </div>
                                         </div>
                                     </div>
+
+                                    {openingConfig.modeRuntimeProfile && (
+                                        <NewGameCurrencySystemSetup
+                                            profile={openingConfig.modeRuntimeProfile}
+                                            onChangeProfile={更新开局货币系统}
+                                            onTouched={() => 设置货币已手动修改(true)}
+                                        />
+                                    )}
+                                    {货币已手动修改 && (
+                                        <div className="rounded-xl border border-wuxia-gold/15 bg-wuxia-gold/[0.04] px-3 py-2 text-[11px] leading-5 text-wuxia-gold">
+                                            已保留你自定义的货币系统；如需使用题材默认，可在上方重新选择“题材默认”模板。
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
