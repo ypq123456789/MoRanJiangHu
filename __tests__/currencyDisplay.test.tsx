@@ -9,8 +9,10 @@ import {
     获取默认CurrencySystemFromProfile,
     获取世界观简短货币汇率说明,
     获取世界观货币槽位,
+    获取角色金钱BaseAmount,
     底层总值转角色金钱,
     格式化角色金钱行,
+    规范化角色金钱,
     计算角色货币底层总值,
     toBaseAmount
 } from '../utils/currencyDisplay';
@@ -170,11 +172,56 @@ describe('货币显示', () => {
             上层货币: 1,
             中层货币: 2,
             底层货币: 345,
+            baseAmount: 102345,
             金元宝: 1,
             银子: 2,
             铜钱: 345
         });
         expect(格式化角色金钱行(money)).toBe('元宝 1 / 银 2 / 铜钱 345');
+    });
+
+    it('旧三层钱包规范化时会自动补出 baseAmount', () => {
+        const normalized = 规范化角色金钱({ 金元宝: 1, 银子: 2, 铜钱: 345 });
+
+        expect(normalized).toEqual({
+            上层货币: 1,
+            中层货币: 2,
+            底层货币: 345,
+            baseAmount: 102345,
+            金元宝: 1,
+            银子: 2,
+            铜钱: 345
+        });
+        expect(获取角色金钱BaseAmount(normalized)).toBe(102345);
+    });
+
+    it('已有 baseAmount 的钱包不会被规范化清空', () => {
+        const normalized = 规范化角色金钱({
+            上层货币: 1,
+            中层货币: 2,
+            底层货币: 345,
+            baseAmount: 999999
+        });
+
+        expect(normalized.baseAmount).toBe(999999);
+        expect(获取角色金钱BaseAmount(normalized)).toBe(999999);
+        expect(计算角色货币底层总值(normalized)).toBe(102345);
+    });
+
+    it('缺字段钱包有安全 baseAmount fallback 且显示不变', () => {
+        const normalized = 规范化角色金钱({});
+
+        expect(normalized).toEqual({
+            上层货币: 0,
+            中层货币: 0,
+            底层货币: 0,
+            baseAmount: 0,
+            金元宝: 0,
+            银子: 0,
+            铜钱: 0
+        });
+        expect(获取角色金钱BaseAmount({})).toBe(0);
+        expect(格式化角色金钱行({})).toBe('元宝 0 / 银 0 / 铜钱 0');
     });
 
     it('三层配置可以安全转换成 CurrencySystem，异常配置有 fallback', () => {

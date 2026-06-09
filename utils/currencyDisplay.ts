@@ -88,6 +88,11 @@ const 读取货币数值 = (money: Partial<角色金钱> | null | undefined, key
     return Number.isFinite(legacy) ? Math.max(0, Math.trunc(legacy)) : 0;
 };
 
+const 读取BaseAmount数值 = (money: Partial<角色金钱> | null | undefined): number | null => {
+    const value = Number((money as any)?.baseAmount);
+    return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : null;
+};
+
 const 获取默认货币层级配置 = (mode: 货币显示模式): {
     upperName: string;
     middleName: string;
@@ -382,18 +387,40 @@ export const formatCurrencyBaseAmount = (
         .join(' / ');
 };
 
+const 计算角色三层货币底层总值 = (
+    money?: Partial<角色金钱> | null,
+    profile?: ModeRuntimeProfile | null,
+    mode: 货币显示模式 = 'wuxia'
+): number => (
+    货币层级顺序.reduce((sum, key) => (
+        sum + 读取货币数值(money, key) * 获取货币层级倍率(key, profile, mode)
+    ), 0)
+);
+
 export const 创建兼容角色金钱 = (money?: Partial<角色金钱> | null): 角色金钱 => {
     const normalized = {
         上层货币: 读取货币数值(money, '上层货币'),
         中层货币: 读取货币数值(money, '中层货币'),
         底层货币: 读取货币数值(money, '底层货币')
     };
+    const baseAmount = 读取BaseAmount数值(money) ?? 计算角色三层货币底层总值(normalized);
     return {
         ...normalized,
+        baseAmount,
         金元宝: normalized.上层货币,
         银子: normalized.中层货币,
         铜钱: normalized.底层货币
     };
+};
+
+export const 获取角色金钱BaseAmount = (
+    money?: Partial<角色金钱> | null,
+    profile?: ModeRuntimeProfile | null,
+    mode: 货币显示模式 = 'wuxia'
+): number => {
+    const existing = 读取BaseAmount数值(money);
+    if (existing !== null) return existing;
+    return 计算角色三层货币底层总值(money, profile, mode);
 };
 
 export const 获取货币兼容字段路径 = (key: 货币层级键): string[] => [
@@ -496,9 +523,7 @@ export const 计算角色货币底层总值 = (
     mode: 货币显示模式 = 'wuxia'
 ): number => {
     const normalized = 创建兼容角色金钱(money);
-    return 货币层级顺序.reduce((sum, key) => (
-        sum + 读取货币数值(normalized, key) * 获取货币层级倍率(key, profile, mode)
-    ), 0);
+    return 计算角色三层货币底层总值(normalized, profile, mode);
 };
 
 export const 底层总值转角色金钱 = (
