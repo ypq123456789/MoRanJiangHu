@@ -26,7 +26,13 @@ import {
     计算角色货币底层总值,
     toBaseAmount
 } from '../utils/currencyDisplay';
-import { 构建官方模式运行时配置, 渲染模式运行时配置世界书内容, 规范化模式运行时配置 } from '../utils/modeRuntimeProfile';
+import {
+    构建CurrencySystem模板,
+    构建官方模式运行时配置,
+    校验CurrencySystem草稿,
+    渲染模式运行时配置世界书内容,
+    规范化模式运行时配置
+} from '../utils/modeRuntimeProfile';
 
 const 无限流运行时配置 = 规范化模式运行时配置(undefined, '无限流');
 
@@ -600,6 +606,85 @@ describe('货币显示', () => {
             expect.objectContaining({ id: 'middle', name: '银币', baseRate: 100, order: 2 }),
             expect.objectContaining({ id: 'lower', name: '铜币', baseRate: 1, order: 1 })
         ]);
+    });
+
+    it('人民币模板生成单 unit currencySystem', () => {
+        const system = 构建CurrencySystem模板('modern-yuan');
+        const validation = 校验CurrencySystem草稿(system);
+
+        expect(validation.errors).toEqual([]);
+        expect(validation.currencySystem).toMatchObject({
+            id: 'modern-yuan',
+            name: '人民币体系',
+            baseUnitId: 'base',
+            formatStyle: 'single',
+            units: [
+                { id: 'base', name: '元', symbol: '¥', baseRate: 1, order: 1 }
+            ]
+        });
+    });
+
+    it('修仙灵石模板生成多层 currencySystem', () => {
+        const system = 构建CurrencySystem模板('xianxia');
+        const validation = 校验CurrencySystem草稿(system);
+
+        expect(validation.errors).toEqual([]);
+        expect(system.baseUnitId).toBe('low');
+        expect(system.units.map((unit) => unit.name)).toEqual(['极品灵石', '上品灵石', '中品灵石', '下品灵石']);
+        expect(system.units.map((unit) => unit.baseRate)).toEqual([100000000, 100000, 1000, 1]);
+    });
+
+    it('西幻模板汇率正确，不使用现代三层比例', () => {
+        const system = 构建CurrencySystem模板('fantasy');
+
+        expect(system.units).toEqual([
+            expect.objectContaining({ id: 'gold', name: '金币', baseRate: 10000 }),
+            expect.objectContaining({ id: 'silver', name: '银币', baseRate: 100 }),
+            expect.objectContaining({ id: 'copper', name: '铜币', baseRate: 1 })
+        ]);
+        expect(校验CurrencySystem草稿(system).errors).toEqual([]);
+    });
+
+    it('校验 helper 能返回具体错误信息', () => {
+        const validation = 校验CurrencySystem草稿({
+            id: '',
+            name: '',
+            baseUnitId: 'missing',
+            formatStyle: 'bad',
+            units: []
+        });
+
+        expect(validation.currencySystem).toBeUndefined();
+        expect(validation.errors).toContain('id 必填。');
+        expect(validation.errors).toContain('name 必填。');
+        expect(validation.errors).toContain('formatStyle 只能是 single 或 compound。');
+        expect(validation.errors).toContain('units 必须是非空数组。');
+        expect(validation.errors).toContain('baseUnitId 必须命中某个 unit.id。');
+    });
+
+    it('非法 baseUnitId、重复 unit.id 和错误 base unit 汇率会报错', () => {
+        const duplicated = 校验CurrencySystem草稿({
+            id: 'bad',
+            name: '坏货币',
+            baseUnitId: 'copper',
+            formatStyle: 'compound',
+            units: [
+                { id: 'coin', name: '金币', baseRate: 100, order: 2 },
+                { id: 'coin', name: '银币', baseRate: 1, order: 1 }
+            ]
+        });
+        expect(duplicated.errors).toContain('unit.id 不可重复：coin。');
+        expect(duplicated.errors).toContain('baseUnitId 必须命中某个 unit.id。');
+
+        const badBaseRate = 校验CurrencySystem草稿({
+            id: 'bad-base',
+            name: '坏基础单位',
+            baseUnitId: 'coin',
+            units: [
+                { id: 'coin', name: '金币', baseRate: 100, order: 1 }
+            ]
+        });
+        expect(badBaseRate.errors).toContain('base unit 的 baseRate 必须为 1。');
     });
 
     it('旧配置只有 currencyTiers 时规范化不会自动注入 currencySystem', () => {

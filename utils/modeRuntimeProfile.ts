@@ -55,55 +55,82 @@ const 读取非空字符串 = (value: unknown): string => (
     typeof value === 'string' ? value.trim() : ''
 );
 
-export const 规范化显式CurrencySystem = (value: unknown): CurrencySystem | undefined => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+export const 校验CurrencySystem草稿 = (value: unknown): { currencySystem?: CurrencySystem; errors: string[] } => {
+    const errors: string[] = [];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return { errors: ['currencySystem 必须是对象。'] };
+    }
     const raw = value as Record<string, unknown>;
     const id = 读取非空字符串(raw.id);
     const name = 读取非空字符串(raw.name);
     const baseUnitId = 读取非空字符串(raw.baseUnitId);
-    if (!id || !name || !baseUnitId) return undefined;
-    if (raw.formatStyle !== undefined && raw.formatStyle !== 'single' && raw.formatStyle !== 'compound') return undefined;
-    if (!Array.isArray(raw.units) || raw.units.length <= 0) return undefined;
+    if (!id) errors.push('id 必填。');
+    if (!name) errors.push('name 必填。');
+    if (!baseUnitId) errors.push('baseUnitId 必填。');
+    if (raw.formatStyle !== undefined && raw.formatStyle !== 'single' && raw.formatStyle !== 'compound') {
+        errors.push('formatStyle 只能是 single 或 compound。');
+    }
+    if (!Array.isArray(raw.units) || raw.units.length <= 0) {
+        errors.push('units 必须是非空数组。');
+    }
 
     const seenIds = new Set<string>();
     const units: CurrencyUnit[] = [];
-    for (const item of raw.units) {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined;
+    const rawUnits = Array.isArray(raw.units) ? raw.units : [];
+    rawUnits.forEach((item, index) => {
+        const prefix = `units[${index}]`;
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            errors.push(`${prefix} 必须是对象。`);
+            return;
+        }
         const unitRaw = item as Record<string, unknown>;
         const unitId = 读取非空字符串(unitRaw.id);
         const unitName = 读取非空字符串(unitRaw.name);
-        if (!unitId || !unitName || seenIds.has(unitId)) return undefined;
+        if (!unitId) errors.push(`${prefix}.id 必填。`);
+        if (!unitName) errors.push(`${prefix}.name 必填。`);
+        if (unitId && seenIds.has(unitId)) errors.push(`unit.id 不可重复：${unitId}。`);
         const baseRate = Number(unitRaw.baseRate);
         const order = Number(unitRaw.order);
-        if (!Number.isInteger(baseRate) || baseRate <= 0) return undefined;
-        if (!Number.isFinite(order)) return undefined;
+        if (!Number.isInteger(baseRate) || baseRate <= 0) errors.push(`${prefix}.baseRate 必须是正整数。`);
+        if (!Number.isFinite(order)) errors.push(`${prefix}.order 必须是有限数字。`);
         if (unitRaw.aliases !== undefined && (!Array.isArray(unitRaw.aliases) || !unitRaw.aliases.every((alias) => typeof alias === 'string'))) {
-            return undefined;
+            errors.push(`${prefix}.aliases 必须是字符串数组。`);
         }
         const symbol = 读取非空字符串(unitRaw.symbol);
         const aliases = Array.isArray(unitRaw.aliases)
             ? unitRaw.aliases.map((alias) => alias.trim()).filter(Boolean)
             : [];
-        seenIds.add(unitId);
-        units.push({
-            id: unitId,
-            name: unitName,
-            ...(symbol ? { symbol } : {}),
-            baseRate,
-            order,
-            ...(aliases.length > 0 ? { aliases: Array.from(new Set(aliases)) } : {})
-        });
-    }
+        if (unitId) seenIds.add(unitId);
+        if (unitId && unitName && Number.isInteger(baseRate) && baseRate > 0 && Number.isFinite(order)) {
+            units.push({
+                id: unitId,
+                name: unitName,
+                ...(symbol ? { symbol } : {}),
+                baseRate,
+                order,
+                ...(aliases.length > 0 ? { aliases: Array.from(new Set(aliases)) } : {})
+            });
+        }
+    });
 
     const baseUnit = units.find((unit) => unit.id === baseUnitId);
-    if (!baseUnit || baseUnit.baseRate !== 1) return undefined;
+    if (baseUnitId && !baseUnit) errors.push('baseUnitId 必须命中某个 unit.id。');
+    if (baseUnit && baseUnit.baseRate !== 1) errors.push('base unit 的 baseRate 必须为 1。');
+    if (errors.length > 0) return { errors };
     return {
-        id,
-        name,
-        baseUnitId,
-        units,
-        ...(raw.formatStyle === 'single' || raw.formatStyle === 'compound' ? { formatStyle: raw.formatStyle } : {})
+        currencySystem: {
+            id,
+            name,
+            baseUnitId,
+            units,
+            ...(raw.formatStyle === 'single' || raw.formatStyle === 'compound' ? { formatStyle: raw.formatStyle } : {})
+        },
+        errors: []
     };
+};
+
+export const 规范化显式CurrencySystem = (value: unknown): CurrencySystem | undefined => {
+    return 校验CurrencySystem草稿(value).currencySystem;
 };
 
 export const 拆分模式配置短语 = (value: unknown): string[] => {
@@ -192,6 +219,128 @@ export const 从CurrencyTiers生成CurrencySystem = (
                 order: 1,
                 aliases: 去重非空文本([currencyTiers.lowerName, '底层货币', '铜钱'])
             }
+        ]
+    };
+};
+
+export type CurrencySystem预设模板ID =
+    | 'topic-default'
+    | 'single'
+    | 'modern-yuan'
+    | 'credit'
+    | 'wuxia'
+    | 'xianxia'
+    | 'fantasy'
+    | 'apocalypse'
+    | 'infinite';
+
+export const 获取CurrencySystem预设模板列表 = (): Array<{ id: CurrencySystem预设模板ID; label: string }> => [
+    { id: 'topic-default', label: '题材默认' },
+    { id: 'single', label: '单一货币' },
+    { id: 'modern-yuan', label: '现代人民币' },
+    { id: 'credit', label: '信用点' },
+    { id: 'wuxia', label: '武侠金银铜' },
+    { id: 'xianxia', label: '修仙灵石' },
+    { id: 'fantasy', label: '西幻金币银币铜币' },
+    { id: 'apocalypse', label: '末日物资券/瓶盖' },
+    { id: 'infinite', label: '无限流奖励点/支线剧情' }
+];
+
+const 克隆CurrencySystem = (currencySystem: CurrencySystem): CurrencySystem => JSON.parse(JSON.stringify(currencySystem));
+
+const 构建单币种CurrencySystem = (id: string, name: string, unitName: string, symbol = '', aliases: string[] = []): CurrencySystem => ({
+    id,
+    name,
+    baseUnitId: 'base',
+    formatStyle: 'single',
+    units: [
+        {
+            id: 'base',
+            name: unitName,
+            ...(symbol ? { symbol } : {}),
+            baseRate: 1,
+            order: 1,
+            aliases: 去重非空文本([unitName, ...aliases])
+        }
+    ]
+});
+
+export const 构建CurrencySystem模板 = (
+    templateId: CurrencySystem预设模板ID,
+    profile?: ModeRuntimeProfile
+): CurrencySystem => {
+    if (templateId === 'topic-default') {
+        if (profile?.economy.currencySystem) return 克隆CurrencySystem(profile.economy.currencySystem);
+        if (profile?.economy.currencyTiers) {
+            return 从CurrencyTiers生成CurrencySystem(profile.economy.currencyTiers, profile.economy.currencyDisplayMode);
+        }
+        return 从CurrencyTiers生成CurrencySystem(构建默认货币层级('wuxia'), 'wuxia');
+    }
+    if (templateId === 'single') return 构建单币种CurrencySystem('single-currency', '单一货币体系', '货币', '', ['基础货币']);
+    if (templateId === 'modern-yuan') return 构建单币种CurrencySystem('modern-yuan', '人民币体系', '元', '¥', ['人民币', '现金', '电子支付']);
+    if (templateId === 'credit') return 构建单币种CurrencySystem('credit-point', '信用点体系', '信用点', '点', ['信用', '点数']);
+    if (templateId === 'wuxia') {
+        return {
+            id: 'wuxia-gold-silver-copper',
+            name: '武侠金银铜',
+            baseUnitId: 'copper',
+            formatStyle: 'compound',
+            units: [
+                { id: 'gold', name: '金', baseRate: 100000, order: 3, aliases: ['金元宝', '元宝', '上层货币'] },
+                { id: 'silver', name: '银', baseRate: 1000, order: 2, aliases: ['银子', '银两', '中层货币'] },
+                { id: 'copper', name: '铜', baseRate: 1, order: 1, aliases: ['铜钱', '底层货币'] }
+            ]
+        };
+    }
+    if (templateId === 'xianxia') {
+        return {
+            id: 'xianxia-spirit-stones',
+            name: '修仙灵石体系',
+            baseUnitId: 'low',
+            formatStyle: 'compound',
+            units: [
+                { id: 'supreme', name: '极品灵石', baseRate: 100000000, order: 4, aliases: ['极品'] },
+                { id: 'high', name: '上品灵石', baseRate: 100000, order: 3, aliases: ['上品', '上层货币'] },
+                { id: 'middle', name: '中品灵石', baseRate: 1000, order: 2, aliases: ['中品', '中层货币'] },
+                { id: 'low', name: '下品灵石', baseRate: 1, order: 1, aliases: ['下品', '底层货币'] }
+            ]
+        };
+    }
+    if (templateId === 'fantasy') {
+        return {
+            id: 'fantasy-coins',
+            name: '西幻金币银币铜币',
+            baseUnitId: 'copper',
+            formatStyle: 'compound',
+            units: [
+                { id: 'gold', name: '金币', baseRate: 10000, order: 3, aliases: ['金', '上层货币'] },
+                { id: 'silver', name: '银币', baseRate: 100, order: 2, aliases: ['银', '中层货币'] },
+                { id: 'copper', name: '铜币', baseRate: 1, order: 1, aliases: ['铜', '底层货币'] }
+            ]
+        };
+    }
+    if (templateId === 'apocalypse') {
+        return {
+            id: 'apocalypse-supplies',
+            name: '末日物资券/瓶盖体系',
+            baseUnitId: 'camp-credit',
+            formatStyle: 'compound',
+            units: [
+                { id: 'supply-ticket', name: '物资券', baseRate: 1000, order: 3, aliases: ['物资票', '补给券', '上层货币'] },
+                { id: 'bottle-cap', name: '瓶盖', baseRate: 10, order: 2, aliases: ['瓶盖币', '中层货币'] },
+                { id: 'camp-credit', name: '营地信用点', baseRate: 1, order: 1, aliases: ['信用点', '营地信用', '底层货币'] }
+            ]
+        };
+    }
+    return {
+        id: 'infinite-rewards',
+        name: '无限流奖励点/支线剧情',
+        baseUnitId: 'reward-point',
+        formatStyle: 'compound',
+        units: [
+            { id: 'c-plot', name: 'C级支线剧情', baseRate: 100000, order: 3, aliases: ['C支线', 'C级', '上层货币'] },
+            { id: 'd-plot', name: 'D级支线剧情', baseRate: 1000, order: 2, aliases: ['D支线', 'D级', '中层货币'] },
+            { id: 'reward-point', name: '奖励点', baseRate: 1, order: 1, aliases: ['点数', '底层货币'] }
         ]
     };
 };

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 从模式世界书提取提示词, 创意工坊模块分区, type 创意工坊模块条目, type 创意工坊模块类型, type 创意工坊世界细节生成配置 } from '../../../data/creativeWorkshopModules';
 import type { 接口设置结构, ModeRuntimeProfile, 世界书结构 } from '../../../types';
-import type { 题材模式类型 } from '../../../models/system';
+import type { CurrencySystem, 题材模式类型 } from '../../../models/system';
 import { 题材模式配置表, 题材模式顺序 } from '../../../utils/topicModeProfiles';
 import { 构建官方模式运行时配置, 规范化模式运行时配置, 渲染模式运行时配置世界书内容, 规范化显式CurrencySystem } from '../../../utils/modeRuntimeProfile';
 import { 开局生成性别选项 } from '../../../utils/openingConfig';
@@ -15,6 +15,7 @@ import {
 } from '../../../services/creativeWorkshop';
 import { 读取云端游玩会话 } from '../../../services/cloudPlayService';
 import { 校验ComfyUI工作流可生图 } from '../../../services/ai/comfyWorkflowValidation';
+import CurrencySystemEditor from './CurrencySystemEditor';
 
 interface Props {
     open: boolean;
@@ -29,7 +30,7 @@ const 可展示工坊类型: 创意工坊模块类型[] = ['topic', 'comfy_workf
 const 可展示工坊类型集合 = new Set<创意工坊模块类型>(可展示工坊类型);
 const 可展示工坊分区 = 创意工坊模块分区.filter((section) => 可展示工坊类型集合.has(section.id));
 const 默认生成性别占位 = `${开局生成性别选项.map((item) => item.value).join('、')}；留空默认全选`;
-type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig' | 'currencySystemJson';
+type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig' | 'currencySystemEditor' | 'currencySystemJson';
 type 运行时配置字段 = { label: string; path: string[]; type?: 运行时配置字段类型; placeholder?: string; boolGroup?: { label: string; key: string }[] };
 type 运行时配置分区 = { title: string; fields: 运行时配置字段[] };
 
@@ -56,6 +57,7 @@ const 运行时配置分区列表: 运行时配置分区[] = [
             { label: '底层货币名称', path: ['economy', 'currencyTiers', 'lowerName'] },
             { label: '上转中汇率', path: ['economy', 'currencyTiers', 'upperToMiddleRate'] },
             { label: '中转底汇率', path: ['economy', 'currencyTiers', 'middleToLowerRate'] },
+            { label: '可视化 currencySystem 编辑器', path: ['economy', 'currencySystem'], type: 'currencySystemEditor' },
             { label: '高级 currencySystem JSON', path: ['economy', 'currencySystem'], type: 'currencySystemJson' },
             { label: '题材货币说明', path: ['economy', 'primaryCurrency'], type: 'textarea' },
             { label: '底层记账单位', path: ['economy', 'accountingUnit'] },
@@ -846,6 +848,30 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                 };
             }
             const nextProfile = 写入运行时路径值(prev.modeRuntimeProfile, field.path, parsedValue);
+            return {
+                ...prev,
+                modeRuntimeProfile: 规范化模式运行时配置(nextProfile, prev.mode)
+            };
+        });
+    };
+
+    const 应用可视化CurrencySystem = (currencySystem: CurrencySystem) => {
+        setCurrencySystemJsonError('');
+        setCurrencySystemJsonDraft(JSON.stringify(currencySystem, null, 2));
+        setContributionDraft((prev) => {
+            const nextProfile = 写入运行时路径值(prev.modeRuntimeProfile, ['economy', 'currencySystem'], currencySystem);
+            return {
+                ...prev,
+                modeRuntimeProfile: 规范化模式运行时配置(nextProfile, prev.mode)
+            };
+        });
+    };
+
+    const 清除可视化CurrencySystem = () => {
+        setCurrencySystemJsonError('');
+        setCurrencySystemJsonDraft('');
+        setContributionDraft((prev) => {
+            const nextProfile = 写入运行时路径值(prev.modeRuntimeProfile, ['economy', 'currencySystem'], undefined);
             return {
                 ...prev,
                 modeRuntimeProfile: 规范化模式运行时配置(nextProfile, prev.mode)
@@ -1695,6 +1721,16 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                                                                                 placeholder='{"levelNames":[],"parseRules":[]}'
                                                                                 className="mt-1 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-wuxia-gold/45 font-mono" />
                                                                         </label>
+                                                                    );
+                                                                }
+                                                                if (fieldType === 'currencySystemEditor') {
+                                                                    return (
+                                                                        <CurrencySystemEditor
+                                                                            key={key}
+                                                                            profile={contributionDraft.modeRuntimeProfile}
+                                                                            onApply={应用可视化CurrencySystem}
+                                                                            onClear={清除可视化CurrencySystem}
+                                                                        />
                                                                     );
                                                                 }
                                                                 if (fieldType === 'currencySystemJson') {
