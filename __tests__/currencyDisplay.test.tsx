@@ -2,6 +2,8 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import LeftPanel from '../components/layout/LeftPanel';
+import { 创建开场空白角色 } from '../hooks/useGame/storyState';
+import { 设置默认技艺运行时配置, 规范化角色物品容器映射 } from '../hooks/useGame/stateTransforms';
 import { 默认游戏设置 } from '../utils/gameSettings';
 import {
     formatCurrencyBaseAmount,
@@ -15,6 +17,7 @@ import {
     底层总值转角色金钱,
     格式化角色金钱行,
     格式化世界观BaseAmount,
+    确保角色金钱BaseAmount,
     规范化角色金钱,
     计算角色货币底层总值,
     toBaseAmount
@@ -335,6 +338,59 @@ describe('货币显示', () => {
         });
         expect(获取角色金钱BaseAmount({})).toBe(0);
         expect(格式化角色金钱行({})).toBe('元宝 0 / 银 0 / 铜钱 0');
+    });
+
+    it('确保角色金钱BaseAmount 只补兼容字段并保留原字段', () => {
+        const money = 确保角色金钱BaseAmount({ 金元宝: 1, 银子: 2, 铜钱: 345, 现金: 88 });
+
+        expect(money).toMatchObject({
+            金元宝: 1,
+            银子: 2,
+            铜钱: 345,
+            现金: 88,
+            baseAmount: 102345
+        });
+    });
+
+    it('新开场空白角色默认钱包包含 baseAmount 且默认金额不变', () => {
+        const role = 创建开场空白角色();
+
+        expect(role.金钱).toMatchObject({
+            金元宝: 0,
+            银子: 0,
+            铜钱: 0,
+            baseAmount: 0
+        });
+    });
+
+    it('stateTransforms 规范化旧钱包时自动补 baseAmount 且不改变旧三层字段', () => {
+        设置默认技艺运行时配置('武侠');
+        const normalized = 规范化角色物品容器映射({
+            姓名: '旧档侠客',
+            金钱: { 上层货币: 1, 中层货币: 2, 底层货币: 345 },
+            物品列表: [],
+            装备: {}
+        });
+
+        expect(normalized.金钱).toMatchObject({
+            上层货币: 1,
+            中层货币: 2,
+            底层货币: 345,
+            金元宝: 1,
+            银子: 2,
+            铜钱: 345,
+            baseAmount: 102345
+        });
+    });
+
+    it('无显式 currencySystem 时仍走旧显示，有显式 currencySystem 时配置不被覆盖', () => {
+        const oldMoney = 确保角色金钱BaseAmount({ 金元宝: 1, 银子: 2, 铜钱: 345 });
+        expect(格式化世界观BaseAmount(oldMoney.baseAmount, 无限流开局配置, makeInfiniteCharacter(), '102,345 奖励点')).toBe('102,345 奖励点');
+
+        const systemBefore = 单币种货币开局配置.modeRuntimeProfile.economy.currencySystem;
+        const dynamicMoney = 确保角色金钱BaseAmount({ baseAmount: 500, 金元宝: 0, 银子: 0, 铜钱: 0 });
+        expect(格式化世界观BaseAmount(dynamicMoney.baseAmount, 单币种货币开局配置, makeInfiniteCharacter())).toBe('500 ¥');
+        expect(单币种货币开局配置.modeRuntimeProfile.economy.currencySystem).toBe(systemBefore);
     });
 
     it('三层配置可以安全转换成 CurrencySystem，异常配置有 fallback', () => {

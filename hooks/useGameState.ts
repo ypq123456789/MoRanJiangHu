@@ -36,6 +36,7 @@ import { 设置键 } from '../utils/settingsSchema';
 import { 规范化视觉设置 } from '../utils/visualSettings';
 import { 默认图片管理设置, 规范化图片管理设置 } from '../utils/imageManagerSettings';
 import { 构建默认技艺 } from '../utils/skillDefaults';
+import { 确保角色金钱BaseAmount } from '../utils/currencyDisplay';
 import {
     创建开场空白世界,
     创建开场空白剧情,
@@ -77,7 +78,7 @@ export const useGameState = () => {
         所属门派ID: 'none',
         门派职位: '无',
         门派贡献: 0,
-        金钱: { 金元宝: 0, 银子: 0, 铜钱: 0 },
+        金钱: 确保角色金钱BaseAmount({ 金元宝: 0, 银子: 0, 铜钱: 0 }),
         当前精力: 0,
         最大精力: 0,
         当前内力: 0,

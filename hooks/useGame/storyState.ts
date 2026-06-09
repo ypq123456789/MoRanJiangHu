@@ -25,6 +25,7 @@ import { 构建默认技艺 } from '../../utils/skillDefaults';
 import { 获取题材模式配置 } from '../../utils/topicModeProfiles';
 import { 获取境界层级 } from '../../utils/realmConfig';
 import { 获取当前境界配置 } from './stateTransforms';
+import { 确保角色金钱BaseAmount } from '../../utils/currencyDisplay';
 import type { WorldFoundationResult } from '../../services/ai/storyTasks';
 
 export type 开场命令基态 = {
@@ -383,7 +384,7 @@ export const 创建开场空白角色 = (): 角色数据结构 => ({
     所属门派ID: 'none',
     门派职位: '无',
     门派贡献: 0,
-    金钱: { 金元宝: 0, 银子: 0, 铜钱: 0 },
+    金钱: 确保角色金钱BaseAmount({ 金元宝: 0, 银子: 0, 铜钱: 0 }),
     当前精力: 0,
     最大精力: 0,
     当前内力: 0,
@@ -2446,7 +2447,15 @@ export const 创建开场基础状态 = (charData: 角色数据结构, worldConf
         角色基态.门派职位 = 玩家门派.玩家职位;
         角色基态.门派贡献 = 玩家门派.玩家贡献;
     }
-    const 角色 = 补齐开局仙侠字段(角色基态, openingConfig);
+    const 补齐后角色 = 补齐开局仙侠字段(角色基态, openingConfig);
+    const 角色 = {
+        ...补齐后角色,
+        金钱: 确保角色金钱BaseAmount(
+            (补齐后角色 as any).金钱,
+            openingConfig?.modeRuntimeProfile,
+            openingConfig?.modeRuntimeProfile?.economy?.currencyDisplayMode as any
+        )
+    };
     const 社交 = 修复开局伙伴社交列表([], openingConfig, 角色);
     const 世界 = 创建开场空白世界();
     const 地图草稿层级 = Array.isArray(worldConfig?.mapDiyDraft?.nodes) && worldConfig.mapDiyDraft.nodes.length > 0
@@ -2475,7 +2484,10 @@ export const 创建开场基础状态 = (charData: 角色数据结构, worldConf
 };
 
 export const 创建开场命令基态 = (openingBase?: Partial<ReturnType<typeof 创建开场基础状态>>): 开场命令基态 => ({
-    角色: openingBase?.角色 ? 深拷贝(openingBase.角色) : 创建开场空白角色(),
+    角色: openingBase?.角色 ? {
+        ...深拷贝(openingBase.角色),
+        金钱: 确保角色金钱BaseAmount((openingBase.角色 as any).金钱)
+    } : 创建开场空白角色(),
     环境: openingBase?.环境 ? 深拷贝(openingBase.环境) : 创建开场空白环境(),
     社交: Array.isArray(openingBase?.社交) ? 深拷贝(openingBase.社交) : [],
     世界: openingBase?.世界 ? 深拷贝(openingBase.世界) : 创建开场空白世界(),

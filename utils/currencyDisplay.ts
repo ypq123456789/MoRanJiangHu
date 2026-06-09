@@ -476,6 +476,18 @@ export const 获取角色金钱BaseAmount = (
     return 计算角色三层货币底层总值(money, profile, mode);
 };
 
+export const 确保角色金钱BaseAmount = <T extends Record<string, any> | null | undefined>(
+    money?: T,
+    profile?: ModeRuntimeProfile | null,
+    mode: 货币显示模式 = 'wuxia'
+): NonNullable<T> & { baseAmount: number } => {
+    const source = money && typeof money === 'object' ? money as Record<string, any> : {};
+    return {
+        ...source,
+        baseAmount: 获取角色金钱BaseAmount(source, profile, mode)
+    } as NonNullable<T> & { baseAmount: number };
+};
+
 export const 获取货币兼容字段路径 = (key: 货币层级键): string[] => [
     `角色.金钱.${key}`,
     `角色.金钱.${默认旧别名标签[key]}`
