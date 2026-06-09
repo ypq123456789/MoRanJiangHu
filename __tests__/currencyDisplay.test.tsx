@@ -3,7 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import LeftPanel from '../components/layout/LeftPanel';
 import { 默认游戏设置 } from '../utils/gameSettings';
-import { 获取世界观简短货币汇率说明, 获取世界观货币槽位 } from '../utils/currencyDisplay';
+import {
+    formatCurrencyBaseAmount,
+    fromBaseAmount,
+    获取默认CurrencySystemFromProfile,
+    获取世界观简短货币汇率说明,
+    获取世界观货币槽位,
+    底层总值转角色金钱,
+    格式化角色金钱行,
+    计算角色货币底层总值,
+    toBaseAmount
+} from '../utils/currencyDisplay';
 import { 规范化模式运行时配置 } from '../utils/modeRuntimeProfile';
 
 const 无限流运行时配置 = 规范化模式运行时配置(undefined, '无限流');
@@ -116,5 +126,84 @@ describe('货币显示', () => {
         expect(html).toContain('1 C级支线剧情 = 100 D级支线剧情 = 100000 奖励点');
         expect(html).not.toContain('所有兑换、强化、修复、造人和高级物资交易都通过主神商城结算');
         expect(html).not.toContain('底层统一货币：铜钱=奖励点');
+    });
+
+    it('现代单币种 CurrencySystem 可以正确格式化 baseAmount', () => {
+        const currencySystem = {
+            id: 'modern-cny',
+            name: '人民币',
+            baseUnitId: 'yuan',
+            formatStyle: 'single' as const,
+            units: [
+                { id: 'yuan', name: '元', symbol: '¥', baseRate: 1, order: 1, aliases: ['人民币', '现金'] }
+            ]
+        };
+
+        expect(formatCurrencyBaseAmount(123456, currencySystem)).toBe('123,456 ¥');
+        expect(toBaseAmount(88, '人民币', currencySystem)).toBe(88);
+        expect(fromBaseAmount(88, currencySystem)).toEqual({ yuan: 88 });
+    });
+
+    it('古代三层 CurrencySystem 可以从 baseAmount 拆分格式化', () => {
+        const currencySystem = {
+            id: 'ancient-three-tier',
+            name: '古代钱制',
+            baseUnitId: 'copper',
+            formatStyle: 'compound' as const,
+            units: [
+                { id: 'gold', name: '金', baseRate: 10000, order: 3, aliases: ['金元宝'] },
+                { id: 'silver', name: '银', baseRate: 100, order: 2, aliases: ['银子'] },
+                { id: 'copper', name: '铜', baseRate: 1, order: 1, aliases: ['铜钱'] }
+            ]
+        };
+
+        expect(formatCurrencyBaseAmount(12345, currencySystem)).toBe('1 金 / 23 银 / 45 铜');
+        expect(toBaseAmount(3, '银子', currencySystem)).toBe(300);
+        expect(fromBaseAmount(12345, currencySystem)).toEqual({ gold: 1, silver: 23, copper: 45 });
+    });
+
+    it('当前旧三层货币函数行为保持不变', () => {
+        const money = { 金元宝: 1, 银子: 2, 铜钱: 345 };
+
+        expect(计算角色货币底层总值(money)).toBe(102345);
+        expect(底层总值转角色金钱(102345)).toEqual({
+            上层货币: 1,
+            中层货币: 2,
+            底层货币: 345,
+            金元宝: 1,
+            银子: 2,
+            铜钱: 345
+        });
+        expect(格式化角色金钱行(money)).toBe('元宝 1 / 银 2 / 铜钱 345');
+    });
+
+    it('三层配置可以安全转换成 CurrencySystem，异常配置有 fallback', () => {
+        const system = 获取默认CurrencySystemFromProfile(无限流运行时配置, 'infinite');
+
+        expect(system.baseUnitId).toBe('lower');
+        expect(system.units.map((unit) => [unit.id, unit.name, unit.baseRate])).toEqual([
+            ['upper', 'C级支线剧情', 100000],
+            ['middle', 'D级支线剧情', 1000],
+            ['lower', '奖励点', 1]
+        ]);
+        expect(formatCurrencyBaseAmount(101234, system)).toBe('1 C级支线剧情 / 1 D级支线剧情 / 234 奖励点');
+
+        const fallbackSystem = 获取默认CurrencySystemFromProfile({
+            economy: {
+                currencySystem: {
+                    id: '',
+                    name: '',
+                    baseUnitId: '',
+                    formatStyle: 'compound',
+                    units: [
+                        { id: '', name: '', baseRate: -10, order: -1 }
+                    ]
+                }
+            }
+        } as any, 'modern');
+
+        expect(fallbackSystem.baseUnitId).toBe('base');
+        expect(formatCurrencyBaseAmount(Number.NaN, fallbackSystem)).toBe('0 货币');
+        expect(toBaseAmount(Number.NaN, 'missing', fallbackSystem)).toBe(0);
     });
 });

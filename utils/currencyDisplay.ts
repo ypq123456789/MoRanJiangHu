@@ -2,7 +2,7 @@ import type { OpeningConfig, 角色数据结构 } from '../types';
 import type { 角色金钱 } from '../models/character';
 import { 推断单位仙侠 } from './realmDisplay';
 import { 获取题材模式配置, 题材是否仙侠 } from './topicModeProfiles';
-import type { ModeRuntimeProfile } from '../models/system';
+import type { CurrencySystem, CurrencyUnit, ModeRuntimeProfile } from '../models/system';
 
 export type 货币显示模式 = 'wuxia' | 'xianxia' | 'fantasy' | 'urban' | 'modern' | 'apocalypse' | 'infinite';
 export type 货币层级键 = '上层货币' | '中层货币' | '底层货币';
@@ -64,6 +64,11 @@ const 读取可用于UI的短货币文案 = (value: unknown): string => {
 const 读取正整数汇率 = (value: unknown, fallback: number): number => {
     const numeric = Math.floor(Number(value));
     return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+};
+
+const 读取非负整数金额 = (value: unknown): number => {
+    const numeric = Math.floor(Number(value));
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
 };
 
 const 读取货币类型分类名 = (value: unknown): string => {
@@ -207,6 +212,174 @@ export const 获取世界观货币层级配置 = (
             multiplier: 1
         }
     ];
+};
+
+const 默认CurrencySystem单位别名: Record<货币层级键, string[]> = {
+    上层货币: ['上层货币', '金元宝', '元宝'],
+    中层货币: ['中层货币', '银子', '银两'],
+    底层货币: ['底层货币', '铜钱']
+};
+
+const 获取CurrencySystemFallback = (): CurrencySystem => ({
+    id: 'fallback-basic',
+    name: '默认货币体系',
+    baseUnitId: 'base',
+    formatStyle: 'compound',
+    units: [
+        {
+            id: 'base',
+            name: '货币',
+            baseRate: 1,
+            order: 1,
+            aliases: ['底层货币']
+        }
+    ]
+});
+
+const 规范化CurrencyUnit = (unit: Partial<CurrencyUnit> | null | undefined, fallback: CurrencyUnit): CurrencyUnit => {
+    const id = typeof unit?.id === 'string' && unit.id.trim() ? unit.id.trim() : fallback.id;
+    const name = typeof unit?.name === 'string' && unit.name.trim() ? unit.name.trim() : fallback.name;
+    const symbol = typeof unit?.symbol === 'string' && unit.symbol.trim() ? unit.symbol.trim() : undefined;
+    const aliases = Array.isArray(unit?.aliases)
+        ? unit.aliases.map((item) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
+        : fallback.aliases;
+    return {
+        id,
+        name,
+        ...(symbol ? { symbol } : {}),
+        baseRate: 读取正整数汇率(unit?.baseRate, fallback.baseRate),
+        order: 读取正整数汇率(unit?.order, fallback.order),
+        ...(aliases && aliases.length > 0 ? { aliases } : {})
+    };
+};
+
+export const 规范化CurrencySystem = (system?: Partial<CurrencySystem> | null): CurrencySystem => {
+    const fallback = 获取CurrencySystemFallback();
+    const sourceUnits = Array.isArray(system?.units) ? system.units : [];
+    const units = sourceUnits.length > 0
+        ? sourceUnits.map((unit, index) => 规范化CurrencyUnit(unit, {
+            id: index === 0 ? fallback.baseUnitId : `unit_${index + 1}`,
+            name: index === 0 ? fallback.units[0].name : `货币${index + 1}`,
+            baseRate: index === 0 ? 1 : 1,
+            order: index + 1
+        }))
+        : fallback.units;
+    const baseUnitId = typeof system?.baseUnitId === 'string' && system.baseUnitId.trim()
+        ? system.baseUnitId.trim()
+        : (units.find((unit) => unit.baseRate === 1)?.id || units[units.length - 1]?.id || fallback.baseUnitId);
+    const hasBaseUnit = units.some((unit) => unit.id === baseUnitId);
+    const normalizedUnits = hasBaseUnit
+        ? units
+        : [...units, { id: baseUnitId, name: fallback.units[0].name, baseRate: 1, order: 0 }];
+    return {
+        id: typeof system?.id === 'string' && system.id.trim() ? system.id.trim() : fallback.id,
+        name: typeof system?.name === 'string' && system.name.trim() ? system.name.trim() : fallback.name,
+        baseUnitId,
+        units: normalizedUnits,
+        formatStyle: system?.formatStyle === 'single' ? 'single' : 'compound'
+    };
+};
+
+export const 获取默认CurrencySystemFromProfile = (
+    profile?: ModeRuntimeProfile | null,
+    mode: 货币显示模式 = 'wuxia'
+): CurrencySystem => {
+    if (profile?.economy?.currencySystem) {
+        return 规范化CurrencySystem(profile.economy.currencySystem);
+    }
+    const slots = 获取世界观货币层级配置(profile, mode);
+    const [upper, middle, lower] = slots;
+    return 规范化CurrencySystem({
+        id: `default-${mode}`,
+        name: `${mode}货币体系`,
+        baseUnitId: 'lower',
+        formatStyle: 'compound',
+        units: [
+            {
+                id: 'upper',
+                name: upper.fullLabel || upper.label,
+                baseRate: upper.multiplier,
+                order: 3,
+                aliases: Array.from(new Set([...默认CurrencySystem单位别名.上层货币, upper.label, upper.fullLabel].filter((item): item is string => Boolean(item))))
+            },
+            {
+                id: 'middle',
+                name: middle.fullLabel || middle.label,
+                baseRate: middle.multiplier,
+                order: 2,
+                aliases: Array.from(new Set([...默认CurrencySystem单位别名.中层货币, middle.label, middle.fullLabel].filter((item): item is string => Boolean(item))))
+            },
+            {
+                id: 'lower',
+                name: lower.fullLabel || lower.label,
+                baseRate: lower.multiplier,
+                order: 1,
+                aliases: Array.from(new Set([...默认CurrencySystem单位别名.底层货币, lower.label, lower.fullLabel].filter((item): item is string => Boolean(item))))
+            }
+        ]
+    });
+};
+
+const 获取CurrencyUnit = (unitId: string, currencySystem?: Partial<CurrencySystem> | null): CurrencyUnit => {
+    const system = 规范化CurrencySystem(currencySystem);
+    const normalizedId = typeof unitId === 'string' ? unitId.trim() : '';
+    return system.units.find((unit) => unit.id === normalizedId || unit.name === normalizedId || unit.aliases?.includes(normalizedId))
+        || system.units.find((unit) => unit.id === system.baseUnitId)
+        || system.units[0];
+};
+
+const 获取CurrencySystem排序单位 = (currencySystem?: Partial<CurrencySystem> | null): CurrencyUnit[] => (
+    规范化CurrencySystem(currencySystem).units
+        .slice()
+        .sort((a, b) => b.baseRate - a.baseRate || b.order - a.order)
+);
+
+export const toBaseAmount = (
+    amount: number,
+    unitId: string,
+    currencySystem?: Partial<CurrencySystem> | null
+): number => {
+    const unit = 获取CurrencyUnit(unitId, currencySystem);
+    return 读取非负整数金额(amount) * Math.max(1, unit.baseRate);
+};
+
+export const fromBaseAmount = (
+    baseAmount: number,
+    currencySystem?: Partial<CurrencySystem> | null
+): Record<string, number> => {
+    let remaining = 读取非负整数金额(baseAmount);
+    const system = 规范化CurrencySystem(currencySystem);
+    const units = 获取CurrencySystem排序单位(system);
+    return units.reduce<Record<string, number>>((result, unit) => {
+        const rate = Math.max(1, unit.baseRate);
+        const value = Math.floor(remaining / rate);
+        result[unit.id] = value;
+        remaining -= value * rate;
+        return result;
+    }, {});
+};
+
+export const formatCurrencyBaseAmount = (
+    baseAmount: number,
+    currencySystem?: Partial<CurrencySystem> | null
+): string => {
+    const system = 规范化CurrencySystem(currencySystem);
+    const amount = 读取非负整数金额(baseAmount);
+    if (system.formatStyle === 'single') {
+        const baseUnit = 获取CurrencyUnit(system.baseUnitId, system);
+        return `${amount.toLocaleString('zh-CN')} ${baseUnit.symbol || baseUnit.name}`;
+    }
+    const decomposed = fromBaseAmount(amount, system);
+    const units = 获取CurrencySystem排序单位(system);
+    const parts = units
+        .map((unit) => ({ unit, value: decomposed[unit.id] || 0 }))
+        .filter((item) => item.value > 0);
+    const visibleParts = parts.length > 0
+        ? parts
+        : [{ unit: 获取CurrencyUnit(system.baseUnitId, system), value: 0 }];
+    return visibleParts
+        .map(({ unit, value }) => `${value.toLocaleString('zh-CN')} ${unit.symbol || unit.name}`)
+        .join(' / ');
 };
 
 export const 创建兼容角色金钱 = (money?: Partial<角色金钱> | null): 角色金钱 => {

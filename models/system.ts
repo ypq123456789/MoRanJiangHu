@@ -549,6 +549,27 @@ export interface 性别比例配置 {
 
 export type 开局生成性别类型 = '男' | '女' | '男娘' | '扶她';
 
+export interface CurrencyUnit {
+    id: string;
+    name: string;
+    symbol?: string;
+    baseRate: number;
+    order: number;
+    aliases?: string[];
+}
+
+export interface CurrencySystem {
+    id: string;
+    name: string;
+    baseUnitId: string;
+    units: CurrencyUnit[];
+    formatStyle?: 'single' | 'compound';
+}
+
+export interface MoneyAmount {
+    baseAmount: number;
+}
+
 export interface ModeRuntimeProfile {
     identity: {
         modeId: string;
@@ -572,6 +593,7 @@ export interface ModeRuntimeProfile {
             upperToMiddleRate: number;
             middleToLowerRate: number;
         };
+        currencySystem?: CurrencySystem;
         marketName: string;
         marketVerb: string;
         allowedItemTypes: string[];
