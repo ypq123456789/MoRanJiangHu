@@ -210,6 +210,7 @@ const SettingsModal: React.FC<Props> = ({
             return (
                 <VariableManager
                     runtimeState={runtimeState}
+                    openingConfig={openingConfig}
                     onReplaceSection={onReplaceVariableSection}
                     onApplyCommand={onApplyVariableCommand}
                 />

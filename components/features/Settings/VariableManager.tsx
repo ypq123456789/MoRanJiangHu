@@ -1,5 +1,6 @@
 import React from 'react';
-import type { TavernCommand } from '../../../types';
+import type { OpeningConfig, TavernCommand } from '../../../types';
+import { 构建角色金钱显示快照 } from '../../../utils/currencyDisplay';
 import { 构建变量路径登记表, 校验变量命令是否登记 } from '../../../utils/variableRegistry';
 
 type 变量根键 = '角色' | '环境' | '社交' | '世界' | '地图系统' | '战斗' | '剧情' | '女主剧情规划' | '玩家门派' | '任务列表' | '约定列表' | '记忆系统';
@@ -27,6 +28,7 @@ const 过滤世界数据 = (worldData: unknown): Record<string, unknown> => {
 
 interface Props {
     runtimeState: Record<变量根键, unknown>;
+    openingConfig?: OpeningConfig | null;
     onReplaceSection: (section: 变量根键, value: unknown) => void | Promise<void>;
     onApplyCommand: (command: TavernCommand) => void;
 }
@@ -184,7 +186,7 @@ const 树节点编辑器: React.FC<{
     );
 };
 
-const VariableManager: React.FC<Props> = ({ runtimeState, onReplaceSection, onApplyCommand }) => {
+const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onReplaceSection, onApplyCommand }) => {
     const [activeSection, setActiveSection] = React.useState<变量根键>('角色');
     const [drafts, setDrafts] = React.useState<Record<string, any>>(() => 深拷贝(runtimeState));
     const [jsonDraft, setJsonDraft] = React.useState('');
@@ -203,6 +205,11 @@ const VariableManager: React.FC<Props> = ({ runtimeState, onReplaceSection, onAp
         }
         return drafts[activeSection];
     }, [activeSection, drafts, runtimeState]);
+    const 角色金钱显示快照 = React.useMemo(() => {
+        if (activeSection !== '角色') return null;
+        const role = activeValue && typeof activeValue === 'object' ? activeValue as any : {};
+        return 构建角色金钱显示快照(role?.金钱, openingConfig, role);
+    }, [activeSection, activeValue, openingConfig]);
 
     // 保留地图系统草稿，防止被 runtimeState 更新覆盖
     const mapDraftRef = React.useRef<any>(null);
@@ -345,6 +352,14 @@ const VariableManager: React.FC<Props> = ({ runtimeState, onReplaceSection, onAp
                                 重置本分区
                             </button>
                         </div>
+                        {角色金钱显示快照 && (
+                            <div className="mb-3 rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 p-3">
+                                <div className="text-xs font-bold tracking-[0.16em] text-wuxia-gold">世界观货币显示</div>
+                                <div className="mt-1 text-sm text-paper-white">{角色金钱显示快照.显示}</div>
+                                <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-white/10 bg-black/25 p-2 text-[11px] leading-5 text-gray-300">{格式化JSON(角色金钱显示快照)}</pre>
+                                <div className="mt-1 text-[11px] leading-5 text-gray-500">下方原始 JSON 仍保留真实兼容字段，可继续编辑保存。</div>
+                            </div>
+                        )}
                         <div className="space-y-3 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
                             <树节点编辑器 label={activeSection} value={activeValue} onChange={updateActiveDraft} />
                         </div>

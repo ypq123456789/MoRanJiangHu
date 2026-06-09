@@ -17,6 +17,7 @@ import {
     获取世界观货币槽位,
     获取角色金钱BaseAmount,
     获取角色金钱显示列表,
+    构建角色金钱显示快照,
     底层总值转角色金钱,
     格式化角色金钱行,
     格式化世界观BaseAmount,
@@ -255,6 +256,82 @@ describe('货币显示', () => {
         };
 
         expect(获取角色金钱显示列表(character.金钱, 三层CurrencySystem开局配置, character)).toEqual(['1 金 / 23 银 / 45 铜']);
+    });
+
+    it('现代题材无显式 currencySystem 时金钱快照使用世界观货币名称', () => {
+        const character = makeInfiniteCharacter();
+        character.金钱 = {
+            金元宝: 0,
+            银子: 0,
+            铜钱: 0,
+            上层货币: 0,
+            中层货币: 0,
+            底层货币: 0,
+            baseAmount: 0
+        };
+        const modernConfig = {
+            ...无限流开局配置,
+            题材模式: '现代都市',
+            modeRuntimeProfile: 规范化模式运行时配置(undefined, '现代都市')
+        } as any;
+
+        const snapshot = 构建角色金钱显示快照(character.金钱, modernConfig, character);
+
+        expect(snapshot).toMatchObject({
+            十万元账户: 0,
+            千元账户: 0,
+            信用点: 0,
+            baseAmount: 0,
+            显示: '十万元账户 0 / 千元账户 0 / 信用点 0'
+        });
+        expect(Object.keys(snapshot)).not.toContain('金元宝');
+        expect(Object.keys(snapshot)).not.toContain('银子');
+        expect(Object.keys(snapshot)).not.toContain('铜钱');
+    });
+
+    it('有人民币 currencySystem 时金钱快照使用动态货币且不暴露旧字段', () => {
+        const character = makeInfiniteCharacter();
+        character.金钱 = {
+            金元宝: 0,
+            银子: 0,
+            铜钱: 0,
+            baseAmount: 123456
+        };
+
+        const snapshot = 构建角色金钱显示快照(character.金钱, 单币种货币开局配置, character);
+
+        expect(snapshot).toMatchObject({
+            baseAmount: 123456,
+            显示: '123,456 ¥',
+            货币体系: '人民币',
+            基础单位: '¥'
+        });
+        expect(snapshot.单位列表).toEqual([
+            { id: 'yuan', 名称: '元', 符号: '¥', baseRate: 1, 别名: ['人民币', '现金'] }
+        ]);
+        expect(Object.keys(snapshot)).not.toContain('金元宝');
+        expect(Object.keys(snapshot)).not.toContain('银子');
+        expect(Object.keys(snapshot)).not.toContain('铜钱');
+    });
+
+    it('武侠旧三层金钱快照 fallback 仍正常', () => {
+        const character = makeInfiniteCharacter();
+        character.金钱 = { 金元宝: 1, 银子: 2, 铜钱: 345 };
+        const wuxiaConfig = {
+            ...无限流开局配置,
+            题材模式: '武侠',
+            modeRuntimeProfile: 规范化模式运行时配置(undefined, '武侠')
+        } as any;
+
+        const snapshot = 构建角色金钱显示快照(character.金钱, wuxiaConfig, character);
+
+        expect(snapshot).toMatchObject({
+            元宝: 1,
+            银: 2,
+            铜钱: 345,
+            baseAmount: 102345,
+            显示: '元宝 1 / 银 2 / 铜钱 345'
+        });
     });
 
     it('左侧栏有 currencySystem 时钱财显示使用 baseAmount 格式化', () => {

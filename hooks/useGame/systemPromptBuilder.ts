@@ -64,6 +64,7 @@ import { 构建女主规划专项提示词 } from '../../prompts/core/heroinePla
 import { 核心_境界体系 } from '../../prompts/core/realm';
 import { 构建题材模式提示词 } from '../../prompts/runtime/openingConfig';
 import { 构建女性姓名候选提示词, 收集女性姓名候选已用名 } from '../../utils/femaleNameCandidatePrompt';
+import { 构建角色金钱显示快照 } from '../../utils/currencyDisplay';
 
 export type 运行时提示词状态 = {
     当前启用: boolean;
@@ -433,12 +434,12 @@ export const 构建系统提示词 = ({
         };
         const 金钱原始 = role?.金钱 && typeof role.金钱 === 'object' ? role.金钱 : {};
         const 金钱 = {
-            金元宝: 取数值(金钱原始?.金元宝),
-            银子: 取数值(金钱原始?.银子),
-            铜钱: 取数值(金钱原始?.铜钱),
-            ...(typeof 金钱原始?.baseAmount === 'number' && Number.isFinite(金钱原始.baseAmount)
-                ? { baseAmount: 金钱原始.baseAmount }
-                : {})
+            ...构建角色金钱显示快照(
+                金钱原始,
+                openingConfig || source?.开局配置 || source?.openingConfig,
+                role
+            ),
+            写入说明: '真实写入仍使用 角色.金钱；程序兼容 baseAmount 与旧三层字段。'
         };
         const 装备原始 = role?.装备 && typeof role.装备 === 'object' ? role.装备 : {};
         const 装备 = {

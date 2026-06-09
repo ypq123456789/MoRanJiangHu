@@ -22,6 +22,21 @@ export type 世界观货币卡片信息 = {
     exchangeHint: string;
 };
 
+export type 角色金钱世界观显示快照 = {
+    baseAmount: number;
+    显示: string;
+    货币体系?: string;
+    基础单位?: string;
+    单位列表?: Array<{
+        id: string;
+        名称: string;
+        符号?: string;
+        baseRate: number;
+        别名?: string[];
+    }>;
+    [label: string]: unknown;
+};
+
 export type 货币物品聚合信息 = {
     类型: string;
     分类名: string;
@@ -438,6 +453,43 @@ export const 获取角色金钱显示列表 = (
         ];
     }
     return 格式化角色金钱行(money, mode).split(' / ');
+};
+
+export const 构建角色金钱显示快照 = (
+    money?: Partial<角色金钱> | null,
+    openingConfig?: OpeningConfig | null,
+    character?: Partial<角色数据结构> | null
+): 角色金钱世界观显示快照 => {
+    const mode = 获取货币显示模式(openingConfig, character);
+    const baseAmount = 获取角色金钱BaseAmount(money, openingConfig?.modeRuntimeProfile, mode);
+    const explicitSystem = 获取显式世界观CurrencySystem(openingConfig, character);
+    if (explicitSystem) {
+        const baseUnit = 获取CurrencyUnit(explicitSystem.baseUnitId, explicitSystem);
+        return {
+            baseAmount,
+            显示: 格式化世界观BaseAmount(baseAmount, openingConfig, character),
+            货币体系: explicitSystem.name,
+            基础单位: baseUnit.symbol || baseUnit.name,
+            单位列表: explicitSystem.units.map((unit) => ({
+                id: unit.id,
+                名称: unit.name,
+                ...(unit.symbol ? { 符号: unit.symbol } : {}),
+                baseRate: unit.baseRate,
+                ...(unit.aliases?.length ? { 别名: unit.aliases } : {})
+            }))
+        };
+    }
+
+    const normalizedMoney = 规范化角色金钱(money);
+    const slots = 获取世界观货币槽位(openingConfig, character);
+    const result: 角色金钱世界观显示快照 = {
+        baseAmount,
+        显示: slots.map((slot) => `${slot.label} ${读取非负整数金额((normalizedMoney as any)[slot.key])}`).join(' / ')
+    };
+    slots.forEach((slot) => {
+        result[slot.label] = 读取非负整数金额((normalizedMoney as any)[slot.key]);
+    });
+    return result;
 };
 
 const 计算角色三层货币底层总值 = (
