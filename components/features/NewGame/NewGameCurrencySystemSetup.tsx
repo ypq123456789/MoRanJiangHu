@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import InlineSelect from '../../ui/InlineSelect';
 import type { CurrencySystem, CurrencyUnit, ModeRuntimeProfile } from '../../../models/system';
 import {
     构建CurrencySystem模板,
@@ -16,6 +17,7 @@ interface Props {
 
 const 克隆 = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const 去重非空 = (items: Array<string | undefined>): string[] => Array.from(new Set(items.map((item) => String(item || '').trim()).filter(Boolean)));
+type 模板选择值 = CurrencySystem预设模板ID | 'custom';
 
 const 生成单位ID = (units: CurrencyUnit[]): string => {
     const ids = new Set(units.map((unit) => unit.id));
@@ -80,18 +82,66 @@ const 新增单位 = (units: CurrencyUnit[]): CurrencyUnit => ({
     order: 1
 });
 
+const 创建题材默认比对Profile = (profile: ModeRuntimeProfile): ModeRuntimeProfile => ({
+    ...profile,
+    economy: {
+        ...profile.economy,
+        currencySystem: undefined
+    }
+});
+
+const 货币系统指纹 = (system: CurrencySystem): string => JSON.stringify({
+    id: system.id,
+    name: system.name,
+    baseUnitId: system.baseUnitId,
+    formatStyle: system.formatStyle || 'compound',
+    units: (system.units || []).map((unit) => ({
+        id: unit.id,
+        name: unit.name,
+        symbol: unit.symbol || '',
+        baseRate: Number(unit.baseRate) || 1,
+        order: Number(unit.order) || 1
+    }))
+});
+
+const 匹配模板ID = (
+    system: CurrencySystem,
+    profile: ModeRuntimeProfile,
+    templates: Array<{ id: CurrencySystem预设模板ID; label: string }>
+): 模板选择值 => {
+    const currentFingerprint = 货币系统指纹(system);
+    const matchedPreset = templates
+        .filter((template) => template.id !== 'topic-default')
+        .find((template) => 货币系统指纹(构建CurrencySystem模板(template.id, profile)) === currentFingerprint);
+    if (matchedPreset) return matchedPreset.id;
+
+    const topicDefault = 构建CurrencySystem模板('topic-default', 创建题材默认比对Profile(profile));
+    if (货币系统指纹(topicDefault) === currentFingerprint) return 'topic-default';
+    return 'custom';
+};
+
 const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile, compact = false, onTouched }) => {
     const templates = useMemo(() => 获取CurrencySystem预设模板列表(), []);
+    const templateOptions = useMemo<Array<{ value: 模板选择值; label: string }>>(() => [
+        ...templates.map((template) => ({ value: template.id, label: template.label })),
+        { value: 'custom', label: '自定义货币系统' }
+    ], [templates]);
     const [draft, setDraft] = useState<CurrencySystem>(() => 克隆(profile.economy.currencySystem || 构建CurrencySystem模板('topic-default', profile)));
     const [errors, setErrors] = useState<string[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState<模板选择值>(() => (
+        匹配模板ID(profile.economy.currencySystem || 构建CurrencySystem模板('topic-default', 创建题材默认比对Profile(profile)), profile, templates)
+    ));
 
     useEffect(() => {
-        setDraft(克隆(profile.economy.currencySystem || 构建CurrencySystem模板('topic-default', profile)));
-        setErrors([]);
-    }, [profile.economy.currencySystem, profile.economy.currencyTiers, profile.economy.currencyDisplayMode]);
-
-    const 写入草稿 = (nextDraft: CurrencySystem, touched = true) => {
+        const nextDraft = 克隆(profile.economy.currencySystem || 构建CurrencySystem模板('topic-default', profile));
         setDraft(nextDraft);
+        setSelectedTemplateId(匹配模板ID(nextDraft, profile, templates));
+        setErrors([]);
+    }, [profile.economy.currencySystem, profile.economy.currencyTiers, profile.economy.currencyDisplayMode, profile, templates]);
+
+    const 写入草稿 = (nextDraft: CurrencySystem, touched = true, templateId: 模板选择值 = 'custom') => {
+        setDraft(nextDraft);
+        setSelectedTemplateId(templateId);
         if (touched) onTouched?.();
         const result = 规范化新开局轻量CurrencySystem(nextDraft);
         setErrors(result.errors);
@@ -106,7 +156,7 @@ const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile,
     };
 
     const 应用模板 = (templateId: CurrencySystem预设模板ID) => {
-        写入草稿(构建CurrencySystem模板(templateId, profile));
+        写入草稿(构建CurrencySystem模板(templateId, profile), true, templateId);
     };
 
     const 更新单位 = (index: number, patch: Partial<CurrencyUnit>) => {
@@ -138,17 +188,24 @@ const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile,
             <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-[11px] leading-5 text-gray-300">{preview}</div>
             <label className="block text-xs text-gray-300">
                 预设模板
-                <select
-                    value=""
-                    onChange={(event) => {
-                        const templateId = event.target.value as CurrencySystem预设模板ID;
-                        if (templateId) 应用模板(templateId);
-                    }}
-                    className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45"
-                >
-                    <option value="">选择模板并应用</option>
-                    {templates.map((template) => <option key={template.id} value={template.id}>{template.label}</option>)}
-                </select>
+                <div className="mt-1">
+                    <InlineSelect<模板选择值>
+                        value={selectedTemplateId}
+                        options={templateOptions}
+                        onChange={(value) => {
+                            if (value === 'custom') {
+                                setSelectedTemplateId('custom');
+                                return;
+                            }
+                            应用模板(value);
+                        }}
+                        buttonClassName="h-10 rounded-lg border-white/10 bg-black/40 px-3 py-0 text-sm"
+                        panelClassName="max-w-full"
+                    />
+                </div>
+                {selectedTemplateId === 'custom' && (
+                    <div className="mt-1 text-[11px] text-wuxia-cyan">已自定义：当前货币体系与预设模板不完全一致。</div>
+                )}
             </label>
             <div className="grid gap-3 md:grid-cols-2">
                 <label className="block text-xs text-gray-300">

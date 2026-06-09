@@ -37,6 +37,15 @@ export type 角色金钱世界观显示快照 = {
     [label: string]: unknown;
 };
 
+export type 变量管理动态钱包视图 = {
+    enabled: boolean;
+    baseAmount: number;
+    formatted: string;
+    systemName: string;
+    baseUnitLabel: string;
+    primaryFieldPath: '角色.金钱.baseAmount';
+};
+
 export type 货币物品聚合信息 = {
     类型: string;
     分类名: string;
@@ -411,6 +420,33 @@ const 获取显式世界观CurrencySystem = (
         openingConfig.modeRuntimeProfile,
         获取货币显示模式(openingConfig, character)
     );
+};
+
+export const 是否启用显式CurrencySystem = (
+    openingConfig?: OpeningConfig | null
+): boolean => Boolean(openingConfig?.modeRuntimeProfile?.economy?.currencySystem);
+
+export const 构建变量管理动态钱包视图 = (
+    money?: Partial<角色金钱> | null,
+    openingConfig?: OpeningConfig | null,
+    character?: Partial<角色数据结构> | null
+): 变量管理动态钱包视图 | null => {
+    const explicitSystem = 获取显式世界观CurrencySystem(openingConfig, character);
+    if (!explicitSystem) return null;
+    const baseAmount = 获取角色金钱BaseAmount(
+        money,
+        openingConfig?.modeRuntimeProfile,
+        获取货币显示模式(openingConfig, character)
+    );
+    const baseUnit = 获取CurrencyUnit(explicitSystem.baseUnitId, explicitSystem);
+    return {
+        enabled: true,
+        baseAmount,
+        formatted: formatCurrencyBaseAmount(baseAmount, explicitSystem),
+        systemName: explicitSystem.name,
+        baseUnitLabel: baseUnit.symbol || baseUnit.name,
+        primaryFieldPath: '角色.金钱.baseAmount'
+    };
 };
 
 export const 获取世界观BaseAmount单位标签 = (

@@ -18,6 +18,7 @@ import {
     获取世界观货币槽位,
     获取角色金钱BaseAmount,
     获取角色金钱显示列表,
+    构建变量管理动态钱包视图,
     构建角色金钱显示快照,
     底层总值转角色金钱,
     格式化角色金钱行,
@@ -319,6 +320,33 @@ describe('货币显示', () => {
         expect(Object.keys(snapshot)).not.toContain('金元宝');
         expect(Object.keys(snapshot)).not.toContain('银子');
         expect(Object.keys(snapshot)).not.toContain('铜钱');
+    });
+
+    it('变量管理有 currencySystem 时钱包视图以 baseAmount 为主字段', () => {
+        const character = makeInfiniteCharacter();
+        character.金钱 = {
+            金元宝: 9,
+            银子: 8,
+            铜钱: 7,
+            baseAmount: 500
+        };
+
+        const walletView = 构建变量管理动态钱包视图(character.金钱, 单币种货币开局配置, character);
+
+        expect(walletView).toMatchObject({
+            enabled: true,
+            baseAmount: 500,
+            formatted: '500 ¥',
+            systemName: '人民币',
+            baseUnitLabel: '¥',
+            primaryFieldPath: '角色.金钱.baseAmount'
+        });
+    });
+
+    it('变量管理没有 currencySystem 时钱包视图不抢占旧三层 fallback', () => {
+        const character = makeInfiniteCharacter();
+
+        expect(构建变量管理动态钱包视图(character.金钱, 无限流开局配置, character)).toBeNull();
     });
 
     it('武侠旧三层金钱快照 fallback 仍正常', () => {
