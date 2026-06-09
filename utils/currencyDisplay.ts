@@ -422,6 +422,24 @@ export const 格式化世界观BaseAmount = (
     return `${读取非负整数金额(baseAmount).toLocaleString('zh-CN')} ${获取货币完整单位标签('铜钱', mode, openingConfig?.modeRuntimeProfile)}`;
 };
 
+export const 获取角色金钱显示列表 = (
+    money?: Partial<角色金钱> | null,
+    openingConfig?: OpeningConfig | null,
+    character?: Partial<角色数据结构> | null
+): string[] => {
+    const mode = 获取货币显示模式(openingConfig, character);
+    if (openingConfig?.modeRuntimeProfile?.economy?.currencySystem) {
+        return [
+            格式化世界观BaseAmount(
+                获取角色金钱BaseAmount(money, openingConfig.modeRuntimeProfile, mode),
+                openingConfig,
+                character
+            )
+        ];
+    }
+    return 格式化角色金钱行(money, mode).split(' / ');
+};
+
 const 计算角色三层货币底层总值 = (
     money?: Partial<角色金钱> | null,
     profile?: ModeRuntimeProfile | null,

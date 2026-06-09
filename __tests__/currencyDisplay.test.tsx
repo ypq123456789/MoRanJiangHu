@@ -11,6 +11,7 @@ import {
     获取世界观简短货币汇率说明,
     获取世界观货币槽位,
     获取角色金钱BaseAmount,
+    获取角色金钱显示列表,
     底层总值转角色金钱,
     格式化角色金钱行,
     格式化世界观BaseAmount,
@@ -203,6 +204,40 @@ describe('货币显示', () => {
     it('有三层 currencySystem 时世界观 baseAmount UI 包装可以复合显示', () => {
         expect(获取世界观BaseAmount单位标签(三层CurrencySystem开局配置, makeInfiniteCharacter(), '铜钱')).toBe('铜');
         expect(格式化世界观BaseAmount(12345, 三层CurrencySystem开局配置, makeInfiniteCharacter(), '12,345 铜钱')).toBe('1 金 / 23 银 / 45 铜');
+    });
+
+    it('角色金钱显示列表没有 currencySystem 时保持旧三层显示', () => {
+        const character = makeInfiniteCharacter();
+
+        expect(获取角色金钱显示列表(character.金钱, 无限流开局配置, character)).toEqual([
+            'C级支线剧情 0',
+            'D级支线剧情 5',
+            '奖励点 2000'
+        ]);
+    });
+
+    it('角色金钱显示列表有单币种 currencySystem 时使用 baseAmount', () => {
+        const character = makeInfiniteCharacter();
+        character.金钱 = {
+            金元宝: 0,
+            银子: 5,
+            铜钱: 2000,
+            baseAmount: 123456
+        };
+
+        expect(获取角色金钱显示列表(character.金钱, 单币种货币开局配置, character)).toEqual(['123,456 ¥']);
+    });
+
+    it('角色金钱显示列表有三层 currencySystem 时使用复合 baseAmount', () => {
+        const character = makeInfiniteCharacter();
+        character.金钱 = {
+            金元宝: 0,
+            银子: 0,
+            铜钱: 0,
+            baseAmount: 12345
+        };
+
+        expect(获取角色金钱显示列表(character.金钱, 三层CurrencySystem开局配置, character)).toEqual(['1 金 / 23 银 / 45 铜']);
     });
 
     it('左侧栏有 currencySystem 时钱财显示使用 baseAmount 格式化', () => {

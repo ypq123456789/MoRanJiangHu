@@ -13,7 +13,7 @@ import { 规范化接口设置 } from '../../../utils/apiConfig';
 import { 获取图片展示地址 } from '../../../utils/imageAssets';
 import { use图片资源回源预取 } from '../../../hooks/useImageAssetPrefetch';
 import { 计算角色总气血 } from '../../../utils/characterVitals';
-import { 格式化角色金钱行, 获取世界观货币卡片信息, 获取货币显示模式 } from '../../../utils/currencyDisplay';
+import { 获取世界观货币卡片信息, 获取角色金钱显示列表 } from '../../../utils/currencyDisplay';
 import { 读取可分配属性点, type 可分配六维属性键 } from '../../../utils/characterAttributePoints';
 import { 获取题材资源文案 } from '../../../utils/resourceLabels';
 
@@ -143,7 +143,7 @@ const MobileCharacter: React.FC<Props> = ({
         尺寸: ''
     });
     const 金钱 = character.金钱 || { 金元宝: 0, 银子: 0, 铜钱: 0 };
-    const 货币模式 = 获取货币显示模式(openingConfig, character);
+    const 钱财显示列表 = 获取角色金钱显示列表(金钱, openingConfig, character);
     const 货币卡片 = 获取世界观货币卡片信息(openingConfig, character);
     const 玩家BUFF列表 = Array.isArray(character.玩家BUFF) ? character.玩家BUFF : [];
     const 天赋列表 = Array.isArray(character.天赋列表) ? character.天赋列表 : [];
@@ -529,7 +529,7 @@ const MobileCharacter: React.FC<Props> = ({
                                     <span className="rounded border border-gray-800 bg-black/40 px-2 py-1 text-gray-300">性别 {character.性别}</span>
                                     <span className="rounded border border-gray-800 bg-black/40 px-2 py-1 text-gray-300">年龄 {character.年龄}</span>
                                     <span className="rounded border border-gray-800 bg-black/40 px-2 py-1 font-mono text-gray-300">负重 {character.当前负重}/{character.最大负重}</span>
-                                    {格式化角色金钱行(金钱, 货币模式).split(' / ').map((item) => (
+                                    {钱财显示列表.map((item) => (
                                         <span key={item} className="rounded border border-gray-800 bg-black/40 px-2 py-1 font-mono text-gray-300">{item}</span>
                                     ))}
                                 </div>

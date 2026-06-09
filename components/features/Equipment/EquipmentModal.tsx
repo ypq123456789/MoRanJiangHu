@@ -7,7 +7,7 @@ import { 获取图片展示地址 } from '../../../utils/imageAssets';
 import { 获取物品已选图标地址 } from '../../../utils/itemImage';
 import { IconSwords, IconDagger, IconShield, IconArmor, IconBackpack, IconRing, IconBelt, IconHelmet, IconBoot, IconPants, IconGlove, IconHorse, ItemTypeIcon } from '../../ui/Icons';
 import { 获取物品可装备槽位, 计算装备评分, 装备物品到角色, 卸下角色装备 } from '../../../utils/equipmentActions';
-import { 获取世界观货币卡片信息, 获取货币完整单位标签, 获取货币显示模式 } from '../../../utils/currencyDisplay';
+import { 格式化世界观BaseAmount, 获取世界观货币卡片信息, 获取货币完整单位标签, 获取货币显示模式 } from '../../../utils/currencyDisplay';
 import { 获取题材界面文案 } from '../../../utils/resourceLabels';
 
 interface Props {
@@ -81,6 +81,12 @@ const EquipmentModal: React.FC<Props> = ({ character, openingConfig, onClose, on
     const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null);
     const 界面文案 = 获取题材界面文案(openingConfig?.题材模式, openingConfig?.modeRuntimeProfile);
     const 估值单位 = 获取货币完整单位标签('铜钱', 获取货币显示模式(openingConfig, character));
+    const 格式化装备估值 = (value: unknown): string => 格式化世界观BaseAmount(
+        Number(value),
+        openingConfig,
+        character,
+        `${value ?? 0} ${估值单位}`
+    );
     const 货币卡片 = 获取世界观货币卡片信息(openingConfig, character);
     const playerImageHistory = Array.isArray(character?.图片档案?.生图历史) ? character.图片档案!.生图历史 : [];
     const selectedPortraitId = typeof character?.图片档案?.已选立绘图片ID === 'string'
@@ -445,7 +451,7 @@ const EquipmentModal: React.FC<Props> = ({ character, openingConfig, onClose, on
                                         </div>
                                         <div className="bg-gradient-to-br from-black/60 to-black/30 border border-gray-700/80 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center hover:border-amber-500/30 transition-colors shadow-inner">
                                             <span className="text-xs text-gray-300 font-serif tracking-[0.16em] mb-1.5">坊市估值</span>
-                                            <span className="text-xl md:text-2xl font-mono text-amber-300">{selectedItem.价值} <span className="text-sm text-amber-300 font-serif">{估值单位}</span></span>
+                                            <span className="text-xl md:text-2xl font-mono text-amber-300">{格式化装备估值(selectedItem.价值)}</span>
                                         </div>
                                         <div className="bg-gradient-to-br from-black/60 to-black/30 border border-gray-700/80 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center hover:border-blue-400/30 transition-colors shadow-inner col-span-2">
                                             <span className="text-xs text-gray-300 font-serif tracking-[0.16em] mb-2">品相耐久</span>
