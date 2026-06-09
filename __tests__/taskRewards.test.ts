@@ -90,7 +90,66 @@ describe('任务完成奖励结算', () => {
         expect(result.state.角色.金钱.铜钱).toBe(1000);
         expect(result.state.角色.金钱.银子).toBe(1);
         expect(result.state.角色.金钱.金元宝).toBe(1);
+        expect(result.state.角色.金钱.baseAmount).toBe(102000);
         expect(result.state.玩家门派.玩家贡献).toBe(150);
         expect(response.logs.some((log: any) => log.text.includes('奖励点 +1000') && log.text.includes('D级支线剧情 +1'))).toBe(true);
+    });
+
+    it('显式单币种 currencySystem 可以把文本奖励折算进 baseAmount', () => {
+        const state = 创建奖励状态();
+        state.任务列表[0].标题 = '完成同城委托';
+        state.任务列表[0].奖励描述 = ['获得 500 ¥', '信用点 +300'];
+        const response: any = { logs: [], tavern_commands: [] };
+        const result = 结算已完成任务奖励({
+            response,
+            state,
+            runtimeProfile: {
+                economy: {
+                    currencySystem: {
+                        id: 'modern-credit',
+                        name: '现代信用货币',
+                        baseUnitId: 'credit',
+                        formatStyle: 'single',
+                        units: [
+                            { id: 'credit', name: '信用点', symbol: '¥', baseRate: 1, order: 1, aliases: ['现金', '额度'] }
+                        ]
+                    }
+                }
+            } as any
+        });
+
+        expect(result.changed).toBe(true);
+        expect(result.state.角色.金钱.baseAmount).toBe(800);
+        expect(result.state.任务列表[0].奖励到账记录).toEqual(expect.arrayContaining(['¥ +500', '信用点 +300']));
+    });
+
+    it('显式多层 currencySystem 可以按 baseRate 折算货币奖励', () => {
+        const state = 创建奖励状态();
+        state.任务列表[0].标题 = '完成坊市委托';
+        state.任务列表[0].奖励描述 = ['获得 2 银', '获得 1 金'];
+        const response: any = { logs: [], tavern_commands: [] };
+        const result = 结算已完成任务奖励({
+            response,
+            state,
+            runtimeProfile: {
+                economy: {
+                    currencySystem: {
+                        id: 'ancient-money',
+                        name: '古代钱制',
+                        baseUnitId: 'copper',
+                        formatStyle: 'compound',
+                        units: [
+                            { id: 'gold', name: '金', baseRate: 10000, order: 3, aliases: ['金叶子'] },
+                            { id: 'silver', name: '银', baseRate: 100, order: 2, aliases: ['银锭'] },
+                            { id: 'copper', name: '铜', baseRate: 1, order: 1, aliases: ['铜板'] }
+                        ]
+                    }
+                }
+            } as any
+        });
+
+        expect(result.changed).toBe(true);
+        expect(result.state.角色.金钱.baseAmount).toBe(10200);
+        expect(result.state.任务列表[0].奖励到账记录).toEqual(expect.arrayContaining(['银 +2', '金 +1']));
     });
 });

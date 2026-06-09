@@ -1,5 +1,13 @@
 import type { GameResponse } from '../types';
-import { 规范化角色金钱 } from './currencyDisplay';
+import type { ModeRuntimeProfile } from '../models/system';
+import {
+    toBaseAmount,
+    底层总值转角色金钱,
+    获取角色金钱BaseAmount,
+    获取货币层级倍率,
+    规范化CurrencySystem,
+    规范化角色金钱
+} from './currencyDisplay';
 
 type RewardState = {
     角色: any;
@@ -24,6 +32,124 @@ const 取数字 = (value: unknown, fallback = 0): number => {
 };
 
 const 深拷贝 = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const 转义正则文本 = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const 旧货币奖励映射: Array<{ label: string; key: '上层货币' | '中层货币' | '底层货币' }> = [
+    { label: '上层货币', key: '上层货币' },
+    { label: '金元宝', key: '上层货币' },
+    { label: '元宝', key: '上层货币' },
+    { label: 'C级支线剧情', key: '上层货币' },
+    { label: '中层货币', key: '中层货币' },
+    { label: '银子', key: '中层货币' },
+    { label: '银两', key: '中层货币' },
+    { label: 'D级支线剧情', key: '中层货币' },
+    { label: '底层货币', key: '底层货币' },
+    { label: '铜钱', key: '底层货币' },
+    { label: '奖励点', key: '底层货币' }
+];
+
+const 获取运行时配置 = (params: {
+    state: RewardState;
+    runtimeProfile?: ModeRuntimeProfile | null;
+    modeRuntimeProfile?: ModeRuntimeProfile | null;
+    roleNormalizeOptions?: Record<string, unknown>;
+}): ModeRuntimeProfile | null => (
+    params.runtimeProfile
+    || params.modeRuntimeProfile
+    || (params.roleNormalizeOptions?.runtimeProfile as ModeRuntimeProfile | null | undefined)
+    || (params.roleNormalizeOptions?.modeRuntimeProfile as ModeRuntimeProfile | null | undefined)
+    || (params.state as any)?.openingConfig?.modeRuntimeProfile
+    || (params.state as any)?.modeRuntimeProfile
+    || null
+);
+
+const 匹配单位奖励 = (part: string, unitLabel: string): number | null => {
+    const unit = 转义正则文本(unitLabel);
+    const unitFirst = new RegExp(`(?:^|[\\s【】「」"'“”])${unit}\\s*[+＋]\\s*(\\d+)(?:$|[\\s。！!，,、；;])`, 'u');
+    const unitFirstMatch = part.match(unitFirst);
+    if (unitFirstMatch) return Math.max(0, Math.trunc(Number(unitFirstMatch[1])));
+
+    const amountFirst = new RegExp(`(?:获得|奖励|到账|收入|得到|取得|发放)?\\s*(\\d+)\\s*${unit}(?:$|[\\s。！!，,、；;])`, 'u');
+    const amountFirstMatch = part.match(amountFirst);
+    if (amountFirstMatch) return Math.max(0, Math.trunc(Number(amountFirstMatch[1])));
+
+    return null;
+};
+
+const 解析旧货币奖励 = (part: string): { label: string; key: '上层货币' | '中层货币' | '底层货币'; amount: number } | null => {
+    const matched = [...旧货币奖励映射]
+        .sort((a, b) => b.label.length - a.label.length)
+        .map((entry) => ({ ...entry, amount: 匹配单位奖励(part, entry.label) }))
+        .find((entry) => entry.amount !== null && entry.amount > 0);
+    return matched && matched.amount !== null
+        ? { label: matched.label, key: matched.key, amount: matched.amount }
+        : null;
+};
+
+const 解析动态货币奖励 = (
+    part: string,
+    runtimeProfile?: ModeRuntimeProfile | null
+): { label: string; amount: number; baseAmount: number } | null => {
+    const systemSource = runtimeProfile?.economy?.currencySystem;
+    if (!systemSource) return null;
+    const system = 规范化CurrencySystem(systemSource);
+    const candidates = system.units.flatMap((unit) => [
+        unit.name,
+        unit.symbol || '',
+        unit.id,
+        ...(Array.isArray(unit.aliases) ? unit.aliases : [])
+    ].filter(Boolean).map((label) => ({ label, unitId: unit.id })));
+    const uniqueCandidates = Array.from(
+        new Map(candidates.map((item) => [item.label, item])).values()
+    ).sort((a, b) => b.label.length - a.label.length);
+    const matched = uniqueCandidates
+        .map((entry) => ({ ...entry, amount: 匹配单位奖励(part, entry.label) }))
+        .find((entry) => entry.amount !== null && entry.amount > 0);
+    if (!matched || matched.amount === null) return null;
+    return {
+        label: matched.label,
+        amount: matched.amount,
+        baseAmount: toBaseAmount(matched.amount, matched.unitId, system)
+    };
+};
+
+const 增加角色BaseAmount = (
+    role: any,
+    amount: number,
+    runtimeProfile?: ModeRuntimeProfile | null
+) => {
+    const nextBaseAmount = 获取角色金钱BaseAmount(
+        role.金钱,
+        runtimeProfile,
+        runtimeProfile?.economy?.currencyDisplayMode as any
+    ) + Math.max(0, Math.trunc(amount));
+    role.金钱 = 底层总值转角色金钱(
+        nextBaseAmount,
+        runtimeProfile,
+        runtimeProfile?.economy?.currencyDisplayMode as any
+    );
+};
+
+const 增加旧货币奖励 = (
+    role: any,
+    key: '上层货币' | '中层货币' | '底层货币',
+    amount: number,
+    runtimeProfile?: ModeRuntimeProfile | null
+) => {
+    const currentBaseAmount = 获取角色金钱BaseAmount(
+        role.金钱,
+        runtimeProfile,
+        runtimeProfile?.economy?.currencyDisplayMode as any
+    );
+    role.金钱[key] = Math.max(0, 取数字(role.金钱[key])) + amount;
+    role.金钱.baseAmount = currentBaseAmount + amount * 获取货币层级倍率(
+        key,
+        runtimeProfile,
+        runtimeProfile?.economy?.currencyDisplayMode as any
+    );
+    role.金钱 = 规范化角色金钱(role.金钱);
+};
 
 const 技艺等级由熟练度 = (value: number): string => {
     if (value <= 0) return '未入门';
@@ -53,6 +179,8 @@ export const 结算已完成任务奖励 = (
     params: {
         response: GameResponse;
         state: RewardState;
+        runtimeProfile?: ModeRuntimeProfile | null;
+        modeRuntimeProfile?: ModeRuntimeProfile | null;
         normalizeRole?: (raw?: any, options?: any) => any;
         roleNormalizeOptions?: Record<string, unknown>;
     }
@@ -66,6 +194,7 @@ export const 结算已完成任务奖励 = (
     };
     const role = state.角色 || {};
     const sect = state.玩家门派 || {};
+    const runtimeProfile = 获取运行时配置(params);
     role.金钱 = 规范化角色金钱(role.金钱);
     role.物品列表 = Array.isArray(role.物品列表) ? role.物品列表 : [];
     role.技艺 = Array.isArray(role.技艺) ? role.技艺 : [];
@@ -105,20 +234,23 @@ export const 结算已完成任务奖励 = (
                 return;
             }
 
-            const moneyMatch = part.match(/(上层货币|中层货币|底层货币|金元宝|元宝|银子|银两|铜钱|奖励点|D级支线剧情|C级支线剧情)\s*[+＋]\s*(\d+)/u);
-            if (moneyMatch) {
-                const key = moneyMatch[1] === '元宝' || moneyMatch[1] === 'C级支线剧情' || moneyMatch[1] === '金元宝'
-                    ? '上层货币'
-                    : moneyMatch[1] === '银两' || moneyMatch[1] === 'D级支线剧情' || moneyMatch[1] === '银子'
-                        ? '中层货币'
-                        : '底层货币';
-                const amount = Math.max(0, Math.trunc(Number(moneyMatch[2])));
+            const legacyMoney = 解析旧货币奖励(part);
+            if (legacyMoney) {
+                const key = legacyMoney.key;
+                const amount = legacyMoney.amount;
                 if (amount > 0) {
-                    role.金钱[key] = Math.max(0, 取数字(role.金钱[key])) + amount;
-                    role.金钱 = 规范化角色金钱(role.金钱);
-                    rewardRecords.push(`${moneyMatch[1]} +${amount}`);
+                    增加旧货币奖励(role, key, amount, runtimeProfile);
+                    rewardRecords.push(`${legacyMoney.label} +${amount}`);
                     changed = true;
                 }
+                return;
+            }
+
+            const dynamicMoney = 解析动态货币奖励(part, runtimeProfile);
+            if (dynamicMoney) {
+                增加角色BaseAmount(role, dynamicMoney.baseAmount, runtimeProfile);
+                rewardRecords.push(`${dynamicMoney.label} +${dynamicMoney.amount}`);
+                changed = true;
                 return;
             }
 
