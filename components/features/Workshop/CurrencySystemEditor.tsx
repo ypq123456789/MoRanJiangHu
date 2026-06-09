@@ -75,9 +75,9 @@ const CurrencySystemEditor: React.FC<Props> = ({ profile, onApply, onClear }) =>
         <div className="sm:col-span-2 rounded-lg border border-wuxia-gold/20 bg-black/25 p-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <div className="text-xs font-bold text-wuxia-gold">可视化 currencySystem 编辑器</div>
+                    <div className="text-xs font-bold text-wuxia-gold">动态货币系统编辑器</div>
                     <div className="mt-1 text-[11px] leading-5 text-gray-400">
-                        校验通过后写入 economy.currencySystem；清除后继续使用旧 currencyTiers fallback。
+                        通过模板和表单配置新版货币系统；校验通过后写入 economy.currencySystem，清除后继续使用旧版三层货币。
                     </div>
                 </div>
                 <button

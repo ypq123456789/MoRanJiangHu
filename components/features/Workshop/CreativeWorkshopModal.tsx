@@ -30,7 +30,7 @@ const 可展示工坊类型: 创意工坊模块类型[] = ['topic', 'comfy_workf
 const 可展示工坊类型集合 = new Set<创意工坊模块类型>(可展示工坊类型);
 const 可展示工坊分区 = 创意工坊模块分区.filter((section) => 可展示工坊类型集合.has(section.id));
 const 默认生成性别占位 = `${开局生成性别选项.map((item) => item.value).join('、')}；留空默认全选`;
-type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig' | 'currencySystemEditor' | 'currencySystemJson';
+type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig' | 'economyModeNotice' | 'economyGroupTitle' | 'currencySystemEditor' | 'currencySystemJson';
 type 运行时配置字段 = { label: string; path: string[]; type?: 运行时配置字段类型; placeholder?: string; boolGroup?: { label: string; key: string }[] };
 type 运行时配置分区 = { title: string; fields: 运行时配置字段[] };
 
@@ -51,14 +51,19 @@ const 运行时配置分区列表: 运行时配置分区[] = [
     {
         title: '经济系统',
         fields: [
+            { label: '当前货币模式说明', path: ['economy', '__modeNotice'], type: 'economyModeNotice' },
+            { label: '新版动态货币系统（推荐）', path: ['economy', '__dynamicCurrency'], type: 'economyGroupTitle', placeholder: '支持单一货币、多层货币、自定义单位。推荐新模板使用。' },
+            { label: '可视化 currencySystem 编辑器', path: ['economy', 'currencySystem'], type: 'currencySystemEditor' },
+            { label: '旧版三层货币系统（兼容）', path: ['economy', '__legacyCurrency'], type: 'economyGroupTitle', placeholder: '用于旧模板兼容。当未启用新版动态货币系统时生效。' },
             { label: '货币显示', path: ['economy', 'currencyDisplayMode'], type: 'currencyMode' },
             { label: '上层货币名称', path: ['economy', 'currencyTiers', 'upperName'] },
             { label: '中层货币名称', path: ['economy', 'currencyTiers', 'middleName'] },
             { label: '底层货币名称', path: ['economy', 'currencyTiers', 'lowerName'] },
             { label: '上转中汇率', path: ['economy', 'currencyTiers', 'upperToMiddleRate'] },
             { label: '中转底汇率', path: ['economy', 'currencyTiers', 'middleToLowerRate'] },
-            { label: '可视化 currencySystem 编辑器', path: ['economy', 'currencySystem'], type: 'currencySystemEditor' },
+            { label: '高级配置', path: ['economy', '__advancedCurrency'], type: 'economyGroupTitle', placeholder: '普通用户建议使用上方可视化编辑器；熟悉 JSON 的用户可在这里精修。' },
             { label: '高级 currencySystem JSON', path: ['economy', 'currencySystem'], type: 'currencySystemJson' },
+            { label: '经济说明与市场口径', path: ['economy', '__marketCurrency'], type: 'economyGroupTitle', placeholder: '用于约束题材描述、市场名称、物品类型和禁用关键词。' },
             { label: '题材货币说明', path: ['economy', 'primaryCurrency'], type: 'textarea' },
             { label: '底层记账单位', path: ['economy', 'accountingUnit'] },
             { label: '旧兼容换算说明', path: ['economy', 'exchangeRules'], type: 'textarea' },
@@ -1604,6 +1609,29 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                                                                 const fieldType = field.type || 'text';
                                                                 const rawValue = 读取运行时路径值(contributionDraft.modeRuntimeProfile, field.path);
                                                                 const key = `${section.title}-${field.path.join('.')}`;
+                                                                if (fieldType === 'economyModeNotice') {
+                                                                    const enabled = Boolean(contributionDraft.modeRuntimeProfile.economy.currencySystem);
+                                                                    return (
+                                                                        <div key={key} className={`sm:col-span-2 rounded-lg border px-3 py-2 text-xs leading-5 ${enabled ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-100' : 'border-amber-400/35 bg-amber-500/10 text-amber-100'}`}>
+                                                                            <div className="font-bold">{enabled ? '当前启用：新版动态货币系统' : '当前启用：旧版三层货币系统'}</div>
+                                                                            <div className="mt-1 text-[11px] opacity-85">
+                                                                                存在新版动态货币系统时，游戏优先使用 currencySystem；未启用时，才使用旧版 currencyTiers。
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                if (fieldType === 'economyGroupTitle') {
+                                                                    const dynamicEnabled = Boolean(contributionDraft.modeRuntimeProfile.economy.currencySystem);
+                                                                    const legacyNote = field.path.join('.') === 'economy.__legacyCurrency' && dynamicEnabled
+                                                                        ? '当前新版动态货币已启用，以下三层配置仅作为兼容保留。'
+                                                                        : field.placeholder;
+                                                                    return (
+                                                                        <div key={key} className="sm:col-span-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                                                                            <div className="text-xs font-bold text-wuxia-gold">{field.label}</div>
+                                                                            {legacyNote && <div className="mt-1 text-[11px] leading-5 text-gray-400">{legacyNote}</div>}
+                                                                        </div>
+                                                                    );
+                                                                }
                                                                 if (fieldType === 'bool') {
                                                                     return (
                                                                         <label key={key} className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-xs text-gray-200">
