@@ -3,7 +3,7 @@ import { 从模式世界书提取提示词, 创意工坊模块分区, type 创�
 import type { 接口设置结构, ModeRuntimeProfile, 世界书结构 } from '../../../types';
 import type { CurrencySystem, 题材模式类型 } from '../../../models/system';
 import { 题材模式配置表, 题材模式顺序 } from '../../../utils/topicModeProfiles';
-import { 构建官方模式运行时配置, 规范化模式运行时配置, 渲染模式运行时配置世界书内容, 规范化显式CurrencySystem } from '../../../utils/modeRuntimeProfile';
+import { 构建CurrencySystem模板, 构建官方模式运行时配置, 规范化模式运行时配置, 渲染模式运行时配置世界书内容, 规范化显式CurrencySystem } from '../../../utils/modeRuntimeProfile';
 import { 开局生成性别选项 } from '../../../utils/openingConfig';
 import {
     编辑创意工坊模块,
@@ -26,11 +26,12 @@ interface Props {
 }
 
 type 来源筛选 = 'all' | 'builtin' | 'cloud' | 'local';
+type 货币系统编辑模式 = 'dynamic' | 'legacy' | 'json';
 const 可展示工坊类型: 创意工坊模块类型[] = ['topic', 'comfy_workflow'];
 const 可展示工坊类型集合 = new Set<创意工坊模块类型>(可展示工坊类型);
 const 可展示工坊分区 = 创意工坊模块分区.filter((section) => 可展示工坊类型集合.has(section.id));
 const 默认生成性别占位 = `${开局生成性别选项.map((item) => item.value).join('、')}；留空默认全选`;
-type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig' | 'economyModeNotice' | 'economyGroupTitle' | 'currencySystemEditor' | 'currencySystemJson';
+type 运行时配置字段类型 = 'text' | 'textarea' | 'list' | 'record' | 'bool' | 'boolGroup' | 'baseMode' | 'currencyMode' | 'timeFormatMode' | 'realmConfig' | 'currencySystemModeSelector' | 'economyGroupTitle' | 'currencySystemEditor' | 'currencySystemJson';
 type 运行时配置字段 = { label: string; path: string[]; type?: 运行时配置字段类型; placeholder?: string; boolGroup?: { label: string; key: string }[] };
 type 运行时配置分区 = { title: string; fields: 运行时配置字段[] };
 
@@ -51,7 +52,7 @@ const 运行时配置分区列表: 运行时配置分区[] = [
     {
         title: '经济系统',
         fields: [
-            { label: '当前货币模式说明', path: ['economy', '__modeNotice'], type: 'economyModeNotice' },
+            { label: '货币系统模式', path: ['economy', '__currencySystemMode'], type: 'currencySystemModeSelector' },
             { label: '新版动态货币系统（推荐）', path: ['economy', '__dynamicCurrency'], type: 'economyGroupTitle', placeholder: '支持单一货币、多层货币、自定义单位。推荐新模板使用。' },
             { label: '可视化 currencySystem 编辑器', path: ['economy', 'currencySystem'], type: 'currencySystemEditor' },
             { label: '旧版三层货币系统（兼容）', path: ['economy', '__legacyCurrency'], type: 'economyGroupTitle', placeholder: '用于旧模板兼容。当未启用新版动态货币系统时生效。' },
@@ -63,7 +64,7 @@ const 运行时配置分区列表: 运行时配置分区[] = [
             { label: '中转底汇率', path: ['economy', 'currencyTiers', 'middleToLowerRate'] },
             { label: '高级配置', path: ['economy', '__advancedCurrency'], type: 'economyGroupTitle', placeholder: '普通用户建议使用上方可视化编辑器；熟悉 JSON 的用户可在这里精修。' },
             { label: '高级 currencySystem JSON', path: ['economy', 'currencySystem'], type: 'currencySystemJson' },
-            { label: '经济说明与市场口径', path: ['economy', '__marketCurrency'], type: 'economyGroupTitle', placeholder: '用于约束题材描述、市场名称、物品类型和禁用关键词。' },
+            { label: '经济说明与市场口径', path: ['economy', '__marketCurrency'], type: 'economyGroupTitle', placeholder: '下方内容不决定新版/旧版货币模式，只用于约束题材描述、市场名称、物品类型和禁用关键词。' },
             { label: '题材货币说明', path: ['economy', 'primaryCurrency'], type: 'textarea' },
             { label: '底层记账单位', path: ['economy', 'accountingUnit'] },
             { label: '旧兼容换算说明', path: ['economy', 'exchangeRules'], type: 'textarea' },
@@ -766,6 +767,9 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
     const [contributionDraft, setContributionDraft] = useState<贡献草稿>(() => 空贡献草稿());
     const [currencySystemJsonDraft, setCurrencySystemJsonDraft] = useState(() => 格式化CurrencySystemJson(空贡献草稿().modeRuntimeProfile));
     const [currencySystemJsonError, setCurrencySystemJsonError] = useState('');
+    const [currencySystemEditMode, setCurrencySystemEditMode] = useState<货币系统编辑模式>(() => (
+        空贡献草稿().modeRuntimeProfile.economy.currencySystem ? 'dynamic' : 'legacy'
+    ));
     const [showContributionForm, setShowContributionForm] = useState(true);
     const jsonImportInputRef = useRef<HTMLInputElement | null>(null);
     const contributionModule = useMemo(() => 构建贡献模块(contributionDraft, contributor), [contributionDraft, contributor]);
@@ -794,6 +798,13 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
         if (currencySystemJsonError) return;
         setCurrencySystemJsonDraft(格式化CurrencySystemJson(contributionDraft.modeRuntimeProfile));
     }, [contributionDraft.modeRuntimeProfile.economy.currencySystem, currencySystemJsonError]);
+    useEffect(() => {
+        setCurrencySystemEditMode((prev) => (
+            prev === 'json'
+                ? prev
+                : contributionDraft.modeRuntimeProfile.economy.currencySystem ? 'dynamic' : 'legacy'
+        ));
+    }, [contributionDraft.modeRuntimeProfile.economy.currencySystem]);
 
     const 更新CurrencySystemJson = (value: string) => {
         setCurrencySystemJsonDraft(value);
@@ -882,6 +893,17 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                 modeRuntimeProfile: 规范化模式运行时配置(nextProfile, prev.mode)
             };
         });
+    };
+
+    const 切换货币系统编辑模式 = (mode: 货币系统编辑模式) => {
+        setCurrencySystemEditMode(mode);
+        if (mode === 'dynamic' && !contributionDraft.modeRuntimeProfile.economy.currencySystem) {
+            应用可视化CurrencySystem(构建CurrencySystem模板('topic-default', contributionDraft.modeRuntimeProfile));
+            return;
+        }
+        if (mode === 'legacy') {
+            清除可视化CurrencySystem();
+        }
     };
 
     const activeEntries = useMemo(
@@ -1609,13 +1631,48 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                                                                 const fieldType = field.type || 'text';
                                                                 const rawValue = 读取运行时路径值(contributionDraft.modeRuntimeProfile, field.path);
                                                                 const key = `${section.title}-${field.path.join('.')}`;
-                                                                if (fieldType === 'economyModeNotice') {
-                                                                    const enabled = Boolean(contributionDraft.modeRuntimeProfile.economy.currencySystem);
+                                                                const fieldPath = field.path.join('.');
+                                                                if (section.title === '经济系统') {
+                                                                    const isDynamicField = fieldType === 'currencySystemEditor' || fieldPath === 'economy.__dynamicCurrency';
+                                                                    const isLegacyField = fieldType === 'currencyMode' || fieldPath.startsWith('economy.currencyTiers') || fieldPath === 'economy.__legacyCurrency';
+                                                                    const isJsonField = fieldType === 'currencySystemJson' || fieldPath === 'economy.__advancedCurrency';
+                                                                    if (isDynamicField && currencySystemEditMode !== 'dynamic') return null;
+                                                                    if (isLegacyField && currencySystemEditMode !== 'legacy') return null;
+                                                                    if (isJsonField && currencySystemEditMode !== 'json') return null;
+                                                                }
+                                                                if (fieldType === 'currencySystemModeSelector') {
+                                                                    const modeText = currencySystemEditMode === 'dynamic'
+                                                                        ? '当前使用新版动态货币系统，支持单一货币、多层货币和自定义单位。'
+                                                                        : currencySystemEditMode === 'legacy'
+                                                                            ? '当前使用旧版三层货币系统，仅适合兼容旧模板。'
+                                                                            : '高级模式直接编辑 economy.currencySystem，普通用户建议使用新版动态货币系统。';
+                                                                    const options: Array<{ value: 货币系统编辑模式; label: string }> = [
+                                                                        { value: 'dynamic', label: '新版动态货币系统（推荐）' },
+                                                                        { value: 'legacy', label: '旧版三层货币系统（兼容）' },
+                                                                        { value: 'json', label: '高级 JSON 配置' }
+                                                                    ];
                                                                     return (
-                                                                        <div key={key} className={`sm:col-span-2 rounded-lg border px-3 py-2 text-xs leading-5 ${enabled ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-100' : 'border-amber-400/35 bg-amber-500/10 text-amber-100'}`}>
-                                                                            <div className="font-bold">{enabled ? '当前启用：新版动态货币系统' : '当前启用：旧版三层货币系统'}</div>
-                                                                            <div className="mt-1 text-[11px] opacity-85">
-                                                                                存在新版动态货币系统时，游戏优先使用 currencySystem；未启用时，才使用旧版 currencyTiers。
+                                                                        <div key={key} className="sm:col-span-2 rounded-lg border border-wuxia-gold/25 bg-wuxia-gold/[0.06] px-3 py-3">
+                                                                            <div className="text-xs font-bold text-wuxia-gold">{field.label}</div>
+                                                                            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                                                                                {options.map((option) => (
+                                                                                    <button
+                                                                                        key={option.value}
+                                                                                        type="button"
+                                                                                        onClick={() => 切换货币系统编辑模式(option.value)}
+                                                                                        className={`rounded-lg border px-3 py-2 text-xs transition-colors ${
+                                                                                            currencySystemEditMode === option.value
+                                                                                                ? 'border-wuxia-gold bg-wuxia-gold/15 text-wuxia-gold'
+                                                                                                : 'border-white/10 bg-black/25 text-gray-300 hover:border-wuxia-gold/35 hover:text-wuxia-gold'
+                                                                                        }`}
+                                                                                    >
+                                                                                        {option.label}
+                                                                                    </button>
+                                                                                ))}
+                                                                            </div>
+                                                                            <div className="mt-2 text-[11px] leading-5 text-gray-300">{modeText}</div>
+                                                                            <div className="mt-1 text-[11px] leading-5 text-gray-500">
+                                                                                模式不会额外写入持久化字段；游戏实际根据 economy.currencySystem 是否存在决定优先使用新版动态货币或旧版 currencyTiers fallback。
                                                                             </div>
                                                                         </div>
                                                                     );
