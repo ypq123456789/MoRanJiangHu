@@ -4,6 +4,8 @@ import {
     创建默认拍卖行状态,
     创建玩家拍卖品,
     格式化BaseAmount总值,
+    格式化拍卖货币,
+    格式化金钱折算,
     格式化铜钱总值,
     购买拍卖品,
     结算玩家寄售,
@@ -222,6 +224,40 @@ describe('拍卖行默认补货', () => {
 });
 
 describe('拍卖行 baseAmount 兼容结算', () => {
+    const 单币种货币选项 = {
+        runtimeProfile: {
+            economy: {
+                currencySystem: {
+                    id: 'modern-yuan',
+                    name: '人民币',
+                    baseUnitId: 'yuan',
+                    formatStyle: 'single',
+                    units: [
+                        { id: 'yuan', name: '元', symbol: '¥', baseRate: 1, order: 1 }
+                    ]
+                }
+            }
+        }
+    } as any;
+
+    const 三层货币选项 = {
+        runtimeProfile: {
+            economy: {
+                currencySystem: {
+                    id: 'ancient-money',
+                    name: '古代钱制',
+                    baseUnitId: 'copper',
+                    formatStyle: 'compound',
+                    units: [
+                        { id: 'gold', name: '金', baseRate: 10000, order: 3, aliases: ['金元宝'] },
+                        { id: 'silver', name: '银', baseRate: 100, order: 2, aliases: ['银子'] },
+                        { id: 'copper', name: '铜', baseRate: 1, order: 1, aliases: ['铜钱'] }
+                    ]
+                }
+            }
+        }
+    } as any;
+
     const 创建测试角色 = () => ({
         姓名: '测试侠客',
         金钱: {
@@ -271,6 +307,12 @@ describe('拍卖行 baseAmount 兼容结算', () => {
         expect(计算金钱铜钱总值(character.金钱)).toBe(102345);
         expect(baseAmount转角色金钱(102345)).toEqual(铜钱转角色金钱(102345));
         expect(格式化BaseAmount总值(12345)).toBe(格式化铜钱总值(12345));
+        expect(格式化拍卖货币(12345, '铜钱')).toBe('12,345 铜钱');
+        const formattedMoney = 格式化金钱折算(character.金钱);
+        expect(formattedMoney).toContain('铜钱 345');
+        expect(formattedMoney).toContain('银 2');
+        expect(formattedMoney).toContain('元宝 1');
+        expect(formattedMoney).toContain('折算 102,345 铜钱');
 
         const baseDeduct = 自动扣除BaseAmount(character, 2345);
         const copperDeduct = 自动扣除铜钱(character, 2345);
@@ -284,6 +326,24 @@ describe('拍卖行 baseAmount 兼容结算', () => {
 
         expect(自动增加BaseAmount(character, 200).金钱).toEqual(自动增加铜钱(character, 200).金钱);
         expect(拍卖BaseAmount货币列表).toBe(拍卖货币列表);
+    });
+
+    it('显式单币种 currencySystem 下拍卖行价格和余额显示使用 baseAmount', () => {
+        const character = 创建测试角色();
+        const money = { ...character.金钱, baseAmount: 123456 };
+
+        expect(格式化拍卖货币(12345, '铜钱', 单币种货币选项)).toBe('12,345 ¥');
+        expect(格式化BaseAmount总值(12345, 单币种货币选项)).toBe('12,345 ¥');
+        expect(格式化金钱折算(money, 单币种货币选项)).toBe('123,456 ¥');
+    });
+
+    it('显式三层 currencySystem 下拍卖行价格和余额显示使用复合 baseAmount', () => {
+        const money = { 金元宝: 0, 银子: 0, 铜钱: 0, baseAmount: 12345 };
+
+        expect(格式化拍卖货币(12345, '铜钱', 三层货币选项)).toBe('1 金 / 23 银 / 45 铜');
+        expect(格式化拍卖货币(3, '银子', 三层货币选项)).toBe('3 银');
+        expect(格式化BaseAmount总值(12345, 三层货币选项)).toBe('1 金 / 23 银 / 45 铜');
+        expect(格式化金钱折算(money, 三层货币选项)).toBe('1 金 / 23 银 / 45 铜');
     });
 
     it('物品市场估价 baseAmount alias 与旧铜钱估价一致', () => {
@@ -313,6 +373,7 @@ describe('拍卖行 baseAmount 兼容结算', () => {
                 上层货币: 1,
                 中层货币: 1,
                 底层货币: 145,
+                baseAmount: 101145,
                 金元宝: 1,
                 银子: 1,
                 铜钱: 145
@@ -355,7 +416,7 @@ describe('拍卖行 baseAmount 兼容结算', () => {
         expect(exchanged.ok).toBe(true);
         if (exchanged.ok) {
             expect(exchanged.received).toBe(970);
-            expect(exchanged.nextCharacter.金钱).toEqual({
+            expect(exchanged.nextCharacter.金钱).toMatchObject({
                 上层货币: 1,
                 中层货币: 1,
                 底层货币: 1315,
@@ -363,12 +424,13 @@ describe('拍卖行 baseAmount 兼容结算', () => {
                 银子: 1,
                 铜钱: 1315
             });
+            expect(exchanged.nextCharacter.金钱.baseAmount).toEqual(expect.any(Number));
         }
 
         const organized = 执行自动货币整理(character);
         expect(organized.totalBaseAmount).toBe(organized.totalCopper);
         expect(organized.totalCopper).toBe(102345);
-        expect(organized.nextCharacter.金钱).toEqual({
+        expect(organized.nextCharacter.金钱).toMatchObject({
             上层货币: 1,
             中层货币: 2,
             底层货币: 345,
@@ -376,5 +438,6 @@ describe('拍卖行 baseAmount 兼容结算', () => {
             银子: 2,
             铜钱: 345
         });
+        expect(organized.nextCharacter.金钱.baseAmount).toEqual(expect.any(Number));
     });
 });
