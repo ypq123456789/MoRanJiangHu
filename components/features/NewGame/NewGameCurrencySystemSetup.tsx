@@ -11,13 +11,14 @@ import {
 interface Props {
     profile: ModeRuntimeProfile;
     onChangeProfile: (nextProfile: ModeRuntimeProfile) => void;
+    onUseLegacyCurrency?: () => void;
     compact?: boolean;
     onTouched?: () => void;
 }
 
 const 克隆 = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const 去重非空 = (items: Array<string | undefined>): string[] => Array.from(new Set(items.map((item) => String(item || '').trim()).filter(Boolean)));
-type 模板选择值 = CurrencySystem预设模板ID | 'custom';
+type 模板选择值 = CurrencySystem预设模板ID | 'legacy' | 'custom';
 
 const 生成单位ID = (units: CurrencyUnit[]): string => {
     const ids = new Set(units.map((unit) => unit.id));
@@ -120,22 +121,25 @@ const 匹配模板ID = (
     return 'custom';
 };
 
-const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile, compact = false, onTouched }) => {
+const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile, onUseLegacyCurrency, compact = false, onTouched }) => {
     const templates = useMemo(() => 获取CurrencySystem预设模板列表(), []);
     const templateOptions = useMemo<Array<{ value: 模板选择值; label: string }>>(() => [
         ...templates.map((template) => ({ value: template.id, label: template.label })),
+        { value: 'legacy', label: '旧版三层货币系统' },
         { value: 'custom', label: '自定义货币系统' }
     ], [templates]);
     const [draft, setDraft] = useState<CurrencySystem>(() => 克隆(profile.economy.currencySystem || 构建CurrencySystem模板('topic-default', profile)));
     const [errors, setErrors] = useState<string[]>([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState<模板选择值>(() => (
-        匹配模板ID(profile.economy.currencySystem || 构建CurrencySystem模板('topic-default', 创建题材默认比对Profile(profile)), profile, templates)
+        profile.economy.currencySystem
+            ? 匹配模板ID(profile.economy.currencySystem, profile, templates)
+            : 'legacy'
     ));
 
     useEffect(() => {
         const nextDraft = 克隆(profile.economy.currencySystem || 构建CurrencySystem模板('topic-default', profile));
         setDraft(nextDraft);
-        setSelectedTemplateId(匹配模板ID(nextDraft, profile, templates));
+        setSelectedTemplateId(profile.economy.currencySystem ? 匹配模板ID(nextDraft, profile, templates) : 'legacy');
         setErrors([]);
     }, [profile.economy.currencySystem, profile.economy.currencyTiers, profile.economy.currencyDisplayMode, profile, templates]);
 
@@ -175,6 +179,7 @@ const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile,
     const 单位名称列表 = draft.units.map((unit) => unit.name || unit.id).filter(Boolean).join(' / ');
     const baseUnit = draft.units.find((unit) => unit.id === draft.baseUnitId) || draft.units[draft.units.length - 1];
     const preview = `当前：${draft.name || '货币体系'}｜${draft.formatStyle === 'single' ? '单一显示' : '复合显示'}｜${draft.formatStyle === 'single' ? `基础单位：${baseUnit?.name || '未设置'}` : 单位名称列表}`;
+    const 使用新版动态货币 = Boolean(profile.economy.currencySystem);
 
     return (
         <div className={`rounded-2xl border border-wuxia-gold/20 bg-black/30 ${compact ? 'p-3 space-y-3' : 'p-4 space-y-4'}`}>
@@ -185,6 +190,29 @@ const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile,
                 </div>
                 <div className="text-[10px] text-wuxia-cyan font-mono tracking-[0.18em]">CURRENCY</div>
             </div>
+            <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[11px] leading-5 text-gray-300">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <span className="text-gray-500">当前使用：</span>
+                        <span className={使用新版动态货币 ? 'text-wuxia-gold' : 'text-wuxia-cyan'}>
+                            {使用新版动态货币 ? '新版动态货币系统' : '旧版三层货币系统'}
+                        </span>
+                    </div>
+                    {onUseLegacyCurrency && (
+                        <button
+                            type="button"
+                            onClick={onUseLegacyCurrency}
+                            disabled={!使用新版动态货币}
+                            className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-gray-200 transition-colors hover:border-wuxia-gold/35 hover:text-wuxia-gold disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            使用旧版三层货币
+                        </button>
+                    )}
+                </div>
+                <div className="mt-2 text-gray-400">
+                    新版动态货币支持单一货币、多层货币和自定义换算；旧版三层货币使用当前题材的上层/中层/底层配置，仅作兼容模式。题材默认表示当前题材或模式包推荐的新版货币模板，不等于旧版三层 fallback。
+                </div>
+            </div>
             <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-[11px] leading-5 text-gray-300">{preview}</div>
             <label className="block text-xs text-gray-300">
                 预设模板
@@ -193,6 +221,11 @@ const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile,
                         value={selectedTemplateId}
                         options={templateOptions}
                         onChange={(value) => {
+                            if (value === 'legacy') {
+                                onUseLegacyCurrency?.();
+                                setSelectedTemplateId('legacy');
+                                return;
+                            }
                             if (value === 'custom') {
                                 setSelectedTemplateId('custom');
                                 return;

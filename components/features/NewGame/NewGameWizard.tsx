@@ -285,6 +285,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     const [创意工坊注入中, 设置创意工坊注入中] = useState(false);
     const [activeModuleExtraRules, setActiveModuleExtraRules] = useState('');
     const [货币已手动修改, 设置货币已手动修改] = useState(false);
+    const [使用旧版三层货币, 设置使用旧版三层货币] = useState(false);
 
     // Custom Inputs
     const [customTalent, setCustomTalent] = useState<天赋结构>({ 名称: '', 描述: '', 效果: '' });
@@ -942,7 +943,18 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
         允许生成性别: 规范化开局生成性别列表(modeRuntimeProfile?.opening?.allowedGeneratedGenders),
         生成性别锁定: modeRuntimeProfile?.opening?.lockGeneratedGenders === true
     });
+    const 清除运行时CurrencySystem = <T extends OpeningConfig['modeRuntimeProfile']>(modeRuntimeProfile: T): T => {
+        if (!modeRuntimeProfile) return modeRuntimeProfile;
+        return {
+            ...modeRuntimeProfile,
+            economy: {
+                ...modeRuntimeProfile.economy,
+                currencySystem: undefined
+            }
+        } as T;
+    };
     const 保留自定义货币系统 = (modeRuntimeProfile: NonNullable<OpeningConfig['modeRuntimeProfile']>) => {
+        if (使用旧版三层货币) return 清除运行时CurrencySystem(modeRuntimeProfile);
         const currentCurrencySystem = openingConfig.modeRuntimeProfile?.economy.currencySystem;
         if (!货币已手动修改 || !currentCurrencySystem) return modeRuntimeProfile;
         return {
@@ -955,6 +967,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     };
     const 更新开局货币系统 = (nextProfile: NonNullable<OpeningConfig['modeRuntimeProfile']>) => {
         设置货币已手动修改(true);
+        设置使用旧版三层货币(false);
         setOpeningConfig((prev) => ({
             ...prev,
             modeRuntimeProfile: nextProfile
@@ -962,6 +975,18 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
         setWorldConfig((prev) => ({
             ...prev,
             modeRuntimeProfile: nextProfile
+        }));
+    };
+    const 使用旧版三层货币系统 = () => {
+        设置使用旧版三层货币(true);
+        设置货币已手动修改(false);
+        setOpeningConfig((prev) => ({
+            ...prev,
+            modeRuntimeProfile: 清除运行时CurrencySystem(prev.modeRuntimeProfile)
+        }));
+        setWorldConfig((prev) => ({
+            ...prev,
+            modeRuntimeProfile: 清除运行时CurrencySystem(prev.modeRuntimeProfile)
         }));
     };
     const 更新题材模式 = (题材模式: OpeningConfig['题材模式']) => {
@@ -2058,10 +2083,15 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                         <NewGameCurrencySystemSetup
                                             profile={openingConfig.modeRuntimeProfile}
                                             onChangeProfile={更新开局货币系统}
+                                            onUseLegacyCurrency={使用旧版三层货币系统}
                                             onTouched={() => 设置货币已手动修改(true)}
                                         />
                                     )}
-                                    {货币已手动修改 && (
+                                    {使用旧版三层货币 ? (
+                                        <div className="rounded-xl border border-wuxia-cyan/20 bg-wuxia-cyan/[0.06] px-3 py-2 text-[11px] leading-5 text-wuxia-cyan">
+                                            当前已切换为旧版三层货币系统，会保留题材的 currencyTiers；如需重新启用新版动态货币，请在上方选择“题材默认”或其他模板。
+                                        </div>
+                                    ) : 货币已手动修改 && (
                                         <div className="rounded-xl border border-wuxia-gold/15 bg-wuxia-gold/[0.04] px-3 py-2 text-[11px] leading-5 text-wuxia-gold">
                                             已保留你自定义的货币系统；如需使用题材默认，可在上方重新选择“题材默认”模板。
                                         </div>
