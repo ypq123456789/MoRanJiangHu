@@ -153,6 +153,49 @@ const 构建默认货币层级 = (currencyDisplayMode: ModeRuntimeProfile['econo
     };
 };
 
+type 货币层级配置 = ModeRuntimeProfile['economy']['currencyTiers'];
+
+const 去重非空文本 = (items: string[]): string[] => (
+    Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)))
+);
+
+export const 从CurrencyTiers生成CurrencySystem = (
+    currencyTiers: 货币层级配置,
+    currencyDisplayMode: ModeRuntimeProfile['economy']['currencyDisplayMode']
+): CurrencySystem => {
+    const upperRate = Math.max(1, Math.floor(currencyTiers.upperToMiddleRate)) * Math.max(1, Math.floor(currencyTiers.middleToLowerRate));
+    const middleRate = Math.max(1, Math.floor(currencyTiers.middleToLowerRate));
+    return {
+        id: `${currencyDisplayMode}-default-currency-system`,
+        name: `${currencyTiers.upperName}/${currencyTiers.middleName}/${currencyTiers.lowerName}货币体系`,
+        baseUnitId: 'lower',
+        formatStyle: 'compound',
+        units: [
+            {
+                id: 'upper',
+                name: currencyTiers.upperName,
+                baseRate: upperRate,
+                order: 3,
+                aliases: 去重非空文本([currencyTiers.upperName, '上层货币', '金元宝', '元宝'])
+            },
+            {
+                id: 'middle',
+                name: currencyTiers.middleName,
+                baseRate: middleRate,
+                order: 2,
+                aliases: 去重非空文本([currencyTiers.middleName, '中层货币', '银子', '银两'])
+            },
+            {
+                id: 'lower',
+                name: currencyTiers.lowerName,
+                baseRate: 1,
+                order: 1,
+                aliases: 去重非空文本([currencyTiers.lowerName, '底层货币', '铜钱'])
+            }
+        ]
+    };
+};
+
 const 东方古法时间词 = ['时辰', '子时', '丑时', '寅时', '卯时', '辰时', '巳时', '午时', '未时', '申时', '酉时', '戌时', '亥时', '一炷香', '半炷香', '一盏茶', '半盏茶', '刻钟', '三刻'];
 
 const 时间默认值 = (mode: 题材模式类型): ModeRuntimeProfile['time'] => {
@@ -455,6 +498,7 @@ export const 构建官方模式运行时配置 = (
     const isModern = 判断现代(baseMode);
     const isApocalypse = profile.group === 'apocalypse';
     const isInfinite = profile.group === 'infinite';
+    const currencyTiers = 构建默认货币层级(profile.currencyDisplayMode);
     const runtime: ModeRuntimeProfile = {
         identity: {
             modeId: profile.value,
@@ -471,7 +515,8 @@ export const 构建官方模式运行时配置 = (
             primaryCurrency: profile.currencyPrompt,
             accountingUnit: 取记账单位(profile.currencyDisplayMode),
             exchangeRules: profile.currencyExchangePrompt,
-            currencyTiers: 构建默认货币层级(profile.currencyDisplayMode),
+            currencyTiers,
+            currencySystem: 从CurrencyTiers生成CurrencySystem(currencyTiers, profile.currencyDisplayMode),
             marketName: profile.auctionName,
             marketVerb: profile.marketVerb,
             allowedItemTypes: items.exclusiveItemTypes,
@@ -710,6 +755,7 @@ const 构建官方模式运行时配置基础 = (mode?: unknown): ModeRuntimePro
     const isModern = 判断现代(baseMode);
     const isApocalypse = profile.group === 'apocalypse';
     const isInfinite = profile.group === 'infinite';
+    const currencyTiers = 构建默认货币层级(profile.currencyDisplayMode);
     return {
         identity: {
             modeId: profile.value,
@@ -726,7 +772,8 @@ const 构建官方模式运行时配置基础 = (mode?: unknown): ModeRuntimePro
             primaryCurrency: profile.currencyPrompt,
             accountingUnit: 取记账单位(profile.currencyDisplayMode),
             exchangeRules: profile.currencyExchangePrompt,
-            currencyTiers: 构建默认货币层级(profile.currencyDisplayMode),
+            currencyTiers,
+            currencySystem: 从CurrencyTiers生成CurrencySystem(currencyTiers, profile.currencyDisplayMode),
             marketName: profile.auctionName,
             marketVerb: profile.marketVerb,
             allowedItemTypes: items.exclusiveItemTypes,

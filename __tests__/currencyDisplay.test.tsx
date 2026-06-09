@@ -26,7 +26,7 @@ import {
     计算角色货币底层总值,
     toBaseAmount
 } from '../utils/currencyDisplay';
-import { 渲染模式运行时配置世界书内容, 规范化模式运行时配置 } from '../utils/modeRuntimeProfile';
+import { 构建官方模式运行时配置, 渲染模式运行时配置世界书内容, 规范化模式运行时配置 } from '../utils/modeRuntimeProfile';
 
 const 无限流运行时配置 = 规范化模式运行时配置(undefined, '无限流');
 
@@ -538,6 +538,91 @@ describe('货币显示', () => {
             units: [
                 { id: 'credit', name: '信用点', symbol: '点', baseRate: 1, order: 1, aliases: ['信用', '点数'] }
             ]
+        });
+    });
+
+    it('官方现代都市构建后包含合法 currencySystem', () => {
+        const profile = 构建官方模式运行时配置('现代都市');
+
+        expect(profile.economy.currencyTiers).toEqual({
+            upperName: '十万元账户',
+            middleName: '千元账户',
+            lowerName: '信用点',
+            upperToMiddleRate: 100,
+            middleToLowerRate: 1000
+        });
+        expect(profile.economy.currencySystem).toMatchObject({
+            id: 'modern-default-currency-system',
+            name: '十万元账户/千元账户/信用点货币体系',
+            baseUnitId: 'lower',
+            formatStyle: 'compound',
+            units: [
+                { id: 'upper', name: '十万元账户', baseRate: 100000, order: 3 },
+                { id: 'middle', name: '千元账户', baseRate: 1000, order: 2 },
+                { id: 'lower', name: '信用点', baseRate: 1, order: 1 }
+            ]
+        });
+        expect(profile.economy.currencySystem?.units[0].aliases).toContain('上层货币');
+        expect(profile.economy.currencySystem?.units[1].aliases).toContain('银子');
+        expect(profile.economy.currencySystem?.units[2].aliases).toContain('铜钱');
+    });
+
+    it('官方题材 currencySystem 单位名称来自各自 currencyTiers', () => {
+        const cases = [
+            ['武侠', ['元宝', '银', '铜钱']],
+            ['仙侠', ['上品灵石', '中品灵石', '下品灵石']],
+            ['无限流', ['C级支线剧情', 'D级支线剧情', '奖励点']]
+        ] as const;
+
+        for (const [mode, names] of cases) {
+            const profile = 构建官方模式运行时配置(mode);
+            expect(profile.economy.currencySystem?.units.map((unit) => unit.name)).toEqual(names);
+            expect(profile.economy.currencySystem?.units.map((unit) => unit.name)).toEqual([
+                profile.economy.currencyTiers.upperName,
+                profile.economy.currencyTiers.middleName,
+                profile.economy.currencyTiers.lowerName
+            ]);
+        }
+    });
+
+    it('官方西方奇幻 currencySystem 汇率从 currencyTiers 派生而非硬编码', () => {
+        const profile = 构建官方模式运行时配置('西方奇幻');
+
+        expect(profile.economy.currencyTiers).toEqual({
+            upperName: '金币',
+            middleName: '银币',
+            lowerName: '铜币',
+            upperToMiddleRate: 100,
+            middleToLowerRate: 100
+        });
+        expect(profile.economy.currencySystem?.units).toEqual([
+            expect.objectContaining({ id: 'upper', name: '金币', baseRate: 10000, order: 3 }),
+            expect.objectContaining({ id: 'middle', name: '银币', baseRate: 100, order: 2 }),
+            expect.objectContaining({ id: 'lower', name: '铜币', baseRate: 1, order: 1 })
+        ]);
+    });
+
+    it('旧配置只有 currencyTiers 时规范化不会自动注入 currencySystem', () => {
+        const profile = 规范化模式运行时配置({
+            identity: { baseMode: '现代都市' },
+            economy: {
+                currencyTiers: {
+                    upperName: '十万元账户',
+                    middleName: '千元账户',
+                    lowerName: '信用点',
+                    upperToMiddleRate: 100,
+                    middleToLowerRate: 1000
+                }
+            }
+        } as any, '现代都市');
+
+        expect(profile.economy.currencySystem).toBeUndefined();
+        expect(profile.economy.currencyTiers).toEqual({
+            upperName: '十万元账户',
+            middleName: '千元账户',
+            lowerName: '信用点',
+            upperToMiddleRate: 100,
+            middleToLowerRate: 1000
         });
     });
 
