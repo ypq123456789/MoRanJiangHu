@@ -98,7 +98,10 @@ export const 校验CurrencySystem草稿 = (value: unknown): { currencySystem?: C
         }
         const symbol = 读取非空字符串(unitRaw.symbol);
         const aliases = Array.isArray(unitRaw.aliases)
-            ? unitRaw.aliases.map((alias) => alias.trim()).filter(Boolean)
+            ? unitRaw.aliases
+                .filter((alias) => typeof alias === 'string')
+                .map((alias) => alias.trim())
+                .filter(Boolean)
             : [];
         if (unitId) seenIds.add(unitId);
         if (unitId && unitName && Number.isInteger(baseRate) && baseRate > 0 && Number.isFinite(order)) {
