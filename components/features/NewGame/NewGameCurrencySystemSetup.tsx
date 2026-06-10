@@ -64,15 +64,15 @@ export const 规范化新开局轻量CurrencySystem = (draft: CurrencySystem): {
             ])
         };
     });
-    const fallbackBaseUnit = normalizedUnits.find((unit) => unit.baseRate === 1)?.id || normalizedUnits[normalizedUnits.length - 1].id;
-    const baseUnitId = normalizedUnits.some((unit) => unit.id === draft.baseUnitId) ? draft.baseUnitId : fallbackBaseUnit;
-    const finalUnits = normalizedUnits.map((unit) => unit.id === baseUnitId ? { ...unit, baseRate: 1 } : unit);
+    const baseUnitCandidates = normalizedUnits.filter((unit) => unit.baseRate === 1);
+    const fallbackBaseUnit = baseUnitCandidates[0]?.id || normalizedUnits[normalizedUnits.length - 1].id;
+    const baseUnitId = baseUnitCandidates.some((unit) => unit.id === draft.baseUnitId) ? draft.baseUnitId : fallbackBaseUnit;
     return 校验CurrencySystem草稿({
         id: String(draft.id || '').trim() || 'custom-currency-system',
         name: String(draft.name || '').trim() || '自定义货币体系',
         baseUnitId,
         formatStyle: draft.formatStyle === 'single' || draft.formatStyle === 'compound' ? draft.formatStyle : 'compound',
-        units: finalUnits
+        units: normalizedUnits
     });
 };
 
@@ -177,7 +177,11 @@ const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile,
     };
 
     const 单位名称列表 = draft.units.map((unit) => unit.name || unit.id).filter(Boolean).join(' / ');
-    const baseUnit = draft.units.find((unit) => unit.id === draft.baseUnitId) || draft.units[draft.units.length - 1];
+    const baseUnitCandidates = draft.units.filter((unit) => Math.max(1, Math.floor(Number(unit.baseRate) || 1)) === 1);
+    const effectiveBaseUnitId = baseUnitCandidates.some((unit) => unit.id === draft.baseUnitId)
+        ? draft.baseUnitId
+        : (baseUnitCandidates[0]?.id || draft.baseUnitId);
+    const baseUnit = draft.units.find((unit) => unit.id === effectiveBaseUnitId) || draft.units[draft.units.length - 1];
     const preview = `当前：${draft.name || '货币体系'}｜${draft.formatStyle === 'single' ? '单一显示' : '复合显示'}｜${draft.formatStyle === 'single' ? `基础单位：${baseUnit?.name || '未设置'}` : 单位名称列表}`;
     const 使用新版动态货币 = Boolean(profile.economy.currencySystem);
 
@@ -256,10 +260,13 @@ const NewGameCurrencySystemSetup: React.FC<Props> = ({ profile, onChangeProfile,
                 </label>
                 <label className="block text-xs text-gray-300 md:col-span-2">
                     基础单位
-                    <select value={draft.baseUnitId} onChange={(event) => 写入草稿({ ...draft, baseUnitId: event.target.value, units: draft.units.map((unit) => unit.id === event.target.value ? { ...unit, baseRate: 1 } : unit) })}
+                    <select value={effectiveBaseUnitId} onChange={(event) => 写入草稿({ ...draft, baseUnitId: event.target.value })}
                         className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45">
-                        {draft.units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name || unit.id}</option>)}
+                        {baseUnitCandidates.map((unit) => <option key={unit.id} value={unit.id}>{unit.name || unit.id}</option>)}
                     </select>
+                    <div className="mt-1 text-[11px] leading-5 text-gray-500">
+                        轻量编辑器仅支持选择最小单位作为基础单位，以避免产生小数汇率；高级配置可在创意工坊中调整。
+                    </div>
                 </label>
             </div>
             <div className="space-y-3">
