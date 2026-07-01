@@ -301,6 +301,28 @@ export const 校验响应未泄露名器档案名称 = (
     throw error;
 };
 
+export const 校验响应正文词汇审查 = (
+    response: GameResponse,
+    currentSocial: any[],
+    rawText: string,
+    stageLabel = '主剧情',
+    enabled = true
+) => {
+    if (enabled === false) return;
+    校验响应未命中女性姓名黑名单(
+        response,
+        rawText,
+        stageLabel,
+        currentSocial
+    );
+    校验响应未泄露名器档案名称(
+        response,
+        currentSocial,
+        rawText,
+        stageLabel
+    );
+};
+
 const 叙事人称元信息行正则 = /(?:玩家输入|玩家指令|当前指令|系统提示|任务提示|行动选项|选项|提示|总结|Step|已知事实|协议命中|当前地点|当前时间)/i;
 const 第二人称叙述动作正则 = /你\s*(?:走|来到|进入|推开|看见|望向|抬手|伸手|感到|觉得|意识到|决定|继续|停下|听见|发现|坐下|站起|转身|拿起|打开|闭上|回头|靠近|离开)/g;
 const 第一人称叙述动作正则 = /我\s*(?:走|来到|进入|推开|看见|望向|抬手|伸手|感到|觉得|意识到|决定|继续|停下|听见|发现|坐下|站起|转身|拿起|打开|闭上|回头|靠近|离开)/g;
@@ -1591,22 +1613,17 @@ export const 执行主剧情发送工作流 = async (
                             validateDialogueFormat: true
                         })
                     );
-                校验响应未命中女性姓名黑名单(
+                校验响应正文词汇审查(
                     storyResult.response,
+                    currentState.社交,
                     deps.获取原始AI消息(storyResult.rawText),
                     "主剧情",
-                    currentState.社交
+                    runtimeGameConfig.启用正文词汇审查 !== false
                 );
                 校验响应人称一致性(
                     storyResult.response,
                     deps.获取原始AI消息(storyResult.rawText),
                     runtimeGameConfig.叙事人称 || '第二人称'
-                );
-                校验响应未泄露名器档案名称(
-                    storyResult.response,
-                    currentState.社交,
-                    deps.获取原始AI消息(storyResult.rawText),
-                    "主剧情"
                 );
                 校验响应未改写既有NPC姓名(
                     storyResult.response,

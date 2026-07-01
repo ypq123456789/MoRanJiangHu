@@ -7,7 +7,8 @@ import {
 } from '../hooks/useGame/stateTransforms';
 import { 提取命中女性姓名黑名单 } from '../utils/femaleNameSelector';
 import { 构建女性姓名候选提示词 } from '../utils/femaleNameCandidatePrompt';
-import { 校验响应未命中女性姓名黑名单 } from '../hooks/useGame/sendWorkflow';
+import { 校验响应未命中女性姓名黑名单, 校验响应正文词汇审查 } from '../hooks/useGame/sendWorkflow';
+import { 规范化游戏设置 } from '../utils/gameSettings';
 
 const 读取端到端AI配置 = () => {
     const baseUrl = process.env.MORAN_E2E_AI_BASE_URL?.trim();
@@ -36,6 +37,31 @@ const 解析OpenAI聊天响应内容 = async (response: Response): Promise<strin
 };
 
 describe('AI returned female name e2e', () => {
+    const 构建女性模板名响应 = () => {
+        const aiReturnedName = '苏婉儿';
+        return {
+            logs: [
+                { sender: aiReturnedName, text: '少侠，我随你同去。' }
+            ],
+            tavern_commands: [
+                {
+                    action: 'push' as const,
+                    key: '社交',
+                    value: {
+                        id: 'npc_ai_su_waner_fallback',
+                        姓名: aiReturnedName,
+                        性别: '女',
+                        年龄: 18,
+                        身份: '主要女角色',
+                        是否主要角色: true,
+                        是否在场: true,
+                        简介: 'AI 忽略候选池后返回的模板名。'
+                    }
+                }
+            ]
+        };
+    };
+
     it('keeps an AI raw non-blacklisted female name without local name-pool rewriting', () => {
         const candidatePrompt = 构建女性姓名候选提示词({
             usedNames: ['苏婉儿', '婉儿', '林清雪'],
@@ -111,31 +137,26 @@ describe('AI returned female name e2e', () => {
     });
 
     it('rejects a newly generated template name before it can be committed', () => {
-        const aiReturnedName = '苏婉儿';
-        const response = {
-            logs: [
-                { sender: aiReturnedName, text: '少侠，我随你同去。' }
-            ],
-            tavern_commands: [
-                {
-                    action: 'push' as const,
-                    key: '社交',
-                    value: {
-                        id: 'npc_ai_su_waner_fallback',
-                        姓名: aiReturnedName,
-                        性别: '女',
-                        年龄: 18,
-                        身份: '主要女角色',
-                        是否主要角色: true,
-                        是否在场: true,
-                        简介: 'AI 忽略候选池后返回的模板名。'
-                    }
-                }
-            ]
-        };
+        const response = 构建女性模板名响应();
 
         expect(() => 校验响应未命中女性姓名黑名单(response as any, JSON.stringify(response), '主剧情'))
             .toThrow('女性模板姓名黑名单');
+    });
+
+    it('正文词汇审查默认缺失时仍开启', () => {
+        expect(规范化游戏设置({} as any).启用正文词汇审查).toBe(true);
+    });
+
+    it('正文词汇审查开启时仍触发女性模板名黑名单', () => {
+        const response = 构建女性模板名响应();
+        expect(() => 校验响应正文词汇审查(response as any, [], JSON.stringify(response), '主剧情', true))
+            .toThrow('女性模板姓名黑名单');
+    });
+
+    it('正文词汇审查关闭时跳过女性模板名黑名单', () => {
+        const response = 构建女性模板名响应();
+        expect(() => 校验响应正文词汇审查(response as any, [], JSON.stringify(response), '主剧情', false))
+            .not.toThrow();
     });
 
     it('does not reject normal body text that uses an affectionate nickname', () => {

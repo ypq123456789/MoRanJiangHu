@@ -1152,6 +1152,7 @@ export interface 游戏设置结构 {
     启用免责声明输出: boolean; // Require a separate disclaimer block at the end
     启用标签检测完整性: boolean; // Validate required label protocol completeness before accepting response
     启用标签修复: boolean; // Auto repair malformed labels before parsing
+    启用正文词汇审查?: boolean; // Validate body text/name-sensitive keyword guards before accepting response
     启用自动重试: boolean; // Auto retry failed generation/parsing up to the built-in max attempts
     启用标签协议失败自动回炉: boolean; // Auto regenerate once more with explicit tag-fix guidance when protocol parsing fails
     禁用APK自动更新: boolean; // Disable automatic APK update checks and release-note popups; manual update remains available

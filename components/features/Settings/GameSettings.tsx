@@ -763,6 +763,20 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
             <div className="space-y-3 rounded-md border border-wuxia-gold/20 bg-black/30 p-4">
                 <div className="flex items-center justify-between gap-4">
                     <div>
+                        <div className="text-sm text-wuxia-cyan font-bold">正文词汇审查</div>
+                        <div className="text-xs text-gray-400 mt-1">默认开启。关闭后会跳过女性模板名黑名单、内部档案名称泄露等正文词汇类拦截；标签结构、人称一致性和 NPC 结构保护仍会继续生效。</div>
+                    </div>
+                    <ToggleSwitch
+                        checked={form.启用正文词汇审查 !== false}
+                        onChange={(next) => 实时应用更新({ 启用正文词汇审查: next })}
+                        ariaLabel="切换正文词汇审查"
+                    />
+                </div>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-wuxia-gold/20 bg-black/30 p-4">
+                <div className="flex items-center justify-between gap-4">
+                    <div>
                         <div className="text-sm text-wuxia-cyan font-bold">生成失败自动重试</div>
                         <div className="text-xs text-gray-400 mt-1">开启后，生成或解析报错时会直接自动重试，最多 3 次；中间不会立即进入错误修改区域或重试确认弹窗。</div>
                     </div>

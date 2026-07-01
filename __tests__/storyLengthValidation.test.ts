@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { 校验响应人称一致性, 校验响应未泄露名器档案名称, 校验主剧情正文最低字数, 获取主剧情正文不足信息, 统计正文字符数 } from '../hooks/useGame/sendWorkflow';
+import { 校验响应人称一致性, 校验响应未泄露名器档案名称, 校验响应正文词汇审查, 校验主剧情正文最低字数, 获取主剧情正文不足信息, 统计正文字符数, 主剧情流式草稿已具备完整协议 } from '../hooks/useGame/sendWorkflow';
 import { 净化角色对白行, 评估润色长度结果, 检测文章优化协议确认污染, 解析正文日志文本 } from '../hooks/useGame/bodyPolish';
 import { 清理润色正文输出 } from '../services/ai/storyTasks';
 import { 构建主剧情请求参数, type 主剧情系统上下文 } from '../hooks/useGame/mainStoryRequest';
@@ -391,6 +391,30 @@ describe('主剧情叙事人称校验', () => {
                 { sender: '旁白', text: '你走进房间。你感到寒意。你决定继续向前。' }
             ]
         } as any, rawText, '第三人称')).toThrow(/叙事人称不符/);
+    });
+
+    it('关闭正文词汇审查不会关闭人称和标签结构校验', () => {
+        const templateNameResponse = {
+            logs: [
+                { sender: '苏婉儿', text: '少侠，我随你同去。' }
+            ],
+            tavern_commands: [
+                {
+                    action: 'push' as const,
+                    key: '社交',
+                    value: { 姓名: '苏婉儿', 性别: '女' }
+                }
+            ]
+        };
+        expect(() => 校验响应正文词汇审查(templateNameResponse as any, [], JSON.stringify(templateNameResponse), '主剧情', false))
+            .not.toThrow();
+        expect(() => 校验响应人称一致性({
+            角色: { 姓名: '沈砚' },
+            logs: [
+                { sender: '旁白', text: '你走进房间。你感到寒意。你决定继续向前。' }
+            ]
+        } as any, rawText, '第三人称')).toThrow(/叙事人称不符/);
+        expect(主剧情流式草稿已具备完整协议('只有正文，没有标签结构')).toBe(false);
     });
 
     it('第一人称模式下，对话里出现“你”但旁白稳定用“我”时不报错', () => {
