@@ -440,6 +440,7 @@
   "githubRepoUrl": "https://github.com/ypq123456789/MoRanJiangHu",
   "cnbGuideUrl": "https://msjh.bacon159.pp.ua/tutorials.html#comfy",
   "releaseNotesUrl": "https://msjh.bacon159.pp.ua/changelog.html",
+  "b2CdnBaseUrl": "https://cdn.bacon159.pp.ua",
   "apkDownloadUrl": "https://msjh.bacon159.pp.ua/api/apk/latest.apk",
   "updateManifestUrl": "https://msjh.bacon159.pp.ua/api/apk/latest.json",
   "r2Bucket": "quark-downloads-bacon",
