@@ -12,13 +12,13 @@ export interface VerifyPrivateSignaturePayload extends PrivateSignaturePayload {
   nowMs?: number;
 }
 
-export function toHex(buffer: ArrayBuffer): string {
+function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join(
     '',
   );
 }
 
-export async function importKey(secret: string): Promise<CryptoKey> {
+async function importKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
     encoder.encode(secret),
@@ -28,7 +28,7 @@ export async function importKey(secret: string): Promise<CryptoKey> {
   );
 }
 
-export function buildPayload(method: string, pathname: string, expiresAt: string): string {
+function buildPayload(method: string, pathname: string, expiresAt: string): string {
   return `${method.toUpperCase()}\n${pathname}\n${expiresAt}`;
 }
 
@@ -66,7 +66,8 @@ export async function verifyPrivateSignature({
   }
 
   const expected = await createPrivateSignature({ method, pathname, expiresAt, secret });
-  if (expected !== sig) {
+  const normalizedSig = String(sig).toLowerCase();
+  if (expected !== normalizedSig) {
     throw new Error('签名无效');
   }
 }

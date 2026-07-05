@@ -16,7 +16,7 @@ describe('b2 cdn private signing', () => {
     const sig = await createPrivateSignature({ method, pathname, expiresAt, secret });
 
     await expect(
-      verifyPrivateSignature({ method, pathname, expiresAt, sig, secret, nowMs }),
+      verifyPrivateSignature({ method, pathname, expiresAt, sig: sig.toUpperCase(), secret, nowMs }),
     ).resolves.toBeUndefined();
   });
 
@@ -46,5 +46,29 @@ describe('b2 cdn private signing', () => {
         nowMs,
       }),
     ).rejects.toThrow('签名无效');
+  });
+
+  it('rejects missing signatures', async () => {
+    const nowMs = Date.now();
+    const expiresAt = String(Math.floor(nowMs / 1000) + 600);
+
+    await expect(
+      verifyPrivateSignature({ method, pathname, expiresAt, secret, nowMs }),
+    ).rejects.toThrow('缺少签名参数');
+  });
+
+  it('rejects invalid expiresAt values', async () => {
+    const nowMs = Date.now();
+
+    await expect(
+      verifyPrivateSignature({
+        method,
+        pathname,
+        expiresAt: 'not-a-number',
+        sig: 'deadbeef',
+        secret,
+        nowMs,
+      }),
+    ).rejects.toThrow('签名过期时间无效');
   });
 });
