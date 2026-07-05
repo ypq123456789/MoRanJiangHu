@@ -5,6 +5,7 @@ export interface FetchPrivateObjectDeps {
 }
 
 const B2_API = 'https://api.backblazeb2.com/b2api/v2';
+const PASSTHROUGH_RESPONSE_STATUS = new Set([200, 206, 304, 404, 412, 416]);
 const FORWARDED_REQUEST_HEADERS = [
   'range',
   'if-match',
@@ -91,7 +92,7 @@ export async function fetchPrivateObjectFromB2(
     headers: buildUpstreamHeaders(request, authorizationToken),
   });
 
-  if (!upstreamResponse.ok && upstreamResponse.status !== 206) {
+  if (!PASSTHROUGH_RESPONSE_STATUS.has(upstreamResponse.status)) {
     const message = await readText(upstreamResponse);
     throw new Error(`B2 object fetch failed: ${upstreamResponse.status} ${message}`.trim());
   }

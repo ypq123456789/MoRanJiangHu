@@ -149,7 +149,7 @@ describe('fetchPrivateObjectFromB2', () => {
       },
     });
 
-    const response = await fetchPrivateObjectFromB2(env, 'moranjianghu/apk/latest build.apk', request, { fetchImpl });
+    const response = await fetchPrivateObjectFromB2(env, 'public/moranjianghu/apk/latest build.apk', request, { fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(fetchImpl).toHaveBeenNthCalledWith(
@@ -163,7 +163,7 @@ describe('fetchPrivateObjectFromB2', () => {
     );
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
-      'https://f002.backblazeb2.com/file/bucket-name/moranjianghu/apk/latest%20build.apk',
+      'https://f002.backblazeb2.com/file/bucket-name/public/moranjianghu/apk/latest%20build.apk',
       expect.objectContaining({
         method: 'GET',
       }),
@@ -178,5 +178,75 @@ describe('fetchPrivateObjectFromB2', () => {
     expect(response.status).toBe(206);
     expect(response.headers.get('content-range')).toBe('bytes 0-6/42');
     await expect(response.text()).resolves.toBe('partial-apk');
+  });
+
+  it('preserves 304 responses for conditional requests', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            authorizationToken: 'account-token',
+            downloadUrl: 'https://f002.backblazeb2.com',
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 304,
+          headers: {
+            etag: '"demo"',
+          },
+        }),
+      );
+    const request = new Request('https://cdn.example.com/public/moranjianghu/apk/latest.apk', {
+      headers: {
+        'If-None-Match': '"demo"',
+      },
+    });
+
+    const response = await fetchPrivateObjectFromB2(env, 'public/moranjianghu/apk/latest.apk', request, { fetchImpl });
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get('etag')).toBe('"demo"');
+  });
+
+  it('preserves 404 responses for missing objects', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            authorizationToken: 'account-token',
+            downloadUrl: 'https://f002.backblazeb2.com',
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response('missing', {
+          status: 404,
+          headers: {
+            'content-type': 'text/plain',
+          },
+        }),
+      );
+    const request = new Request('https://cdn.example.com/public/moranjianghu/apk/missing.apk');
+
+    const response = await fetchPrivateObjectFromB2(env, 'public/moranjianghu/apk/missing.apk', request, { fetchImpl });
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toBe('missing');
   });
 });
