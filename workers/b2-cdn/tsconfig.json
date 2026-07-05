@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "WebWorker"],
     "types": ["@cloudflare/workers-types"],
-    "typeRoots": ["./types", "../../node_modules/@types"],
+    "typeRoots": ["./types"],
     "allowJs": false,
     "noEmit": true
   },
