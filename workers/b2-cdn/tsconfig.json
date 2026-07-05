@@ -6,10 +6,7 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "WebWorker"],
     "types": ["@cloudflare/workers-types"],
-    "baseUrl": ".",
-    "paths": {
-      "@cloudflare/workers-types": ["../../node_modules/wrangler/templates/facade.d.ts"]
-    },
+    "typeRoots": ["./types", "../../node_modules/@types"],
     "allowJs": false,
     "noEmit": true
   },

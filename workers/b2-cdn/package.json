@@ -6,8 +6,5 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "check": "tsc -p tsconfig.json --noEmit"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260521.1"
   }
 }
