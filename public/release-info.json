@@ -1,6 +1,6 @@
 {
-  "versionCode": 569,
-  "versionName": "1.0.569",
+  "versionCode": 570,
+  "versionName": "1.0.570",
   "releaseChannel": "stable",
   "releaseNotes": [
     "修复使用 Izumi 等酒馆预设开新档时，模型漏写行动选项却仍被接受的问题：开局缺少选项会自动退回 AI 补写，不再出现固定没有选项按钮的开场。",
@@ -440,6 +440,7 @@
   "githubRepoUrl": "https://github.com/ypq123456789/MoRanJiangHu",
   "cnbGuideUrl": "https://msjh.bacon159.pp.ua/tutorials.html#comfy",
   "releaseNotesUrl": "https://msjh.bacon159.pp.ua/changelog.html",
+  "b2CdnBaseUrl": "https://cdn.bacon159.pp.ua",
   "apkDownloadUrl": "https://msjh.bacon159.pp.ua/api/apk/latest.apk",
   "updateManifestUrl": "https://msjh.bacon159.pp.ua/api/apk/latest.json",
   "r2Bucket": "quark-downloads-bacon",
@@ -454,5 +455,5 @@
     "备用站：https://msjh.bacon.de5.net/"
   ],
   "notes": "修复使用 Izumi 等酒馆预设开新档时，模型漏写行动选项却仍被接受的问题：开局缺少选项会自动退回 AI 补写，不再出现固定没有选项按钮的开场。\n优化正文质量自检：当剧情正文意外混入后台标准时间格式时，系统会静默触发局部重写，避免玩家看到“此时是1:01:01:06:30”这类出戏字符串。\n官网：https://msjh.bacon159.pp.ua/\n备用站：https://msjh.bacon.de5.net/",
-  "releasePublishedAt": "2026-07-05T21:23:59+08:00"
+  "releasePublishedAt": "2026-07-06T00:14:27+08:00"
 }

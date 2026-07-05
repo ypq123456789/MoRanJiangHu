@@ -44,11 +44,12 @@ The `<object-key>` portion maps directly to the B2 object key after the `public/
 Signature payload format:
 
 ```text
-<path>\n<expires>
+<method>\n<path>\n<expires>
 ```
 
 Where:
 
+- `<method>` is the uppercase HTTP method used by the signed request, normally `GET` or `HEAD`
 - `<path>` is the request path beginning with `/private/`
 - `<expires>` is the UNIX timestamp in seconds from the `e` query parameter
 
@@ -58,9 +59,10 @@ Example with Node.js:
 import crypto from 'node:crypto';
 
 const secret = process.env.B2_CDN_SIGNING_SECRET;
+const method = 'GET';
 const path = '/private/moranjianghu/saves/save-001.zip';
 const expires = '1760000000';
-const payload = `${path}\n${expires}`;
+const payload = `${method}\n${path}\n${expires}`;
 const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
 console.log(`${path}?e=${expires}&sig=${sig}`);
@@ -75,7 +77,7 @@ console.log(`${path}?e=${expires}&sig=${sig}`);
 5. Upload at least one public test object under `public/moranjianghu/...`.
 6. Verify a public URL returns `200`.
 7. Verify a private URL without `e` and `sig` returns `403`.
-8. Generate a signed private URL and verify it returns `200`.
+8. Generate a signed private URL and verify it returns `200` with the same HTTP method used for signing (for example, sign `GET` and validate with `curl`, or sign `HEAD` and validate with `curl -I`).
 9. Confirm release surfaces that point at B2 CDN use `https://cdn.bacon159.pp.ua`.
 
 ## Release notes for operators

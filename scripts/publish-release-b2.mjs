@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { buildB2PublicReleaseTargets } from './release-b2-manifest.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +26,7 @@ const hmacHex = (key, value) => crypto.createHmac('sha256', key).update(value).d
 const safeVersionName = (value) => String(value || '').trim().replace(/[^0-9A-Za-z._-]/g, '');
 
 const baseUrl = readEnv('MORAN_B2_DISTRIBUTION_BASE_URL', 'https://obs1.bacon159.pp.ua').replace(/\/+$/, '');
+const b2CdnBaseUrl = readEnv('MORAN_B2_CDN_BASE_URL', releaseInfo.b2CdnBaseUrl || 'https://cdn.bacon159.pp.ua').replace(/\/+$/, '');
 const token = readEnv('MORAN_B2_DISTRIBUTION_TOKEN');
 const prefix = readEnv('MORAN_B2_DISTRIBUTION_RELEASE_PREFIX', releaseInfo.r2Prefix || 'moranjianghu').replace(/^\/+|\/+$/g, '');
 const keepVersionedApkCount = Math.max(1, Number(process.env.MORAN_B2_KEEP_VERSIONED_APKS || 5));
@@ -193,13 +195,28 @@ const versionsToPublish = releaseRecords
   .slice(0, keepVersionedApkCount);
 
 const versionedFileName = (versionName) => `MoRanJiangHu-v${safeVersionName(versionName)}.apk`;
-const b2VersionedKey = (versionName) => normalizeKey(`${prefix}/${versionedFileName(versionName)}`);
-const b2LatestApkKey = normalizeKey(`${prefix}/latest.apk`);
-const b2ManifestKey = normalizeKey(`${prefix}/latest.json`);
+const currentB2Targets = buildB2PublicReleaseTargets({
+  baseUrl: b2CdnBaseUrl,
+  prefix,
+  versionName: currentVersionName
+});
+const b2PublicApkRoot = currentB2Targets.publicApkRoot;
+const b2VersionedKey = (versionName) => buildB2PublicReleaseTargets({
+  baseUrl: b2CdnBaseUrl,
+  prefix,
+  versionName
+}).versionedKey;
+const b2VersionedUrl = (versionName) => buildB2PublicReleaseTargets({
+  baseUrl: b2CdnBaseUrl,
+  prefix,
+  versionName
+}).versionedUrl;
+const b2LatestApkKey = currentB2Targets.latestApkKey;
+const b2ManifestKey = currentB2Targets.manifestKey;
 const hi168VersionedKey = (versionName) => normalizeKey(`${s3Prefix}/${versionedFileName(versionName)}`);
 
 const providerApkUrls = {
-  b2: websiteBaseUrl ? `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(currentVersionedFileName)}?provider=b2` : b2ObjectUrl(b2VersionedKey(currentVersionName)),
+  b2: currentB2Targets.versionedUrl,
   onedrive: websiteBaseUrl ? `${websiteBaseUrl}/api/apk/latest.apk?provider=onedrive` : '',
   onedriveDirect: websiteBaseUrl ? `${websiteBaseUrl}/api/apk/latest.apk?provider=onedrive-direct` : '',
   github: websiteBaseUrl ? `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(currentVersionedFileName)}?provider=github` : '',
@@ -211,6 +228,11 @@ const preferredApkProvider = ['onedrive', 'onedrive-direct', 'github', 'b2'].inc
   ? requestedPreferredApkProvider
   : 'b2';
 const skipB2ApkUpload = process.env.MORAN_B2_SKIP_APK_UPLOAD === '1';
+const stableApkUrl = preferredApkProvider === 'b2'
+  ? providerApkUrls.b2
+  : websiteBaseUrl
+    ? `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(currentVersionedFileName)}`
+    : providerApkUrls.b2;
 const orderedProviderUrls = preferredApkProvider === 'github'
   ? [...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.b2, providerApkUrls.onedrive, providerApkUrls.onedriveDirect, providerApkUrls.githubDirect].filter(Boolean)
   : preferredApkProvider === 'b2'
@@ -229,7 +251,7 @@ const manifest = {
     websiteUrl: releaseInfo.websiteUrl,
     githubRepoUrl: releaseInfo.githubRepoUrl,
     releaseNotesUrl: releaseInfo.releaseNotesUrl,
-    apkUrl: `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(currentVersionedFileName)}`,
+    apkUrl: stableApkUrl,
     latestApkUrl: `${websiteBaseUrl}/api/apk/latest.apk`,
     directApkUrl: `${websiteBaseUrl}/api/apk/latest.apk`,
     preferredApkProvider,
@@ -243,12 +265,12 @@ const manifest = {
     githubAcceleratedApkUrls,
     r2DirectApkUrl: '',
     hi168DirectApkUrl: '',
-    b2DirectApkUrl: b2ObjectUrl(b2VersionedKey(currentVersionName)),
+    b2DirectApkUrl: currentB2Targets.versionedUrl,
     apkUrls: [
       `${websiteBaseUrl}/api/apk/latest.apk`,
       ...orderedProviderUrls
     ].filter(Boolean),
-    manifestUrl: b2ObjectUrl(b2ManifestKey),
+    manifestUrl: currentB2Targets.manifestUrl,
     publishedAt: releaseInfo.releasePublishedAt || new Date().toISOString(),
     changes: Array.isArray(releaseInfo.releaseNotes) ? releaseInfo.releaseNotes : []
   },
@@ -291,7 +313,7 @@ const downloadHistoryApk = async (versionName) => {
 
   // 1) Try B2 first (may already have this version)
   const b2Key = b2VersionedKey(versionName);
-  const b2Url = b2ObjectUrl(b2Key);
+  const b2Url = b2VersionedUrl(versionName);
   console.log(`[B2] checking existing B2 object for history ${versionName}: ${b2Key}`);
   const b2Check = await fetch(b2Url, { method: 'HEAD', signal: AbortSignal.timeout(15000) }).catch(() => null);
   if (b2Check?.ok) {
@@ -457,7 +479,7 @@ try {
 }
 
 const keepKeys = new Set(uploadedVersions.map((item) => item.key));
-const versionedKeyPattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/MoRanJiangHu-v[^/]+\\.apk$`);
+const versionedKeyPattern = new RegExp(`^${b2PublicApkRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/MoRanJiangHu-v[^/]+\\.apk$`);
 let deletedCount = 0;
 if (skipB2ApkUpload) {
   console.log('[B2 cleanup] skipped because MORAN_B2_SKIP_APK_UPLOAD=1');
@@ -478,8 +500,8 @@ if (skipB2ApkUpload) {
 }
 
 console.log(`B2 publish complete:
-- latest APK URL: ${b2ObjectUrl(b2LatestApkKey)}
-- latest manifest URL: ${b2ObjectUrl(b2ManifestKey)}
+- latest APK URL: ${currentB2Targets.latestApkUrl}
+- latest manifest URL: ${currentB2Targets.manifestUrl}
 - preferredApkProvider=${preferredApkProvider}
 - apkSha256=${apkSha256}
 - apkSize=${apkSize}

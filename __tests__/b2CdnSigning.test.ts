@@ -48,6 +48,23 @@ describe('b2 cdn private signing', () => {
     ).rejects.toThrow('签名无效');
   });
 
+  it('rejects signatures when the request method changes', async () => {
+    const nowMs = Date.now();
+    const expiresAt = String(Math.floor(nowMs / 1000) + 600);
+    const sig = await createPrivateSignature({ method: 'GET', pathname, expiresAt, secret });
+
+    await expect(
+      verifyPrivateSignature({
+        method: 'HEAD',
+        pathname,
+        expiresAt,
+        sig,
+        secret,
+        nowMs,
+      }),
+    ).rejects.toThrow('签名无效');
+  });
+
   it('rejects missing signatures', async () => {
     const nowMs = Date.now();
     const expiresAt = String(Math.floor(nowMs / 1000) + 600);
