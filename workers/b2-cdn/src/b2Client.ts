@@ -5,7 +5,14 @@ export interface FetchPrivateObjectDeps {
 }
 
 const B2_API = 'https://api.backblazeb2.com/b2api/v2';
-const FORWARDED_REQUEST_HEADERS = ['range', 'if-match', 'if-none-match', 'if-modified-since', 'if-unmodified-since'];
+const FORWARDED_REQUEST_HEADERS = [
+  'range',
+  'if-match',
+  'if-none-match',
+  'if-modified-since',
+  'if-unmodified-since',
+  'if-range',
+];
 
 interface B2AuthorizeResponse {
   authorizationToken?: string;

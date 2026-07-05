@@ -143,6 +143,7 @@ describe('fetchPrivateObjectFromB2', () => {
     const request = new Request('https://cdn.example.com/public/moranjianghu/apk/latest build.apk', {
       headers: {
         Range: 'bytes=0-6',
+        'If-Range': '"range-etag"',
         'If-None-Match': '"etag-value"',
         'If-Modified-Since': 'Wed, 21 Oct 2015 07:28:00 GMT',
       },
@@ -171,6 +172,7 @@ describe('fetchPrivateObjectFromB2', () => {
     const secondCallHeaders = secondCallInit?.headers as Headers | undefined;
     expect(secondCallHeaders?.get('Authorization')).toBe('account-token');
     expect(secondCallHeaders?.get('Range')).toBe('bytes=0-6');
+    expect(secondCallHeaders?.get('If-Range')).toBe('"range-etag"');
     expect(secondCallHeaders?.get('If-None-Match')).toBe('"etag-value"');
     expect(secondCallHeaders?.get('If-Modified-Since')).toBe('Wed, 21 Oct 2015 07:28:00 GMT');
     expect(response.status).toBe(206);
