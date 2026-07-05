@@ -159,8 +159,8 @@ describe('APK OneDrive redirect', () => {
         } as any);
 
         expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('https://f004.backblazeb2.com/file/bacon111/moranjianghu/MoRanJiangHu-v1.0.560.apk');
-        expect(response.headers.get('X-Moran-Apk-Source')).toBe('b2-redirect');
+        expect(response.headers.get('Location')).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.560.apk');
+        expect(response.headers.get('X-Moran-Apk-Source')).toBe('b2-cdn');
         expect(fetchMock).not.toHaveBeenCalled();
     });
 });

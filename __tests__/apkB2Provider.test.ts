@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { onRequestGet } from '../functions/api/apk/version/[file]';
 import { onRequestGet as onLatestApkRequestGet } from '../functions/api/apk/latest.apk';
@@ -31,6 +31,42 @@ describe('APK B2 provider', () => {
         expect(response.status).toBe(302);
         expect(response.headers.get('Location')).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.523.apk');
         expect(response.headers.get('X-Moran-Apk-Source')).toBe('b2-cdn');
+    });
+
+    it('uses the CDN worker redirect without calling B2 authorization APIs', async () => {
+        const originalFetch = globalThis.fetch;
+        const fetchMock = vi.fn();
+        globalThis.fetch = fetchMock as typeof fetch;
+
+        try {
+            const response = await onRequestGet({
+                request: new Request('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.523.apk?provider=b2'),
+                params: { file: 'MoRanJiangHu-v1.0.523.apk' },
+                env: {
+                    MORAN_B2_CDN_BASE_URL: 'https://cdn.bacon159.pp.ua',
+                    MORAN_B2_DISTRIBUTION_RELEASE_PREFIX: 'moranjianghu',
+                    MORAN_B2_APPLICATION_KEY_ID: 'key-id',
+                    MORAN_B2_APPLICATION_KEY: 'key-secret',
+                    MORAN_B2_BUCKET_ID: 'bucket-id',
+                    RELEASE_MANIFEST: {
+                        get: async () => ({
+                            latest: {
+                                versionCode: 523,
+                                versionName: '1.0.523',
+                                preferredApkProvider: 'b2'
+                            }
+                        })
+                    }
+                }
+            } as any);
+
+            expect(response.status).toBe(302);
+            expect(response.headers.get('Location')).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.523.apk');
+            expect(response.headers.get('X-Moran-Apk-Source')).toBe('b2-cdn');
+            expect(fetchMock).not.toHaveBeenCalled();
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
     });
 
     it('uses GitHub Release for latest.apk when the manifest prefers GitHub', async () => {

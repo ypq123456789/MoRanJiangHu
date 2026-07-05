@@ -358,7 +358,7 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
     const getChannelLabel = (url: string): string => {
         const lower = url.toLowerCase();
         if (lower.includes('provider=github') || lower.includes('objects.githubusercontent.com') || lower.includes('github.com/ypq123456789/moranjianghu/releases')) return 'GitHub';
-        if (lower.includes('provider=b2') || lower.includes('backblazeb2.com') || lower.includes('obs.bacon159.pp.ua')) return 'B2';
+        if (lower.includes('provider=b2') || lower.includes('backblazeb2.com') || lower.includes('obs.bacon159.pp.ua') || lower.includes('cdn.bacon159.pp.ua/public/')) return 'B2';
         if (lower.includes('provider=onedrive-direct') || lower.includes('provider=onedrive-origin') || lower.includes('159.138.7.126:5244')) return 'OneDrive直连';
         if (lower.includes('provider=onedrive') || lower.includes('openlist.bacon.de5.net')) return 'OneDrive';
         if (lower.includes('provider=r2') || lower.includes('download.bacon.de5.net')) return 'R2';
