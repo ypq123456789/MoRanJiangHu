@@ -1,10 +1,13 @@
 {
-  "name": "moranjianghu-b2-cdn",
+  "name": "moranjianghu-b2-cdn-worker",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260521.1"
   }
 }
