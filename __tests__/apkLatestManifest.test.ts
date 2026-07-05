@@ -15,7 +15,7 @@ const buildEnv = (payload: unknown) => ({
 });
 
 describe('APK latest manifest proxy', () => {
-    it('normalizes a flat KV manifest and adds B2, GitHub and OneDrive APK URLs', async () => {
+    it('normalizes a flat KV manifest and adds CDN, GitHub and OneDrive APK URLs', async () => {
         const response = await onRequestGet({
             request: buildRequest(),
             env: buildEnv({
@@ -31,7 +31,9 @@ describe('APK latest manifest proxy', () => {
         expect(payload.versionName).toBe('1.0.528');
         expect(payload.latest.versionName).toBe('1.0.528');
         expect(payload.latest.versionCode).toBe(528);
-        expect(payload.latest.b2ApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.528.apk?provider=b2');
+        expect(payload.latest.apkUrl).toContain('cdn.bacon159.pp.ua/public/moranjianghu/apk/');
+        expect(payload.latest.directApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk');
+        expect(payload.latest.b2ApkUrl).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.528.apk');
         expect(payload.latest.githubApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.528.apk?provider=github');
         expect(payload.latest.githubAcceleratedApkUrls).toEqual([
             'https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
@@ -44,6 +46,7 @@ describe('APK latest manifest proxy', () => {
         expect(payload.latest.preferredApkProvider).toBe('b2');
         expect(payload.latest.r2ApkUrl).toBe('');
         expect(payload.latest.hi168ApkUrl).toBe('');
+        expect(payload.latest.apkUrls[0]).toBe(payload.latest.b2ApkUrl);
         expect(payload.latest.apkUrls.indexOf(payload.latest.b2ApkUrl)).toBeLessThan(
             payload.latest.apkUrls.indexOf(payload.latest.oneDriveApkUrl)
         );
@@ -79,6 +82,7 @@ describe('APK latest manifest proxy', () => {
         expect(payload.latest.versionName).toBe('1.0.528');
         expect(payload.latest.versionCode).toBe(528);
         expect(payload.latest.releaseChannel).toBe('stable');
+        expect(payload.latest.apkUrl).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.528.apk');
         expect(payload.latest.apkUrls).toContain('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.528.apk?provider=github');
         expect(payload.latest.apkUrls).toContain('https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk');
     });

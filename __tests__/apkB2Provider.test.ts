@@ -4,11 +4,12 @@ import { onRequestGet } from '../functions/api/apk/version/[file]';
 import { onRequestGet as onLatestApkRequestGet } from '../functions/api/apk/latest.apk';
 
 describe('APK B2 provider', () => {
-    it('redirects the current versioned APK to the public B2 object URL', async () => {
+    it('redirects the current versioned APK to the public CDN worker URL', async () => {
         const response = await onRequestGet({
             request: new Request('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.523.apk?provider=b2'),
             params: { file: 'MoRanJiangHu-v1.0.523.apk' },
             env: {
+                MORAN_B2_CDN_BASE_URL: 'https://cdn.bacon159.pp.ua/',
                 MORAN_B2_DISTRIBUTION_BASE_URL: 'https://f004.backblazeb2.com/file/bacon111',
                 MORAN_B2_DISTRIBUTION_RELEASE_PREFIX: 'moranjianghu',
                 RELEASE_MANIFEST: {
@@ -28,8 +29,8 @@ describe('APK B2 provider', () => {
         } as any);
 
         expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('https://f004.backblazeb2.com/file/bacon111/moranjianghu/MoRanJiangHu-v1.0.523.apk');
-        expect(response.headers.get('X-Moran-Apk-Source')).toBe('b2-redirect');
+        expect(response.headers.get('Location')).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.523.apk');
+        expect(response.headers.get('X-Moran-Apk-Source')).toBe('b2-cdn');
     });
 
     it('uses GitHub Release for latest.apk when the manifest prefers GitHub', async () => {

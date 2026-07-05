@@ -1,6 +1,7 @@
 import {
     APK_LATEST_CACHE_CONTROL,
     APK_CORS_HEADERS,
+    buildB2PublicApkUrl,
     buildVersionedApkFileName,
     buildTextResponse,
     readReleaseBaseUrl,
@@ -52,14 +53,9 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
         const versionName = readManifestVersionName(payload);
         const baseUrl = readReleaseBaseUrl(request, env);
         const versionedFileName = buildVersionedApkFileName(versionName);
-        const stableApkUrl = versionedFileName
-            ? `${baseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}`
-            : `${baseUrl}/api/apk/latest.apk`;
         const stableManifestUrl = `${baseUrl}/api/apk/latest.json`;
         const latestApkUrl = `${baseUrl}/api/apk/latest.apk`;
-        const b2ApkUrl = versionedFileName
-            ? `${baseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}?provider=b2`
-            : `${baseUrl}/api/apk/latest.apk?provider=b2`;
+        const b2ApkUrl = versionedFileName ? buildB2PublicApkUrl(env, versionedFileName) : `${baseUrl}/api/apk/latest.apk?provider=b2`;
         const oneDriveApkUrl = `${baseUrl}/api/apk/latest.apk?provider=onedrive`;
         const oneDriveDirectApkUrl = `${baseUrl}/api/apk/latest.apk?provider=onedrive-direct`;
         const githubApkUrl = versionedFileName
@@ -68,9 +64,14 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
         const githubDirectApkUrl = versionedFileName ? buildGitHubReleaseDownloadUrl(versionName, versionedFileName) : '';
         const githubAcceleratedApkUrls = versionedFileName ? buildGitHubAcceleratedUrls(versionName, versionedFileName) : [];
         const preferredApkProvider = readManifestPreferredApkProvider(payload);
+        const stableApkUrl = preferredApkProvider === 'b2' && versionedFileName
+            ? b2ApkUrl
+            : versionedFileName
+                ? `${baseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}`
+                : `${baseUrl}/api/apk/latest.apk`;
         const orderedApkUrls = [
-            latestApkUrl,
             b2ApkUrl,
+            latestApkUrl,
             ...githubAcceleratedApkUrls,
             githubApkUrl,
             githubDirectApkUrl,

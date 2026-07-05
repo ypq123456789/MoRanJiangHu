@@ -201,6 +201,16 @@ export const readB2ReleaseObjectPrefix = (env: any): string => (
     readEnvString(env, 'MORAN_B2_DISTRIBUTION_RELEASE_PREFIX', readReleaseObjectPrefix(env)).replace(/^\/+|\/+$/g, '') || 'moranjianghu'
 );
 
+export const readB2CdnBaseUrl = (env: any): string => (
+    readEnvString(env, 'MORAN_B2_CDN_BASE_URL', 'https://cdn.bacon159.pp.ua').replace(/\/+$/, '')
+);
+
+export const buildB2PublicApkUrl = (env: any, fileName: string): string => {
+    const baseUrl = readB2CdnBaseUrl(env);
+    const prefix = readB2ReleaseObjectPrefix(env);
+    return `${baseUrl}/public/${encodeS3Path(prefix)}/apk/${encodeURIComponent(fileName)}`;
+};
+
 export const buildB2ObjectUrl = (env: any, key: string): string => {
     const baseUrl = readEnvString(env, 'MORAN_B2_DISTRIBUTION_BASE_URL', 'https://f004.backblazeb2.com/file/bacon111').replace(/\/+$/, '');
     return `${baseUrl}/${encodeS3Path(normalizeObjectKey(key))}`;
@@ -293,37 +303,35 @@ export const buildB2ApkRedirect = async (
     fileName: string,
     cacheControl = APK_VERSIONED_CACHE_CONTROL
 ): Promise<Response> => {
-    const baseUrl = buildB2ObjectUrl(env, key);
+    const publicUrl = buildB2PublicApkUrl(env, fileName);
 
     // Try private bucket authorized download
     const prefix = readB2ReleaseObjectPrefix(env);
     const downloadToken = await getB2DownloadAuthorization(env, `${prefix}/`);
 
     if (downloadToken) {
-        const separator = baseUrl.includes('?') ? '&' : '?';
-        const authorizedUrl = `${baseUrl}${separator}Authorization=${encodeURIComponent(downloadToken)}`;
         return new Response(null, {
             status: 302,
             headers: {
-                Location: authorizedUrl,
+                Location: publicUrl,
                 'Content-Type': 'application/vnd.android.package-archive',
                 'Cache-Control': cacheControl,
                 'Content-Disposition': `attachment; filename="${fileName}"`,
-                'X-Moran-Apk-Source': 'b2-authorized',
+                'X-Moran-Apk-Source': 'b2-cdn',
                 ...APK_CORS_HEADERS
             }
         });
     }
 
-    // Fallback: public bucket direct redirect (backward compatible)
+    // Fallback: public CDN worker redirect.
     return new Response(null, {
         status: 302,
         headers: {
-            Location: baseUrl,
+            Location: publicUrl,
             'Content-Type': 'application/vnd.android.package-archive',
             'Cache-Control': cacheControl,
             'Content-Disposition': `attachment; filename="${fileName}"`,
-            'X-Moran-Apk-Source': 'b2-redirect',
+            'X-Moran-Apk-Source': 'b2-cdn',
             ...APK_CORS_HEADERS
         }
     });
