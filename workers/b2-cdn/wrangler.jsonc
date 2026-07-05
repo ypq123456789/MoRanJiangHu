@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "moranjianghu-b2-cdn",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-05",
+  "route": {
+    "pattern": "cdn.bacon159.pp.ua/*",
+    "zone_name": "bacon159.pp.ua"
+  }
+}

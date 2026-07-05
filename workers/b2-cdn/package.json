@@ -1,0 +1,10 @@
+{
+  "name": "moranjianghu-b2-cdn",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc -p tsconfig.json --noEmit"
+  }
+}
