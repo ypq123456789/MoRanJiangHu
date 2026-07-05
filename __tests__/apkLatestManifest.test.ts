@@ -86,4 +86,27 @@ describe('APK latest manifest proxy', () => {
         expect(payload.latest.apkUrls).toContain('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.528.apk?provider=github');
         expect(payload.latest.apkUrls).toContain('https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk');
     });
+
+    it('does not put B2 first when the manifest prefers GitHub', async () => {
+        const response = await onRequestGet({
+            request: buildRequest(),
+            env: buildEnv({
+                latest: {
+                    versionName: '1.0.530',
+                    versionCode: 530,
+                    preferredApkProvider: 'github'
+                }
+            })
+        } as any);
+
+        expect(response.status).toBe(200);
+        const payload = await response.json();
+
+        expect(payload.latest.preferredApkProvider).toBe('github');
+        expect(payload.latest.apkUrls[0]).toBe(payload.latest.latestApkUrl);
+        expect(payload.latest.apkUrls[0]).not.toBe(payload.latest.b2ApkUrl);
+        expect(payload.latest.apkUrls.indexOf(payload.latest.githubApkUrl)).toBeLessThan(
+            payload.latest.apkUrls.indexOf(payload.latest.oneDriveApkUrl)
+        );
+    });
 });

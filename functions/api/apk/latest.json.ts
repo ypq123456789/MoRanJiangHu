@@ -27,6 +27,43 @@ const buildGitHubAcceleratedUrls = (versionName: string, fileName: string): stri
     return DEFAULT_GITHUB_RELEASE_ACCELERATORS.map((baseUrl) => `${baseUrl}/${directUrl}`);
 };
 
+const buildOrderedApkUrls = ({
+    preferredApkProvider,
+    latestApkUrl,
+    b2ApkUrl,
+    githubApkUrl,
+    githubDirectApkUrl,
+    githubAcceleratedApkUrls,
+    oneDriveApkUrl,
+    oneDriveDirectApkUrl
+}: {
+    preferredApkProvider: string;
+    latestApkUrl: string;
+    b2ApkUrl: string;
+    githubApkUrl: string;
+    githubDirectApkUrl: string;
+    githubAcceleratedApkUrls: string[];
+    oneDriveApkUrl: string;
+    oneDriveDirectApkUrl: string;
+}): string[] => {
+    const githubUrls = [...githubAcceleratedApkUrls, githubApkUrl, githubDirectApkUrl].filter(Boolean);
+    const oneDriveUrls = [oneDriveApkUrl, oneDriveDirectApkUrl].filter(Boolean);
+
+    if (preferredApkProvider === 'b2') {
+        return [b2ApkUrl, latestApkUrl, ...githubUrls, ...oneDriveUrls].filter(Boolean);
+    }
+
+    if (preferredApkProvider === 'github') {
+        return [latestApkUrl, ...githubUrls, b2ApkUrl, ...oneDriveUrls].filter(Boolean);
+    }
+
+    if (preferredApkProvider === 'onedrive' || preferredApkProvider === 'onedrive-direct' || preferredApkProvider === 'onedrive-origin') {
+        return [latestApkUrl, ...oneDriveUrls, b2ApkUrl, ...githubUrls].filter(Boolean);
+    }
+
+    return [latestApkUrl, b2ApkUrl, ...githubUrls, ...oneDriveUrls].filter(Boolean);
+};
+
 const pickHeaders = (source: Headers): Headers => {
     const headers = new Headers({
         'Content-Type': 'application/json; charset=utf-8',
@@ -69,15 +106,16 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
             : versionedFileName
                 ? `${baseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}`
                 : `${baseUrl}/api/apk/latest.apk`;
-        const orderedApkUrls = [
-            b2ApkUrl,
+        const orderedApkUrls = buildOrderedApkUrls({
+            preferredApkProvider,
             latestApkUrl,
-            ...githubAcceleratedApkUrls,
+            b2ApkUrl,
             githubApkUrl,
             githubDirectApkUrl,
+            githubAcceleratedApkUrls,
             oneDriveApkUrl,
             oneDriveDirectApkUrl
-        ].filter(Boolean);
+        });
         const nextPayload = {
             ...payload,
             latest: {
