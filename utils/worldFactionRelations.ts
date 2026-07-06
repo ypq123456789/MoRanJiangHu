@@ -169,6 +169,27 @@ export const 构建势力关系图数据 = (factions: unknown): {
             };
         })
         .filter(Boolean) as 势力关系图边[];
+    const edgePairKeys = new Set(edges.map((edge) => [edge.sourceId, edge.targetId].sort().join('|')));
+
+    nodes.forEach((source, sourceIndex) => {
+        nodes.slice(sourceIndex + 1).forEach((target) => {
+            const pairKey = [source.id, target.id].sort().join('|');
+            if (edgePairKeys.has(pairKey)) return;
+            edgePairKeys.add(pairKey);
+            edges.push({
+                sourceId: source.id,
+                sourceName: source.name,
+                targetId: target.id,
+                targetName: target.name,
+                relation: '中立',
+                sourceX: source.x,
+                sourceY: source.y,
+                targetX: target.x,
+                targetY: target.y,
+                tone: 'neutral'
+            });
+        });
+    });
 
     return { nodes, edges };
 };

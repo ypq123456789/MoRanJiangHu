@@ -62,7 +62,7 @@ const 势力图颜色 = (tone: 势力关系图边['tone']): { line: string; badg
 const 势力关系标签样式 = (relation: string): string => 势力图颜色(归类势力关系色调(relation)).badge;
 
 const 势力关系图: React.FC<{ nodes: 势力关系图节点[]; edges: 势力关系图边[] }> = ({ nodes, edges }) => {
-    if (nodes.length < 2 || edges.length === 0) return null;
+    if (nodes.length < 2) return null;
     return (
         <div className="mb-5 rounded-2xl border border-orange-900/25 bg-black/30 p-4">
             <div className="mb-4 flex items-center justify-between gap-3">

@@ -4334,6 +4334,7 @@ const App: React.FC = () => {
                                     learnedBookIds={learnedSectBookIds}
                                     onClose={() => setters.setShowSect(false)}
                                     socialList={state.社交}
+                                    playerProfile={state.角色}
                                 />
                             ) : (
                                 <SectModal
@@ -4347,6 +4348,7 @@ const App: React.FC = () => {
                                     learnedBookIds={learnedSectBookIds}
                                     onClose={() => setters.setShowSect(false)}
                                     socialList={state.社交}
+                                    playerProfile={state.角色}
                                 />
                             )}
                         </懒加载边界>

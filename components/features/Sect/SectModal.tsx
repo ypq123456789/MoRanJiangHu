@@ -15,6 +15,8 @@ interface Props {
     learnedBookIds?: string[];
     env?: 环境信息结构;
     socialList?: any[];
+    playerProfile?: any;
+    initialTab?: Tab;
 }
 
 type Tab = 'hall' | 'exchange' | 'library' | 'members';
@@ -204,10 +206,14 @@ const 获取组织显示文案 = (sectData: 详细门派结构) => {
     };
 };
 
-const MemberAvatar: React.FC<{ member: any; socialList?: any[] }> = ({ member, socialList }) => {
+const MemberAvatar: React.FC<{ member: any; socialList?: any[]; playerProfile?: any; isPlayer?: boolean }> = ({ member, socialList, playerProfile, isPlayer = false }) => {
     const src = (() => {
         const directSrc = 提取人物头像地址(member);
         if (directSrc) return directSrc;
+        if (isPlayer) {
+            const playerSrc = 提取人物头像地址(playerProfile);
+            if (playerSrc) return playerSrc;
+        }
         if (!Array.isArray(socialList)) return '';
         const name = String(member?.姓名 || '').trim();
         if (!name) return '';
@@ -262,8 +268,8 @@ const 估算月俸数量 = (sectData: 详细门派结构): number => {
     return Math.max(0, base + contributionBonus + scaleBonus);
 };
 
-const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer, onLearnBook, onClaimMonthlyStipend, onExchange, learnedBookIds = [], env, socialList }) => {
-    const [activeTab, setActiveTab] = useState<Tab>('hall');
+const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer, onLearnBook, onClaimMonthlyStipend, onExchange, learnedBookIds = [], env, socialList, playerProfile, initialTab = 'hall' }) => {
+    const [activeTab, setActiveTab] = useState<Tab>(initialTab);
     const 文案 = useMemo(() => 获取组织显示文案(sectData), [sectData]);
     const 显示职位 = (rank?: string) => 文案.rankMap[String(rank || '').trim()] || rank || '无';
     const 未加入门派 = 是否未加入组织(sectData);
@@ -672,17 +678,19 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
                                                 : 'bg-black/40 border border-gray-700 hover:bg-black/60 hover:border-wuxia-gold/40'
                                         }`}
                                     >
-                                        {isPlayer && (
-                                            <span className="absolute right-3 top-3 z-20 rounded-full bg-wuxia-gold px-2 py-0.5 text-[10px] font-bold text-black shadow-[0_0_10px_rgba(230,200,110,0.4)]">
-                                                我（主角）
-                                            </span>
-                                        )}
                                         <div className="flex items-start gap-4 z-10">
-                                            <MemberAvatar member={mem} socialList={socialList} />
+                                            <MemberAvatar member={mem} socialList={socialList} playerProfile={playerProfile} isPlayer={isPlayer} />
                                             <div className="flex-1">
-                                                <div className="flex justify-between items-center mb-1">
+                                                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                                                     <span className={`font-bold text-lg ${isPlayer ? 'text-wuxia-gold' : 'text-gray-200'}`}>{mem.姓名}</span>
-                                                    <span className="text-xs text-wuxia-gold font-bold bg-wuxia-gold/10 px-2 py-0.5 rounded border border-wuxia-gold/20">{mem.身份}</span>
+                                                    <div className="flex flex-wrap justify-end gap-2">
+                                                        {isPlayer && (
+                                                            <span className="rounded-full bg-wuxia-gold px-2 py-0.5 text-[10px] font-bold text-black shadow-[0_0_10px_rgba(230,200,110,0.4)]">
+                                                                我（主角）
+                                                            </span>
+                                                        )}
+                                                        <span className="text-xs text-wuxia-gold font-bold bg-wuxia-gold/10 px-2 py-0.5 rounded border border-wuxia-gold/20">{mem.身份}</span>
+                                                    </div>
                                                 </div>
                                                 <div className="text-xs text-gray-300 flex gap-3 mb-2">
                                                     <span>{mem.性别}</span>

@@ -46,4 +46,22 @@ describe('world faction relations', () => {
             expect.objectContaining({ sourceName: '九幽魔宗', targetName: '多宝商会', tone: 'good' })
         ]));
     });
+
+    it('falls back to neutral pairwise graph edges when factions have no relation net yet', () => {
+        const graph = 构建势力关系图数据([
+            { ID: 'FCT-001', 名称: '云岫剑宗' },
+            { ID: 'FCT-002', 名称: '大乾王朝' },
+            { ID: 'FCT-003', 名称: '万宝商会' },
+            { ID: 'FCT-004', 名称: '黑风寨' },
+            { ID: 'FCT-005', 名称: '青石镇赵家' }
+        ]);
+
+        expect(graph.nodes).toHaveLength(5);
+        expect(graph.edges).toHaveLength(10);
+        expect(graph.edges.every(edge => edge.tone === 'neutral')).toBe(true);
+        expect(graph.edges).toEqual(expect.arrayContaining([
+            expect.objectContaining({ sourceName: '云岫剑宗', targetName: '大乾王朝', relation: '中立' }),
+            expect.objectContaining({ sourceName: '黑风寨', targetName: '青石镇赵家', relation: '中立' })
+        ]));
+    });
 });
