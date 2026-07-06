@@ -143,7 +143,7 @@ export const readManifestPreferredApkProvider = (payload: any): ApkProvider => {
     const provider = payload?.latest?.preferredApkProvider || payload?.preferredApkProvider;
     return provider === 'github' || provider === 'b2' || provider === 'onedrive' || provider === 'onedrive-direct' || provider === 'onedrive-origin'
         ? provider
-        : 'b2';
+        : 'github';
 };
 
 export const isOneDriveDirectProvider = (provider: unknown): boolean => (
@@ -155,8 +155,8 @@ export const isOneDriveProvider = (provider: unknown): boolean => (
 );
 
 export const pickApkProvider = (_request: Request, _manifestPayload: any): ApkProvider => {
-    // hi168 S3 and R2 are retired; B2 is the default APK channel, with OneDrive/GitHub as fallbacks.
-    return 'b2';
+    // hi168 S3/R2/B2 are no longer the default APK channel; prefer GitHub releases with OneDrive fallbacks.
+    return 'github';
 };
 
 export const buildVersionedApkHeaders = (

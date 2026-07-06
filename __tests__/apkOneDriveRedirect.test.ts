@@ -136,7 +136,7 @@ describe('APK OneDrive redirect', () => {
         expect(response.headers.get('X-Moran-Apk-Source')).toBe('onedrive-direct-proxy');
     });
 
-    it('uses B2 as the default APK provider when the manifest has no preferred provider', async () => {
+    it('uses GitHub as the default APK provider when the manifest has no preferred provider', async () => {
         const fetchMock = vi.fn();
         vi.stubGlobal('fetch', fetchMock);
 
@@ -159,8 +159,8 @@ describe('APK OneDrive redirect', () => {
         } as any);
 
         expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.560.apk');
-        expect(response.headers.get('X-Moran-Apk-Source')).toBe('b2-cdn');
+        expect(response.headers.get('Location')).toBe('https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.560/MoRanJiangHu-v1.0.560.apk');
+        expect(response.headers.get('X-Moran-Apk-Source')).toBe('github-release');
         expect(fetchMock).not.toHaveBeenCalled();
     });
 });

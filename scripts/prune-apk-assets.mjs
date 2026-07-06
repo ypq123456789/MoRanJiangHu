@@ -9,9 +9,10 @@ const rootDir = path.resolve(__dirname, '..');
 const apkPublicAssetsDir = path.join(rootDir, 'android', 'app', 'src', 'main', 'assets', 'public', 'assets');
 
 const removableDirs = [
-  // These generated preset item images are mirrored from hosted image URLs used
-  // by the app, and are too large to bundle into every APK release.
-  'item-presets'
+  // These generated item images are mirrored from hosted image URLs used by the
+  // app, and are too large to bundle into every APK release.
+  'item-presets',
+  'auction-items'
 ];
 
 let removedBytes = 0;

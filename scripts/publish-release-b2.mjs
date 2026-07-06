@@ -42,7 +42,9 @@ const b2ApplicationKeyId = readEnv('MORAN_B2_APPLICATION_KEY_ID');
 const b2ApplicationKey = readEnv('MORAN_B2_APPLICATION_KEY');
 const b2BucketId = readEnv('MORAN_B2_BUCKET_ID');
 
-if (!token) {
+const skipB2ApkUpload = process.env.MORAN_B2_SKIP_APK_UPLOAD === '1';
+
+if (!token && !skipB2ApkUpload) {
   throw new Error('Missing MORAN_B2_DISTRIBUTION_TOKEN.');
 }
 if (!fs.existsSync(apkPath)) {
@@ -170,7 +172,7 @@ const currentApkBuffer = fs.readFileSync(apkPath);
 const apkSha256 = sha256Hex(currentApkBuffer);
 const apkSize = currentApkBuffer.byteLength;
 const websiteBaseUrl = String(releaseInfo.websiteUrl || '').replace(/\/+$/, '');
-const githubReleaseAccelerators = readEnv('GITHUB_RELEASE_ACCELERATORS', 'https://gh.ddlc.top,https://gh-proxy.com,https://gh-proxy.ygxz.in,https://ghfast.top')
+const githubReleaseAccelerators = readEnv('GITHUB_RELEASE_ACCELERATORS', 'https://gh.ddlc.top,https://gh.llkk.cc,https://gh-proxy.com,https://gh-proxy.ygxz.in,https://ghfast.top')
   .split(',')
   .map((item) => item.trim().replace(/\/+$/, ''))
   .filter((item) => /^https:\/\/[^/]+$/i.test(item));
@@ -223,23 +225,20 @@ const providerApkUrls = {
   githubDirect: `https://github.com/ypq123456789/MoRanJiangHu/releases/download/v${currentVersionName}/${currentVersionedFileName}`
 };
 const githubAcceleratedApkUrls = githubReleaseAccelerators.map((baseUrl) => `${baseUrl}/${providerApkUrls.githubDirect}`);
-const requestedPreferredApkProvider = readEnv('MORAN_RELEASE_PREFERRED_APK_PROVIDER', 'b2');
+const requestedPreferredApkProvider = readEnv('MORAN_RELEASE_PREFERRED_APK_PROVIDER', 'github');
 const preferredApkProvider = ['onedrive', 'onedrive-direct', 'github', 'b2'].includes(requestedPreferredApkProvider)
   ? requestedPreferredApkProvider
-  : 'b2';
-const skipB2ApkUpload = process.env.MORAN_B2_SKIP_APK_UPLOAD === '1';
-const stableApkUrl = preferredApkProvider === 'b2'
-  ? providerApkUrls.b2
-  : websiteBaseUrl
-    ? `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(currentVersionedFileName)}`
-    : providerApkUrls.b2;
+  : 'github';
+const stableApkUrl = preferredApkProvider === 'onedrive'
+  ? providerApkUrls.onedrive
+  : preferredApkProvider === 'onedrive-direct'
+    ? providerApkUrls.onedriveDirect
+    : githubAcceleratedApkUrls[0] || providerApkUrls.github || providerApkUrls.githubDirect;
 const orderedProviderUrls = preferredApkProvider === 'github'
-  ? [...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.b2, providerApkUrls.onedrive, providerApkUrls.onedriveDirect, providerApkUrls.githubDirect].filter(Boolean)
-  : preferredApkProvider === 'b2'
-    ? [providerApkUrls.b2, ...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.onedrive, providerApkUrls.onedriveDirect, providerApkUrls.githubDirect].filter(Boolean)
-    : preferredApkProvider === 'onedrive-direct'
-      ? [providerApkUrls.onedriveDirect, providerApkUrls.onedrive, providerApkUrls.b2, ...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.githubDirect].filter(Boolean)
-      : [providerApkUrls.onedrive, providerApkUrls.onedriveDirect, providerApkUrls.b2, ...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.githubDirect].filter(Boolean);
+  ? [...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.githubDirect, providerApkUrls.onedrive, providerApkUrls.onedriveDirect].filter(Boolean)
+  : preferredApkProvider === 'onedrive-direct'
+    ? [providerApkUrls.onedriveDirect, providerApkUrls.onedrive, ...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.githubDirect].filter(Boolean)
+    : [providerApkUrls.onedrive, providerApkUrls.onedriveDirect, ...githubAcceleratedApkUrls, providerApkUrls.github, providerApkUrls.githubDirect].filter(Boolean);
 
 const manifest = {
   latest: {
@@ -257,7 +256,7 @@ const manifest = {
     preferredApkProvider,
     r2ApkUrl: '',
     hi168ApkUrl: '',
-    b2ApkUrl: providerApkUrls.b2,
+    b2ApkUrl: '',
     oneDriveApkUrl: providerApkUrls.onedrive,
     oneDriveDirectApkUrl: providerApkUrls.onedriveDirect,
     githubApkUrl: providerApkUrls.github,
@@ -265,9 +264,8 @@ const manifest = {
     githubAcceleratedApkUrls,
     r2DirectApkUrl: '',
     hi168DirectApkUrl: '',
-    b2DirectApkUrl: currentB2Targets.versionedUrl,
+    b2DirectApkUrl: '',
     apkUrls: [
-      `${websiteBaseUrl}/api/apk/latest.apk`,
       ...orderedProviderUrls
     ].filter(Boolean),
     manifestUrl: currentB2Targets.manifestUrl,

@@ -13,26 +13,37 @@ const githubDirectUrl = `https://github.com/ypq123456789/MoRanJiangHu/releases/d
 const outputDir = path.join(rootDir, 'output');
 fs.mkdirSync(outputDir, { recursive: true });
 
+if (process.argv.includes('--no-proxy')) {
+  for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
+    delete process.env[name];
+  }
+  process.env.NO_PROXY = '*';
+  process.env.no_proxy = '*';
+}
+
 if (!websiteBaseUrl) {
   throw new Error('Missing website URL for APK provider benchmark.');
 }
 
+const githubReleaseAccelerators = String(
+  process.env.GITHUB_RELEASE_ACCELERATORS
+  || 'https://gh.ddlc.top,https://gh.llkk.cc,https://gh-proxy.com,https://gh-proxy.ygxz.in,https://ghfast.top'
+)
+  .split(',')
+  .map((item) => item.trim().replace(/\/+$/, ''))
+  .filter((item) => /^https:\/\/[^/]+$/i.test(item));
+
 const providers = [
-  {
-    provider: 'b2',
-    label: 'B2 (obs1.bacon159.pp.ua)',
-    url: `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}?provider=b2`
-  },
-  {
-    provider: 'onenode',
-    label: 'CDN (Worker → B2)',
-    url: `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}`
-  },
   {
     provider: 'github-proxy',
     label: 'GitHub (Worker 代理)',
     url: `${websiteBaseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}?provider=github`
   },
+  ...githubReleaseAccelerators.map((baseUrl, index) => ({
+    provider: `github-accelerator-${index + 1}`,
+    label: `GitHub 加速 ${index + 1} (${new URL(baseUrl).hostname})`,
+    url: `${baseUrl}/${githubDirectUrl}`
+  })),
   {
     provider: 'github-direct',
     label: 'GitHub (直连)',
@@ -101,7 +112,7 @@ for (const provider of providers) {
 const successful = results
   .filter((item) => !item.error)
   .sort((a, b) => b.mbps - a.mbps);
-const preferredApkProvider = successful[0]?.provider || 'b2';
+const preferredApkProvider = successful[0]?.provider || 'github';
 
 // ── 格式化输出表格 ──
 const labelWidth = Math.max(...providers.map(p => p.label.length), 10);
@@ -134,7 +145,9 @@ const report = {
   versionName: releaseInfo.versionName,
   versionCode: releaseInfo.versionCode,
   benchmarkedAt: new Date().toISOString(),
+  noProxy: process.argv.includes('--no-proxy'),
   preferredApkProvider,
+  fastestFallbacks: successful.slice(0, 5),
   results
 };
 

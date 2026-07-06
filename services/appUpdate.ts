@@ -305,41 +305,6 @@ const resolveNativeApkDownloadUrls = (manifest: UpdateManifest): string[] => {
         });
 };
 
-/** 对每个 URL 发送 HEAD 请求测量延迟，返回按延迟排序的 URL 列表（最快在前）。 */
-const probeAndSortUrlsByLatency = async (urls: string[], timeoutMs = 5000): Promise<string[]> => {
-    if (urls.length <= 1) return urls;
-
-    const probeOne = async (url: string, index: number): Promise<{ url: string; latencyMs: number; index: number }> => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        const start = Date.now();
-        try {
-            const response = await fetch(url, { method: 'HEAD', signal: controller.signal, cache: 'no-store' });
-            if (!response.ok && (response.status < 300 || response.status >= 400)) {
-                throw new Error(`HEAD ${response.status}`);
-            }
-            return { url, latencyMs: Date.now() - start, index };
-        } catch {
-            return { url, latencyMs: Infinity, index };
-        } finally {
-            clearTimeout(timer);
-        }
-    };
-
-    const results = await Promise.all(urls.map((url, index) => probeOne(url, index)));
-    return results
-        .sort((a, b) => {
-            const aAvailable = Number.isFinite(a.latencyMs);
-            const bAvailable = Number.isFinite(b.latencyMs);
-            if (aAvailable && !bAvailable) return -1;
-            if (!aAvailable && bAvailable) return 1;
-            const latencyDelta = a.latencyMs - b.latencyMs;
-            if (Number.isFinite(latencyDelta) && Math.abs(latencyDelta) > 100) return latencyDelta;
-            return a.index - b.index;
-        })
-        .map((item) => item.url);
-};
-
 const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
     const rawUrls = resolveNativeApkDownloadUrls(manifest);
     if (rawUrls.length === 0) {
@@ -360,13 +325,12 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
     emitAppUpdateProgress({
         visible: true,
         stage: 'preparing',
-        message: '正在测速选择最佳下载源...',
+        message: '正在按推荐顺序准备下载源...',
         versionName,
         channelLabel: '',
     });
 
-    // 测速探针：HEAD 请求测量各 provider 延迟，按延迟排序
-    const targetUrls = await probeAndSortUrlsByLatency(rawUrls);
+    const targetUrls = rawUrls;
 
     // 从 URL 提取渠道名称
     const getChannelLabel = (url: string): string => {

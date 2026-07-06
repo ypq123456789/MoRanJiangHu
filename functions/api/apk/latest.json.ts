@@ -1,7 +1,6 @@
 import {
     APK_LATEST_CACHE_CONTROL,
     APK_CORS_HEADERS,
-    buildB2PublicApkUrl,
     buildVersionedApkFileName,
     buildTextResponse,
     readReleaseBaseUrl,
@@ -12,6 +11,7 @@ import {
 
 const DEFAULT_GITHUB_RELEASE_ACCELERATORS = [
     'https://gh.ddlc.top',
+    'https://gh.llkk.cc',
     'https://gh-proxy.com',
     'https://gh-proxy.ygxz.in',
     'https://ghfast.top'
@@ -49,19 +49,15 @@ const buildOrderedApkUrls = ({
     const githubUrls = [...githubAcceleratedApkUrls, githubApkUrl, githubDirectApkUrl].filter(Boolean);
     const oneDriveUrls = [oneDriveApkUrl, oneDriveDirectApkUrl].filter(Boolean);
 
-    if (preferredApkProvider === 'b2') {
-        return [b2ApkUrl, latestApkUrl, ...githubUrls, ...oneDriveUrls].filter(Boolean);
-    }
-
     if (preferredApkProvider === 'github') {
-        return [latestApkUrl, ...githubUrls, b2ApkUrl, ...oneDriveUrls].filter(Boolean);
+        return [...githubUrls, latestApkUrl, ...oneDriveUrls].filter(Boolean);
     }
 
     if (preferredApkProvider === 'onedrive' || preferredApkProvider === 'onedrive-direct' || preferredApkProvider === 'onedrive-origin') {
-        return [latestApkUrl, ...oneDriveUrls, b2ApkUrl, ...githubUrls].filter(Boolean);
+        return [...oneDriveUrls, ...githubUrls, latestApkUrl].filter(Boolean);
     }
 
-    return [latestApkUrl, b2ApkUrl, ...githubUrls, ...oneDriveUrls].filter(Boolean);
+    return [...githubUrls, latestApkUrl, ...oneDriveUrls].filter(Boolean);
 };
 
 const pickHeaders = (source: Headers): Headers => {
@@ -92,7 +88,7 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
         const versionedFileName = buildVersionedApkFileName(versionName);
         const stableManifestUrl = `${baseUrl}/api/apk/latest.json`;
         const latestApkUrl = `${baseUrl}/api/apk/latest.apk`;
-        const b2ApkUrl = versionedFileName ? buildB2PublicApkUrl(env, versionedFileName) : `${baseUrl}/api/apk/latest.apk?provider=b2`;
+        const b2ApkUrl = '';
         const oneDriveApkUrl = `${baseUrl}/api/apk/latest.apk?provider=onedrive`;
         const oneDriveDirectApkUrl = `${baseUrl}/api/apk/latest.apk?provider=onedrive-direct`;
         const githubApkUrl = versionedFileName
@@ -101,11 +97,9 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
         const githubDirectApkUrl = versionedFileName ? buildGitHubReleaseDownloadUrl(versionName, versionedFileName) : '';
         const githubAcceleratedApkUrls = versionedFileName ? buildGitHubAcceleratedUrls(versionName, versionedFileName) : [];
         const preferredApkProvider = readManifestPreferredApkProvider(payload);
-        const stableApkUrl = preferredApkProvider === 'b2' && versionedFileName
-            ? b2ApkUrl
-            : versionedFileName
-                ? `${baseUrl}/api/apk/version/${encodeURIComponent(versionedFileName)}`
-                : `${baseUrl}/api/apk/latest.apk`;
+        const stableApkUrl = preferredApkProvider === 'onedrive' || preferredApkProvider === 'onedrive-direct' || preferredApkProvider === 'onedrive-origin'
+            ? oneDriveApkUrl
+            : githubAcceleratedApkUrls[0] || githubApkUrl || githubDirectApkUrl || latestApkUrl;
         const orderedApkUrls = buildOrderedApkUrls({
             preferredApkProvider,
             latestApkUrl,
@@ -135,6 +129,7 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
                 oneDriveApkUrl,
                 oneDriveDirectApkUrl,
                 latestApkUrl,
+                b2DirectApkUrl: '',
                 manifestUrl: stableManifestUrl
             }
         };

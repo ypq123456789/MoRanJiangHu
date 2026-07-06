@@ -94,53 +94,32 @@ describe('appUpdate native APK download', () => {
         expect(downloadAndInstallMock.mock.calls[1][0].url).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk');
     });
 
-    it('chooses the fastest available APK source among B2, GitHub accelerators, OneDrive and OneDrive direct', async () => {
-        const b2Url = 'https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.289.apk?provider=b2';
+    it('keeps the manifest order so GitHub accelerators stay before OneDrive fallbacks', async () => {
         const githubAcceleratedUrl = 'https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.289/MoRanJiangHu-v1.0.289.apk';
         const oneDriveUrl = 'https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=onedrive';
         const oneDriveDirectUrl = 'https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=onedrive-direct';
 
-        const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-        vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-            const url = String(input);
-            if (init?.method === 'HEAD') {
-                if (url === b2Url) {
-                    await delay(1);
-                    return new Response(null, { status: 404 });
-                }
-                if (url === githubAcceleratedUrl) {
-                    await delay(160);
-                    return new Response(null, { status: 200 });
-                }
-                if (url === oneDriveUrl) {
-                    await delay(300);
-                    return new Response(null, { status: 200 });
-                }
-                if (url === oneDriveDirectUrl) {
-                    await delay(5);
-                    return new Response(null, { status: 200 });
-                }
-                return new Response(null, { status: 404 });
-            }
+        vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            expect(init?.method).not.toBe('HEAD');
             return new Response(JSON.stringify({
                 latest: {
                     versionCode: 290,
                     versionName: '1.0.289',
                     apkSha256: 'new-sha',
                     apkSize: 123456,
-                    apkUrls: [b2Url, githubAcceleratedUrl, oneDriveUrl, oneDriveDirectUrl],
+                    apkUrls: [githubAcceleratedUrl, oneDriveUrl, oneDriveDirectUrl],
                     changes: ['测试更新']
                 }
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }));
-        downloadAndInstallMock.mockResolvedValueOnce({ filePath: '/tmp/onedrive-direct.apk', versionName: '1.0.289' });
+        downloadAndInstallMock.mockResolvedValueOnce({ filePath: '/tmp/github.apk', versionName: '1.0.289' });
 
         const { checkForAppUpdate } = await import('../services/appUpdate');
         const result = await checkForAppUpdate();
 
         expect(result.opened).toBe(true);
         expect(downloadAndInstallMock).toHaveBeenCalledTimes(1);
-        expect(downloadAndInstallMock.mock.calls[0][0].url).toBe(oneDriveDirectUrl);
+        expect(downloadAndInstallMock.mock.calls[0][0].url).toBe(githubAcceleratedUrl);
     });
 
     it('keeps exposing the selected download channel in progress updates', async () => {

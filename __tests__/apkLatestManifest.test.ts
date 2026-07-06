@@ -15,7 +15,7 @@ const buildEnv = (payload: unknown) => ({
 });
 
 describe('APK latest manifest proxy', () => {
-    it('normalizes a flat KV manifest and adds CDN, GitHub and OneDrive APK URLs', async () => {
+    it('normalizes a flat KV manifest and puts GitHub accelerators before OneDrive fallbacks without B2', async () => {
         const response = await onRequestGet({
             request: buildRequest(),
             env: buildEnv({
@@ -31,25 +31,24 @@ describe('APK latest manifest proxy', () => {
         expect(payload.versionName).toBe('1.0.528');
         expect(payload.latest.versionName).toBe('1.0.528');
         expect(payload.latest.versionCode).toBe(528);
-        expect(payload.latest.apkUrl).toContain('cdn.bacon159.pp.ua/public/moranjianghu/apk/');
+        expect(payload.latest.apkUrl).toBe(payload.latest.githubAcceleratedApkUrls[0]);
         expect(payload.latest.directApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk');
-        expect(payload.latest.b2ApkUrl).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.528.apk');
+        expect(payload.latest.b2ApkUrl).toBe('');
         expect(payload.latest.githubApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.528.apk?provider=github');
         expect(payload.latest.githubAcceleratedApkUrls).toEqual([
             'https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
+            'https://gh.llkk.cc/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
             'https://gh-proxy.com/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
             'https://gh-proxy.ygxz.in/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
             'https://ghfast.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk'
         ]);
         expect(payload.latest.oneDriveApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=onedrive');
         expect(payload.latest.oneDriveDirectApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=onedrive-direct');
-        expect(payload.latest.preferredApkProvider).toBe('b2');
+        expect(payload.latest.preferredApkProvider).toBe('github');
         expect(payload.latest.r2ApkUrl).toBe('');
         expect(payload.latest.hi168ApkUrl).toBe('');
-        expect(payload.latest.apkUrls[0]).toBe(payload.latest.b2ApkUrl);
-        expect(payload.latest.apkUrls.indexOf(payload.latest.b2ApkUrl)).toBeLessThan(
-            payload.latest.apkUrls.indexOf(payload.latest.oneDriveApkUrl)
-        );
+        expect(payload.latest.apkUrls).not.toContain('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.528.apk');
+        expect(payload.latest.apkUrls[0]).toBe(payload.latest.githubAcceleratedApkUrls[0]);
         expect(payload.latest.apkUrls.indexOf(payload.latest.githubAcceleratedApkUrls[0])).toBeLessThan(
             payload.latest.apkUrls.indexOf(payload.latest.oneDriveApkUrl)
         );
@@ -82,12 +81,13 @@ describe('APK latest manifest proxy', () => {
         expect(payload.latest.versionName).toBe('1.0.528');
         expect(payload.latest.versionCode).toBe(528);
         expect(payload.latest.releaseChannel).toBe('stable');
-        expect(payload.latest.apkUrl).toBe('https://cdn.bacon159.pp.ua/public/moranjianghu/apk/MoRanJiangHu-v1.0.528.apk');
+        expect(payload.latest.apkUrl).toBe('https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk');
         expect(payload.latest.apkUrls).toContain('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.528.apk?provider=github');
         expect(payload.latest.apkUrls).toContain('https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk');
+        expect(payload.latest.apkUrls.some((url: string) => url.includes('cdn.bacon159.pp.ua'))).toBe(false);
     });
 
-    it('does not put B2 first when the manifest prefers GitHub', async () => {
+    it('does not include B2 when the manifest prefers GitHub', async () => {
         const response = await onRequestGet({
             request: buildRequest(),
             env: buildEnv({
@@ -103,8 +103,9 @@ describe('APK latest manifest proxy', () => {
         const payload = await response.json();
 
         expect(payload.latest.preferredApkProvider).toBe('github');
-        expect(payload.latest.apkUrls[0]).toBe(payload.latest.latestApkUrl);
+        expect(payload.latest.apkUrls[0]).toBe(payload.latest.githubAcceleratedApkUrls[0]);
         expect(payload.latest.apkUrls[0]).not.toBe(payload.latest.b2ApkUrl);
+        expect(payload.latest.apkUrls.some((url: string) => url.includes('cdn.bacon159.pp.ua'))).toBe(false);
         expect(payload.latest.apkUrls.indexOf(payload.latest.githubApkUrl)).toBeLessThan(
             payload.latest.apkUrls.indexOf(payload.latest.oneDriveApkUrl)
         );
