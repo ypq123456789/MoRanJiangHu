@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { 构建势力关系图数据, 构建势力关系边列表 } from '../utils/worldFactionRelations';
+import { 构建世界显示名解析器, 构建势力关系图数据, 构建势力关系边列表 } from '../utils/worldFactionRelations';
 
 describe('world faction relations', () => {
     it('renders faction relation targets as names instead of FCT ids', () => {
@@ -47,7 +47,7 @@ describe('world faction relations', () => {
         ]));
     });
 
-    it('falls back to neutral pairwise graph edges when factions have no relation net yet', () => {
+    it('does not invent neutral pairwise graph edges when factions have no relation net yet', () => {
         const graph = 构建势力关系图数据([
             { ID: 'FCT-001', 名称: '云岫剑宗' },
             { ID: 'FCT-002', 名称: '大乾王朝' },
@@ -57,11 +57,34 @@ describe('world faction relations', () => {
         ]);
 
         expect(graph.nodes).toHaveLength(5);
-        expect(graph.edges).toHaveLength(10);
-        expect(graph.edges.every(edge => edge.tone === 'neutral')).toBe(true);
-        expect(graph.edges).toEqual(expect.arrayContaining([
-            expect.objectContaining({ sourceName: '云岫剑宗', targetName: '大乾王朝', relation: '中立' }),
-            expect.objectContaining({ sourceName: '黑风寨', targetName: '青石镇赵家', relation: '中立' })
-        ]));
+        expect(graph.edges).toHaveLength(0);
+    });
+
+    it('preserves same-name factions for AI-side diagnosis instead of local merging', () => {
+        const graph = 构建势力关系图数据([
+            { ID: 'FCT-001', 名称: '大乾皇朝', 实力等级: 6, 当前状态: '边境动荡' },
+            { ID: 'FCT-002', 名称: '大乾皇朝', 实力等级: 9, 当前状态: '统治凡俗' },
+            { ID: 'FCT-003', 名称: '万宝商会', 实力等级: 7 }
+        ]);
+
+        expect(graph.nodes.map(node => node.name)).toEqual(['大乾皇朝', '大乾皇朝', '万宝商会']);
+        expect(graph.nodes.map(node => node.id)).toEqual(['FCT-001', 'FCT-002', 'FCT-003']);
+    });
+
+    it('maps internal faction and sect ids to visible names and hides unknown ids', () => {
+        const resolveName = 构建世界显示名解析器(
+            [
+                { ID: 'FCT-003', 名称: '万宝商会' },
+                { ID: 'sect_yunxiu', 名称: '云岫剑宗' }
+            ],
+            [
+                { ID: 'sect_yunxiu', 名称: '云岫剑宗' }
+            ]
+        );
+
+        expect(resolveName('FCT-003')).toBe('万宝商会');
+        expect(resolveName('sect_yunxiu')).toBe('云岫剑宗');
+        expect(resolveName('FCT-404')).toBe('');
+        expect(resolveName('sect_missing')).toBe('');
     });
 });

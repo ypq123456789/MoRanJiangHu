@@ -1,4 +1,5 @@
 import { normalizeStateCommandKey } from '../../utils/stateHelpers';
+import { 是内部ID, 构建世界显示名解析器 } from '../../utils/worldFactionRelations';
 import { normalizeCanonicalGameTime, 环境时间转标准串, 结构化时间转标准串 } from './timeUtils';
 import { 格式化短期记忆展示文本 } from './memoryUtils';
 
@@ -133,6 +134,14 @@ const 取物品名称列表 = (value: any): string[] => {
 
 const 从世界命令生成可见大事 = (commands: 世界演变命令[]): string[] => {
     const results: string[] = [];
+    const factionSetCommand = (Array.isArray(commands) ? commands : []).find((cmd) => {
+        const key = normalizeStateCommandKey(typeof cmd?.key === 'string' ? cmd.key : '').replace(/^gameState\./, '');
+        return key === '世界.势力列表' && Array.isArray(cmd?.value);
+    });
+    const resolveWorldName = 构建世界显示名解析器(factionSetCommand?.value);
+    const resolveNameList = (value: unknown): string[] => (Array.isArray(value) ? value : [])
+        .map((item) => resolveWorldName(item))
+        .filter(Boolean);
     (Array.isArray(commands) ? commands : []).forEach((cmd) => {
         const key = normalizeStateCommandKey(typeof cmd?.key === 'string' ? cmd.key : '').replace(/^gameState\./, '');
         const value = cmd?.value;
@@ -140,7 +149,7 @@ const 从世界命令生成可见大事 = (commands: 世界演变命令[]): stri
 
         if (key.startsWith('世界.势力互动历史')) {
             const summary = 取对象文本字段(value, ['事件摘要', '描述', '当前进展']);
-            const factions = Array.isArray(value?.参与势力) ? value.参与势力.filter(Boolean).join('、') : '';
+            const factions = resolveNameList(value?.参与势力).join('、');
             const type = typeof value?.类型 === 'string' ? value.类型.trim() : '势力互动';
             if (summary) {
                 results.push(factions ? `${factions}发生${type}：${summary}` : summary);
@@ -349,6 +358,26 @@ const 取结构文本 = (value: unknown, fields: string[]): string => {
     return '';
 };
 
+const 规范健康检查名称 = (value: unknown): string => typeof value === 'string'
+    ? value.trim().replace(/\s+/g, '')
+    : '';
+
+const 收集内部ID外露 = (value: unknown, path: string, out: string[]) => {
+    if (typeof value === 'string') {
+        if (是内部ID(value)) out.push(`${path}=${value}`);
+        return;
+    }
+    if (Array.isArray(value)) {
+        value.forEach((item, index) => 收集内部ID外露(item, `${path}[${index}]`, out));
+        return;
+    }
+    if (!value || typeof value !== 'object') return;
+    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
+        if (['ID', 'id'].includes(key)) return;
+        收集内部ID外露(child, `${path}.${key}`, out);
+    });
+};
+
 export const 构建世界结构健康提示 = (worldLike: unknown): string[] => {
     const pendingEvents = 取世界数组(worldLike, '待执行事件');
     const ongoingEvents = 取世界数组(worldLike, '进行中事件');
@@ -356,6 +385,8 @@ export const 构建世界结构健康提示 = (worldLike: unknown): string[] => 
     const factions = 取世界数组(worldLike, '势力列表');
     const factionHistory = 取世界数组(worldLike, '势力互动历史');
     const worldShots = 取世界数组(worldLike, '世界镜头规划');
+    const settledEvents = 取世界数组(worldLike, '已结算事件');
+    const chronicles = 取世界数组(worldLike, '江湖史册');
     const hints: string[] = [];
 
     if (pendingEvents.length === 0 && ongoingEvents.length === 0) {
@@ -382,6 +413,34 @@ export const 构建世界结构健康提示 = (worldLike: unknown): string[] => 
 
     if (factions.length >= 2 && factionHistory.length === 0) {
         hints.push('势力互动历史为空：已有多个势力时，若本回合或当前状态出现交易、冲突、庇护、敌对、联盟或资源流向，请补 `世界.势力互动历史`，不要只改势力描述。');
+    }
+
+    if (chronicles.length === 0 && (settledEvents.some((item: any) => item?.是否进入史册) || settledEvents.length >= 2 || worldShots.some((item: any) => Array.isArray(item?.沉淀内容) && item.沉淀内容.length > 0))) {
+        hints.push('史册留痕断档：当前 `世界.江湖史册` 为空，但已有已结算事件或世界镜头沉淀。请判断哪些事件达到江湖传播、长期影响或章节转折级别，并用 `push 世界.江湖史册 = {...}` 归档；不够格的事件保持在已结算事件即可。');
+    }
+
+    const names = new Map<string, string[]>();
+    factions.forEach((item, index) => {
+        const name = 取结构文本(item, ['名称', 'name', '显示名称']);
+        const key = 规范健康检查名称(name);
+        if (!key || 是内部ID(name)) return;
+        const ids = names.get(key) || [];
+        const id = 取结构文本(item, ['ID', 'id']) || `#${index + 1}`;
+        ids.push(`${name}(${id})`);
+        names.set(key, ids);
+    });
+    const duplicated = Array.from(names.values()).filter(group => group.length > 1);
+    if (duplicated.length > 0) {
+        hints.push(`同名势力待裁决：世界.势力列表 出现 ${duplicated.map(group => group.join('、')).join('；')}。不要由本地显示层合并；请根据剧情语义判断它们是同一势力重复记录、上下级/分支势力，还是确实同名不同组织，并用 set/push/delete 命令修正名称、ID、关系网与相关 NPC/事件引用。`);
+    }
+
+    const leakedInternalIds: string[] = [];
+    factions.forEach((item, index) => 收集内部ID外露(item, `世界.势力列表[${index}]`, leakedInternalIds));
+    activeNpcs.forEach((item, index) => 收集内部ID外露(item, `世界.活跃NPC列表[${index}]`, leakedInternalIds));
+    factionHistory.forEach((item, index) => 收集内部ID外露(item, `世界.势力互动历史[${index}]`, leakedInternalIds));
+    const leakedPreview = Array.from(new Set(leakedInternalIds)).slice(0, 8);
+    if (leakedPreview.length > 0) {
+        hints.push(`内部ID外露：${leakedPreview.join('；')}。这些值不能作为玩家可见名称长期存在；请在动态世界修正为真实势力/门派/人物名称，并同步更新关系网、NPC 所属势力与势力互动参与方。`);
     }
 
     return hints;

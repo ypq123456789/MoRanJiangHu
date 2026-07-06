@@ -5,6 +5,72 @@
 ::-webkit-scrollbar {
   width: 6px;
 }
+
+html[data-theme="day"] .world-modal-body {
+  background: linear-gradient(180deg, rgba(255, 250, 240, 0.98), rgba(248, 239, 219, 0.98)) !important;
+  color: rgb(51, 38, 24) !important;
+}
+
+html[data-theme="day"] .world-modal-body .bg-black\/95,
+html[data-theme="day"] .world-modal-body .bg-black\/80,
+html[data-theme="day"] .world-modal-body .bg-black\/70,
+html[data-theme="day"] .world-modal-body .bg-black\/60,
+html[data-theme="day"] .world-modal-body .bg-black\/50,
+html[data-theme="day"] .world-modal-body .bg-black\/45,
+html[data-theme="day"] .world-modal-body .bg-black\/40,
+html[data-theme="day"] .world-modal-body .bg-black\/35,
+html[data-theme="day"] .world-modal-body .bg-black\/30,
+html[data-theme="day"] .world-modal-body .bg-black\/25,
+html[data-theme="day"] .world-modal-body .bg-black\/20 {
+  background-color: rgba(255, 252, 244, 0.76) !important;
+}
+
+html[data-theme="day"] .world-modal-body [class*="border-gray-800"],
+html[data-theme="day"] .world-modal-body [class*="border-gray-700"] {
+  border-color: rgba(151, 111, 57, 0.24) !important;
+}
+
+html[data-theme="day"] .world-modal-body .text-gray-100,
+html[data-theme="day"] .world-modal-body .text-gray-200,
+html[data-theme="day"] .world-modal-body .text-gray-300,
+html[data-theme="day"] .world-modal-body .text-gray-400,
+html[data-theme="day"] .world-modal-body .text-gray-500 {
+  color: rgb(65, 50, 31) !important;
+}
+
+html[data-theme="day"] .world-modal-body .text-red-400,
+html[data-theme="day"] .world-modal-body .text-wuxia-red {
+  color: rgb(164, 39, 36) !important;
+}
+
+html[data-theme="day"] .world-modal-body .text-orange-500,
+html[data-theme="day"] .world-modal-body .text-orange-400,
+html[data-theme="day"] .world-modal-body .text-orange-300,
+html[data-theme="day"] .world-modal-body .text-orange-200,
+html[data-theme="day"] .world-modal-body .text-orange-100 {
+  color: rgb(137, 75, 21) !important;
+}
+
+html[data-theme="day"] .world-faction-graph {
+  background: rgba(255, 249, 236, 0.86) !important;
+  border-color: rgba(181, 130, 66, 0.28) !important;
+}
+
+html[data-theme="day"] .world-faction-graph-canvas {
+  background: radial-gradient(circle at center, rgba(245, 222, 176, 0.72), rgba(255, 250, 240, 0.95) 58%, rgba(238, 222, 191, 0.86)) !important;
+  border-color: rgba(154, 102, 39, 0.28) !important;
+}
+
+html[data-theme="day"] .world-faction-node {
+  background: rgba(255, 252, 244, 0.96) !important;
+  border-color: rgba(163, 96, 31, 0.62) !important;
+  color: rgb(87, 52, 22) !important;
+  box-shadow: 0 8px 18px rgba(104, 64, 22, 0.16) !important;
+}
+
+html[data-theme="day"] .world-faction-edge-label {
+  fill: rgb(67, 51, 31) !important;
+}
 ::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.3);
 }
