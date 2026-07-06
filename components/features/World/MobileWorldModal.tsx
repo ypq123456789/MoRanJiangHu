@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { 世界数据结构 } from '../../../models/world';
 import { normalizeCanonicalGameTime, 结构化时间转标准串 } from '../../../hooks/useGame/timeUtils';
 import { IconMapPin } from '../../ui/Icons';
+import { 势力关系图边, 势力关系图节点, 构建势力关系图数据 } from '../../../utils/worldFactionRelations';
 
 interface Props {
     world: 世界数据结构;
@@ -50,6 +51,64 @@ const 取数字数组 = (value: unknown): number[] => Array.isArray(value)
 
 const 取文本 = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 
+const 移动势力图颜色 = (tone: 势力关系图边['tone']): { line: string; badge: string } => {
+    if (tone === 'bad') return { line: '#ef4444', badge: 'border-red-500/45 bg-red-500/10 text-red-200' };
+    if (tone === 'good') return { line: '#22c55e', badge: 'border-emerald-500/45 bg-emerald-500/10 text-emerald-100' };
+    return { line: '#9ca3af', badge: 'border-gray-500/45 bg-white/5 text-gray-200' };
+};
+
+const 移动势力关系图: React.FC<{ nodes: 势力关系图节点[]; edges: 势力关系图边[] }> = ({ nodes, edges }) => {
+    if (nodes.length < 2 || edges.length === 0) return null;
+    return (
+        <div className="rounded-3xl border border-orange-900/25 bg-black/35 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="text-[11px] font-bold tracking-widest text-orange-300">势力关系图</div>
+                <div className="text-[10px] text-gray-500">{edges.length} 条</div>
+            </div>
+            <div className="relative aspect-square min-h-[260px] overflow-hidden rounded-2xl border border-gray-800 bg-[radial-gradient(circle_at_center,rgba(120,72,24,0.22),rgba(0,0,0,0.18)_60%,rgba(0,0,0,0.35))]">
+                <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full" role="img" aria-label="势力关系连线图">
+                    {edges.map((edge, idx) => {
+                        const color = 移动势力图颜色(edge.tone).line;
+                        const midX = (edge.sourceX + edge.targetX) / 2;
+                        const midY = (edge.sourceY + edge.targetY) / 2;
+                        return (
+                            <g key={`${edge.sourceId}-${edge.targetId}-${edge.relation}-${idx}`}>
+                                <line
+                                    x1={edge.sourceX}
+                                    y1={edge.sourceY}
+                                    x2={edge.targetX}
+                                    y2={edge.targetY}
+                                    stroke={color}
+                                    strokeWidth={edge.tone === 'neutral' ? 0.48 : 0.72}
+                                    strokeOpacity={edge.tone === 'neutral' ? 0.62 : 0.9}
+                                />
+                                <text x={midX} y={midY - 1.2} textAnchor="middle" className="fill-gray-200 text-[3px] font-semibold">
+                                    {edge.relation}
+                                </text>
+                            </g>
+                        );
+                    })}
+                </svg>
+                {nodes.map((node) => (
+                    <div
+                        key={node.id}
+                        className="absolute flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-orange-300/45 bg-[#24160e]/95 px-1.5 text-center text-[11px] font-bold leading-4 text-orange-100 shadow-[0_0_20px_rgba(251,146,60,0.18)]"
+                        style={{ left: `${node.x}%`, top: `${node.y}%` }}
+                        title={node.name}
+                    >
+                        <span className="line-clamp-2 break-all">{node.name}</span>
+                    </div>
+                ))}
+            </div>
+            <div className="mt-2 flex flex-wrap justify-end gap-1.5 text-[9px]">
+                <span className={`rounded-full border px-2 py-0.5 ${移动势力图颜色('good').badge}`}>绿 好</span>
+                <span className={`rounded-full border px-2 py-0.5 ${移动势力图颜色('neutral').badge}`}>灰 中立</span>
+                <span className={`rounded-full border px-2 py-0.5 ${移动势力图颜色('bad').badge}`}>红 差</span>
+            </div>
+        </div>
+    );
+};
+
 const MobileWorldModal: React.FC<Props> = ({
     world,
     worldEvolutionEnabled = false,
@@ -74,6 +133,7 @@ const MobileWorldModal: React.FC<Props> = ({
     const 势力列表 = useMemo(() => Array.isArray(world?.势力列表) ? world.势力列表 : [], [world]);
     const 势力互动历史 = useMemo(() => Array.isArray(world?.势力互动历史) ? world.势力互动历史 : [], [world]);
     const 拍卖行待投放物品 = useMemo(() => Array.isArray(world?.拍卖行待投放物品) ? world.拍卖行待投放物品 : [], [world]);
+    const 势力关系图数据 = useMemo(() => 构建势力关系图数据(势力列表), [势力列表]);
 
     const hasRawMessage = typeof worldEvolutionLastRawText === 'string' && worldEvolutionLastRawText.trim().length > 0;
 
@@ -258,6 +318,7 @@ const MobileWorldModal: React.FC<Props> = ({
                     {activeTab === 'npcs' && (
                         <div className="space-y-3">
                             <div className="px-2 pb-1 text-[11px] font-bold text-orange-300 tracking-widest">江湖势力</div>
+                            <移动势力关系图 nodes={势力关系图数据.nodes} edges={势力关系图数据.edges} />
                             {势力列表.map((faction, idx) => (
                                 <div key={`faction-${faction.ID || idx}`} className="rounded-3xl border border-orange-900/25 bg-gradient-to-br from-black/80 to-orange-950/10 p-4">
                                     <div className="flex items-start justify-between gap-2">

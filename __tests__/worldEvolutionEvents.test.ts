@@ -9,6 +9,7 @@ import {
     整理世界状态客户可见大事,
     规范化世界演变命令列表
 } from '../hooks/useGame/worldEvolutionUtils';
+import { 解析世界演变响应 } from '../services/ai/storyTasks';
 
 describe('worldEvolution visible events', () => {
     it('filters internal world-maintenance notes from player-visible world events', () => {
@@ -137,6 +138,27 @@ describe('worldEvolution visible events', () => {
             key: '世界.势力列表',
             value: [{ ID: 'qingyun', 名称: '青云门' }]
         }, baseState as any).allowed).toBe(true);
+    });
+
+    it('keeps world-evolution commands when the command block closes with an English tag', () => {
+        const parsed = 解析世界演变响应([
+            '<thinking>初始化世界事件。</thinking>',
+            '<说明>',
+            '- 江湖暗流开始浮现。',
+            '</说明>',
+            '<命令>',
+            'push 世界.进行中事件 = {"事件名":"九幽魔宗暗流渗透","类型":"渗透","事件说明":"魔宗细作潜入太玄山脉周边。","当前进展":"已建立临时联络点。"}',
+            'push 世界.世界镜头规划 = {"镜头标题":"大乾烽火","镜头内容":"荒州边境烽火滚滚。"}',
+            '</command>'
+        ].join('\n'));
+
+        expect(parsed.updates).toEqual(['江湖暗流开始浮现。']);
+        expect(parsed.commands).toHaveLength(2);
+        expect(parsed.commands[0]).toMatchObject({
+            action: 'push',
+            key: '世界.进行中事件',
+            value: expect.objectContaining({ 事件名: '九幽魔宗暗流渗透' })
+        });
     });
 
     it('surfaces new faction-like names from current story text for world-evolution backfill', () => {

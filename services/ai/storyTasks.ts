@@ -708,7 +708,11 @@ const 解析世界演变候选文本 = (text: string): { commands: TavernCommand
     const titleBlocks = (!updateBlock && !commandBlock) ? 提取世界演变标题区块(candidate) : { updateBlock: '', commandBlock: '' };
 
     const updates = 解析动态世界块(updateBlock || titleBlocks.updateBlock);
-    const commands = 解析命令块(commandBlock || titleBlocks.commandBlock)
+    const primaryCommands = 解析命令块(commandBlock || titleBlocks.commandBlock);
+    const fallbackCommands = primaryCommands.length === 0
+        ? 解析命令块(candidate)
+        : [];
+    const commands = (primaryCommands.length > 0 ? primaryCommands : fallbackCommands)
         .map((cmd) => ({
             action: cmd.action,
             key: cmd.key,
@@ -725,7 +729,7 @@ const 解析世界演变候选文本 = (text: string): { commands: TavernCommand
     };
 };
 
-const 解析世界演变响应 = (rawText: string): { commands: TavernCommand[]; updates: string[] } => {
+export const 解析世界演变响应 = (rawText: string): { commands: TavernCommand[]; updates: string[] } => {
     const source = (rawText || '').trim();
     if (!source) return { commands: [], updates: [] };
 

@@ -332,6 +332,61 @@ const 提炼世界演变剧情锚点 = (storyLike: unknown) => {
     };
 };
 
+const 取世界数组 = (worldLike: unknown, key: string): unknown[] => {
+    const world = worldLike && typeof worldLike === 'object' && !Array.isArray(worldLike)
+        ? worldLike as Record<string, unknown>
+        : {};
+    return Array.isArray(world[key]) ? world[key] as unknown[] : [];
+};
+
+const 取结构文本 = (value: unknown, fields: string[]): string => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+    const record = value as Record<string, unknown>;
+    for (const field of fields) {
+        const text = typeof record[field] === 'string' ? record[field].trim() : '';
+        if (text) return text;
+    }
+    return '';
+};
+
+export const 构建世界结构健康提示 = (worldLike: unknown): string[] => {
+    const pendingEvents = 取世界数组(worldLike, '待执行事件');
+    const ongoingEvents = 取世界数组(worldLike, '进行中事件');
+    const activeNpcs = 取世界数组(worldLike, '活跃NPC列表');
+    const factions = 取世界数组(worldLike, '势力列表');
+    const factionHistory = 取世界数组(worldLike, '势力互动历史');
+    const worldShots = 取世界数组(worldLike, '世界镜头规划');
+    const hints: string[] = [];
+
+    if (pendingEvents.length === 0 && ongoingEvents.length === 0) {
+        const factionSignals = factions
+            .map((item) => {
+                const name = 取结构文本(item, ['名称', 'ID']);
+                const state = 取结构文本(item, ['当前状态', '描述']);
+                return name && state ? `${name}：${state}` : name;
+            })
+            .filter(Boolean)
+            .slice(0, 4);
+        hints.push([
+            '风云变幻断档：当前 `世界.待执行事件` 与 `世界.进行中事件` 都为空。',
+            factionSignals.length > 0
+                ? `请优先检查这些势力余波能否转为有因果来源的待执行或进行中事件：${factionSignals.join('；')}。`
+                : '请优先从既有世界张力、短期记忆、剧情规划、势力余波、追缉链、封锁线或传闻链中补出可信事件。',
+            '若已有开始原因、当前进展与影响面，应 `push 世界.进行中事件 = {...}`；若只具备时间/条件门槛，应 `push 世界.待执行事件 = {...}`；没有可信来源才保持空并说明原因。'
+        ].join(' '));
+    } else if (ongoingEvents.length === 0 && (pendingEvents.length > 0 || factionHistory.length > 0 || worldShots.length > 0 || activeNpcs.length > 0)) {
+        hints.push('世界事件推进检查：当前 `世界.进行中事件` 为空，但已有待执行事件、势力风闻、世界镜头或活跃 NPC；请检查是否有事件已满足启动条件，可以迁入 `世界.进行中事件`。');
+    } else if (ongoingEvents.length < 3 && (factions.length >= 2 || factionHistory.length > 0)) {
+        hints.push('世界事件偏少：当前 `世界.进行中事件` 低于常态，请检查势力矛盾、交易余波、追缉封锁或旧线续段是否足以补位；补位必须有来源、进展和影响面。');
+    }
+
+    if (factions.length >= 2 && factionHistory.length === 0) {
+        hints.push('势力互动历史为空：已有多个势力时，若本回合或当前状态出现交易、冲突、庇护、敌对、联盟或资源流向，请补 `世界.势力互动历史`，不要只改势力描述。');
+    }
+
+    return hints;
+};
+
 const 势力名称后缀正则 = '(?:家族|世家|氏族|宗门|门派|商会|镖局|官府|帮派|联盟|山庄|武馆|书院|寺|观|教|宫|谷|岛|寨|庄|堡|门|派|宗|帮|盟|氏)';
 const 地盘线索正则 = '[\\u4e00-\\u9fa5]{1,6}(?:州|郡|城|县|府|国|关|镇|山|谷|岛|港|渡|域)';
 const 势力包裹符号正则 = /[\s"'“”‘’「」『』《》【】（）()、，,。.!！?？:：;；]/g;
@@ -504,9 +559,11 @@ export const 构建世界演变上下文文本 = (params: {
         text: [currentTurnBody, currentTurnPlanText, currentTurnCommandsText].filter(Boolean).join('\n'),
         worldData: params.worldData
     });
+    const healthHints = 构建世界结构健康提示(params.worldData);
     const evolutionCandidates = [
         ...dynamicHints.map(item => `线索驱动：${item}`),
         ...dueHints.map(item => `到期驱动：${item}`),
+        ...healthHints.map(item => `结构健康：${item}`),
         ...factionBackfillHints.map(item => `势力补录：${item}`)
     ];
 
@@ -549,6 +606,9 @@ export const 构建世界演变上下文文本 = (params: {
         '',
         '【到期触发摘要】',
         dueHints.length > 0 ? dueHints.map(item => `- ${item}`).join('\n') : '- 无',
+        '',
+        '【世界结构健康检查】',
+        healthHints.length > 0 ? healthHints.map(item => `- ${item}`).join('\n') : '- 无',
         '',
         '【正文势力补录候选】',
         factionBackfillHints.length > 0 ? factionBackfillHints.map(item => `- ${item}`).join('\n') : '- 无',
