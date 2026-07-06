@@ -18,6 +18,7 @@ const OBJECT_STORAGE_SETTINGS_PACKAGE_FORMAT = 'moranjianghu-object-storage-sett
 const OBJECT_STORAGE_MANIFEST_VERSION = 1;
 const OBJECT_STORAGE_SETTINGS_FILE = 'settings.json';
 const OBJECT_STORAGE_PROXY_PATH = '/api/object-storage-proxy';
+const OBJECT_STORAGE_CDN_PROXY_BASE = 'https://cdn.bacon159.pp.ua';
 const PRIMARY_SYNC_API_BASE = 'https://msjh.bacon159.pp.ua';
 const BACKUP_SYNC_API_BASE = 'https://msjh.bacon.de5.net';
 const OBJECT_STORAGE_FALLBACK_CHUNK_THRESHOLD = 700 * 1024;
@@ -660,11 +661,26 @@ const 构建对象存储代理地址 = (): string => {
 const 构建对象存储代理地址列表 = (): string[] => {
     const configured = 构建对象存储代理地址();
     const candidates = [
+        `${OBJECT_STORAGE_CDN_PROXY_BASE}${OBJECT_STORAGE_PROXY_PATH}`,
         configured,
         `${PRIMARY_SYNC_API_BASE}${OBJECT_STORAGE_PROXY_PATH}`,
         `${BACKUP_SYNC_API_BASE}${OBJECT_STORAGE_PROXY_PATH}`
     ];
     return Array.from(new Set(candidates.filter(Boolean)));
+};
+
+const 读取端点主机 = (endpoint: string): string => {
+    try {
+        return new URL(endpoint).hostname.toLowerCase();
+    } catch {
+        return '';
+    }
+};
+
+const 是否应强制走对象存储代理 = (config: 对象存储同步配置): boolean => {
+    const host = 读取端点主机(config.endpoint);
+    if (!host) return false;
+    return host.endsWith('.backblazeb2.com') || host === 'backblazeb2.com';
 };
 
 const 等待 = (ms: number): Promise<void> => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
@@ -692,9 +708,14 @@ const objectStorageFetch = async (
     init?: { headers?: Record<string, string>; body?: BodyInit | null }
 ): Promise<Response> => {
     const objectKey = 构建对象键(config, segments);
+    const methodUpper = method.toUpperCase();
+
     try {
-        const methodUpper = method.toUpperCase();
-        if (methodUpper === 'LIST') throw new Error('LIST uses Worker proxy for S3 ListObjectsV2 compatibility');
+        if (methodUpper === 'LIST' || 是否应强制走对象存储代理(config)) {
+            throw new Error(methodUpper === 'LIST'
+                ? 'LIST uses Worker proxy for S3 ListObjectsV2 compatibility'
+                : 'Endpoint is configured to prefer object storage proxy');
+        }
         const directUrl = 构建直连对象存储地址(config, segments);
         const body = methodUpper === 'GET' || methodUpper === 'HEAD' ? undefined : init?.body ?? null;
         const bodyBuffer = await body转ArrayBuffer(body);

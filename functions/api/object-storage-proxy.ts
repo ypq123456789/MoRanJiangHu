@@ -4,7 +4,7 @@ const CORS_HEADERS = {
     'Access-Control-Allow-Headers': 'Content-Type, X-Object-Storage-Method, X-Object-Storage-Endpoint, X-Object-Storage-Bucket, X-Object-Storage-Key, X-Object-Storage-Access-Key, X-Object-Storage-Secret-Key, X-Object-Storage-Username'
 };
 
-const ALLOWED_METHODS = new Set(['GET', 'PUT', 'HEAD', 'LIST']);
+const ALLOWED_METHODS = new Set(['GET', 'PUT', 'HEAD', 'DELETE', 'LIST']);
 const encoder = new TextEncoder();
 
 const buildJsonResponse = (payload: unknown, status = 200): Response => (
@@ -141,7 +141,7 @@ export async function onRequestPost({ request }: any): Promise<Response> {
         const secretKey = request.headers.get('X-Object-Storage-Secret-Key') || '';
         if (!accessKey || !secretKey) throw new Error('Missing object storage access key or secret key');
 
-        const body = method === 'GET' || method === 'HEAD' || method === 'LIST' ? undefined : await request.arrayBuffer();
+        const body = method === 'GET' || method === 'HEAD' || method === 'DELETE' || method === 'LIST' ? undefined : await request.arrayBuffer();
         const contentType = request.headers.get('Content-Type')?.trim() || (body ? 'application/octet-stream' : '');
         const bodyHash = await sha256Hex(body || '');
         const { amzDate, dateStamp } = formatAmzDate(new Date());
@@ -154,7 +154,7 @@ export async function onRequestPost({ request }: any): Promise<Response> {
 
         const upstreamResponse = await fetch(targetUrl, { method: upstreamMethod, headers, body });
         const responseHeaders = new Headers();
-        ['Content-Type', 'ETag', 'Last-Modified', 'Content-Length'].forEach((name) => {
+        ['Content-Type', 'ETag', 'Last-Modified', 'Content-Length', 'Content-Range'].forEach((name) => {
             const value = upstreamResponse.headers.get(name);
             if (value) responseHeaders.set(name, value);
         });

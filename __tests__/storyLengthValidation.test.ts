@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { 校验响应人称一致性, 校验响应未泄露名器档案名称, 校验响应正文词汇审查, 校验主剧情正文最低字数, 获取主剧情正文不足信息, 提取自动重试原因文本, 是否正文字数不足错误, 收集主剧情已知对白说话人, 统计正文字符数, 主剧情流式草稿已具备完整协议 } from '../hooks/useGame/sendWorkflow';
+import { 校验响应人称一致性, 校验响应未泄露名器档案名称, 校验响应正文词汇审查, 校验主剧情正文最低字数, 获取主剧情正文不足信息, 提取自动重试原因文本, 是否正文字数不足错误, 收集主剧情已知对白说话人, 统计正文字符数, 主剧情流式草稿已具备完整协议, 尝试解析完整主剧情流式草稿 } from '../hooks/useGame/sendWorkflow';
 import { 净化角色对白行, 评估润色长度结果, 检测文章优化协议确认污染, 解析正文日志文本 } from '../hooks/useGame/bodyPolish';
 import { 清理润色正文输出 } from '../services/ai/storyTasks';
 import { 构建主剧情请求参数, type 主剧情系统上下文 } from '../hooks/useGame/mainStoryRequest';
@@ -23,6 +23,62 @@ describe('主剧情已知对白说话人', () => {
         expect(speakers).toContain('南宫听雪');
         expect(speakers).toContain('楚有常');
         expect(speakers).not.toContain('路人甲乙');
+    });
+});
+
+describe('酒馆双人成行流式草稿兼容', () => {
+    const doublePresetDraft = [
+        '雾气从青石阶下翻上来，茶棚的灯笼在风里轻轻晃动。',
+        '你和同伴交换了一个眼神，决定先听完掌柜压低声音讲出的传闻。',
+        '',
+        '<meow_FM>',
+        'time: 清晨☆雨后',
+        'scene: 山道茶棚',
+        'chars: 你、同伴、掌柜',
+        'plot: 双人刚抵达茶棚，掌柜提到山上异响。',
+        'serial: 002',
+        '</meow_FM>',
+        '',
+        '<branches>',
+        '<details><summary>🧩 Select</summary>',
+        'A. 询问掌柜山上异响的具体方位。',
+        'B. 和同伴先检查茶棚周围的脚印。',
+        'C. 付钱买两碗热茶，继续套话。',
+        'D. 立刻离开茶棚，沿山道上行。',
+        '</details>',
+        '</branches>'
+    ].join('\n');
+
+    it('将完整 <branches> 选项栏视为酒馆流式草稿完成信号', () => {
+        expect(主剧情流式草稿已具备完整协议(doublePresetDraft, {
+            requireActionOptionsTag: true
+        })).toBe(false);
+
+        expect(主剧情流式草稿已具备完整协议(doublePresetDraft, {
+            requireActionOptionsTag: true,
+            acceptTavernBranches: true
+        })).toBe(true);
+    });
+
+    it('解析双人成行草稿时提取 A-D 选项且不把选项栏混入正文', () => {
+        const result = 尝试解析完整主剧情流式草稿(doublePresetDraft, {
+            requireActionOptionsTag: true,
+            acceptTavernBranches: true,
+            enableTagRepair: true,
+            validateDialogueFormat: true
+        });
+
+        expect(result).not.toBeNull();
+        expect(result?.response.action_options).toEqual([
+            '询问掌柜山上异响的具体方位。',
+            '和同伴先检查茶棚周围的脚印。',
+            '付钱买两碗热茶，继续套话。',
+            '立刻离开茶棚，沿山道上行。'
+        ]);
+        const bodyText = result?.response.logs.map(log => log.text).join('\n') || '';
+        expect(bodyText).toContain('茶棚的灯笼');
+        expect(bodyText).not.toContain('🧩 Select');
+        expect(bodyText).not.toContain('A. 询问掌柜');
     });
 });
 
@@ -289,7 +345,7 @@ describe('主剧情正文字数校验', () => {
         expect(result.orderedMessages.some((message) => message.content.includes(lengthPrompt))).toBe(true);
     });
 
-    it('酒馆预设模式下不注入项目字数要求，由预设自身控制输出长度', () => {
+    it('酒馆预设模式下不注入项目字数、文风、格式和COT提示，由预设自身控制输出', () => {
         const lengthPrompt = 构建字数要求提示词(2200);
         const builtContext: 主剧情系统上下文 = {
             shortMemoryContext: '',
@@ -300,7 +356,7 @@ describe('主剧情正文字数校验', () => {
                 同人设定摘要: '',
                 境界体系提示词: '',
                 离场NPC档案: '',
-                otherPrompts: '',
+                otherPrompts: '【文风参考：雪中悍刀行 / 世子很凶 / 娱乐春秋（取法，不复写）】\n这是项目内置文风，不应进入酒馆预设模式。',
                 难度设置提示词: '',
                 叙事人称提示词: '',
                 字数设置提示词: '<字数>旧字数提示会被运行时修正。</字数>',
@@ -316,8 +372,8 @@ describe('主剧情正文字数校验', () => {
                 门派状态: '',
                 任务状态: '',
                 约定状态: '',
-                COT提示词: '',
-                格式提示词: '<正文>...</正文>',
+                COT提示词: '项目内置COT提示词，不应进入酒馆预设模式。',
+                格式提示词: '<正文>项目内置格式协议，不应进入酒馆预设模式。</正文>',
                 字数要求提示词: lengthPrompt,
                 免责声明输出提示词: '',
                 输出协议提示词: ''
@@ -367,8 +423,11 @@ describe('主剧情正文字数校验', () => {
         expect(result.tavernPresetModeEnabled).toBe(true);
         // 酒馆模式下不应注入项目字数要求，预设自身控制输出
         expect(result.orderedMessages.some((message) => message.content.includes('2200字以上'))).toBe(false);
-        // 也不应注入项目输出协议和风格助手
+        // 也不应注入项目输出协议、文风、格式和COT提示
         expect(result.orderedMessages.some((message) => message.content.includes('输出协议'))).toBe(false);
+        expect(result.orderedMessages.some((message) => message.content.includes('雪中悍刀行'))).toBe(false);
+        expect(result.orderedMessages.some((message) => message.content.includes('项目内置格式协议'))).toBe(false);
+        expect(result.orderedMessages.some((message) => message.content.includes('项目内置COT提示词'))).toBe(false);
     });
 });
 

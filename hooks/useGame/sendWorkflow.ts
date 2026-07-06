@@ -25,7 +25,7 @@ import { 提取命中新女性角色姓名黑名单 } from '../../utils/femaleNa
 import { 检测社交删除风险命令 } from '../../utils/npcRetentionGuard';
 import { 构建标签缺失补充提示 } from '../../utils/parseErrorHints';
 import { 对AI输出执行酒馆正则 } from '../../utils/tavernRegexEngine';
-import { 提取酒馆选项 } from '../../utils/tavernOptionRenderer';
+import { 从AI文本提取选项, 提取酒馆选项 } from '../../utils/tavernOptionRenderer';
 import { 获取预设已分类正则脚本 } from '../../utils/tavernPreset';
 import { 从文本解析推理块 } from '../../utils/tavernTemplateEngine';
 
@@ -555,10 +555,22 @@ export const 主剧情流式草稿已具备完整协议 = (
     options?: {
         requireActionOptionsTag?: boolean;
         requireDynamicWorldTag?: boolean;
+        acceptTavernBranches?: boolean;
     }
 ): boolean => {
     const text = typeof draftText === 'string' ? draftText.trim() : '';
     if (!text) return false;
+    if (
+        options?.acceptTavernBranches
+        && 标签块已完整闭合(text, 'branches')
+        && 从AI文本提取选项(text).length > 0
+        && text
+            .replace(/<\s*branches\s*>[\s\S]*?<\s*\/\s*branches\s*>/gi, '')
+            .replace(/<[^>]+>/g, '')
+            .trim().length > 0
+    ) {
+        return true;
+    }
     const requiredTags = [
         ...主剧情协议必需标签,
         ...(options?.requireActionOptionsTag ? ['行动选项'] : []),
@@ -574,6 +586,7 @@ export const 尝试解析完整主剧情流式草稿 = (
         enableTagRepair?: boolean;
         requireActionOptionsTag?: boolean;
         requireDynamicWorldTag?: boolean;
+        acceptTavernBranches?: boolean;
         validateDialogueFormat?: boolean;
         knownSpeakers?: string[];
     }
@@ -581,14 +594,18 @@ export const 尝试解析完整主剧情流式草稿 = (
     const rawText = typeof draftText === 'string' ? draftText.trim() : '';
     if (!主剧情流式草稿已具备完整协议(rawText, requestOptions)) return null;
     try {
+        const tavernOptions = requestOptions?.acceptTavernBranches ? 从AI文本提取选项(rawText) : [];
         const response = textAIService.parseStoryRawText(rawText, {
             validateTagCompleteness: requestOptions?.validateTagCompleteness,
             enableTagRepair: requestOptions?.enableTagRepair,
-            requireActionOptionsTag: requestOptions?.requireActionOptionsTag,
+            requireActionOptionsTag: requestOptions?.acceptTavernBranches ? false : requestOptions?.requireActionOptionsTag,
             requireDynamicWorldTag: requestOptions?.requireDynamicWorldTag,
             validateDialogueFormat: requestOptions?.validateDialogueFormat,
             knownSpeakers: requestOptions?.knownSpeakers
         });
+        if (tavernOptions.length > 0 && (!Array.isArray(response.action_options) || response.action_options.length === 0)) {
+            response.action_options = tavernOptions;
+        }
         const hasBody = Array.isArray(response.logs)
             && response.logs.some((log) => typeof log?.text === 'string' && log.text.trim().length > 0);
         return hasBody ? { response, rawText } : null;
@@ -1726,7 +1743,7 @@ export const 执行主剧情发送工作流 = async (
                             enableTagRepair: runtimeGameConfig.启用标签修复 !== false,
                             validateDialogueFormat: true,
                             knownSpeakers: knownDialogueSpeakers,
-                            requireActionOptionsTag: runtimeGameConfig.启用行动选项 !== false,
+                            requireActionOptionsTag: tavernPresetModeEnabled ? false : runtimeGameConfig.启用行动选项 !== false,
                             errorDetailLimit: Number.POSITIVE_INFINITY,
                             prefixMode: deepSeekPrefixMode || glmPrefixMode,
                             disableThinking: (runtimeGameConfig.DeepSeek策略?.续聊Thinking !== true) && (runtimeGameConfig.GLM策略?.续聊Thinking !== true),
@@ -1744,9 +1761,10 @@ export const 执行主剧情发送工作流 = async (
                         () => 尝试解析完整主剧情流式草稿(latestStreamDraftText, {
                             validateTagCompleteness: runtimeGameConfig.启用标签检测完整性 === true,
                             enableTagRepair: runtimeGameConfig.启用标签修复 !== false,
-                            requireActionOptionsTag: runtimeGameConfig.启用行动选项 !== false,
+                            requireActionOptionsTag: tavernPresetModeEnabled ? false : runtimeGameConfig.启用行动选项 !== false,
                             validateDialogueFormat: true,
-                            knownSpeakers: knownDialogueSpeakers
+                            knownSpeakers: knownDialogueSpeakers,
+                            acceptTavernBranches: tavernPresetModeEnabled
                         })
                     );
                 const rawStoryText = deps.获取原始AI消息(storyResult.rawText);

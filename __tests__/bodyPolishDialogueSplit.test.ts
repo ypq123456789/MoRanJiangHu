@@ -35,4 +35,16 @@ describe('body polish dialogue parsing', () => {
         expect(body).not.toContain('1:01:01:06:30');
         expect(body).toContain('执事堂前的青石台阶');
     });
+
+    it('keeps Japanese-style 4-char speaker names in polished body text', () => {
+        const logs = 净化角色对白行(解析正文日志文本([
+            '【旁白】伊贺流上忍，雾隐彩月，应将军大人的邀请而来。',
+            '【雾隐彩月】“初次见面，您的气味……真是让人兴奋得浑身发抖呢。”'
+        ].join('\n')));
+
+        expect(logs).toEqual([
+            { sender: '旁白', text: '伊贺流上忍，雾隐彩月，应将军大人的邀请而来。' },
+            { sender: '雾隐彩月', text: '初次见面，您的气味……真是让人兴奋得浑身发抖呢。' }
+        ]);
+    });
 });

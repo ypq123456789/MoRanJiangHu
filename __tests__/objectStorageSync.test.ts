@@ -788,4 +788,45 @@ describe('对象存储同步', () => {
         expect(writtenManifest.saves).toHaveLength(1);
         expect(writtenManifest.saves[0].id).toBe('manual_keep');
     });
+
+    it('B2 S3 端点会优先走 CDN 对象存储代理而不是浏览器直连', async () => {
+        const b2Config = {
+            ...config,
+            endpoint: 'https://s3.us-west-004.backblazeb2.com'
+        };
+        const requestedUrls: string[] = [];
+
+        vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+            const requestUrl = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+            requestedUrls.push(requestUrl);
+            const headers = new Headers(init?.headers);
+            const method = headers.get('X-Object-Storage-Method') || '';
+            const key = headers.get('X-Object-Storage-Key') || '';
+
+            if (!method) {
+                throw new Error('B2 端点不应走浏览器直连');
+            }
+
+            if (method === 'GET' && key.endsWith('/manifest.json')) {
+                return new Response('', { status: 404 });
+            }
+
+            if (method === 'PUT' && key.includes('/saves/')) {
+                return new Response('', { status: 200 });
+            }
+
+            if (method === 'PUT' && key.endsWith('/manifest.json')) {
+                return new Response('', { status: 200 });
+            }
+
+            return new Response('', { status: 200 });
+        }));
+
+        const { 增量同步到对象存储 } = await import('../services/objectStorageSync');
+        const result = await 增量同步到对象存储(b2Config, [makeSave(99)]);
+
+        expect(result.uploaded).toBe(1);
+        expect(requestedUrls[0]).toBe('https://cdn.bacon159.pp.ua/api/object-storage-proxy');
+        expect(requestedUrls.every((url) => !url.startsWith('https://s3.us-west-004.backblazeb2.com'))).toBe(true);
+    });
 });

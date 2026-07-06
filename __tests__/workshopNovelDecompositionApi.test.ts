@@ -392,6 +392,65 @@ describe('workshop novel decomposition API', () => {
         expect(putKeys.some((key) => key.includes('/packages/'))).toBe(false);
     });
 
+    it('retries workshop ZIP uploads through the public OpenList base when the direct origin rejects Worker PUTs', async () => {
+        const workshopBucket = createWorkshopBucket();
+        const authBucket = await createAuthBucket('tester', 'secret123');
+        const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+            const textUrl = String(url);
+            const filePath = new Headers(init?.headers).get('File-Path') || '';
+            if (textUrl.startsWith('http://159.138.7.126:5244/') && filePath.endsWith('.zip')) {
+                return new Response(JSON.stringify({ code: 403, message: 'HTTP 403' }), { status: 403 });
+            }
+            if (textUrl === 'https://openlist.bacon.de5.net/api/fs/put' && filePath.endsWith('.zip')) {
+                return new Response(JSON.stringify({ code: 200 }), { status: 200 });
+            }
+            throw new Error(`unexpected OpenList upload request: ${textUrl} ${filePath}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const largeZip = new Uint8Array(5 * 1024 * 1024 + 123);
+        largeZip[0] = 0x50;
+        largeZip[1] = 0x4b;
+
+        const formData = new FormData();
+        formData.append('metadata', JSON.stringify({
+            title: 'Worker 公开入口重试模块',
+            workName: 'Worker 公开入口重试作品',
+            fileName: 'worker-public-retry.zip',
+            chapterCount: 1,
+            segmentCount: 1,
+            sourceType: 'txt',
+            auth: { username: 'tester', password: 'secret123' }
+        }));
+        formData.append('zip', new Blob([largeZip], { type: 'application/zip' }), 'worker-public-retry.zip');
+
+        const response = await onRequestPost({
+            request: new Request('https://msjh.bacon159.pp.ua/api/workshop/novel-decomposition', {
+                method: 'POST',
+                body: formData
+            }),
+            env: {
+                WORKSHOP_R2: workshopBucket,
+                CLOUD_PLAY_R2: authBucket,
+                MORAN_OPENLIST_AUTH_TOKEN: 'test-token',
+                MORAN_OPENLIST_API_BASE_URL: 'http://159.138.7.126:5244/',
+                MORAN_OPENLIST_PUBLIC_BASE_URL: 'https://openlist.bacon.de5.net/'
+            }
+        });
+        const payload: any = await response.json();
+        const putKeys = workshopBucket.put.mock.calls.map((call) => String(call[0]));
+
+        expect(response.status).toBe(200);
+        expect(payload.ok).toBe(true);
+        expect(payload.entry.oneDrivePath).toMatch(/^\/Onedrive\/MoRanJiangHu\/workshop\/novel-decomposition\/packages\//);
+        expect(payload.entry.oneDriveParts).toBeUndefined();
+        expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+            'http://159.138.7.126:5244/api/fs/put',
+            'https://openlist.bacon.de5.net/api/fs/put'
+        ]);
+        expect(putKeys).toContain(indexKey);
+        expect(putKeys.some((key) => key.includes('/packages/'))).toBe(false);
+    });
+
     it('falls back to uploading large workshop ZIPs as OneDrive parts when the whole ZIP is rejected', async () => {
         const workshopBucket = createWorkshopBucket();
         const authBucket = await createAuthBucket('tester', 'secret123');

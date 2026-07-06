@@ -31,6 +31,7 @@ type UpdateManifestDocument = {
 
 export type AppUpdateProgressState = NativeApkUpdateProgress & {
     visible: boolean;
+    channelLabel?: string;
 };
 
 const appUpdateProgressListeners = new Set<(progress: AppUpdateProgressState | null) => void>();
@@ -74,6 +75,15 @@ const emitAppUpdateProgress = (progress: AppUpdateProgressState | null) => {
             console.warn('App update progress listener failed:', error);
         }
     });
+};
+
+const prefixProgressMessageWithChannel = (message: string | undefined, channelLabel: string | undefined): string | undefined => {
+    const cleanMessage = typeof message === 'string' ? message.trim() : '';
+    const cleanChannel = typeof channelLabel === 'string' ? channelLabel.trim() : '';
+    if (!cleanChannel) return cleanMessage || undefined;
+    if (!cleanMessage) return `当前下载渠道：${cleanChannel}`;
+    if (cleanMessage.includes(`当前下载渠道：${cleanChannel}`)) return cleanMessage;
+    return `当前下载渠道：${cleanChannel}｜${cleanMessage}`;
 };
 
 export const subscribeAppUpdateProgress = (
@@ -337,10 +347,13 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
     }
 
     const versionName = manifest.versionName || RELEASE_INFO.versionName;
+    let activeChannelLabel = '';
     const listenerHandle = await NativeApkUpdater.addListener('updateProgress', (progress) => {
         emitAppUpdateProgress({
             visible: true,
-            ...progress
+            ...progress,
+            channelLabel: activeChannelLabel,
+            message: prefixProgressMessageWithChannel(progress.message, activeChannelLabel),
         });
     });
 
@@ -348,7 +361,8 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
         visible: true,
         stage: 'preparing',
         message: '正在测速选择最佳下载源...',
-        versionName
+        versionName,
+        channelLabel: '',
     });
 
     // 测速探针：HEAD 请求测量各 provider 延迟，按延迟排序
@@ -367,11 +381,13 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
         return '备用';
     };
 
+    activeChannelLabel = getChannelLabel(targetUrls[0]);
     emitAppUpdateProgress({
         visible: true,
         stage: 'preparing',
-        message: `正在准备下载更新包（渠道：${getChannelLabel(targetUrls[0])}）...`,
-        versionName
+        message: prefixProgressMessageWithChannel(`正在准备下载更新包（渠道：${activeChannelLabel}）...`, activeChannelLabel),
+        versionName,
+        channelLabel: activeChannelLabel,
     });
 
     try {
@@ -379,12 +395,14 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
         for (let index = 0; index < targetUrls.length; index += 1) {
             const targetUrl = targetUrls[index];
             const channelLabel = getChannelLabel(targetUrl);
+            activeChannelLabel = channelLabel;
             if (index > 0) {
                 emitAppUpdateProgress({
                     visible: true,
                     stage: 'preparing',
-                    message: `当前下载源速度过慢或不可用，正在切换到 ${channelLabel} 渠道...`,
-                    versionName
+                    message: prefixProgressMessageWithChannel(`当前下载源速度过慢或不可用，正在切换到 ${channelLabel} 渠道...`, channelLabel),
+                    versionName,
+                    channelLabel,
                 });
             }
 
@@ -407,8 +425,9 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
         emitAppUpdateProgress({
             visible: true,
             stage: 'error',
-            message: error instanceof Error ? error.message : '更新失败',
-            versionName
+            message: prefixProgressMessageWithChannel(error instanceof Error ? error.message : '更新失败', activeChannelLabel),
+            versionName,
+            channelLabel: activeChannelLabel,
         });
         throw error;
     } finally {

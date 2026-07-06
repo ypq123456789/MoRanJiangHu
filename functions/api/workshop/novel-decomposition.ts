@@ -166,6 +166,22 @@ const appendUnique = (target: string[], value: string): void => {
     if (text && !target.includes(text)) target.push(text);
 };
 
+const appendOpenListBaseCandidate = (target: string[], value: unknown): void => {
+    const text = readString(value);
+    if (text) appendUnique(target, normalizeOpenListBase(text));
+};
+
+const getOpenListUploadApiBases = (env: any): string[] => {
+    const candidates: string[] = [];
+    appendUnique(candidates, getOpenListApiBase(env));
+    appendOpenListBaseCandidate(candidates, env?.MORAN_OPENLIST_DIRECT_BASE_URL);
+    appendOpenListBaseCandidate(candidates, env?.MORAN_OPENLIST_BASE_URL);
+    appendOpenListBaseCandidate(candidates, env?.MORAN_OPENLIST_PUBLIC_BASE_URL);
+    appendUnique(candidates, getOpenListPublicBase(env));
+    appendUnique(candidates, DEFAULT_OPENLIST_BASE);
+    return candidates;
+};
+
 type OpenListDownloadBytes = {
     response: Response;
     bytes: Uint8Array;
@@ -315,31 +331,41 @@ const putBytesToOneDrive = async (
 ): Promise<OneDrivePutResult> => {
     const token = getOpenListToken(env);
     if (!token) return { ok: false, error: '缺少 MORAN_OPENLIST_AUTH_TOKEN' };
-    const apiBase = getOpenListApiBase(env);
-    try {
-        const response = await fetch(`${apiBase}/api/fs/put`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': token,
-                'Content-Type': contentType,
-                'File-Path': oneDrivePath
-            },
-            body: bytes
-        });
-        const text = await response.text().catch(() => '');
-        let payload: any = null;
+    const failures: string[] = [];
+    const apiBases = getOpenListUploadApiBases(env);
+    for (const apiBase of apiBases) {
         try {
-            payload = text ? JSON.parse(text) : null;
-        } catch {
-            return { ok: false, error: `OpenList 上传返回非 JSON：HTTP ${response.status}，${text.slice(0, 240) || '空响应'}` };
+            const response = await fetch(`${apiBase}/api/fs/put`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': token,
+                    'Content-Type': contentType,
+                    'File-Path': oneDrivePath
+                },
+                body: bytes
+            });
+            const text = await response.text().catch(() => '');
+            let payload: any = null;
+            try {
+                payload = text ? JSON.parse(text) : null;
+            } catch {
+                failures.push(`OpenList 上传返回非 JSON：HTTP ${response.status}，${text.slice(0, 240) || '空响应'}`);
+                continue;
+            }
+            if (!response.ok || payload?.code !== 200) {
+                failures.push(describeOpenListUploadFailure(response, text, payload));
+                continue;
+            }
+            return { ok: true, path: oneDrivePath };
+        } catch (error: any) {
+            failures.push(`OpenList 上传请求异常：${error?.message || error || '未知错误'}`);
         }
-        if (!response.ok || payload?.code !== 200) {
-            return { ok: false, error: describeOpenListUploadFailure(response, text, payload) };
-        }
-        return { ok: true, path: oneDrivePath };
-    } catch (error: any) {
-        return { ok: false, error: `OpenList 上传请求异常：${error?.message || error || '未知错误'}` };
     }
+    const uniqueFailures = Array.from(new Set(failures.filter(Boolean)));
+    const error = uniqueFailures.length > 1
+        ? `OpenList 上传失败（已尝试 ${apiBases.length} 个入口）：${uniqueFailures.join('；')}`
+        : (uniqueFailures[0] || 'OpenList 上传失败：未知错误');
+    return { ok: false, error };
 };
 
 const putToOneDrive = async (env: any, oneDrivePath: string, zipBytes: Uint8Array): Promise<OneDrivePutResult> => (

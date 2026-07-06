@@ -20,6 +20,17 @@ interface B2AuthorizeResponse {
   downloadUrl?: string;
 }
 
+type CachedAuthorizeResult = Required<Pick<B2AuthorizeResponse, 'authorizationToken' | 'downloadUrl'>> & {
+  expiresAt: number;
+};
+
+let cachedAuthorizeResult: CachedAuthorizeResult | null = null;
+const AUTHORIZE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+export function __resetB2AuthorizeCacheForTests(): void {
+  cachedAuthorizeResult = null;
+}
+
 function encodeObjectKey(key: string): string {
   return key
     .split('/')
@@ -39,6 +50,13 @@ async function authorizeAccount(
   env: Env,
   fetchImpl: typeof fetch,
 ): Promise<Required<Pick<B2AuthorizeResponse, 'authorizationToken' | 'downloadUrl'>>> {
+  if (cachedAuthorizeResult && cachedAuthorizeResult.expiresAt > Date.now()) {
+    return {
+      authorizationToken: cachedAuthorizeResult.authorizationToken,
+      downloadUrl: cachedAuthorizeResult.downloadUrl,
+    };
+  }
+
   const basicToken = btoa(`${env.MORAN_B2_APPLICATION_KEY_ID}:${env.MORAN_B2_APPLICATION_KEY}`);
   const response = await fetchImpl(`${B2_API}/b2_authorize_account`, {
     method: 'GET',
@@ -57,9 +75,15 @@ async function authorizeAccount(
     throw new Error('B2 authorize failed: missing authorizationToken or downloadUrl');
   }
 
-  return {
+  cachedAuthorizeResult = {
     authorizationToken: data.authorizationToken,
     downloadUrl: data.downloadUrl,
+    expiresAt: Date.now() + AUTHORIZE_CACHE_TTL_MS,
+  };
+
+  return {
+    authorizationToken: cachedAuthorizeResult.authorizationToken,
+    downloadUrl: cachedAuthorizeResult.downloadUrl,
   };
 }
 

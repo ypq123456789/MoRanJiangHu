@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { fetchPrivateObjectFromB2 } from '../workers/b2-cdn/src/b2Client';
+import { __resetB2AuthorizeCacheForTests, fetchPrivateObjectFromB2 } from '../workers/b2-cdn/src/b2Client';
 import { handleCdnRequest } from '../workers/b2-cdn/src/handler';
 import { createPrivateSignature } from '../workers/b2-cdn/src/signing';
+import { beforeEach } from 'vitest';
 
 const env = {
   B2_CDN_SIGNING_SECRET: 'test-secret',
@@ -12,7 +13,69 @@ const env = {
   MORAN_B2_BUCKET_NAME: 'bucket-name',
 };
 
+beforeEach(() => {
+  __resetB2AuthorizeCacheForTests();
+});
+
+class MemoryCache {
+  private readonly store = new Map<string, Response>();
+
+  async match(request: Request): Promise<Response | undefined> {
+    const value = this.store.get(request.url);
+    return value ? value.clone() : undefined;
+  }
+
+  async put(request: Request, response: Response): Promise<void> {
+    this.store.set(request.url, response.clone());
+  }
+
+  async delete(request: Request): Promise<boolean> {
+    return this.store.delete(request.url);
+  }
+}
+
 describe('handleCdnRequest', () => {
+  it('answers object storage proxy preflight requests', async () => {
+    const request = new Request('https://cdn.example.com/api/object-storage-proxy', {
+      method: 'OPTIONS',
+    });
+
+    const response = await handleCdnRequest(request, env);
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+  });
+
+  it('handles object storage proxy POST requests for list operations', async () => {
+    const fetchObjectStorage = vi.fn().mockResolvedValue(
+      new Response('<ListBucketResult><Key>MoRanJiangHu/saves/demo.json</Key></ListBucketResult>', {
+        status: 200,
+        headers: {
+          'content-type': 'application/xml; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        },
+      }),
+    );
+    const request = new Request('https://cdn.example.com/api/object-storage-proxy', {
+      method: 'POST',
+      headers: {
+        'X-Object-Storage-Method': 'LIST',
+        'X-Object-Storage-Endpoint': 'https://s3.us-west-004.backblazeb2.com',
+        'X-Object-Storage-Bucket': 'bucket-name',
+        'X-Object-Storage-Key': 'MoRanJiangHu/saves/',
+        'X-Object-Storage-Access-Key': 'key-id',
+        'X-Object-Storage-Secret-Key': 'key-secret',
+      },
+    });
+
+    const response = await handleCdnRequest(request, env, { fetchObjectStorage });
+
+    expect(fetchObjectStorage).toHaveBeenCalledOnce();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    await expect(response.text()).resolves.toContain('demo.json');
+  });
+
   it('returns 403 for private requests without signature', async () => {
     const request = new Request('https://cdn.example.com/private/moranjianghu/saves/demo.zip');
 
@@ -41,6 +104,27 @@ describe('handleCdnRequest', () => {
     expect(response.headers.get('Cache-Control')).toContain('public');
     expect(response.headers.get('content-type')).toBe('application/vnd.android.package-archive');
     await expect(response.text()).resolves.toBe('apk-binary');
+  });
+
+  it('caches public apk responses at the worker edge', async () => {
+    const cache = new MemoryCache();
+    const fetchObject = vi.fn().mockResolvedValue(
+      new Response('apk-binary', {
+        status: 200,
+        headers: {
+          'content-type': 'application/vnd.android.package-archive',
+        },
+      }),
+    );
+    const request = new Request('https://cdn.example.com/public/moranjianghu/apk/MoRanJiangHu-v1.0.570.apk');
+
+    const first = await handleCdnRequest(request, env, { fetchObject, cache });
+    const second = await handleCdnRequest(request, env, { fetchObject, cache });
+
+    expect(fetchObject).toHaveBeenCalledTimes(1);
+    expect(first.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(second.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    await expect(second.text()).resolves.toBe('apk-binary');
   });
 
   it('forwards range public requests and preserves 206 responses', async () => {
@@ -114,6 +198,41 @@ describe('handleCdnRequest', () => {
 });
 
 describe('fetchPrivateObjectFromB2', () => {
+  it('reuses b2 authorize results across repeated public fetches', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            authorizationToken: 'account-token',
+            downloadUrl: 'https://f002.backblazeb2.com',
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      )
+      .mockResolvedValue(
+        new Response('apk', {
+          status: 200,
+          headers: {
+            'content-type': 'application/vnd.android.package-archive',
+          },
+        }),
+      );
+    const request = new Request('https://cdn.example.com/public/moranjianghu/apk/latest.apk');
+
+    const first = await fetchPrivateObjectFromB2(env, 'public/moranjianghu/apk/latest.apk', request, { fetchImpl });
+    const second = await fetchPrivateObjectFromB2(env, 'public/moranjianghu/apk/latest.apk', request, { fetchImpl });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(fetchImpl.mock.calls.filter((call) => String(call[0]).includes('b2_authorize_account'))).toHaveLength(1);
+  });
+
   it('authorizes against b2 and forwards range plus conditional headers to private download', async () => {
     const fetchImpl = vi
       .fn()

@@ -23,6 +23,10 @@ describe('additional name support (non-standard CJK names)', () => {
             expect(是否可信角色发送者('上官婉儿')).toBe(true);
         });
 
+        it('accepts 4-char Japanese-style name with a 2-char surname (雾隐彩月)', () => {
+            expect(是否可信角色发送者('雾隐彩月')).toBe(true);
+        });
+
         it('rejects 4-char name without known surname', () => {
             expect(是否可信角色发送者('阿卡菲尔')).toBe(false);
         });
@@ -41,6 +45,13 @@ describe('additional name support (non-standard CJK names)', () => {
 
         it('rejects special sender (旁白)', () => {
             expect(是否可信角色发送者('旁白')).toBe(false);
+        });
+
+        it('rejects environment and mechanic labels as character names', () => {
+            expect(是否可信角色发送者('环境')).toBe(false);
+            expect(是否可信角色发送者('状态')).toBe(false);
+            expect(是否可信角色发送者('装备')).toBe(false);
+            expect(是否可信正文标签发送者('环境')).toBe(false);
         });
 
         it('accepts names via knownSpeakers override', () => {

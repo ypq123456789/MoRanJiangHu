@@ -251,44 +251,13 @@ export const 酒馆预设包含防抢话 = (config?: Partial<游戏设置结构>
     });
 };
 
-const 从复合提示词中剥离子块 = (composed: string, block: string): string => {
-    const source = typeof composed === 'string' ? composed : '';
-    const target = typeof block === 'string' ? block : '';
-    if (!source.trim() || !target.trim()) return source.trim();
-    const normalizedTarget = 规范化比较文本(target);
-    return source
-        .split(/\n{2,}/)
-        .map((item) => item.trim())
-        .filter((item) => item && 规范化比较文本(item) !== normalizedTarget)
-        .join('\n\n');
-};
-
-const 匹配酒馆COT占位符 = (content: string): boolean => (
-    /\{\{\s*cot\s*\}\}/i.test(typeof content === 'string' ? content : '')
-);
-
-const 匹配酒馆格式占位符 = (content: string): boolean => (
-    /\{\{\s*格式\s*\}\}/i.test(typeof content === 'string' ? content : '')
-    || /\{\{\s*format\s*\}\}/i.test(typeof content === 'string' ? content : '')
-);
-
 const 构建酒馆世界书文本 = (
     contextPieces: 酒馆上下文结构['contextPieces'],
     shortMemoryContext: string,
     options?: {
-        包含COT提示词?: boolean;
-        其他提示词覆盖?: string;
-        COT提示词覆盖?: string;
         剧情安排后附加文本?: string;
     }
 ): string => {
-    const otherPrompts = typeof options?.其他提示词覆盖 === 'string'
-        ? options.其他提示词覆盖
-        : contextPieces.otherPrompts;
-    const includeCot = options?.包含COT提示词 !== false;
-    const cotPrompt = typeof options?.COT提示词覆盖 === 'string' && options.COT提示词覆盖.trim()
-        ? options.COT提示词覆盖.trim()
-        : contextPieces.COT提示词;
     const storyAppend = typeof options?.剧情安排后附加文本 === 'string'
         ? options.剧情安排后附加文本.trim()
         : '';
@@ -296,12 +265,7 @@ const 构建酒馆世界书文本 = (
         contextPieces.worldPrompt,
         contextPieces.地图建筑状态,
         contextPieces.同人设定摘要,
-        contextPieces.境界体系提示词,
         contextPieces.离场NPC档案,
-        otherPrompts,
-        contextPieces.难度设置提示词,
-        contextPieces.叙事人称提示词,
-        contextPieces.字数设置提示词,
         contextPieces.长期记忆,
         contextPieces.中期记忆,
         contextPieces.剧情安排,
@@ -315,8 +279,7 @@ const 构建酒馆世界书文本 = (
         contextPieces.门派状态,
         contextPieces.任务状态,
         contextPieces.约定状态,
-        shortMemoryContext,
-        includeCot ? cotPrompt : ''
+        shortMemoryContext
     ]
         .filter((item) => (item || '').trim().length > 0)
         .join('\n\n');
@@ -754,36 +717,14 @@ export const 构建酒馆预设消息链 = (params: {
     );
     const enabledOrderSlots = (Array.isArray(selectedOrder.order) ? selectedOrder.order : [])
         .filter((slot) => Boolean(slot) && slot.enabled !== false);
-    const useCotVariableInjection = enabledOrderSlots.some((slot) => {
-        const identifier = typeof slot.identifier === 'string' ? slot.identifier.trim() : '';
-        if (!identifier) return false;
-        const prompt = promptMap.get(identifier);
-        const rawContent = typeof prompt?.content === 'string' ? prompt.content : '';
-        return 匹配酒馆COT占位符(rawContent);
-    });
-    const useFormatVariableInjection = enabledOrderSlots.some((slot) => {
-        const identifier = typeof slot.identifier === 'string' ? slot.identifier.trim() : '';
-        if (!identifier) return false;
-        const prompt = promptMap.get(identifier);
-        const rawContent = typeof prompt?.content === 'string' ? prompt.content : '';
-        return 匹配酒馆格式占位符(rawContent);
-    });
     const resolvedCotPrompt = typeof params.overrideCotPrompt === 'string' && params.overrideCotPrompt.trim()
         ? params.overrideCotPrompt.trim()
-        : params.context.contextPieces.COT提示词;
-    const worldbookOtherPrompts = useFormatVariableInjection
-        ? 从复合提示词中剥离子块(
-            params.context.contextPieces.otherPrompts,
-            params.context.contextPieces.格式提示词
-        )
-        : params.context.contextPieces.otherPrompts;
+        : '';
+    const resolvedFormatPrompt = '';
     const worldbookText = 构建酒馆世界书文本(
         params.context.contextPieces,
         params.context.shortMemoryContext,
         {
-            包含COT提示词: !useCotVariableInjection,
-            其他提示词覆盖: worldbookOtherPrompts,
-            COT提示词覆盖: resolvedCotPrompt,
             剧情安排后附加文本: params.overrideStoryAppendPrompt
         }
     );
@@ -925,7 +866,7 @@ export const 构建酒馆预设消息链 = (params: {
                 playerName,
                 charCardDescription,
                 cotPrompt: resolvedCotPrompt,
-                formatPrompt: params.context.contextPieces.格式提示词
+                formatPrompt: resolvedFormatPrompt
             });
             const content = resolved.content;
             if (content) {
@@ -950,7 +891,7 @@ export const 构建酒馆预设消息链 = (params: {
                 playerName,
                 charCardDescription,
                 cotPrompt: resolvedCotPrompt,
-                formatPrompt: params.context.contextPieces.格式提示词
+                formatPrompt: resolvedFormatPrompt
             });
             const content = resolved.content;
             if (content) {
@@ -1005,8 +946,7 @@ export const 构建酒馆预设消息链 = (params: {
         if (identifier === 'scenario' || identifier === 'scenarioDescription') {
             // 场景/开局设定 — 来自 世界背景 or 世界书摘要
             const worldPrompt = params.context.contextPieces.worldPrompt || '';
-            const otherPrompts = worldbookOtherPrompts || params.context.contextPieces.otherPrompts || '';
-            const scenarioText = [worldPrompt, otherPrompts].filter(Boolean).join('\n\n').trim();
+            const scenarioText = worldPrompt.trim();
             if (scenarioText) {
                 const prompt = promptMap.get(identifier);
                 const role = prompt?.role === 'user' || prompt?.role === 'assistant' ? prompt.role : 'system';
@@ -1069,7 +1009,7 @@ export const 构建酒馆预设消息链 = (params: {
             playerName,
             charCardDescription,
             cotPrompt: resolvedCotPrompt,
-            formatPrompt: params.context.contextPieces.格式提示词
+            formatPrompt: resolvedFormatPrompt
         });
         const content = resolved.content;
         if (!content) return;

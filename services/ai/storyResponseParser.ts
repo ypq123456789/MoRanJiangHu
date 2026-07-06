@@ -40,7 +40,8 @@ const 酒馆元标签列表 = [
     'setup',
     'status',
     'state',
-    'metadata'
+    'metadata',
+    'meow_fm'
 ] as const;
 const 酒馆元标签集合 = new Set<string>(酒馆元标签列表);
 const 酒馆状态行规则 = /^(?:当前主线任务|当前支线事件|最新使用支线事件编号|时间推进)\s*[:：]/;
@@ -366,6 +367,9 @@ const 提取候选正文文本 = (text: string): string => {
         stripped = stripped.replace(new RegExp(`<\\s*${escapedTag}\\s*>[\\s\\S]*?<\\s*/\\s*${escapedTag}\\s*>`, 'gi'), '\n');
     }
     stripped = stripped
+        .replace(/<\s*(?:branches|options)\s*>[\s\S]*?<\s*\/\s*(?:branches|options)\s*>/gi, '\n')
+        .replace(/<\s*option\s*>[\s\S]*?<\s*\/\s*option\s*>/gi, '\n');
+    stripped = stripped
         .replace(/<\s*\/?\s*thinking\s*>/gi, '\n')
         .replace(/<\s*\/?\s*think\s*>/gi, '\n');
     const lines = stripped
@@ -384,6 +388,9 @@ const 清理正文残留协议内容 = (body: string): string => {
         const escapedTag = 转义正则片段(tag);
         stripped = stripped.replace(new RegExp(`<\\s*${escapedTag}\\s*>[\\s\\S]*?<\\s*/\\s*${escapedTag}\\s*>`, 'gi'), '\n');
     }
+    stripped = stripped
+        .replace(/<\s*(?:branches|options)\s*>[\s\S]*?<\s*\/\s*(?:branches|options)\s*>/gi, '\n')
+        .replace(/<\s*option\s*>[\s\S]*?<\s*\/\s*option\s*>/gi, '\n');
     const lines: string[] = [];
     for (const rawLine of stripped.split('\n')) {
         const line = rawLine.trim();
@@ -1234,6 +1241,9 @@ const 检测正文对白格式问题 = (body: string, declaredNames?: Set<string
         if (tagMatch) {
             const sender = 规范化日志发送者(tagMatch[1] || '');
             const text = (tagMatch[2] || '').trim();
+            if (正文冒号说话人排除集合.has(sender)) {
+                return `疑似非角色标签「${sender}」被渲染成对话框；请局部确认这里是否真的是角色对白。若是环境/状态/判定描写，改为【旁白】叙事；若确实是角色发言，请改成真实角色名`;
+            }
             if (孤立标点行正则.test(text)) {
                 return `正文第${index + 1}行只有孤立标点「${text}」，必须局部重写相邻正文，不能让标点单独成行`;
             }

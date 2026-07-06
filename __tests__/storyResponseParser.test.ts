@@ -612,6 +612,36 @@ describe('storyResponseParser', () => {
         expect(parsed.logs[3].sender).toBe('旁白');
     });
 
+    it('keeps environment labels as narration in lenient parsing', () => {
+        const parsed = parseStoryRawText([
+            '<正文>',
+            '【庞博】"卧槽！那到底是什么东西?!"',
+            '【环境】轰——！',
+            '这不是普通的重物落地，这简直像是一颗陨石砸进了泰山。',
+            '</正文>',
+            '<短期记忆>黑龙尸体砸落玉皇顶。</短期记忆>'
+        ].join('\n'));
+
+        expect(parsed.logs).toEqual([
+            { sender: '庞博', text: '"卧槽！那到底是什么东西?!"' },
+            {
+                sender: '旁白',
+                text: '【环境】轰——！\n这不是普通的重物落地，这简直像是一颗陨石砸进了泰山。'
+            }
+        ]);
+    });
+
+    it('asks for local AI repair when strict parsing sees environment labels as dialogue bubbles', () => {
+        expect(() => parseStoryRawText([
+            '<正文>',
+            '【庞博】"卧槽！那到底是什么东西?!"',
+            '【环境】轰——！',
+            '这不是普通的重物落地，这简直像是一颗陨石砸进了泰山。',
+            '</正文>',
+            '<短期记忆>黑龙尸体砸落玉皇顶。</短期记忆>'
+        ].join('\n'), { validateDialogueFormat: true })).toThrow(/疑似非角色标签「环境」|局部修复/);
+    });
+
     it('repairs incomplete <角色名单> tag (missing closing tag)', () => {
         const parsed = parseStoryRawText([
             '<角色名单>',

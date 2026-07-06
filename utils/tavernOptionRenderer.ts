@@ -25,6 +25,15 @@ const OPTIONS_TAG_PATTERNS = [
     /<\s*option\s*>\s*([\s\S]*?)<\s*\/\s*option\s*>/gi,
 ];
 
+const 清理选项文本 = (value: string): string => (
+    (value || '')
+        .replace(/<\s*\/?\s*(?:details|summary|options|branches|option)\b[^>]*>/gi, '')
+        .replace(/^[\s>*\-]+/g, '')
+        .replace(/^(?:[A-ZＡ-Ｚ]|[a-zａ-ｚ]|[一二三四五六七八九十]|\d+)\s*[.)．、:：]\s*/u, '')
+        .replace(/^选项\s*(?:[A-ZＡ-Ｚ]|[a-zａ-ｚ]|[一二三四五六七八九十]|\d+)?\s*[.)．、:：]?\s*/iu, '')
+        .trim()
+);
+
 /**
  * 从 AI 输出文本中直接提取 <options>/<branches> 标签内的选项
  *
@@ -42,7 +51,7 @@ export const 从AI文本提取选项 = (text: string): string[] => {
         const items = block.match(/选项[一二三四五六七八九十]+[：:]\s*([^\n>]+)/g);
         if (items) {
             for (const item of items) {
-                const value = item.replace(/^[^：:]+[：:]\s*/, '').trim();
+                const value = 清理选项文本(item.replace(/^[^：:]+[：:]\s*/, ''));
                 if (value) options.push(value);
             }
         }
@@ -51,7 +60,7 @@ export const 从AI文本提取选项 = (text: string): string[] => {
             const lines = block
                 .replace(/<\s*\/?\s*options\s*>/gi, '')
                 .split(/\n/)
-                .map(l => l.replace(/^[\s>*\-]+\s*/, '').trim())
+                .map(l => 清理选项文本(l))
                 .filter(l => l && !l.startsWith('<'));
             options.push(...lines);
         }
@@ -60,11 +69,21 @@ export const 从AI文本提取选项 = (text: string): string[] => {
     // 模式2: <branches>...</branches>
     const branchesMatch = text.match(/<\s*branches\s*>([\s\S]*?)<\s*\/\s*branches\s*>/i);
     if (branchesMatch && options.length === 0) {
-        const lines = branchesMatch[1]
-            .split(/\n/)
-            .map(l => l.replace(/^[\s>*\-]+\s*/, '').trim())
-            .filter(l => l && !l.startsWith('<'));
-        options.push(...lines);
+        const block = branchesMatch[1]
+            .replace(/<\s*summary\b[^>]*>[\s\S]*?<\s*\/\s*summary\s*>/gi, '\n')
+            .replace(/<\s*\/?\s*details\b[^>]*>/gi, '\n');
+        const markedItems = [...block.matchAll(/(?:^|\n)\s*(?:[A-ZＡ-Ｚ]|[a-zａ-ｚ]|\d+)\s*[.)．、:：]\s*([\s\S]*?)(?=\n\s*(?:[A-ZＡ-Ｚ]|[a-zａ-ｚ]|\d+)\s*[.)．、:：]|\s*$)/g)]
+            .map(match => 清理选项文本(match[1] || ''))
+            .filter(Boolean);
+        if (markedItems.length > 0) {
+            options.push(...markedItems);
+        } else {
+            const lines = block
+                .split(/\n/)
+                .map(l => 清理选项文本(l))
+                .filter(l => l && !l.startsWith('<'));
+            options.push(...lines);
+        }
     }
 
     // 模式3: <option>xxx</option> 逐个
@@ -72,7 +91,8 @@ export const 从AI文本提取选项 = (text: string): string[] => {
         const individualOptions = [...text.matchAll(/<\s*option\s*>\s*([\s\S]*?)<\s*\/\s*option\s*>/gi)];
         for (const match of individualOptions) {
             const value = match[1].trim();
-            if (value) options.push(value);
+            const cleaned = 清理选项文本(value);
+            if (cleaned) options.push(cleaned);
         }
     }
 
@@ -148,6 +168,7 @@ export const 从正则脚本提取选项 = (
                     .replace(/<\s*\/?\s*(?:options|branches|option)\s*>/gi, '')
                     .trim();
             })
+            .map(清理选项文本)
             .filter(v => v.length > 0);
     } catch {
         return [];
