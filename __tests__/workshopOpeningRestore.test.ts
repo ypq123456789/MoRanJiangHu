@@ -1,8 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import { 获取快速重开运行时恢复参数, 构建预设直开恢复结果 } from '../utils/customNewGamePresets';
+import { 构建开局预设摘要列表, 获取快速重开运行时恢复参数, 构建预设直开恢复结果 } from '../utils/customNewGamePresets';
 import { 创意工坊模块列表 } from '../data/creativeWorkshopModules';
 
 describe('workshop opening restore helpers', () => {
+    it('开局预设摘要列表只读取列表展示字段，不触碰大字段', () => {
+        const rawPreset: any = {
+            id: 'lazy-preset',
+            名称: '轻量方案',
+            简介: '只用于列表展示',
+            character: {
+                姓名: '迟砚',
+                性别: '男',
+                背景名称: '宗门旧徒'
+            }
+        };
+        Object.defineProperty(rawPreset, 'openingConfig', {
+            get() {
+                throw new Error('列表摘要不应读取 openingConfig');
+            }
+        });
+        Object.defineProperty(rawPreset, 'worldConfig', {
+            get() {
+                throw new Error('列表摘要不应读取 worldConfig');
+            }
+        });
+
+        const summaries = 构建开局预设摘要列表([rawPreset]);
+
+        expect(summaries).toEqual([
+            {
+                id: 'lazy-preset',
+                名称: '轻量方案',
+                简介: '只用于列表展示',
+                character: {
+                    姓名: '迟砚',
+                    性别: '男',
+                    背景名称: '宗门旧徒'
+                }
+            }
+        ]);
+    });
+
     it('快速重开优先使用 runtimeSnapshot 中的恢复字段', () => {
         const restored = 获取快速重开运行时恢复参数({
             openingConfig: {

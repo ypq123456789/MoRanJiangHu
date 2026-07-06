@@ -8,6 +8,19 @@ import { normalizeRealmDraft, normalizeWorldMapDraft } from './newGameDiy';
 import { 规范化题材模式 } from './topicModeProfiles';
 
 export const 自定义开局预设存储键 = 'new_game_custom_start_presets';
+export const 自定义开局预设摘要存储键 = 'new_game_custom_start_presets_index_v1';
+export const 自定义开局预设详情存储键前缀 = 'new_game_custom_start_preset_detail_v1:';
+
+export type 开局预设方案摘要 = {
+    id: string;
+    名称: string;
+    简介: string;
+    character: {
+        姓名: string;
+        性别: string;
+        背景名称: string;
+    };
+};
 
 const 属性键列表 = ['力量', '敏捷', '体质', '根骨', '悟性', '福源'] as const;
 
@@ -20,6 +33,39 @@ const 标准化数值 = (value: unknown, fallback: number, min: number, max: num
 };
 
 export const 生成自定义开局预设ID = (): string => `custom_start_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+export const 构建自定义开局预设详情存储键 = (id: string): string => `${自定义开局预设详情存储键前缀}${id}`;
+
+export const 构建开局预设方案摘要 = (raw: any): 开局预设方案摘要 | null => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const id = 标准化文本(raw.id);
+    const 名称 = 标准化文本(raw.名称);
+    if (!id || !名称) return null;
+    const character = raw.character && typeof raw.character === 'object' && !Array.isArray(raw.character)
+        ? raw.character
+        : {};
+    return {
+        id,
+        名称,
+        简介: 标准化文本(raw.简介) || '自定义开局方案',
+        character: {
+            姓名: 标准化文本(character.姓名),
+            性别: 标准化文本(character.性别),
+            背景名称: 标准化文本(character.背景名称)
+        }
+    };
+};
+
+export const 构建开局预设摘要列表 = (rawList: unknown): 开局预设方案摘要[] => {
+    if (!Array.isArray(rawList)) return [];
+    const map = new Map<string, 开局预设方案摘要>();
+    rawList.forEach((item) => {
+        const summary = 构建开局预设方案摘要(item);
+        if (!summary) return;
+        map.set(summary.id, summary);
+    });
+    return Array.from(map.values());
+};
 
 export const 标准化开局预设方案 = (raw: any): 开局预设方案结构 | null => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;

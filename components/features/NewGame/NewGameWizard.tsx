@@ -12,7 +12,7 @@ import GeneratedGenderSelector from './GeneratedGenderSelector';
 import NewGameCurrencySystemSetup from './NewGameCurrencySystemSetup';
 import * as dbService from '../../../services/dbService';
 import { 读取小说拆分数据集列表 } from '../../../services/novelDecompositionStore';
-import { 合并去重开局预设方案, 标准化开局预设方案, 生成自定义开局预设ID, 自定义开局预设存储键, 构建开局运行时快照, 构建预设表单恢复结果, 构建预设直开恢复结果, 获取快速重开运行时恢复参数 } from '../../../utils/customNewGamePresets';
+import { 合并去重开局预设方案, 标准化开局预设方案, 生成自定义开局预设ID, 自定义开局预设存储键, 自定义开局预设摘要存储键, 构建开局预设摘要列表, 构建自定义开局预设详情存储键, 构建开局运行时快照, 构建预设表单恢复结果, 构建预设直开恢复结果, 获取快速重开运行时恢复参数, type 开局预设方案摘要 } from '../../../utils/customNewGamePresets';
 import {
     获取题材关系侧重选项,
     获取题材开局切入偏好选项,
@@ -276,7 +276,8 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     const [模式包天赋列表, 设置模式包天赋列表] = useState<天赋结构[]>([]);
     const [模式包背景列表, 设置模式包背景列表] = useState<背景结构[]>([]);
     const [模式包世界书列表, 设置模式包世界书列表] = useState<世界书结构[]>([]);
-    const [自定义开局预设列表, 设置自定义开局预设列表] = useState<开局预设方案结构[]>([]);
+    const [自定义开局预设列表, 设置自定义开局预设列表] = useState<开局预设方案摘要[]>([]);
+    const [自定义开局预设加载中, 设置自定义开局预设加载中] = useState(false);
     const [小说拆分数据集列表, 设置小说拆分数据集列表] = useState<小说拆分数据集结构[]>([]);
     const [创意工坊模块列表, 设置创意工坊模块列表] = useState<创意工坊模块条目[]>([]);
     const [已选创意工坊模式, 设置已选创意工坊模式] = useState<题材模式类型 | ''>('');
@@ -336,6 +337,38 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
             map.set(normalized.名称, normalized);
         });
         return Array.from(map.values());
+    };
+    const 写入自定义开局预设摘要和详情 = async (presetList: 开局预设方案结构[]) => {
+        const normalizedList = 合并去重开局预设方案(presetList);
+        const summaries = 构建开局预设摘要列表(normalizedList);
+        设置自定义开局预设列表(summaries);
+        await dbService.保存设置(自定义开局预设摘要存储键, summaries);
+        await dbService.保存设置(自定义开局预设存储键, normalizedList);
+        await Promise.all(normalizedList.map((preset) => (
+            dbService.保存设置(构建自定义开局预设详情存储键(preset.id), preset)
+        )));
+    };
+    const 读取自定义开局预设详情 = async (presetId: string): Promise<开局预设方案结构 | null> => {
+        const direct = await dbService.读取设置(构建自定义开局预设详情存储键(presetId));
+        const directPreset = 标准化开局预设方案(direct);
+        if (directPreset) return directPreset;
+        const legacyList = await dbService.读取设置(自定义开局预设存储键);
+        if (!Array.isArray(legacyList)) return null;
+        const matched = legacyList.find((item: any) => item?.id === presetId);
+        const matchedPreset = 标准化开局预设方案(matched);
+        if (matchedPreset) {
+            await dbService.保存设置(构建自定义开局预设详情存储键(matchedPreset.id), matchedPreset).catch(() => undefined);
+        }
+        return matchedPreset;
+    };
+    const 读取完整自定义开局预设列表 = async (summaryList: 开局预设方案摘要[] = 自定义开局预设列表): Promise<开局预设方案结构[]> => {
+        const fromDetails = await Promise.all(summaryList.map((item) => 读取自定义开局预设详情(item.id)));
+        const normalized = fromDetails.filter(Boolean) as 开局预设方案结构[];
+        if (normalized.length > 0 || summaryList.length > 0) return 合并去重开局预设方案(normalized);
+        const legacyList = await dbService.读取设置(自定义开局预设存储键);
+        return Array.isArray(legacyList)
+            ? 合并去重开局预设方案(legacyList.map(item => 标准化开局预设方案(item)).filter(Boolean) as 开局预设方案结构[])
+            : [];
     };
     const 当前题材预设背景 = useMemo(() => 获取题材预设背景(openingConfig.题材模式), [openingConfig.题材模式]);
     const 当前题材预设天赋 = useMemo(() => 获取题材预设天赋(openingConfig.题材模式), [openingConfig.题材模式]);
@@ -790,6 +823,22 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
         设置已选创意工坊模式(restored.workshopSelection?.selectedMode || '');
         设置已选创意工坊子项(restored.workshopSelection?.selectedModules || {});
         if (!options?.保持当前步骤) setStep(1);
+    };
+    const 读取并应用自定义开局预设 = async (summary: 开局预设方案摘要) => {
+        const preset = await 读取自定义开局预设详情(summary.id);
+        if (!preset) {
+            alert('该开局方案详情不存在或已损坏，请重新保存一次方案。');
+            return;
+        }
+        应用预设到表单(preset);
+    };
+    const 读取并以自定义开局预设开局 = async (summary: 开局预设方案摘要) => {
+        const preset = await 读取自定义开局预设详情(summary.id);
+        if (!preset) {
+            alert('该开局方案详情不存在或已损坏，请重新保存一次方案。');
+            return;
+        }
+        await handleGenerate(preset);
     };
     const 当前性别模式: '男' | '女' | '男娘' | '扶她' | '自定义' = ['男', '女', '男娘', '扶她'].includes(charGender.trim())
         ? charGender.trim() as '男' | '女' | '男娘' | '扶她'
@@ -1413,12 +1462,32 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     }, []);
 
     useEffect(() => {
+        let disposed = false;
+        const 迁移旧版开局预设 = async () => {
+            设置自定义开局预设加载中(true);
+            try {
+                const savedStartPresets = await dbService.读取设置(自定义开局预设存储键);
+                if (!Array.isArray(savedStartPresets)) return;
+                const normalized = 合并去重开局预设方案(savedStartPresets.map(item => 标准化开局预设方案(item)).filter(Boolean) as 开局预设方案结构[]);
+                if (normalized.length <= 0) return;
+                const summaries = 构建开局预设摘要列表(normalized);
+                await dbService.保存设置(自定义开局预设摘要存储键, summaries);
+                await Promise.all(normalized.map((preset) => (
+                    dbService.保存设置(构建自定义开局预设详情存储键(preset.id), preset)
+                )));
+                if (!disposed) 设置自定义开局预设列表(summaries);
+            } catch (error) {
+                console.error('迁移旧版自定义开局方案失败', error);
+            } finally {
+                if (!disposed) 设置自定义开局预设加载中(false);
+            }
+        };
         const 加载自定义建角配置 = async () => {
             try {
-                const [savedTalents, savedBackgrounds, savedStartPresets, savedNovelDatasets, workshopModules] = await Promise.all([
+                const [savedTalents, savedBackgrounds, savedStartPresetSummaries, savedNovelDatasets, workshopModules] = await Promise.all([
                     dbService.读取设置(自定义天赋存储键),
                     dbService.读取设置(自定义背景存储键),
-                    dbService.读取设置(自定义开局预设存储键),
+                    dbService.读取设置(自定义开局预设摘要存储键),
                     读取小说拆分数据集列表(),
                     列出创意工坊模块().catch(() => [] as 创意工坊模块条目[])
                 ]);
@@ -1428,8 +1497,11 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                 if (Array.isArray(savedBackgrounds)) {
                     设置自定义背景列表(合并去重背景(savedBackgrounds as 背景结构[]));
                 }
-                if (Array.isArray(savedStartPresets)) {
-                    设置自定义开局预设列表(合并去重开局预设方案(savedStartPresets.map(item => 标准化开局预设方案(item)).filter(Boolean) as 开局预设方案结构[]));
+                const summaries = 构建开局预设摘要列表(savedStartPresetSummaries);
+                if (summaries.length > 0) {
+                    设置自定义开局预设列表(summaries);
+                } else {
+                    window.setTimeout(() => { void 迁移旧版开局预设(); }, 0);
                 }
                 if (Array.isArray(workshopModules)) {
                     设置创意工坊模块列表(workshopModules.filter((item) => item.type === 'topic'));
@@ -1440,6 +1512,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
             }
         };
         加载自定义建角配置();
+        return () => { disposed = true; };
     }, []);
 
     useEffect(() => {
@@ -1734,9 +1807,8 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     };
 
     const 保存自定义开局预设列表 = async (nextList: 开局预设方案结构[]) => {
-        设置自定义开局预设列表(nextList);
         try {
-            await dbService.保存设置(自定义开局预设存储键, nextList);
+            await 写入自定义开局预设摘要和详情(nextList);
         } catch (error) {
             console.error('保存自定义开局方案失败', error);
         }
@@ -1759,38 +1831,42 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
             alert('当前方案内容无效，无法保存。');
             return;
         }
+        const currentFullList = await 读取完整自定义开局预设列表();
         const nextList = 合并去重开局预设方案([
-            ...自定义开局预设列表.filter(item => item.id !== nextPreset.id),
+            ...currentFullList.filter(item => item.id !== nextPreset.id),
             nextPreset
         ]);
         await 保存自定义开局预设列表(nextList);
         重置自定义开局预设编辑();
     };
 
-    const 编辑自定义开局方案信息 = (preset: 开局预设方案结构) => {
+    const 编辑自定义开局方案信息 = (preset: 开局预设方案摘要) => {
         setCustomPresetMeta({ 名称: preset.名称, 简介: preset.简介 || '' });
         set正在编辑开局预设ID(preset.id);
         setShowCustomPresetEditor(true);
         setStep(0);
     };
 
-    const 用当前配置覆盖开局方案 = async (preset: 开局预设方案结构) => {
+    const 用当前配置覆盖开局方案 = async (preset: 开局预设方案摘要) => {
         const nextPreset = 标准化开局预设方案(构建当前表单开局预设({
             id: preset.id,
             名称: preset.名称,
             简介: preset.简介
         }));
         if (!nextPreset) return;
+        const currentFullList = await 读取完整自定义开局预设列表();
         const nextList = 合并去重开局预设方案([
-            ...自定义开局预设列表.filter(item => item.id !== preset.id),
+            ...currentFullList.filter(item => item.id !== preset.id),
             nextPreset
         ]);
         await 保存自定义开局预设列表(nextList);
     };
 
     const 删除自定义开局方案 = async (presetId: string) => {
-        const nextList = 自定义开局预设列表.filter(item => item.id !== presetId);
+        const currentFullList = await 读取完整自定义开局预设列表();
+        const nextList = currentFullList.filter(item => item.id !== presetId);
         await 保存自定义开局预设列表(nextList);
+        await dbService.批量删除设置([构建自定义开局预设详情存储键(presetId)]).catch(() => undefined);
         if (正在编辑开局预设ID === presetId) {
             重置自定义开局预设编辑();
         }
@@ -1998,12 +2074,16 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                 <h3 className="text-xl font-serif font-bold text-wuxia-gold border-b border-wuxia-gold/30 pb-3 mb-6">世界法则设定</h3>
                                 
                                 <div className="space-y-6">
-                                    {自定义开局预设列表.length > 0 && (
+                                    {(自定义开局预设列表.length > 0 || 自定义开局预设加载中) && (
                                         <div className="rounded-2xl border border-wuxia-gold/25 bg-wuxia-gold/5 p-4 space-y-3">
                                             <div className="flex items-start justify-between gap-3">
                                                 <div>
                                                     <div className="text-sm text-wuxia-gold font-bold">开局预设方案</div>
-                                                    <div className="text-[11px] text-gray-500 mt-1">保存后的方案会优先出现在世界观页，可直接套用、编辑或跳过表单步骤直接开局。</div>
+                                                    <div className="text-[11px] text-gray-500 mt-1">
+                                                        {自定义开局预设加载中 && 自定义开局预设列表.length <= 0
+                                                            ? '正在整理旧版已保存方案，表单可以先正常使用。'
+                                                            : '保存后的方案会优先出现在世界观页，可直接套用、编辑或跳过表单步骤直接开局。'}
+                                                    </div>
                                                 </div>
                                                 <span className="text-[10px] text-wuxia-cyan font-mono tracking-[0.18em]">CUSTOM</span>
                                             </div>
@@ -2018,8 +2098,8 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                                             {preset.character.姓名 || '未命名主角'} / {preset.character.性别 || '未设性别'} / {preset.character.背景名称 || '未设背景'}
                                                         </div>
                                                         <div className="grid grid-cols-2 gap-2">
-                                                            <GameButton onClick={() => 应用预设到表单(preset)} variant="secondary" className="py-2 text-xs">套用查看</GameButton>
-                                                            <GameButton onClick={() => { void handleGenerate(preset); }} variant="primary" className="py-2 text-xs">以此方案开局</GameButton>
+                                                            <GameButton onClick={() => { void 读取并应用自定义开局预设(preset); }} variant="secondary" className="py-2 text-xs">套用查看</GameButton>
+                                                            <GameButton onClick={() => { void 读取并以自定义开局预设开局(preset); }} variant="primary" className="py-2 text-xs">以此方案开局</GameButton>
                                                         </div>
                                                         <div className="grid grid-cols-3 gap-2">
                                                             <button type="button" onClick={() => 编辑自定义开局方案信息(preset)} className="text-[11px] text-wuxia-cyan hover:text-white">编辑信息</button>
@@ -2028,6 +2108,11 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                                         </div>
                                                     </div>
                                                 ))}
+                                                {自定义开局预设加载中 && 自定义开局预设列表.length <= 0 && (
+                                                    <div className="rounded-xl border border-gray-700/80 bg-black/25 p-4 text-xs leading-6 text-gray-400">
+                                                        正在生成轻量索引，完成后会自动显示已保存方案。
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}
