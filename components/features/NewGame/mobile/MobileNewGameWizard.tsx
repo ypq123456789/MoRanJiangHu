@@ -1780,7 +1780,7 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
         onComplete(
             runtimeWorldConfig,
             charData,
-            runtimeOpeningConfig,
+            runtimeOpeningConfig as OpeningConfig | undefined,
             'all',
             runtimeRestore.openingStreaming,
             effectiveOpeningExtraRequirement.trim(),

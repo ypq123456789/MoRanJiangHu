@@ -2007,7 +2007,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
         onComplete(
             runtimeWorldConfig,
             charData,
-            runtimeOpeningConfig,
+            runtimeOpeningConfig as OpeningConfig | undefined,
             'all',
             runtimeRestore.openingStreaming,
             effectiveOpeningExtraRequirement.trim(),

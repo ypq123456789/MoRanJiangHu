@@ -1382,7 +1382,7 @@ export const 构建模式包模块 = (draft: 贡献草稿, contributor: string, 
             ...draft.modeRuntimeProfile.map,
             mapPrompt: [
                 modeMetadata.mapPrompt,
-                !worldDetailGeneration.aiGenerate && worldDetailGeneration.mapDesign.trim()
+                !worldDetailGeneration.aiGenerate && (worldDetailGeneration.mapDesign || '').trim()
                     ? '地图生成必须优先使用贡献者填写的地图层级与地图块介绍。'
                     : ''
             ].filter(Boolean).join('\n')

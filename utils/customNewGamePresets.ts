@@ -481,7 +481,7 @@ const 过滤有效工坊选择 = (
             return validModuleKeys.has(normalized);
         })
     ) as NonNullable<OpeningRuntimeSnapshot['workshopSelection']>['selectedModules'];
-    const selectedMode = 标准化文本(selection.selectedMode) as OpeningRuntimeSnapshot['workshopSelection']['selectedMode'];
+    const selectedMode = 标准化文本(selection.selectedMode) as NonNullable<OpeningRuntimeSnapshot['workshopSelection']>['selectedMode'];
     if (!selectedMode && Object.keys(selectedModules || {}).length <= 0) return undefined;
     return {
         ...(selectedMode ? { selectedMode } : {}),

@@ -777,6 +777,8 @@ export interface ModeRuntimeProfile {
     };
     性别比例演变预设?: boolean; // 题材模式建议值，游戏设置中未显式设置时使用
     uiLabels?: 模式界面文案覆盖;
+    /** 开局向导可挂载；运行时以游戏设置为准 */
+    叙事平静值配置?: 叙事平静值配置结构;
 }
 
 export interface OpeningConfig {
