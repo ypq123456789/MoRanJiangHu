@@ -1,6 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 从模式世界书提取提示词, 创意工坊模块分区, 创意工坊模块可发布到社区, 获取创意工坊模块来源标签, 是否完整模式包Payload, type 创意工坊模块条目, type 创意工坊模块类型, type 创意工坊世界细节生成配置 } from '../../../data/creativeWorkshopModules';
+import { 获取题材预设背景, 获取题材预设天赋 } from '../../../data/presets';
 import type { 接口设置结构, ModeRuntimeProfile, 世界书结构, 世界书条目结构 } from '../../../types';
+import {
+    从创意工坊模块提取背景天赋池,
+    格式化背景天赋池JSON,
+    格式化背景天赋校验状态文案,
+    构建背景天赋池摘要行,
+    校验创意工坊模块背景天赋,
+    校验工坊背景天赋池,
+    规范化工坊背景列表,
+    规范化工坊天赋列表,
+    解析工坊池JSON
+} from '../../../utils/workshopBackgroundTalentMeta';
 import { 模式市场行情影响类型列表, type CurrencySystem, type 题材模式类型, type 模式市场行情模板 } from '../../../models/system';
 import { 题材模式配置表, 题材模式顺序 } from '../../../utils/topicModeProfiles';
 import { 构建货币系统模板, 构建官方模式运行时配置, 规范化模式运行时配置, 渲染模式运行时配置世界书内容, 规范化显式货币系统 } from '../../../utils/modeRuntimeProfile';
@@ -235,6 +247,10 @@ export type 贡献草稿 = {
     presetItemKeywords: string;
     backgroundSuggestions: string;
     talentSuggestions: string;
+    /** 完整出身背景池 JSON（含可选 自带天赋 引用） */
+    backgroundsPoolJson: string;
+    /** 完整天赋池 JSON（含可选 隐藏 / 叙事约束） */
+    talentsPoolJson: string;
     modeRuntimeProfile: ModeRuntimeProfile;
     tags: string;
     body: string;
@@ -297,17 +313,43 @@ const 复制文本 = async (text: string): Promise<boolean> => {
     }
 };
 
-const 构建模块摘要 = (entry: 创意工坊模块条目): string => [
-    `《${entry.title}》`,
-    entry.description,
-    `标签：${entry.tags.join('、')}`,
-    entry.usagePrompt ? `使用提示：${entry.usagePrompt}` : '',
-    '',
-    entry.contentBlocks?.length ? '内容分段：' : '注入预览：',
-    ...(entry.contentBlocks?.length
-        ? entry.contentBlocks.map((block) => `【${block.title}】${block.purpose}\n${block.content}`)
-        : (entry.injectionPreview?.length ? entry.injectionPreview : [`模块数据：${JSON.stringify(entry.payload, null, 2)}`]))
-].filter(Boolean).join('\n');
+const 构建模块摘要 = (entry: 创意工坊模块条目): string => {
+    const poolCheck = 校验创意工坊模块背景天赋(entry);
+    const poolLines = (poolCheck.backgrounds.length > 0 || poolCheck.talents.length > 0)
+        ? ['', '出身/天赋池：', ...构建背景天赋池摘要行(poolCheck)]
+        : [];
+    return [
+        `《${entry.title}》`,
+        entry.description,
+        `标签：${entry.tags.join('、')}`,
+        entry.usagePrompt ? `使用提示：${entry.usagePrompt}` : '',
+        ...poolLines,
+        '',
+        entry.contentBlocks?.length ? '内容分段：' : '注入预览：',
+        ...(entry.contentBlocks?.length
+            ? entry.contentBlocks.map((block) => `【${block.title}】${block.purpose}\n${block.content}`)
+            : (entry.injectionPreview?.length ? entry.injectionPreview : [`模块数据：${JSON.stringify(entry.payload, null, 2)}`]))
+    ].filter(Boolean).join('\n');
+};
+
+const 解析草稿背景天赋池 = (draft: 贡献草稿, mode: 题材模式类型) => {
+    const fallback = 构建模式默认背景天赋池JSON(mode);
+    const bgParse = 解析工坊池JSON(draft.backgroundsPoolJson || fallback.backgroundsPoolJson, 'backgrounds', 规范化工坊背景列表);
+    const talentParse = 解析工坊池JSON(draft.talentsPoolJson || fallback.talentsPoolJson, 'talents', 规范化工坊天赋列表);
+    const backgrounds = bgParse.items.length > 0 ? bgParse.items : 规范化工坊背景列表(获取题材预设背景(mode));
+    const talents = talentParse.items.length > 0 ? talentParse.items : 规范化工坊天赋列表(获取题材预设天赋(mode));
+    const issues = [
+        ...(bgParse.error ? [{ kind: 'invalid_json' as const, message: `背景池 ${bgParse.error}` }] : []),
+        ...(talentParse.error ? [{ kind: 'invalid_json' as const, message: `天赋池 ${talentParse.error}` }] : []),
+        ...校验工坊背景天赋池({ backgrounds, talents }).issues
+    ];
+    return { backgrounds, talents, issues, bgParse, talentParse };
+};
+
+const 构建模式默认背景天赋池JSON = (mode: 题材模式类型): Pick<贡献草稿, 'backgroundsPoolJson' | 'talentsPoolJson'> => ({
+    backgroundsPoolJson: 格式化背景天赋池JSON(获取题材预设背景(mode) as any[]),
+    talentsPoolJson: 格式化背景天赋池JSON(获取题材预设天赋(mode) as any[])
+});
 
 export const 空贡献草稿 = (): 贡献草稿 => ({
     title: '',
@@ -317,6 +359,7 @@ export const 空贡献草稿 = (): 贡献草稿 => ({
     moduleKind: 'mode_package',
     mode: '武侠',
     ...创建默认模式元数据草稿('武侠'),
+    ...构建模式默认背景天赋池JSON('武侠'),
     tags: '',
     body: '',
     topicBody: '',
@@ -343,6 +386,7 @@ export const 构建官方模板草稿 = (mode: 题材模式类型): 贡献草稿
         ...空贡献草稿(),
         mode,
         ...创建默认模式元数据草稿(mode),
+        ...构建模式默认背景天赋池JSON(mode),
         title: `${mode}模式包模板`,
         subtitle: `${mode} · 官方默认值模板`,
         description: `以${mode}官方默认配置生成的模式包模板，可下载后修改或直接在表单中改造。`,
@@ -831,6 +875,16 @@ export const 模块转贡献草稿 = (entry: 创意工坊模块条目): 贡献�
             presetItemKeywords: 数组转短语(metadata.presetItemKeywords),
             backgroundSuggestions: 数组转短语(metadata.backgroundSuggestions),
             talentSuggestions: 数组转短语(metadata.talentSuggestions),
+            backgroundsPoolJson: (() => {
+                const pool = 从创意工坊模块提取背景天赋池(entry);
+                if (pool.backgrounds.length > 0) return 格式化背景天赋池JSON(pool.backgrounds);
+                return 构建模式默认背景天赋池JSON(baseMode).backgroundsPoolJson;
+            })(),
+            talentsPoolJson: (() => {
+                const pool = 从创意工坊模块提取背景天赋池(entry);
+                if (pool.talents.length > 0) return 格式化背景天赋池JSON(pool.talents);
+                return 构建模式默认背景天赋池JSON(baseMode).talentsPoolJson;
+            })(),
             modeRuntimeProfile: runtime,
             topicBody: 读取模式包正文(entry, 'topic'),
             worldRulesBody: 读取模式包正文(entry, 'worldRules'),
@@ -1344,6 +1398,7 @@ export const 构建模式包模块 = (draft: 贡献草稿, contributor: string, 
     const originalWorldbooks = source ? 提取模块模式世界书(source) : [];
     const modeWorldbooks = 合并模式世界书(originalWorldbooks, generatedWorldbooks);
     const extractedPrompts = 从模式世界书提取提示词(modeWorldbooks);
+    const 背景天赋池 = 解析草稿背景天赋池(draft, baseMode);
     const generatedContentBlocks: NonNullable<创意工坊模块条目['contentBlocks']> = [
         {
             id: 'topic-main',
@@ -1405,6 +1460,8 @@ export const 构建模式包模块 = (draft: 贡献草稿, contributor: string, 
             mainStoryDirection: draft.mainStoryDirection.trim() || undefined,
             hiddenPlotPolicy: draft.hiddenPlotPolicy.trim() || undefined,
             worldEvolutionPolicy: draft.worldEvolutionPolicy.trim() || undefined,
+            backgrounds: 背景天赋池.backgrounds,
+            talents: 背景天赋池.talents,
             content,
             contentBlocks,
             usagePrompt,
@@ -1426,7 +1483,8 @@ export const 构建模式包模块 = (draft: 贡献草稿, contributor: string, 
             `地图口径：${modeMetadata.mapPrompt.slice(0, 120) || '未填写'}`,
             `题材口径：${draft.topicBody.trim().slice(0, 160)}`,
             `世界规则：${draft.worldRulesBody.trim().slice(0, 160)}`,
-            `能力体系：${draft.abilityBody.trim().slice(0, 160)}`
+            `能力体系：${draft.abilityBody.trim().slice(0, 160)}`,
+            ...构建背景天赋池摘要行(背景天赋池)
         ],
         source: 'local',
         contributor: effectiveContributor,
@@ -1840,9 +1898,13 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
             for (const module of contributionModules) {
                 published.push(await 发布创意工坊模块({ module, contributor, anonymous: anonymousContribution }));
             }
-            setStatus(isModePackageDraft
-                ? `已发布完整模式包「${contributionDraft.title.trim()}」。`
-                : `已发布到社区工坊：${published[0]?.title || contributionDraft.title}。`);
+            const poolWarning = 格式化背景天赋校验状态文案(校验创意工坊模块背景天赋(published[0] || contributionModules[0]).issues);
+            setStatus([
+                isModePackageDraft
+                    ? `已发布完整模式包「${contributionDraft.title.trim()}」。`
+                    : `已发布到社区工坊：${published[0]?.title || contributionDraft.title}。`,
+                poolWarning
+            ].filter(Boolean).join(' '));
             重置贡献草稿();
             await refreshEntries({ forceRefresh: true });
         } catch (error: any) {
@@ -1995,9 +2057,13 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
         try {
             const modules = contributionModules.map((module) => 导入本地创意工坊模块(module));
             const first = modules[0];
-            setStatus(isModePackageDraft
-                ? `已保存完整模式包「${contributionDraft.title.trim()}」到本地测试列表；要分享给其他玩家请点击发布到社区。`
-                : `已保存本地测试「${first.title}」，可在本地导入分区预览；要分享给其他玩家请点击发布到社区。`);
+            const poolWarning = 格式化背景天赋校验状态文案(校验创意工坊模块背景天赋(first).issues);
+            setStatus([
+                isModePackageDraft
+                    ? `已保存完整模式包「${contributionDraft.title.trim()}」到本地测试列表；要分享给其他玩家请点击发布到社区。`
+                    : `已保存本地测试「${first.title}」，可在本地导入分区预览；要分享给其他玩家请点击发布到社区。`,
+                poolWarning
+            ].filter(Boolean).join(' '));
             setActiveType(first.type);
             setSourceFilter('local');
             重置贡献草稿();
@@ -2070,7 +2136,13 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
             }
             const imported = candidates.map((module) => 导入本地创意工坊模块(module));
             const first = imported[0];
-            setStatus(`已导入 ${imported.length} 个本地 JSON 预设${first ? `：${first.title}` : ''}。本地导入只保存在当前浏览器/设备，用于预览和测试；需要公开分享时请点击发布到社区。`);
+            const poolWarnings = imported
+                .map((module) => 格式化背景天赋校验状态文案(校验创意工坊模块背景天赋(module).issues))
+                .filter(Boolean);
+            setStatus([
+                `已导入 ${imported.length} 个本地 JSON 预设${first ? `：${first.title}` : ''}。本地导入只保存在当前浏览器/设备，用于预览和测试；需要公开分享时请点击发布到社区。`,
+                ...poolWarnings
+            ].filter(Boolean).join(' '));
             if (first) {
                 setActiveType(first.type);
                 setPreviewEntry(first);
@@ -2349,6 +2421,66 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                     </section>
                 ) : null}
 
+                {(() => {
+                    const poolCheck = 校验创意工坊模块背景天赋(entry);
+                    if (poolCheck.backgrounds.length <= 0 && poolCheck.talents.length <= 0) return null;
+                    const hiddenTalents = poolCheck.talents.filter((item) => item.隐藏 === true);
+                    const builtinBackgrounds = poolCheck.backgrounds.filter((item) => Array.isArray(item.自带天赋) && item.自带天赋!.length > 0);
+                    return (
+                        <section className="rounded-xl border border-rose-400/20 bg-rose-950/10 p-4">
+                            <div className="text-xs font-bold tracking-[0.14em] text-rose-100/90">出身背景 / 天赋池</div>
+                            <div className="mt-2 text-[11px] leading-5 text-gray-400">
+                                完整池用于开局成角引用。隐藏天赋不进玩家选择池，仅可通过背景自带注入；玩家选角不会看到隐藏自带明细。
+                            </div>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-lg border border-white/10 bg-black/25 p-3 text-xs text-gray-300">
+                                    背景 {poolCheck.backgrounds.length} · 含自带引用 {builtinBackgrounds.length}
+                                </div>
+                                <div className="rounded-lg border border-white/10 bg-black/25 p-3 text-xs text-gray-300">
+                                    天赋 {poolCheck.talents.length} · 隐藏 {hiddenTalents.length}
+                                </div>
+                            </div>
+                            {poolCheck.issues.length > 0 && (
+                                <ul className="mt-3 space-y-1 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100/90">
+                                    {poolCheck.issues.map((issue, index) => (
+                                        <li key={`${issue.message}-${index}`}>校验：{issue.message}</li>
+                                    ))}
+                                </ul>
+                            )}
+                            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                                <div>
+                                    <div className="text-[11px] font-bold text-gray-200">背景池</div>
+                                    <div className="mt-2 max-h-56 space-y-2 overflow-auto">
+                                        {poolCheck.backgrounds.map((bg) => (
+                                            <div key={bg.名称} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                                                <div className="text-sm text-gray-100">{bg.名称}</div>
+                                                <div className="mt-1 text-[11px] leading-5 text-gray-400">{bg.效果}</div>
+                                                {Array.isArray(bg.自带天赋) && bg.自带天赋.length > 0 && (
+                                                    <div className="mt-1 text-[11px] text-rose-100/85">自带天赋：{bg.自带天赋.join('、')}</div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-[11px] font-bold text-gray-200">天赋池</div>
+                                    <div className="mt-2 max-h-56 space-y-2 overflow-auto">
+                                        {poolCheck.talents.map((talent) => (
+                                            <div key={talent.名称} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                                                <div className="text-sm text-gray-100">
+                                                    {talent.名称}
+                                                    {talent.隐藏 ? <span className="ml-2 text-[10px] text-rose-300/90">隐藏</span> : null}
+                                                </div>
+                                                <div className="mt-1 text-[11px] leading-5 text-gray-400">{talent.效果}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    );
+                })()}
+
                 {entry.type !== 'comfy_workflow' ? (
                     <section className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.045] p-4">
                         <div className="text-xs font-bold tracking-[0.14em] text-emerald-200">世界细节生成</div>
@@ -2586,8 +2718,13 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                                             onChange={(event) => {
                                                 const mode = event.target.value as 题材模式类型;
                                                 if (mode === contributionDraft.mode) return;
-                                                if (!window.confirm('切换适用模式会重置模式元数据与运行时配置。确定继续吗？')) return;
-                                                setContributionDraft((prev) => ({ ...prev, mode, ...创建默认模式元数据草稿(mode) }));
+                                                if (!window.confirm('切换适用模式会重置模式元数据、运行时配置与出身/天赋池。确定继续吗？')) return;
+                                                setContributionDraft((prev) => ({
+                                                    ...prev,
+                                                    mode,
+                                                    ...创建默认模式元数据草稿(mode),
+                                                    ...构建模式默认背景天赋池JSON(mode)
+                                                }));
                                             }}
                                             className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-sm text-gray-100 outline-none focus:border-wuxia-gold/45"
                                         >
@@ -2690,6 +2827,56 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                                                     天赋建议
                                                     <textarea value={contributionDraft.talentSuggestions} onChange={(event) => setContributionDraft((prev) => ({ ...prev, talentSuggestions: event.target.value }))} placeholder="用顿号/逗号/换行分隔，例如：冷静判断、资源嗅觉" className="mt-1 min-h-20 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-wuxia-gold/45" />
                                                 </label>
+                                                <div className="sm:col-span-2 rounded-xl border border-rose-400/20 bg-rose-950/10 p-3 space-y-3">
+                                                    <div>
+                                                        <div className="text-xs font-bold text-rose-100/90">出身 / 天赋完整池（高级 JSON）</div>
+                                                        <div className="mt-1 text-[11px] leading-5 text-gray-400">
+                                                            与上方「建议」不同：这里是开局实际可解析的池。天赋可写 &quot;隐藏&quot;: true；背景可写 &quot;自带天赋&quot;: [&quot;名称&quot;]。玩家选角不会剧透隐藏自带。
+                                                        </div>
+                                                    </div>
+                                                    {(() => {
+                                                        const check = 解析草稿背景天赋池(contributionDraft, contributionDraft.mode);
+                                                        return check.issues.length > 0 ? (
+                                                            <ul className="space-y-1 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 text-[11px] leading-5 text-amber-100/90">
+                                                                {check.issues.map((issue, index) => (
+                                                                    <li key={`${issue.message}-${index}`}>校验：{issue.message}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <div className="text-[11px] text-emerald-200/80">
+                                                                池校验通过：背景 {check.backgrounds.length} · 天赋 {check.talents.length}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                    <label className="block text-xs text-gray-300">
+                                                        背景池 JSON
+                                                        <textarea
+                                                            value={contributionDraft.backgroundsPoolJson}
+                                                            onChange={(event) => setContributionDraft((prev) => ({ ...prev, backgroundsPoolJson: event.target.value }))}
+                                                            placeholder='[{"名称":"唯心剑修","描述":"...","效果":"...","自带天赋":["剑在心中"]}]'
+                                                            className="mt-1 min-h-32 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-wuxia-gold/45"
+                                                        />
+                                                    </label>
+                                                    <label className="block text-xs text-gray-300">
+                                                        天赋池 JSON
+                                                        <textarea
+                                                            value={contributionDraft.talentsPoolJson}
+                                                            onChange={(event) => setContributionDraft((prev) => ({ ...prev, talentsPoolJson: event.target.value }))}
+                                                            placeholder='[{"名称":"剑在心中","描述":"...","效果":"...","隐藏":true,"叙事约束":"..."}]'
+                                                            className="mt-1 min-h-32 w-full resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-wuxia-gold/45"
+                                                        />
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setContributionDraft((prev) => ({
+                                                            ...prev,
+                                                            ...构建模式默认背景天赋池JSON(prev.mode)
+                                                        }))}
+                                                        className="rounded-lg border border-white/15 bg-black/30 px-3 py-1.5 text-[11px] text-gray-300 hover:border-wuxia-gold/40 hover:text-wuxia-gold"
+                                                    >
+                                                        重置为当前题材官方默认池
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.045] p-3">

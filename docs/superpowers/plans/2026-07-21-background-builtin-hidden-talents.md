@@ -30,7 +30,7 @@
 - [x] Phase B：隐藏不得进入玩家自选（toggle/恢复/自定义使用）  
 - [x] Phase C：resolve `onMiss` + 成角 warn + 单测  
 - [x] Phase D 轻量：DIY 提示含最终天赋列表  
-- [ ] Phase E 可选：局内出身标签 / 唯心剑修样例 / 工坊表单  
+- [x] Phase E 工坊：校验 + 预览 + 高级 JSON 编辑（局内出身标签 / 唯心剑修样例仍可选）  
 - [x] Phase F：相关测试通过；提交见 git log
 
 ## 与旧计划的差异（本次修订）
