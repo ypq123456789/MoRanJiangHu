@@ -677,6 +677,13 @@ export const 执行开场剧情生成工作流 = async (
         );
 
         const openingGameConfig = 规范化游戏设置(deps.gameConfig);
+        const 开局功能模型占位 = deps.apiConfig?.功能模型占位;
+        const 开局全局非流式输出 = openingGameConfig.启用非流式输出 === true;
+        // 开局后处理与局内一致：尊重全局/分功能“非流式输出”设置；未开启时走真实流式请求。
+        const 开局变量计算非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.变量计算非流式输出 === true;
+        const 开局世界演变非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.世界演变非流式输出 === true;
+        const 开局规划分析非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.规划分析非流式输出 === true;
+        const 开局地图更新非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.地图自动更新非流式输出 === true;
         const 开局独立阶段自动重试已启用 = deps.游戏设置启用自动重试(openingGameConfig);
         const 请求开局阶段失败决策 = async (stageLabel: string, errorText: string): Promise<'retry' | 'skip'> => {
             const message = [
@@ -1508,7 +1515,17 @@ export const 执行开场剧情生成工作流 = async (
                                 openingRoleSetupText,
                                 openingPartnerSetupText,
                                 openingConfigText
-                            }
+                            },
+                            onStreamDelta: 开局变量计算非流式输出
+                                ? undefined
+                                : (_delta: string, accumulated: string) => {
+                                    if (controller.signal.aborted) return;
+                                    设置开局变量生成进度({
+                                        phase: 'start',
+                                        text: '正在流式生成开局变量...',
+                                        rawText: accumulated
+                                    });
+                                }
                         },
                         {
                             apiConfig: deps.apiConfig,
@@ -1691,7 +1708,20 @@ export const 执行开场剧情生成工作流 = async (
                         openingGameConfig.启用COT伪装注入 !== false ? 世界演变COT伪装历史消息提示词 : '',
                         构建世界演变COT提示词({ fandom: openingRuntimeFandomBundle.enabled }),
                         openingRuntimeFandomBundle.enabled,
-                        openingGameConfig.独立APIGPT模式?.世界演变 === true
+                        openingGameConfig.独立APIGPT模式?.世界演变 === true,
+                        开局世界演变非流式输出
+                            ? undefined
+                            : {
+                                stream: true,
+                                onDelta: (_delta: string, accumulated: string) => {
+                                    if (controller.signal.aborted) return;
+                                    设置开局世界演变进度({
+                                        phase: 'start',
+                                        text: '正在流式初始化动态世界...',
+                                        rawText: accumulated
+                                    });
+                                }
+                            }
                     );
                 },
                 onError: (errorText) => {
@@ -1815,7 +1845,17 @@ export const 执行开场剧情生成工作流 = async (
                         worldbooks: deps.worldbooks,
                         currentResponse: mapContextResponse,
                         stateBase: mapBaseState,
-                        signal: controller.signal
+                        signal: controller.signal,
+                        onDelta: 开局地图更新非流式输出
+                            ? undefined
+                            : (_delta: string, accumulated: string) => {
+                                if (controller.signal.aborted) return;
+                                设置开局地图更新进度({
+                                    phase: 'start',
+                                    text: '正在流式更新开局地图...',
+                                    rawText: accumulated
+                                });
+                            }
                     });
                     if (result.phase === 'error') {
                         throw new Error(result.statusText || '开局地图更新失败');
@@ -1962,7 +2002,19 @@ export const 执行开场剧情生成工作流 = async (
                         fandomEnabled,
                         extraPrompt: planningExtraPrompt,
                         gptMode: openingGameConfig.独立APIGPT模式?.规划分析 === true
-                    }, openingPlanningApi, signal), planningTimeouts.firstResponseMs);
+                    }, openingPlanningApi, signal, 开局规划分析非流式输出
+                        ? undefined
+                        : {
+                            stream: true,
+                            onDelta: (_delta: string, accumulated: string) => {
+                                if (controller.signal.aborted) return;
+                                设置开局规划进度({
+                                    phase: 'start',
+                                    text: '正在流式初始化剧情规划...',
+                                    rawText: accumulated
+                                });
+                            }
+                        }), planningTimeouts.firstResponseMs);
                     const planningCommands = [
                         ...过滤规划补丁命令(planningResult.commands, ['剧情', 'gameState.剧情']),
                         ...过滤规划补丁命令(planningResult.commands, activeStoryPlanTargets),
