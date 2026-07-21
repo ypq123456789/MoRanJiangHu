@@ -10,7 +10,9 @@ import {
     校验创意工坊模块背景天赋,
     校验工坊背景天赋池,
     规范化工坊背景列表,
+    规范化工坊背景列表详细,
     规范化工坊天赋列表,
+    规范化工坊天赋列表详细,
     解析工坊池JSON
 } from '../../../utils/workshopBackgroundTalentMeta';
 import { 模式市场行情影响类型列表, type CurrencySystem, type 题材模式类型, type 模式市场行情模板 } from '../../../models/system';
@@ -334,13 +336,16 @@ const 构建模块摘要 = (entry: 创意工坊模块条目): string => {
 
 const 解析草稿背景天赋池 = (draft: 贡献草稿, mode: 题材模式类型) => {
     const fallback = 构建模式默认背景天赋池JSON(mode);
-    const bgParse = 解析工坊池JSON(draft.backgroundsPoolJson || fallback.backgroundsPoolJson, 'backgrounds', 规范化工坊背景列表);
-    const talentParse = 解析工坊池JSON(draft.talentsPoolJson || fallback.talentsPoolJson, 'talents', 规范化工坊天赋列表);
+    const bgParse = 解析工坊池JSON(draft.backgroundsPoolJson || fallback.backgroundsPoolJson, 'backgrounds', 规范化工坊背景列表详细);
+    const talentParse = 解析工坊池JSON(draft.talentsPoolJson || fallback.talentsPoolJson, 'talents', 规范化工坊天赋列表详细);
     const backgrounds = bgParse.items.length > 0 ? bgParse.items : 规范化工坊背景列表(获取题材预设背景(mode));
     const talents = talentParse.items.length > 0 ? talentParse.items : 规范化工坊天赋列表(获取题材预设天赋(mode));
+    // 首次 JSON 规范化 issues（invalid_entry / empty_name 等）在清洗后二次校验中会丢失，必须合并透出
     const issues = [
         ...(bgParse.error ? [{ kind: 'invalid_json' as const, message: `背景池 ${bgParse.error}` }] : []),
         ...(talentParse.error ? [{ kind: 'invalid_json' as const, message: `天赋池 ${talentParse.error}` }] : []),
+        ...(bgParse.issues || []),
+        ...(talentParse.issues || []),
         ...校验工坊背景天赋池({ backgrounds, talents }).issues
     ];
     return { backgrounds, talents, issues, bgParse, talentParse };

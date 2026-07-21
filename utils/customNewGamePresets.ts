@@ -96,28 +96,34 @@ export const 合并去重开局预设方案 = (rawList: 开局预设方案结构
     return Array.from(map.values());
 };
 
-const 合并去重背景 = (rawList: 背景结构[]): 背景结构[] => {
+export const 合并去重背景 = (rawList: 背景结构[]): 背景结构[] => {
     const map = new Map<string, 背景结构>();
     rawList.forEach((item) => {
         const 名称 = 标准化文本(item?.名称);
         const 描述 = 标准化文本(item?.描述);
         const 效果 = 标准化文本(item?.效果);
         if (!名称 || !描述 || !效果) return;
-        const 自带天赋 = Array.isArray(item?.自带天赋)
+        const existing = map.get(名称);
+        const prevRefs = Array.isArray(existing?.自带天赋)
+            ? existing!.自带天赋!.map((name) => 标准化文本(name)).filter(Boolean)
+            : [];
+        const nextRefs = Array.isArray(item?.自带天赋)
             ? item.自带天赋.map((name) => 标准化文本(name)).filter(Boolean)
-            : undefined;
+            : [];
+        const 自带天赋 = Array.from(new Set([...prevRefs, ...nextRefs]));
         map.set(名称, {
+            ...(existing || {}),
             ...item,
             名称,
             描述,
             效果,
-            ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : {})
+            ...(自带天赋.length > 0 ? { 自带天赋 } : {})
         });
     });
     return Array.from(map.values());
 };
 
-const 合并去重天赋 = (rawList: 天赋结构[]): 天赋结构[] => {
+export const 合并去重天赋 = (rawList: 天赋结构[]): 天赋结构[] => {
     const map = new Map<string, 天赋结构>();
     rawList.forEach((item) => {
         const 名称 = 标准化文本(item?.名称);
@@ -125,12 +131,14 @@ const 合并去重天赋 = (rawList: 天赋结构[]): 天赋结构[] => {
         const 效果 = 标准化文本(item?.效果);
         const 叙事约束 = 标准化文本(item?.叙事约束);
         if (!名称 || !描述 || !效果) return;
-        const 隐藏 = item?.隐藏 === true ? true : undefined;
+        const existing = map.get(名称);
+        // 隐藏一经成立不可被后写的可见条目降级
+        const 隐藏 = item?.隐藏 === true || existing?.隐藏 === true ? true : undefined;
         map.set(名称, {
             名称,
             描述,
             效果,
-            叙事约束: 叙事约束 || undefined,
+            叙事约束: 叙事约束 || existing?.叙事约束 || undefined,
             ...(隐藏 ? { 隐藏: true } : {})
         });
     });

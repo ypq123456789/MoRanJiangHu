@@ -109,6 +109,15 @@ export const 规范化工坊天赋列表详细 = (raw: unknown): 规范化列表
             });
             return;
         }
+        if (map.has(名称)) {
+            issues.push({
+                kind: 'invalid_entry',
+                message: `天赋条目「${名称}」名称重复，已保留最后一条`,
+                talentName: 名称,
+                index,
+                reason: 'duplicate_name'
+            });
+        }
         const 叙事约束 = 规范化文本(item?.叙事约束);
         map.set(名称, {
             名称,
@@ -157,7 +166,17 @@ export const 规范化工坊背景列表详细 = (raw: unknown): 规范化列表
             return;
         }
         const 自带天赋 = Array.isArray(item?.自带天赋)
-            ? item.自带天赋.map((name: unknown) => 规范化文本(name)).filter(Boolean)
+            ? item.自带天赋
+                .map((name: unknown) => 规范化文本(name))
+                .filter((name: string) => {
+                    if (name) return true;
+                    issues.push({
+                        kind: 'empty_name',
+                        message: `背景「${名称}」的自带天赋存在空引用，已忽略`,
+                        backgroundName: 名称
+                    });
+                    return false;
+                })
             : undefined;
         const 初始物品 = 规范化初始物品列表(item?.初始物品);
         const 可选初始物品 = 规范化初始物品列表(item?.可选初始物品);
@@ -171,6 +190,15 @@ export const 规范化工坊背景列表详细 = (raw: unknown): 规范化列表
             ...(可选初始物品 ? { 可选初始物品 } : {}),
             ...(开局货币 ? { 开局货币 } : {})
         };
+        if (map.has(名称)) {
+            issues.push({
+                kind: 'invalid_entry',
+                message: `背景条目「${名称}」名称重复，已保留最后一条`,
+                backgroundName: 名称,
+                index,
+                reason: 'duplicate_name'
+            });
+        }
         map.set(名称, next);
     });
     return { items: Array.from(map.values()), issues };
@@ -257,31 +285,50 @@ export const 校验创意工坊模块背景天赋 = (
     return 校验工坊背景天赋池({ backgrounds, talents });
 };
 
-/** 解析作者填写的 JSON 池（数组或 { backgrounds/talents }） */
+/** 兼容简版 normalize（仅 items）与 detailed（items+issues） */
+const 应用工坊池规范化 = <T,>(
+    raw: unknown,
+    normalize: (raw: unknown) => 规范化列表结果<T> | T[]
+): 规范化列表结果<T> => {
+    const result = normalize(raw);
+    if (Array.isArray(result)) {
+        return { items: result, issues: [] };
+    }
+    return {
+        items: Array.isArray(result?.items) ? result.items : [],
+        issues: Array.isArray(result?.issues) ? result.issues : []
+    };
+};
+
+/** 解析作者填写的 JSON 池（数组或 { backgrounds/talents }）；透出规范化阶段 issues */
 export const 解析工坊池JSON = <T,>(
     text: string,
     kind: 'backgrounds' | 'talents',
-    normalize: (raw: unknown) => T[]
-): { items: T[]; error?: string; rawError?: string } => {
+    normalize: (raw: unknown) => 规范化列表结果<T> | T[]
+): { items: T[]; issues: 工坊背景天赋校验问题[]; error?: string; rawError?: string } => {
     const trimmed = (text || '').trim();
-    if (!trimmed) return { items: [] };
+    if (!trimmed) return { items: [], issues: [] };
     try {
         const parsed = JSON.parse(trimmed);
         if (Array.isArray(parsed)) {
-            return { items: normalize(parsed) };
+            const result = 应用工坊池规范化(parsed, normalize);
+            return { items: result.items, issues: result.issues };
         }
         if (parsed && typeof parsed === 'object') {
             const key = kind === 'backgrounds' ? 'backgrounds' : 'talents';
             const nested = (parsed as any)[key];
             if (Array.isArray(nested)) {
-                return { items: normalize(nested) };
+                const result = 应用工坊池规范化(nested, normalize);
+                return { items: result.items, issues: result.issues };
             }
             // 允许单对象直接当作一条
             if (规范化文本((parsed as any).名称)) {
-                return { items: normalize([parsed]) };
+                const result = 应用工坊池规范化([parsed], normalize);
+                return { items: result.items, issues: result.issues };
             }
             return {
                 items: [],
+                issues: [],
                 error: kind === 'backgrounds'
                     ? 'JSON 需为背景数组，或形如 { "backgrounds": [...] } 的对象'
                     : 'JSON 需为天赋数组，或形如 { "talents": [...] } 的对象'
@@ -289,12 +336,14 @@ export const 解析工坊池JSON = <T,>(
         }
         return {
             items: [],
+            issues: [],
             error: 'JSON 顶层类型无效，请使用数组或包含池字段的对象'
         };
     } catch (error) {
         const rawError = error instanceof Error ? error.message : String(error || '');
         return {
             items: [],
+            issues: [],
             error: '背景/天赋池 JSON 无法解析，请检查括号、逗号与引号是否成对',
             rawError: rawError || undefined
         };
