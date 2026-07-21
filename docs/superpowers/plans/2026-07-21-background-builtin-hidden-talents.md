@@ -31,7 +31,7 @@
 - [x] Phase C：resolve `onMiss` + 成角 warn + 单测  
 - [x] Phase D 轻量：DIY 提示含最终天赋列表  
 - [x] Phase E 工坊：校验 + 预览 + 高级 JSON 编辑（局内出身标签 / 唯心剑修样例仍可选）  
-- [x] Phase F：相关测试通过；提交见 git log
+- [x] Phase F：相关测试通过（`npx vitest run __tests__/backgroundTalentBinding.test.ts __tests__/workshopBackgroundTalentMeta.test.ts`）；提交见 git log
 
 ## 与旧计划的差异（本次修订）
 
@@ -107,16 +107,16 @@ Phase F  回归 + 提交
 - 双端 `toggleTalent` / `addCustomTalent` 后选中逻辑 / 恢复预设过滤  
 
 - [ ] 新增或内联：`过滤玩家可自选天赋` = 非隐藏  
-- [ ] `toggleTalent`：若 `t.隐藏 === true`，直接 return（可 dev warn）  
-- [ ] 自定义列表「使用」：隐藏项禁用或点击提示「隐藏天赋仅能通过背景自带引用」  
-- [ ] 从存储/预设恢复 `selectedTalents` 时剥离隐藏项并 warn  
+- [x] `toggleTalent`：若 `t.隐藏 === true`，直接 return（可 dev warn）  
+- [x] 自定义列表「使用」：隐藏项禁用或点击提示「隐藏天赋仅能通过背景自带引用」  
+- [x] 从存储/预设恢复 `selectedTalents` 时剥离隐藏项（预设恢复已过滤；成角路径再兜底）  
 
 **验证：** 单测 + 手动点自定义隐藏「使用」无效。
 
 #### Task B2: 换背景语义保持
 
-- [ ] `selectedTalents` 仍只含玩家自选；换背景不写入自带进 selected  
-- [ ] 无玩家可见的自带 chips 后，无需「取消自带」逻辑，但 `取消选择天赋` 对「仅自带名」的防护可保留无害  
+- [x] `selectedTalents` 仍只含玩家自选；换背景不写入自带进 selected  
+- [x] 无玩家可见的自带 chips；`取消选择天赋` 对「仅自带名」防护保留无害  
 
 ---
 
@@ -126,22 +126,25 @@ Phase F  回归 + 提交
 
 **Files:** `utils/backgroundTalentBinding.ts`、`__tests__/backgroundTalentBinding.test.ts`
 
-- [ ] `解析背景自带天赋` / `合并玩家与背景天赋` 支持可选 `onMiss`  
-- [ ] 默认调用方可：
+- [x] `解析背景自带天赋` / `合并玩家与背景天赋` 支持可选 `onMiss`（含 catalogSize）  
+- [x] 默认调用方可（生产静默 / DEV warn）：
 
 ```ts
-onMiss: ({ backgroundName, missing }) => {
-  console.warn('[backgroundTalentBinding] 自带天赋未解析', { backgroundName, missing });
+onMiss: ({ backgroundName, missing, catalogSize }) => {
+  // 仅 DEV；生产由 报告背景自带天赋解析缺失 静默
+  console.warn('[backgroundTalentBinding] 自带天赋未解析', { backgroundName, missing, catalogSize });
 }
 ```
 
-- [ ] 单测：miss 时调用 onMiss 且仍返回已解析项  
+事件字段契约：`backgroundName: string`、`missing: string[]`、`catalogSize: number`（与 design 一致）。
+
+- [x] 单测：miss 时调用 onMiss 且仍返回已解析项  
 
 #### Task C2: 向导接入 onMiss
 
 **Files:** 双端向导成角路径、必要的 `useMemo` 合并处（避免 render 刷屏：成角时 log 一次即可）
 
-- [ ] 优先在 **成角/确认创建** 时打 miss 日志，不要在每次 render 的 useMemo 里 warn  
+- [x] 优先在 **成角/确认创建** 时打 miss 日志（DEV only），不在 render useMemo 里 warn  
 
 ---
 

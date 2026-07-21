@@ -61,7 +61,8 @@ describe('backgroundTalentBinding', () => {
         expect(resolved.map((item) => item.名称)).toEqual(['人情练达']);
         expect(onMiss).toHaveBeenCalledWith({
             backgroundName: '测试',
-            missing: ['不存在的天赋']
+            missing: ['不存在的天赋'],
+            catalogSize: 3
         });
     });
 
@@ -77,7 +78,8 @@ describe('backgroundTalentBinding', () => {
         expect(merged.map((item) => item.名称)).toEqual(['人情练达', '剑在心中']);
         expect(onMiss).toHaveBeenCalledWith({
             backgroundName: '唯心剑修',
-            missing: ['不存在']
+            missing: ['不存在'],
+            catalogSize: 3
         });
     });
 

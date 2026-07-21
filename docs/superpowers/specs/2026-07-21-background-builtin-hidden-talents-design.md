@@ -132,7 +132,8 @@ interface 背景结构 {
 ### 原则
 
 - 日志服务 **作者/开发诊断**，不弹给玩家、不进剧情气泡。
-- 生产环境可用 `console.warn` 或现有诊断通道（若项目已有统一 logger，优先接入）。
+- **生产客户端默认静默**：不得用玩家可见的 `console.warn` 输出隐藏自带的具体缺失引用名（会绕过选角零告知）。
+- 开发环境（`import.meta.env.DEV`）可输出完整 `missing` 列表与 `catalogSize`，便于作者对表。
 - 一次开局合并可汇总，避免每个引用刷屏。
 
 ### 事件
@@ -148,12 +149,18 @@ interface 背景结构 {
 
 ```ts
 // utils/backgroundTalentBinding.ts
+type 背景自带解析缺失信息 = {
+  backgroundName: string;
+  missing: string[];
+  catalogSize: number;
+};
+
 解析背景自带天赋(background, catalog, options?: {
-  onMiss?: (info: { backgroundName: string; missing: string[] }) => void;
+  onMiss?: (info: 背景自带解析缺失信息) => void;
 }): 天赋结构[]
 ```
 
-向导/成角调用时传入 `onMiss` → `console.warn('[backgroundTalentBinding]', …)`。  
+向导/成角调用时传入 `onMiss` → 默认 `报告背景自带天赋解析缺失`（**仅 DEV** 打 `console.warn`，含 `catalogSize`；生产静默）。  
 单测可注入 mock，不依赖 console。
 
 ## 规则约定（机制）

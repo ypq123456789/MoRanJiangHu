@@ -1,12 +1,15 @@
-import type { 天赋结构, 背景结构 } from '../types';
+import type { 天赋结构, 背景结构, 背景初始物品, 背景开局货币 } from '../types';
 import type { 创意工坊模块条目 } from '../data/creativeWorkshopModules';
 
 export type 工坊背景天赋校验问题 = {
-    kind: 'missing_builtin_ref' | 'empty_name' | 'invalid_json';
+    kind: 'missing_builtin_ref' | 'empty_name' | 'invalid_json' | 'invalid_entry';
     message: string;
     backgroundName?: string;
     talentName?: string;
     ref?: string;
+    /** 丢弃条目时的下标或标识（作者诊断） */
+    index?: number;
+    reason?: string;
 };
 
 export type 工坊背景天赋校验结果 = {
@@ -16,19 +19,96 @@ export type 工坊背景天赋校验结果 = {
     ok: boolean;
 };
 
+export type 规范化列表结果<T> = {
+    items: T[];
+    issues: 工坊背景天赋校验问题[];
+};
+
 const 规范化文本 = (value: unknown): string => (
     typeof value === 'string' ? value.trim() : ''
 );
 
-/** 规范化天赋池条目，保留隐藏/叙事约束 */
-export const 规范化工坊天赋列表 = (raw: unknown): 天赋结构[] => {
-    if (!Array.isArray(raw)) return [];
+const 可选正整数 = (value: unknown): number | undefined => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return undefined;
+    const rounded = Math.floor(n);
+    if (rounded < 0) return undefined;
+    return rounded;
+};
+
+const 规范化初始物品列表 = (raw: unknown): 背景初始物品[] | undefined => {
+    if (!Array.isArray(raw)) return undefined;
+    const items: 背景初始物品[] = [];
+    raw.forEach((entry: any) => {
+        const 名称 = 规范化文本(entry?.名称);
+        if (!名称) return;
+        const 描述 = 规范化文本(entry?.描述);
+        const 类型 = 规范化文本(entry?.类型);
+        const 数量 = 可选正整数(entry?.数量);
+        items.push({
+            名称,
+            ...(描述 ? { 描述 } : {}),
+            ...(类型 ? { 类型 } : {}),
+            ...(数量 !== undefined ? { 数量 } : {})
+        });
+    });
+    return items.length > 0 ? items : undefined;
+};
+
+const 规范化开局货币列表 = (raw: unknown): 背景开局货币[] | undefined => {
+    if (!Array.isArray(raw)) return undefined;
+    const items: 背景开局货币[] = [];
+    raw.forEach((entry: any) => {
+        const 名称 = 规范化文本(entry?.名称);
+        if (!名称) return;
+        const 描述 = 规范化文本(entry?.描述);
+        const 类型 = 规范化文本(entry?.类型);
+        const 数量 = 可选正整数(entry?.数量);
+        const 最小数量 = 可选正整数(entry?.最小数量);
+        const 最大数量 = 可选正整数(entry?.最大数量);
+        items.push({
+            名称,
+            ...(描述 ? { 描述 } : {}),
+            ...(类型 ? { 类型 } : {}),
+            ...(数量 !== undefined ? { 数量 } : {}),
+            ...(最小数量 !== undefined ? { 最小数量 } : {}),
+            ...(最大数量 !== undefined ? { 最大数量 } : {})
+        });
+    });
+    return items.length > 0 ? items : undefined;
+};
+
+/** 规范化天赋池条目，保留隐藏/叙事约束；无效条目记 invalid_entry */
+export const 规范化工坊天赋列表详细 = (raw: unknown): 规范化列表结果<天赋结构> => {
+    if (!Array.isArray(raw)) {
+        return {
+            items: [],
+            issues: raw == null
+                ? []
+                : [{ kind: 'invalid_entry', message: '天赋池不是数组，已忽略', reason: 'not_array' }]
+        };
+    }
     const map = new Map<string, 天赋结构>();
-    raw.forEach((item: any) => {
+    const issues: 工坊背景天赋校验问题[] = [];
+    raw.forEach((item: any, index: number) => {
         const 名称 = 规范化文本(item?.名称);
         const 描述 = 规范化文本(item?.描述);
         const 效果 = 规范化文本(item?.效果);
-        if (!名称 || !描述 || !效果) return;
+        if (!名称 || !描述 || !效果) {
+            const label = 名称 || `(索引 ${index})`;
+            const missing: string[] = [];
+            if (!名称) missing.push('名称');
+            if (!描述) missing.push('描述');
+            if (!效果) missing.push('效果');
+            issues.push({
+                kind: 'invalid_entry',
+                message: `天赋条目「${label}」缺少${missing.join('、')}，已丢弃`,
+                talentName: 名称 || undefined,
+                index,
+                reason: `missing:${missing.join(',')}`
+            });
+            return;
+        }
         const 叙事约束 = 规范化文本(item?.叙事约束);
         map.set(名称, {
             名称,
@@ -38,35 +118,67 @@ export const 规范化工坊天赋列表 = (raw: unknown): 天赋结构[] => {
             ...(item?.隐藏 === true ? { 隐藏: true } : {})
         });
     });
-    return Array.from(map.values());
+    return { items: Array.from(map.values()), issues };
 };
 
-/** 规范化背景池条目，保留自带天赋引用 */
-export const 规范化工坊背景列表 = (raw: unknown): 背景结构[] => {
-    if (!Array.isArray(raw)) return [];
+export const 规范化工坊天赋列表 = (raw: unknown): 天赋结构[] => (
+    规范化工坊天赋列表详细(raw).items
+);
+
+/** 规范化背景池条目；不扩散未知字段，仅保留校验后的扩展形状 */
+export const 规范化工坊背景列表详细 = (raw: unknown): 规范化列表结果<背景结构> => {
+    if (!Array.isArray(raw)) {
+        return {
+            items: [],
+            issues: raw == null
+                ? []
+                : [{ kind: 'invalid_entry', message: '背景池不是数组，已忽略', reason: 'not_array' }]
+        };
+    }
     const map = new Map<string, 背景结构>();
-    raw.forEach((item: any) => {
+    const issues: 工坊背景天赋校验问题[] = [];
+    raw.forEach((item: any, index: number) => {
         const 名称 = 规范化文本(item?.名称);
         const 描述 = 规范化文本(item?.描述);
         const 效果 = 规范化文本(item?.效果);
-        if (!名称 || !描述 || !效果) return;
+        if (!名称 || !描述 || !效果) {
+            const label = 名称 || `(索引 ${index})`;
+            const missing: string[] = [];
+            if (!名称) missing.push('名称');
+            if (!描述) missing.push('描述');
+            if (!效果) missing.push('效果');
+            issues.push({
+                kind: 'invalid_entry',
+                message: `背景条目「${label}」缺少${missing.join('、')}，已丢弃`,
+                backgroundName: 名称 || undefined,
+                index,
+                reason: `missing:${missing.join(',')}`
+            });
+            return;
+        }
         const 自带天赋 = Array.isArray(item?.自带天赋)
             ? item.自带天赋.map((name: unknown) => 规范化文本(name)).filter(Boolean)
             : undefined;
-        map.set(名称, {
-            ...((item && typeof item === 'object' && !Array.isArray(item)) ? item : {}),
+        const 初始物品 = 规范化初始物品列表(item?.初始物品);
+        const 可选初始物品 = 规范化初始物品列表(item?.可选初始物品);
+        const 开局货币 = 规范化开局货币列表(item?.开局货币);
+        const next: 背景结构 = {
             名称,
             描述,
             效果,
-            ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : { 自带天赋: undefined })
-        } as 背景结构);
-        const stored = map.get(名称)!;
-        if (!自带天赋 || 自带天赋.length === 0) {
-            delete (stored as any).自带天赋;
-        }
+            ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : {}),
+            ...(初始物品 ? { 初始物品 } : {}),
+            ...(可选初始物品 ? { 可选初始物品 } : {}),
+            ...(开局货币 ? { 开局货币 } : {})
+        };
+        map.set(名称, next);
     });
-    return Array.from(map.values());
+    return { items: Array.from(map.values()), issues };
 };
+
+export const 规范化工坊背景列表 = (raw: unknown): 背景结构[] => (
+    规范化工坊背景列表详细(raw).items
+);
 
 /** 校验背景自带引用是否都能在天赋池中 resolve */
 export const 校验背景自带天赋引用 = (
@@ -109,12 +221,13 @@ export const 校验工坊背景天赋池 = (params: {
     backgrounds?: unknown;
     talents?: unknown;
 }): 工坊背景天赋校验结果 => {
-    const backgrounds = 规范化工坊背景列表(params.backgrounds);
-    const talents = 规范化工坊天赋列表(params.talents);
-    const issues = 校验背景自带天赋引用(backgrounds, talents);
+    const bgResult = 规范化工坊背景列表详细(params.backgrounds);
+    const talentResult = 规范化工坊天赋列表详细(params.talents);
+    const refIssues = 校验背景自带天赋引用(bgResult.items, talentResult.items);
+    const issues = [...bgResult.issues, ...talentResult.issues, ...refIssues];
     return {
-        backgrounds,
-        talents,
+        backgrounds: bgResult.items,
+        talents: talentResult.items,
         issues,
         ok: issues.length === 0
     };
@@ -145,35 +258,53 @@ export const 校验创意工坊模块背景天赋 = (
 };
 
 /** 解析作者填写的 JSON 池（数组或 { backgrounds/talents }） */
-export const 解析工坊池JSON = <T>(
+export const 解析工坊池JSON = <T,>(
     text: string,
     kind: 'backgrounds' | 'talents',
     normalize: (raw: unknown) => T[]
-): { items: T[]; error?: string } => {
+): { items: T[]; error?: string; rawError?: string } => {
     const trimmed = (text || '').trim();
     if (!trimmed) return { items: [] };
     try {
         const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) return { items: normalize(parsed) };
-        if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any)[kind])) {
-            return { items: normalize((parsed as any)[kind]) };
+        if (Array.isArray(parsed)) {
+            return { items: normalize(parsed) };
         }
-        return { items: [], error: `${kind} JSON 需为数组，或含 ${kind} 数组的对象` };
-    } catch (error: any) {
-        return { items: [], error: error?.message || `${kind} JSON 解析失败` };
+        if (parsed && typeof parsed === 'object') {
+            const key = kind === 'backgrounds' ? 'backgrounds' : 'talents';
+            const nested = (parsed as any)[key];
+            if (Array.isArray(nested)) {
+                return { items: normalize(nested) };
+            }
+            // 允许单对象直接当作一条
+            if (规范化文本((parsed as any).名称)) {
+                return { items: normalize([parsed]) };
+            }
+            return {
+                items: [],
+                error: kind === 'backgrounds'
+                    ? 'JSON 需为背景数组，或形如 { "backgrounds": [...] } 的对象'
+                    : 'JSON 需为天赋数组，或形如 { "talents": [...] } 的对象'
+            };
+        }
+        return {
+            items: [],
+            error: 'JSON 顶层类型无效，请使用数组或包含池字段的对象'
+        };
+    } catch (error) {
+        const rawError = error instanceof Error ? error.message : String(error || '');
+        return {
+            items: [],
+            error: '背景/天赋池 JSON 无法解析，请检查括号、逗号与引号是否成对',
+            rawError: rawError || undefined
+        };
     }
 };
 
-export const 格式化背景天赋池JSON = (items: unknown[]): string => {
-    if (!Array.isArray(items) || items.length === 0) return '';
-    try {
-        return JSON.stringify(items, null, 2);
-    } catch {
-        return '';
-    }
-};
+export const 格式化背景天赋池JSON = (items: unknown[]): string => (
+    JSON.stringify(Array.isArray(items) ? items : [], null, 2)
+);
 
-/** 预览用短摘要行 */
 export const 构建背景天赋池摘要行 = (params: {
     backgrounds: 背景结构[];
     talents: 天赋结构[];

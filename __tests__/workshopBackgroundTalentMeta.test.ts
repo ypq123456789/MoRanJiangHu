@@ -62,7 +62,8 @@ describe('workshopBackgroundTalentMeta', () => {
         const b = 解析工坊池JSON('{"backgrounds":[{"名称":"B","描述":"d","效果":"e","自带天赋":["T"]}]}', 'backgrounds', 规范化工坊背景列表);
         expect(b.items[0].自带天赋).toEqual(['T']);
         const bad = 解析工坊池JSON('{', 'talents', 规范化工坊天赋列表);
-        expect(bad.error).toBeTruthy();
+        expect(bad.error).toMatch(/无法解析|括号|JSON/);
+        expect(bad.rawError).toBeTruthy();
     });
 
     it('从模块 payload 提取池', () => {
@@ -82,4 +83,48 @@ describe('workshopBackgroundTalentMeta', () => {
         expect(pool.backgrounds[0].名称).toBe('B');
         expect(pool.talents[0].隐藏).toBe(true);
     });
+
+    it('丢弃缺字段条目时产生 invalid_entry', () => {
+        const result = 校验工坊背景天赋池({
+            backgrounds: [
+                { 名称: '完整背景', 描述: 'd', 效果: 'e' },
+                { 名称: '缺效果背景', 描述: 'd' }
+            ],
+            talents: [
+                { 名称: '完整天赋', 描述: 'd', 效果: 'e' },
+                { 名称: '缺描述', 效果: 'e' }
+            ]
+        });
+        expect(result.backgrounds.map((item) => item.名称)).toEqual(['完整背景']);
+        expect(result.talents.map((item) => item.名称)).toEqual(['完整天赋']);
+        expect(result.issues.some((item) => item.kind === 'invalid_entry')).toBe(true);
+        expect(result.ok).toBe(false);
+    });
+
+    it('背景扩展字段只保留合法形状', () => {
+        const backgrounds = 规范化工坊背景列表([
+            {
+                名称: '带物资',
+                描述: 'd',
+                效果: 'e',
+                初始物品: [{ 名称: '木剑', 数量: 1, 类型: '武器' }, { 数量: 2 }],
+                开局货币: [{ 名称: '铜钱', 最小数量: 1, 最大数量: 5 }],
+                多余字段: '应丢弃',
+                自带天赋: ['T']
+            }
+        ]);
+        expect(backgrounds).toHaveLength(1);
+        expect(backgrounds[0].初始物品).toEqual([{ 名称: '木剑', 数量: 1, 类型: '武器' }]);
+        expect(backgrounds[0].开局货币?.[0].名称).toBe('铜钱');
+        expect((backgrounds[0] as any).多余字段).toBeUndefined();
+        expect(backgrounds[0].自带天赋).toEqual(['T']);
+    });
+
+    it('JSON 解析失败返回中文错误', () => {
+        const bad = 解析工坊池JSON('{', 'talents', 规范化工坊天赋列表);
+        expect(bad.items).toEqual([]);
+        expect(bad.error).toMatch(/无法解析|括号/);
+        expect(bad.rawError).toBeTruthy();
+    });
+
 });

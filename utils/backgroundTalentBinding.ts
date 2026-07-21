@@ -7,6 +7,8 @@ const 规范化名称 = (value: unknown): string => (
 export type 背景自带解析缺失信息 = {
     backgroundName: string;
     missing: string[];
+    /** 解析时天赋目录规模，便于作者对表 */
+    catalogSize: number;
 };
 
 export type 背景自带解析选项 = {
@@ -52,7 +54,8 @@ export const 解析背景自带天赋 = (
     if (missing.length > 0 && options?.onMiss) {
         options.onMiss({
             backgroundName: 规范化名称(background?.名称) || '(未命名背景)',
-            missing
+            missing,
+            catalogSize: byName.size
         });
     }
     return resolved;
@@ -64,6 +67,8 @@ export const 报告背景自带天赋解析缺失 = (info: 背景自带解析缺
     console.warn('[backgroundTalentBinding] 自带天赋未解析', {
         backgroundName: info.backgroundName,
         missingCount: Array.isArray(info.missing) ? info.missing.length : 0,
+        catalogSize: info.catalogSize,
+        // DEV only：完整 missing 列表仅作者/开发可见
         missing: info.missing
     });
 };
