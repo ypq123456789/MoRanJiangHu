@@ -903,6 +903,7 @@ export const 模块转贡献草稿 = (entry: 创意工坊模块条目): 贡献�
     return {
         ...空贡献草稿(),
         ...创建默认模式元数据草稿(mode),
+        ...构建模式默认背景天赋池JSON(mode),
         ...基础,
         type: entryType,
         moduleKind: 'standard',

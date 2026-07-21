@@ -788,7 +788,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
             描述: partner.背景描述 || 预设背景[0].描述,
             效果: partner.背景效果 || 预设背景[0].效果
         });
-        setPartnerTalents(partner.天赋列表 as 天赋结构[]);
+        setPartnerTalents(过滤玩家可自选天赋((partner.天赋列表 || []) as 天赋结构[]));
     };
     const 应用预设到表单 = (preset: 开局预设方案结构, options?: { 保持当前步骤?: boolean }) => {
         const presetRestoreCatalog = 构建预设恢复候选池(preset);
@@ -1624,13 +1624,17 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     const togglePartnerTalent = (t: 天赋结构) => {
         if (partnerTalents.find(x => x.名称 === t.名称)) {
             setPartnerTalents(partnerTalents.filter(x => x.名称 !== t.名称));
-        } else {
-            if (partnerTalents.length >= 3) {
-                alert("伙伴最多选择3个天赋");
-                return;
-            }
-            setPartnerTalents([...partnerTalents, t]);
+            return;
         }
+        if (!是否允许玩家自选天赋(t)) {
+            alert('隐藏天赋不能作为伙伴自选。');
+            return;
+        }
+        if (partnerTalents.length >= 3) {
+            alert("伙伴最多选择3个天赋");
+            return;
+        }
+        setPartnerTalents([...partnerTalents, t]);
     };
 
     const 更新伙伴属性 = (key: keyof 属性结构, value: number) => {
@@ -3437,7 +3441,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                         <div className="space-y-2">
                                             <label className="text-sm text-wuxia-cyan font-bold">天赋（最多3个）</label>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto custom-scrollbar pr-1">
-                                                {全部天赋选项.map((talent) => {
+                                                {可见天赋选项.map((talent) => {
                                                     const active = partnerTalents.some((item) => item.名称 === talent.名称);
                                                     return (
                                                         <button key={talent.名称} type="button" onClick={() => togglePartnerTalent(talent)} className={`rounded-xl border p-3 text-left transition-all ${active ? 'border-wuxia-gold bg-wuxia-gold/10 text-wuxia-gold' : 'border-gray-800 bg-black/25 text-gray-300 hover:border-wuxia-gold/35'}`}>

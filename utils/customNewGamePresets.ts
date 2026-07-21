@@ -4,6 +4,7 @@ import { 创意工坊模块列表, type 创意工坊模块条目 } from '../data
 import { 读取本地创意工坊模块 } from '../services/creativeWorkshop';
 import { 获取题材预设背景, 获取题材预设天赋 } from '../data/presets';
 import { 属性最大值, 属性最小值, 规范化可选开局配置 } from './openingConfig';
+import { 过滤玩家可自选天赋 } from './backgroundTalentBinding';
 import { 规范化模式运行时配置 } from './modeRuntimeProfile';
 import { normalizeRealmDraft, normalizeWorldMapDraft } from './newGameDiy';
 import { 规范化题材模式 } from './topicModeProfiles';
@@ -452,9 +453,11 @@ export const 构建预设表单恢复结果 = (
     const selectedBackground = 全部背景选项.find((item) => item.名称 === 标准化文本(preset.character?.背景名称))
         || 全部背景选项[0]
         || options.fallbackBackgrounds[0];
-    const selectedTalents = (Array.isArray(preset.character?.天赋名称列表) ? preset.character.天赋名称列表 : [])
-        .map((name) => 全部天赋选项.find((item) => item.名称 === 标准化文本(name)))
-        .filter(Boolean) as 天赋结构[];
+    const selectedTalents = 过滤玩家可自选天赋(
+        (Array.isArray(preset.character?.天赋名称列表) ? preset.character.天赋名称列表 : [])
+            .map((name) => 全部天赋选项.find((item) => item.名称 === 标准化文本(name)))
+            .filter(Boolean) as 天赋结构[]
+    );
     return {
         ...runtimeRestore,
         模式包背景列表,

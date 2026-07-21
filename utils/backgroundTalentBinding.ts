@@ -58,9 +58,14 @@ export const 解析背景自带天赋 = (
     return resolved;
 };
 
-/** 开发诊断：自带引用未解析 */
+/** 开发诊断：自带引用未解析（生产环境静默，避免控制台泄露隐藏自带名称） */
 export const 报告背景自带天赋解析缺失 = (info: 背景自带解析缺失信息): void => {
-    console.warn('[backgroundTalentBinding] 自带天赋未解析', info);
+    if (!import.meta.env.DEV) return;
+    console.warn('[backgroundTalentBinding] 自带天赋未解析', {
+        backgroundName: info.backgroundName,
+        missingCount: Array.isArray(info.missing) ? info.missing.length : 0,
+        missing: info.missing
+    });
 };
 
 /** 按名称去重合并天赋列表（保留先出现的定义） */

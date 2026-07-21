@@ -1390,14 +1390,6 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
             const nsfwConfig = 获取NSFW文生图接口配置(form);
             const base = nsfwConfig?.baseUrl || '';
             const backend = nsfwConfig?.图片后端类型 || 'openai';
-            const raw = typeof error?.message === 'string' ? error.message : String(error || '');
-            // 把历史误导性报错（feature is not defined）翻译成可读说明
-            if (/feature is not defined/i.test(raw)) {
-                setNsfwConnectionMessage(
-                    'NSFW 连接测试脚本曾错误引用未定义变量（feature is not defined）。请刷新页面后再测；若仍失败，请检查 NSFW 后端地址、密钥与代理设置。'
-                );
-                return;
-            }
             setNsfwConnectionMessage(backend === 'comfyui'
                 ? await 构建ComfyUI精确连接失败提示(base, error)
                 : 翻译连接测试错误(error, { baseUrl: base, backendLabel: `NSFW ${backend}` }));
