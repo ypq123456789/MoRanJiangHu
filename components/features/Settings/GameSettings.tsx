@@ -4,7 +4,26 @@ import GameButton from '../../ui/GameButton';
 import ToggleSwitch from '../../ui/ToggleSwitch';
 import { normalizeCanonicalGameTime } from '../../../hooks/useGame/timeUtils';
 import { 规范化游玩请求超时设置, 游玩请求超时上限秒, 游玩请求超时下限秒 } from '../../../utils/gameRequestTimeouts';
-import { 计算当前阈值文本 } from '../../../utils/gameSettings';
+import { 计算当前阈值文本, 默认游戏设置, 规范化叙事平静值配置 } from '../../../utils/gameSettings';
+
+const 叙事平静值配置回退: 叙事平静值配置结构 = 规范化叙事平静值配置(
+    默认游戏设置.叙事平静值配置,
+    {
+        启用: false,
+        无标签增量: 2,
+        延续增量: 1,
+        上限: 32,
+        最低触发阈值: 12,
+        阈值文本: [
+            '一切如常。',
+            '一切如常，有些细节可以留意。（1 个方向）',
+            '一切如常，远处似乎有些变化。（2 个方向）',
+            '太长时间没有变化了，或许该有些新的事。（3 个方向）',
+            '风平浪静得太久了，可以有些新的动向了。（4 个方向）',
+            '一切如常，只是似乎有什么事要发生了。'
+        ]
+    }
+);
 
 interface Props {
     settings: 游戏设置结构;
@@ -157,6 +176,15 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
         const next = { ...form, ...patch };
         setForm(next);
         onSave(next);
+    };
+
+    const 更新叙事平静值配置 = (patch: Partial<叙事平静值配置结构>) => {
+        实时应用更新({
+            叙事平静值配置: 规范化叙事平静值配置(
+                { ...(form.叙事平静值配置 || {}), ...patch },
+                叙事平静值配置回退
+            )
+        });
     };
 
     const 提交字数要求 = () => {
@@ -1074,7 +1102,10 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                     </div>
                     <ToggleSwitch
                         checked={form.叙事平静值配置?.启用 === true}
-                        onChange={叙事平静值配置预设 != null ? undefined : (next) => 实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 启用: next } })}
+                        onChange={(next) => {
+                            if (叙事平静值配置预设 != null) return;
+                            更新叙事平静值配置({ 启用: next });
+                        }}
                         disabled={叙事平静值配置预设 != null}
                         ariaLabel="切换叙事平静值"
                     />
@@ -1090,7 +1121,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                                     min={1}
                                     max={10}
                                     value={form.叙事平静值配置?.无标签增量 ?? 2}
-                                    onChange={(e) => 实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 无标签增量: Math.max(1, Number(e.target.value) || 2) } })}
+                                    onChange={(e) => 更新叙事平静值配置({ 无标签增量: Math.max(1, Number(e.target.value) || 2) })}
                                     disabled={叙事平静值配置预设 != null}
                                     className="w-full bg-black/50 border-2 border-transparent focus:border-wuxia-gold p-2 text-white outline-none rounded-md transition-all"
                                 />
@@ -1102,7 +1133,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                                     min={1}
                                     max={10}
                                     value={form.叙事平静值配置?.延续增量 ?? 1}
-                                    onChange={(e) => 实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 延续增量: Math.max(1, Number(e.target.value) || 1) } })}
+                                    onChange={(e) => 更新叙事平静值配置({ 延续增量: Math.max(1, Number(e.target.value) || 1) })}
                                     disabled={叙事平静值配置预设 != null}
                                     className="w-full bg-black/50 border-2 border-transparent focus:border-wuxia-gold p-2 text-white outline-none rounded-md transition-all"
                                 />
@@ -1114,7 +1145,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                                     min={10}
                                     max={99}
                                     value={form.叙事平静值配置?.上限 ?? 32}
-                                    onChange={(e) => 实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 上限: Math.max(10, Number(e.target.value) || 32) } })}
+                                    onChange={(e) => 更新叙事平静值配置({ 上限: Math.max(10, Number(e.target.value) || 32) })}
                                     disabled={叙事平静值配置预设 != null}
                                     className="w-full bg-black/50 border-2 border-transparent focus:border-wuxia-gold p-2 text-white outline-none rounded-md transition-all"
                                 />
@@ -1126,7 +1157,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                                     min={1}
                                     max={50}
                                     value={form.叙事平静值配置?.最低触发阈值 ?? 12}
-                                    onChange={(e) => 实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 最低触发阈值: Math.max(1, Number(e.target.value) || 12) } })}
+                                    onChange={(e) => 更新叙事平静值配置({ 最低触发阈值: Math.max(1, Number(e.target.value) || 12) })}
                                     disabled={叙事平静值配置预设 != null}
                                     className="w-full bg-black/50 border-2 border-transparent focus:border-wuxia-gold p-2 text-white outline-none rounded-md transition-all"
                                 />
@@ -1144,7 +1175,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                                         onChange={(e) => {
                                             const next = [...(form.叙事平静值配置?.阈值文本 || [])];
                                             next[i] = e.target.value;
-                                            实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 阈值文本: next } });
+                                            更新叙事平静值配置({ 阈值文本: next });
                                         }}
                                         disabled={叙事平静值配置预设 != null}
                                         className="flex-1 bg-black/50 border-2 border-transparent focus:border-wuxia-gold p-2 text-white text-sm outline-none rounded-md transition-all"
@@ -1152,7 +1183,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                                     <button
                                         onClick={() => {
                                             const next = (form.叙事平静值配置?.阈值文本 || []).filter((_, idx) => idx !== i);
-                                            实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 阈值文本: next } });
+                                            更新叙事平静值配置({ 阈值文本: next });
                                         }}
                                         disabled={叙事平静值配置预设 != null}
                                         className="text-xs text-red-400 hover:text-red-300 px-2 shrink-0"
@@ -1160,7 +1191,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                                 </div>
                             ))}
                             <button
-                                onClick={() => 实时应用更新({ 叙事平静值配置: { ...(form.叙事平静值配置 || {}), 阈值文本: [...(form.叙事平静值配置?.阈值文本 || []), ''] } })}
+                                onClick={() => 更新叙事平静值配置({ 阈值文本: [...(form.叙事平静值配置?.阈值文本 || []), ''] })}
                                 disabled={叙事平静值配置预设 != null}
                                 className="text-xs text-wuxia-cyan hover:text-wuxia-gold transition-colors"
                             >+ 添加段落</button>

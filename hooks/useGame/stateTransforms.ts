@@ -301,15 +301,15 @@ const 从物品列表汇总角色货币 = (items: any[], fallbackMoney: Record<s
             || Object.prototype.hasOwnProperty.call(fallbackMoney || {}, name)
         );
     });
-    const fallbackCompat = 规范化角色金钱(fallbackMoney as any);
+    const fallbackCompat = 规范化角色金钱(fallbackMoney);
     const next: Record<string, number> = {
         ...(hasCurrencyItems ? 构建零值货币模板(fallbackMoney || {}) : fallbackMoney),
-        上层货币: hasCurrencyItems ? 0 : fallbackCompat.上层货币,
-        中层货币: hasCurrencyItems ? 0 : fallbackCompat.中层货币,
-        底层货币: hasCurrencyItems ? 0 : fallbackCompat.底层货币,
-        金元宝: hasCurrencyItems ? 0 : fallbackCompat.金元宝,
-        银子: hasCurrencyItems ? 0 : fallbackCompat.银子,
-        铜钱: hasCurrencyItems ? 0 : fallbackCompat.铜钱
+        上层货币: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.上层货币),
+        中层货币: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.中层货币),
+        底层货币: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.底层货币),
+        金元宝: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.金元宝 ?? fallbackCompat.上层货币),
+        银子: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.银子 ?? fallbackCompat.中层货币),
+        铜钱: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.铜钱 ?? fallbackCompat.底层货币)
     };
     const 货币层级名 = 获取当前货币层级名称();
     const 累加 = (key: keyof typeof next, amount: number) => {
@@ -3724,9 +3724,9 @@ const 合并NPC对象 = (leftRaw: any, rightRaw: any, fallbackIndex: number): an
         const rightBackground = 标准化出身背景(right?.出身背景);
         const leftBackground = 标准化出身背景(left?.出身背景);
         const merged = {
-            名称: 取更优文本(leftBackground.名称, rightBackground.名称),
-            描述: 取更优文本(leftBackground.描述, rightBackground.描述),
-            效果: 取更优文本(leftBackground.效果, rightBackground.效果)
+            名称: 取更优文本(leftBackground.名称, rightBackground.名称) || '',
+            描述: 取更优文本(leftBackground.描述, rightBackground.描述) || '',
+            效果: 取更优文本(leftBackground.效果, rightBackground.效果) || ''
         };
         if (merged.名称 || merged.描述 || merged.效果) return merged;
         return 推断NPC出身背景({ ...left, ...right });
