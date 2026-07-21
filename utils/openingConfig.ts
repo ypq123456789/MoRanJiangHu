@@ -1,6 +1,7 @@
 import type {
     OpeningConfig,
     OpeningRuntimeSnapshot,
+    WorldGenConfig,
     初始伙伴配置结构,
     同人角色替换规则结构,
     游戏难度,
@@ -10,7 +11,10 @@ import type {
     开局生成性别类型,
     题材模式类型,
     同人来源类型,
-    同人融合强度类型
+    同人融合强度类型,
+    背景结构,
+    天赋结构,
+    角色数据结构
 } from '../types';
 import type { ModeRuntimeProfile } from '../models/system';
 import { 获取题材模式配置, 获取题材模式选项, 规范化题材模式 } from './topicModeProfiles';
@@ -581,7 +585,7 @@ const 规范化运行时快照 = (value: unknown): OpeningConfig['runtimeSnapsho
         activeModuleExtraRules: 读取文本((value as any)?.activeModuleExtraRules),
         modeBackgrounds: 规范化快照背景列表((value as any)?.modeBackgrounds),
         modeTalents: 规范化快照天赋列表((value as any)?.modeTalents)
-    };
+    } as OpeningConfig['runtimeSnapshot'];
 };
 export const 规范化角色替换名称列表 = (value: unknown): string[] => {
     const rawList = Array.isArray(value)
@@ -746,7 +750,7 @@ const 规范化开局运行时快照 = (raw?: any): OpeningRuntimeSnapshot | und
                     ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : {})
                 };
             })
-            .filter((item) => item.名称 && item.描述 && item.效果)
+            .filter((item: { 名称: string; 描述: string; 效果: string }) => item.名称 && item.描述 && item.效果)
         : [];
     const modeTalents = Array.isArray(raw?.modeTalents)
         ? raw.modeTalents
@@ -757,7 +761,7 @@ const 规范化开局运行时快照 = (raw?: any): OpeningRuntimeSnapshot | und
                 叙事约束: item?.叙事约束,
                 ...(item?.隐藏 === true ? { 隐藏: true as const } : {})
             }))
-            .filter((item) => item.名称 && item.描述 && item.效果)
+            .filter((item: { 名称: string; 描述: string; 效果: string }) => item.名称 && item.描述 && item.效果)
         : [];
     const mainStoryDirection = 读取文本(raw?.mainStoryDirection);
     const hiddenPlotPolicy = 读取文本(raw?.hiddenPlotPolicy);

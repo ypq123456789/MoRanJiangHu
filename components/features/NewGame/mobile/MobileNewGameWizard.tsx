@@ -1713,16 +1713,17 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
             setStep(0);
             return;
         }
-        const 预设成角背景 = presetRuntime?.selectedBackground || 根据名称查找背景(preset.character.背景名称);
-        const 预设玩家自选天赋 = presetRuntime?.selectedTalents?.length
-            ? presetRuntime.selectedTalents
-            : 根据名称查找天赋列表(preset.character.天赋名称列表);
-        const 预设天赋目录 = 合并去重天赋([
-            ...(presetRuntime?.全部天赋选项 || []),
-            ...全部天赋选项
-        ]);
-        const charData = preset
-            ? 构建角色数据({
+        const charData = (() => {
+            if (!preset) return 构建角色数据();
+            const 预设成角背景 = presetRuntime?.selectedBackground || 根据名称查找背景(preset.character.背景名称);
+            const 预设玩家自选天赋 = presetRuntime?.selectedTalents?.length
+                ? presetRuntime.selectedTalents
+                : 根据名称查找天赋列表(preset.character.天赋名称列表);
+            const 预设天赋目录 = 合并去重天赋([
+                ...(presetRuntime?.全部天赋选项 || []),
+                ...全部天赋选项
+            ]);
+            return 构建角色数据({
                 角色名: preset.character.姓名,
                 性别: preset.character.性别,
                 年龄: preset.character.年龄,
@@ -1738,8 +1739,8 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                     天赋目录: 预设天赋目录,
                     onMiss: 报告背景自带天赋解析缺失
                 })
-            })
-            : 构建角色数据();
+            });
+        })();
         const runtimeRestore = preset
             ? 构建预设直开恢复结果({
                 ...preset,

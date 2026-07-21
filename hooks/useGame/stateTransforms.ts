@@ -494,8 +494,8 @@ const 标准化天赋列表 = (raw: any): Array<{ 名称: string; 描述: string
         const 隐藏 = item?.隐藏 === true || existing?.隐藏 === true ? true : undefined;
         byKey.set(key, {
             名称: 名称 || existing?.名称 || '',
-            描述: 取更优文本(描述, existing?.描述 || ''),
-            效果: 取更优文本(效果, existing?.效果 || ''),
+            描述: 取更优文本(描述, existing?.描述 || '') || '',
+            效果: 取更优文本(效果, existing?.效果 || '') || '',
             叙事约束: 叙事约束 || existing?.叙事约束 || undefined,
             ...(隐藏 ? { 隐藏: true } : {})
         });
