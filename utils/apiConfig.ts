@@ -2730,7 +2730,13 @@ export const 获取NSFW文生图接口配置 = (settings: 接口设置结构, di
         : 图片预设接口路径映射[图片预设接口路径];
 
     const nsfw自定义代理地址 = 读取字符串(feature?.NSFW自定义图片代理地址).trim();
-    const nsfw图片需要代理 = Boolean(feature?.NSFW图片需要代理);
+    // NSFW 独立接口未单独配置代理时，回退到主文生图代理，避免“主接口能测通、NSFW 测不通/无法出图”。
+    const nsfw图片需要代理 = typeof feature?.NSFW图片需要代理 === 'boolean'
+        ? feature.NSFW图片需要代理
+        : Boolean(feature?.图片需要代理 || sharedConfig?.图片需要代理);
+    const resolvedNsfwProxyAddress = nsfw自定义代理地址
+        || 读取字符串(feature?.自定义图片代理地址).trim()
+        || (canReuseSharedConnection ? 读取字符串(sharedConfig?.自定义图片代理地址).trim() : '');
 
     const result: 当前可用接口结构 = {
         ...baseConfig,
@@ -2744,7 +2750,7 @@ export const 获取NSFW文生图接口配置 = (settings: 接口设置结构, di
         图片预设接口路径,
         图片接口路径,
         图片需要代理: nsfw图片需要代理,
-        自定义图片代理地址: nsfw自定义代理地址 || (canReuseSharedConnection ? (sharedConfig?.自定义图片代理地址 || '') : ''),
+        自定义图片代理地址: resolvedNsfwProxyAddress,
         图片响应格式: nsfwBackend === 'openai' ? sharedConfig?.图片响应格式 : 'url',
         图片走OpenAI自定义格式: nsfwBackend === 'openai' ? Boolean(sharedConfig?.图片走OpenAI自定义格式) : false,
         NPC生图使用词组转化器: nsfwBackend === 'novelai' ? true : sharedConfig?.NPC生图使用词组转化器,

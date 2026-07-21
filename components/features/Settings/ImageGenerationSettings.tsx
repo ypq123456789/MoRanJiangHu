@@ -1319,10 +1319,10 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
         setMessage('');
         setNsfwConnectionMessage('正在测试 NSFW 文生图连接...');
         setNsfwConnectionPreviewUrl('');
+        const feature = form.功能模型占位;
         try {
             const nsfwConfig = 获取NSFW文生图接口配置(form);
             if (!nsfwConfig || !接口配置是否可用(nsfwConfig)) {
-                const feature = form.功能模型占位;
                 const independent = Boolean(feature.NSFW生图独立接口启用);
                 const details = [];
                 if (!independent) details.push('NSFW 独立接口未启用');
@@ -1330,6 +1330,9 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                     const cfg = nsfwConfig as any;
                     details.push(`推断后端：${cfg.图片后端类型 || '未识别'}`);
                     details.push(`地址：${cfg.baseUrl || '未填写'}`);
+                } else {
+                    details.push(`主文生图后端：${feature.文生图后端类型 || '未设置'}`);
+                    details.push(`主文生图地址：${(feature.文生图模型API地址 || '').trim() || '未填写'}`);
                 }
                 throw new Error(`NSFW 生图配置不可用。${details.length ? '\n' + details.join('\n') : ''}\n请确认：1) 主文生图后端不是 OpenAI/Gemini 等不支持成人向的接口；2) 或者开启 NSFW 独立接口并配置 ComfyUI/SD WebUI/NovelAI 后端。`);
             }
@@ -1339,7 +1342,6 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
             if (backend === 'comfyui') {
                 const response = await fetch(构建ComfyUI运行时代理端点(base, '/system_stats'), { method: 'GET' });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const feature = form.功能模型占位;
                 const matchedBackend = discoveredBackends.find((item) => (
                     item.id === feature.当前NSFW图片后端发现ID
                     || normalizeDiscoveredBackendUrl(item.url) === base
@@ -1358,15 +1360,28 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                 setNsfwConnectionMessage(`NSFW ${await 测试NovelAI官方连接(nsfwConfig)}（${base}）`);
                 return;
             }
+            // OpenAI 兼容路径（如 xAI/Grok 等允许的 NSFW 兼容接口）
+            // 必须从 form/nsfwConfig 取代理字段，不能引用未定义的 feature 局部变量。
+            const nsfwProxyEnabled = Boolean(nsfwConfig.图片需要代理) || Boolean(feature.图片需要代理);
+            const nsfwProxyAddress = (
+                nsfwConfig.自定义图片代理地址
+                || feature.NSFW自定义图片代理地址
+                || feature.自定义图片代理地址
+                || ''
+            ).trim();
+            const rawModel = (nsfwConfig.model || '').trim() || 'gpt-image-2';
             const result = await 测试OpenAI兼容图片接口({
                 rawBaseUrl: base,
                 apiKey,
-                model: nsfwConfig.model || 'gpt-image-2',
-                path: /^(gpt-image|chatgpt-image)/i.test(nsfwConfig.model || 'gpt-image-2') ? '/v1/images/generations' : (nsfwConfig.图片接口路径 || '/v1/images/generations'),
-                responseFormat: nsfwConfig.图片响应格式 || 'url',
+                model: rawModel,
+                path: /^(gpt-image|chatgpt-image)/i.test(rawModel)
+                    ? '/v1/images/generations'
+                    : (nsfwConfig.图片接口路径 || '/v1/images/generations'),
+                responseFormat: nsfwConfig.图片响应格式 || 'b64_json',
                 label: 'NSFW OpenAI 兼容接口',
-                图片需要代理: feature.图片需要代理,
-                自定义图片代理地址: feature.自定义图片代理地址
+                供应商ID: nsfwConfig.供应商,
+                图片需要代理: nsfwProxyEnabled,
+                自定义图片代理地址: nsfwProxyAddress
             });
             setNsfwConnectionMessage(result.message);
             setNsfwConnectionPreviewUrl(result.previewUrl || '');
@@ -1375,6 +1390,14 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
             const nsfwConfig = 获取NSFW文生图接口配置(form);
             const base = nsfwConfig?.baseUrl || '';
             const backend = nsfwConfig?.图片后端类型 || 'openai';
+            const raw = typeof error?.message === 'string' ? error.message : String(error || '');
+            // 把历史误导性报错（feature is not defined）翻译成可读说明
+            if (/feature is not defined/i.test(raw)) {
+                setNsfwConnectionMessage(
+                    'NSFW 连接测试脚本曾错误引用未定义变量（feature is not defined）。请刷新页面后再测；若仍失败，请检查 NSFW 后端地址、密钥与代理设置。'
+                );
+                return;
+            }
             setNsfwConnectionMessage(backend === 'comfyui'
                 ? await 构建ComfyUI精确连接失败提示(base, error)
                 : 翻译连接测试错误(error, { baseUrl: base, backendLabel: `NSFW ${backend}` }));
