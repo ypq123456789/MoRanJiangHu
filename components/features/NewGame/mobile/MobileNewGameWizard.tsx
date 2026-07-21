@@ -52,6 +52,12 @@ import { 构建默认技艺 } from '../../../../utils/skillDefaults';
 import { 默认境界母板提示词 } from '../../../../prompts/runtime/fandom';
 import { 设置键 } from '../../../../utils/settingsSchema';
 import { 根据名称映射天赋抽卡, 根据名称映射抽卡, 补全天赋抽卡名称列表, 补全抽卡名称列表, 天赋抽卡数量, 出身抽卡数量, 抽取天赋卡牌, 抽取卡牌 } from '../../../../utils/talentDraw';
+import {
+    过滤可见天赋,
+    合并玩家与背景天赋,
+    解析背景自带天赋,
+    是否背景自带天赋
+} from '../../../../utils/backgroundTalentBinding';
 import { 构建开局世界观生成提示词预览 } from '../../../../utils/worldGenerationPromptPreview';
 import { 下载创意工坊模块, 列出创意工坊模块 } from '../../../../services/creativeWorkshop';
 
@@ -274,14 +280,32 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
         const 描述 = raw?.描述?.trim() || '';
         const 效果 = raw?.效果?.trim() || '';
         if (!名称 || !描述 || !效果) return null;
-        return { 名称, 描述, 效果, 叙事约束: raw?.叙事约束 };
+        const 叙事约束 = typeof raw?.叙事约束 === 'string' ? raw.叙事约束.trim() : '';
+        return {
+            名称,
+            描述,
+            效果,
+            ...(叙事约束 ? { 叙事约束 } : {}),
+            ...(raw?.隐藏 === true ? { 隐藏: true } : {})
+        };
     };
     const 标准化背景 = (raw: 背景结构): 背景结构 | null => {
         const 名称 = raw?.名称?.trim() || '';
         const 描述 = raw?.描述?.trim() || '';
         const 效果 = raw?.效果?.trim() || '';
         if (!名称 || !描述 || !效果) return null;
-        return { 名称, 描述, 效果, 初始物品: raw.初始物品 };
+        const 自带天赋 = Array.isArray(raw?.自带天赋)
+            ? raw.自带天赋.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
+            : undefined;
+        return {
+            名称,
+            描述,
+            效果,
+            初始物品: raw.初始物品,
+            可选初始物品: raw.可选初始物品,
+            开局货币: raw.开局货币,
+            ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : {})
+        };
     };
     const 合并去重天赋 = (rawList: 天赋结构[]): 天赋结构[] => {
         const map = new Map<string, 天赋结构>();
@@ -321,20 +345,33 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
         () => 合并去重天赋([...模式包天赋列表, ...当前题材预设天赋, ...自定义天赋列表]),
         [模式包天赋列表, 当前题材预设天赋, 自定义天赋列表]
     );
+    const 可见天赋选项 = useMemo(() => 过滤可见天赋(全部天赋选项), [全部天赋选项]);
+    const 当前背景自带天赋 = useMemo(
+        () => 解析背景自带天赋(selectedBackground, 全部天赋选项),
+        [selectedBackground, 全部天赋选项]
+    );
+    const 最终主角天赋列表 = useMemo(
+        () => 合并玩家与背景天赋({
+            玩家自选: selectedTalents,
+            背景: selectedBackground,
+            天赋目录: 全部天赋选项
+        }),
+        [selectedTalents, selectedBackground, 全部天赋选项]
+    );
     const 当前抽卡出身选项 = useMemo(
         () => 根据名称映射抽卡(出身抽卡名称列表, 全部背景选项),
         [出身抽卡名称列表, 全部背景选项]
     );
     const 当前抽卡天赋选项 = useMemo(
-        () => 根据名称映射天赋抽卡(天赋抽卡名称列表, 全部天赋选项),
-        [天赋抽卡名称列表, 全部天赋选项]
+        () => 根据名称映射天赋抽卡(天赋抽卡名称列表, 可见天赋选项),
+        [天赋抽卡名称列表, 可见天赋选项]
     );
     useEffect(() => {
         set出身抽卡名称列表(prev => 补全抽卡名称列表(prev, 全部背景选项, 出身抽卡数量));
     }, [全部背景选项]);
     useEffect(() => {
-        set天赋抽卡名称列表(prev => 补全天赋抽卡名称列表(prev, 全部天赋选项, 天赋抽卡数量));
-    }, [全部天赋选项]);
+        set天赋抽卡名称列表(prev => 补全天赋抽卡名称列表(prev, 可见天赋选项, 天赋抽卡数量));
+    }, [可见天赋选项]);
     useEffect(() => {
         setSelectedBackground(prev => 全部背景选项.some(item => item.名称 === prev.名称) ? prev : 全部背景选项[0] || 预设背景[0]);
         setPartnerBackground(prev => 全部背景选项.some(item => item.名称 === prev.名称) ? prev : 全部背景选项[0] || 预设背景[0]);
@@ -362,8 +399,8 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
             return;
         }
         set天赋抽卡名称列表(prev => {
-            const targetCount = Math.max(0, Math.min(天赋抽卡数量, 全部天赋选项.length));
-            const 可用天赋名称集合 = new Set(全部天赋选项.map(item => item.名称));
+            const targetCount = Math.max(0, Math.min(天赋抽卡数量, 可见天赋选项.length));
+            const 可用天赋名称集合 = new Set(可见天赋选项.map(item => item.名称));
             const 已选天赋名称 = selectedTalents
                 .map(item => item.名称)
                 .filter((名称, index, list) => 可用天赋名称集合.has(名称) && list.indexOf(名称) === index);
@@ -373,7 +410,7 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
             ].slice(0, targetCount);
             const 固定名称集合 = new Set(固定名称);
             const 补充名称 = 抽取天赋卡牌(
-                全部天赋选项.filter(item => !固定名称集合.has(item.名称)),
+                可见天赋选项.filter(item => !固定名称集合.has(item.名称)),
                 targetCount - 固定名称.length
             ).map(item => item.名称);
             return [...固定名称, ...补充名称];
@@ -382,6 +419,9 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
         set天赋已重Roll次数(prev => prev + 1);
     };
     const 取消选择天赋 = (名称: string) => {
+        if (是否背景自带天赋(名称, selectedBackground) && !selectedTalents.some(item => item.名称 === 名称)) {
+            return;
+        }
         setSelectedTalents(prev => prev.filter(item => item.名称 !== 名称));
     };
     const 重置自定义天赋编辑 = () => {
@@ -651,7 +691,11 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
             年龄: 最终年龄,
             外貌: (params?.外貌 ?? charAppearance).trim() || '相貌平常，衣着朴素。',
             性格: (params?.性格 ?? charPersonality).trim() || '未设定',
-            天赋列表: params?.天赋列表 ?? selectedTalents,
+            天赋列表: params?.天赋列表 ?? 合并玩家与背景天赋({
+                玩家自选: selectedTalents,
+                背景: params?.背景 ?? selectedBackground,
+                天赋目录: 全部天赋选项
+            }),
             出身背景: params?.背景 ?? selectedBackground,
             称号: '初出茅庐', 境界: 初始境界名称, 境界层级: 初始境界层级,
             所属门派ID: 'none', 门派职位: '无', 门派贡献: 0,
@@ -1672,6 +1716,14 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
             setStep(0);
             return;
         }
+        const 预设成角背景 = presetRuntime?.selectedBackground || 根据名称查找背景(preset.character.背景名称);
+        const 预设玩家自选天赋 = presetRuntime?.selectedTalents?.length
+            ? presetRuntime.selectedTalents
+            : 根据名称查找天赋列表(preset.character.天赋名称列表);
+        const 预设天赋目录 = 合并去重天赋([
+            ...(presetRuntime?.全部天赋选项 || []),
+            ...全部天赋选项
+        ]);
         const charData = preset
             ? 构建角色数据({
                 角色名: preset.character.姓名,
@@ -1682,10 +1734,12 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                 出生月: preset.character.出生月,
                 出生日: preset.character.出生日,
                 属性: preset.character.属性,
-                背景: presetRuntime?.selectedBackground || 根据名称查找背景(preset.character.背景名称),
-                天赋列表: presetRuntime?.selectedTalents?.length
-                    ? presetRuntime.selectedTalents
-                    : 根据名称查找天赋列表(preset.character.天赋名称列表)
+                背景: 预设成角背景,
+                天赋列表: 合并玩家与背景天赋({
+                    玩家自选: 预设玩家自选天赋,
+                    背景: 预设成角背景,
+                    天赋目录: 预设天赋目录
+                })
             })
             : 构建角色数据();
         const runtimeRestore = preset
@@ -2580,6 +2634,13 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                         <span className="text-wuxia-gold/80 mr-2">长期作用：</span>
                                         {selectedBackground.效果 || '未填写'}
                                     </div>
+                                    {当前背景自带天赋.length > 0 && (
+                                        <div className="mt-3 rounded-xl border border-rose-400/25 bg-rose-950/20 px-3 py-3 text-sm text-rose-100/90 leading-6">
+                                            <span className="text-rose-200/90 mr-2">背景自带天赋：</span>
+                                            {当前背景自带天赋.map((item) => item.名称).join('、')}
+                                            <span className="ml-2 text-[11px] text-rose-100/60">（自动附带，不占可选名额）</span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <button
@@ -2615,7 +2676,22 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                             onChange={e => setCustomBackground({ ...customBackground, 效果: e.target.value })}
                                             className="w-full h-24 bg-black/50 border-2 border-transparent focus:border-wuxia-cyan p-3 text-sm text-white outline-none rounded-md transition-all resize-none"
                                         />
-                                        <div className="text-[11px] text-gray-500">避免只写“开局送东西”，更推荐写身份带来的长期权限、人脉与压力。</div>
+                                        <input
+                                            placeholder="自带天赋名称（可选，逗号分隔，引用天赋池，如：剑在心中）"
+                                            value={(customBackground.自带天赋 || []).join('，')}
+                                            onChange={(e) => {
+                                                const 自带天赋 = e.target.value
+                                                    .split(/[,，、\s]+/)
+                                                    .map((item) => item.trim())
+                                                    .filter(Boolean);
+                                                setCustomBackground({
+                                                    ...customBackground,
+                                                    ...(自带天赋.length > 0 ? { 自带天赋 } : { 自带天赋: undefined })
+                                                });
+                                            }}
+                                            className="w-full bg-black/50 border-2 border-transparent focus:border-wuxia-cyan p-3 text-sm text-white outline-none rounded-md transition-all"
+                                        />
+                                        <div className="text-[11px] text-gray-500">避免只写“开局送东西”，更推荐写身份带来的长期权限、人脉与压力。自带天赋从天赋池按名称引用，可选隐藏天赋。</div>
                                         <div className="grid grid-cols-2 gap-2">
                                             <GameButton onClick={addCustomBackground} variant="secondary" className="py-2 text-xs">{正在编辑背景名 ? '保存身份修改' : '保存并使用'}</GameButton>
                                             <GameButton onClick={重置自定义背景编辑} variant="secondary" className="py-2 text-xs opacity-80">取消</GameButton>
@@ -2714,6 +2790,15 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                     <h3 className="text-xl font-serif font-bold text-wuxia-gold mt-2">天赋卷宗</h3>
                                     <p className="text-[11px] text-gray-400 mt-2 leading-6">{天赋说明}</p>
                                     <div className="mt-3 flex flex-wrap gap-2">
+                                        {当前背景自带天赋.map((item) => (
+                                            <span
+                                                key={`builtin-${item.名称}`}
+                                                className="rounded-full border border-rose-400/40 bg-rose-950/30 px-3 py-1 text-[11px] text-rose-100"
+                                                title="背景自带，不可取消"
+                                            >
+                                                {item.名称} · 自带
+                                            </span>
+                                        ))}
                                         {selectedTalentNames.length > 0 ? selectedTalentNames.map(name => (
                                             <button
                                                 key={name}
@@ -2724,10 +2809,12 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                                 {name} ×
                                             </button>
                                         )) : (
-                                            <span className="text-[11px] text-gray-500">尚未选择天赋</span>
+                                            当前背景自带天赋.length === 0
+                                                ? <span className="text-[11px] text-gray-500">尚未选择天赋</span>
+                                                : null
                                         )}
                                     </div>
-                                    <div className="mt-3 text-[11px] text-gray-500">已选 {selectedTalents.length}/3 个。建议围绕长期路线，而不是只堆开局爆发。</div>
+                                    <div className="mt-3 text-[11px] text-gray-500">自选 {selectedTalents.length}/3 个（背景自带不占名额）。建议围绕长期路线，而不是只堆开局爆发。</div>
                                 </div>
 
                                 <button
@@ -2748,6 +2835,17 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                         <input placeholder="天赋名称" value={customTalent.名称} onChange={e => setCustomTalent({...customTalent, 名称: e.target.value})} className="w-full bg-black/50 border-2 border-transparent focus:border-wuxia-cyan p-3 text-sm text-white outline-none rounded-md transition-all" />
                                         <textarea placeholder="天赋描述：说明天赋偏向与风格" value={customTalent.描述} onChange={e => setCustomTalent({...customTalent, 描述: e.target.value})} className="w-full h-20 bg-black/50 border-2 border-transparent focus:border-wuxia-cyan p-3 text-sm text-white outline-none rounded-md transition-all resize-none" />
                                         <textarea placeholder="长期效果：说明它会长期强化哪些成长、判定或路线" value={customTalent.效果} onChange={e => setCustomTalent({...customTalent, 效果: e.target.value})} className="w-full h-24 bg-black/50 border-2 border-transparent focus:border-wuxia-cyan p-3 text-sm text-white outline-none rounded-md transition-all resize-none" />
+                                        <label className="flex items-center gap-2 text-xs text-gray-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={customTalent.隐藏 === true}
+                                                onChange={(e) => setCustomTalent({
+                                                    ...customTalent,
+                                                    隐藏: e.target.checked ? true : undefined
+                                                })}
+                                            />
+                                            隐藏天赋（不进入抽卡/列表选择池，仅可通过背景自带等方式注入）
+                                        </label>
                                         <div className="grid grid-cols-2 gap-2">
                                             <GameButton onClick={addCustomTalent} variant="secondary" className="py-2 text-xs">{正在编辑天赋名 ? '保存天赋修改' : '保存自定义天赋'}</GameButton>
                                             <GameButton onClick={重置自定义天赋编辑} variant="secondary" className="py-2 text-xs opacity-80">取消</GameButton>
@@ -2761,7 +2859,10 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                         <div className="mt-3 space-y-2">
                                             {自定义天赋列表.map((talent) => (
                                                 <div key={talent.名称} className="rounded-xl border border-gray-800 bg-black/30 px-3 py-3 space-y-2">
-                                                    <div className="text-sm text-gray-200">{talent.名称}</div>
+                                                    <div className="text-sm text-gray-200">
+                                                        {talent.名称}
+                                                        {talent.隐藏 === true ? <span className="ml-2 text-[10px] text-rose-300/80">隐藏</span> : null}
+                                                    </div>
                                                     <div className="text-[11px] text-gray-500">{talent.效果}</div>
                                                     <div className="flex items-center gap-3 text-[11px]">
                                                         <button type="button" onClick={() => toggleTalent(talent)} className="text-wuxia-gold">{selectedTalents.some(item => item.名称 === talent.名称) ? '取消使用' : '使用'}</button>
@@ -2799,7 +2900,7 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
                                                 <div className="text-[10px] uppercase tracking-[0.25em] text-wuxia-red/70 font-mono">Draw #{天赋抽卡轮次}</div>
-                                                <div className="mt-1 text-[11px] text-gray-500">本轮 {当前抽卡天赋选项.length}/{Math.min(天赋抽卡数量, 全部天赋选项.length)} 张，已用 {天赋已重Roll次数}/{当前难度设定.天赋重Roll次数} 次。</div>
+                                                <div className="mt-1 text-[11px] text-gray-500">本轮 {当前抽卡天赋选项.length}/{Math.min(天赋抽卡数量, 可见天赋选项.length)} 张，已用 {天赋已重Roll次数}/{当前难度设定.天赋重Roll次数} 次。</div>
                                             </div>
                                             <button
                                                 type="button"
@@ -2814,7 +2915,7 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                 </div>
 
                                 <div className="space-y-3">
-                                    {(天赋选择模式 === '抽卡' ? 当前抽卡天赋选项 : 全部天赋选项).map((t, idx) => {
+                                    {(天赋选择模式 === '抽卡' ? 当前抽卡天赋选项 : 可见天赋选项).map((t, idx) => {
                                         const isSelected = !!selectedTalents.find(x => x.名称 === t.名称);
                                         return (
                                             <div
@@ -3234,7 +3335,11 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                     <p>外貌: <span className="text-white">{charAppearance.trim() || '未填写'}</span></p>
                                     <p>性格: <span className="text-white">{charPersonality.trim() || '未填写'}</span></p>
                                     <p>身份: <span className="text-white">{selectedBackground.名称}</span></p>
-                                    <p>天赋: <span className="text-white">{selectedTalents.map(t => t.名称).join(', ') || '无'}</span></p>
+                                    <p>天赋: <span className="text-white">{最终主角天赋列表.map(t => t.名称).join(', ') || '无'}</span>
+                                        {当前背景自带天赋.length > 0 && (
+                                            <span className="text-rose-200/80 text-xs ml-2">（含背景自带：{当前背景自带天赋.map(t => t.名称).join('、')}）</span>
+                                        )}
+                                    </p>
                                     <p>开局伙伴: <span className="text-white">{partnerEnabled ? `${获取当前伙伴列表快照().length} 名` : '关闭'}</span></p>
                                     {partnerEnabled && <p>伙伴名单: <span className="text-white">{获取当前伙伴列表快照().map((partner) => partner.姓名 || '未填写姓名').join('、')}</span></p>}
                                     <p>开局配置: <span className="text-white">{openingConfigEnabled ? '已启用' : '未启用'}</span></p>

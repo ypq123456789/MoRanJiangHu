@@ -502,11 +502,15 @@ const 规范化快照背景列表 = (value: unknown): 背景结构[] => {
                     };
                 }).filter(Boolean)
                 : undefined;
+            const 自带天赋 = Array.isArray(item?.自带天赋)
+                ? item.自带天赋.map((name: unknown) => 读取文本(name)).filter(Boolean)
+                : undefined;
             return {
                 名称,
                 描述,
                 效果,
-                ...(初始物品 && 初始物品.length > 0 ? { 初始物品 } : {})
+                ...(初始物品 && 初始物品.length > 0 ? { 初始物品 } : {}),
+                ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : {})
             };
         })
         .filter(Boolean) as 背景结构[];
@@ -520,7 +524,13 @@ const 规范化快照天赋列表 = (value: unknown): 天赋结构[] => {
             const 描述 = 读取文本(item?.描述);
             const 效果 = 读取文本(item?.效果);
             if (!名称 || !描述 || !效果) return null;
-            return { 名称, 描述, 效果, 叙事约束: item?.叙事约束 };
+            return {
+                名称,
+                描述,
+                效果,
+                叙事约束: item?.叙事约束,
+                ...(item?.隐藏 === true ? { 隐藏: true as const } : {})
+            };
         })
         .filter(Boolean) as 天赋结构[];
 };
@@ -693,7 +703,8 @@ const 规范化天赋列表 = (value: unknown): 初始伙伴配置结构['天赋
                 名称: 读取文本(item?.名称),
                 描述: 读取文本(item?.描述),
                 效果: 读取文本(item?.效果),
-                叙事约束: item?.叙事约束
+                叙事约束: item?.叙事约束,
+                ...(item?.隐藏 === true ? { 隐藏: true as const } : {})
             }))
             .filter((item) => item.名称 && item.描述 && item.效果)
             .slice(0, 3)
@@ -724,11 +735,17 @@ const 规范化开局运行时快照 = (raw?: any): OpeningRuntimeSnapshot | und
         : undefined;
     const modeBackgrounds = Array.isArray(raw?.modeBackgrounds)
         ? raw.modeBackgrounds
-            .map((item: any) => ({
-                名称: 读取文本(item?.名称),
-                描述: 读取文本(item?.描述),
-                效果: 读取文本(item?.效果)
-            }))
+            .map((item: any) => {
+                const 自带天赋 = Array.isArray(item?.自带天赋)
+                    ? item.自带天赋.map((name: unknown) => 读取文本(name)).filter(Boolean)
+                    : undefined;
+                return {
+                    名称: 读取文本(item?.名称),
+                    描述: 读取文本(item?.描述),
+                    效果: 读取文本(item?.效果),
+                    ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : {})
+                };
+            })
             .filter((item) => item.名称 && item.描述 && item.效果)
         : [];
     const modeTalents = Array.isArray(raw?.modeTalents)
@@ -737,7 +754,8 @@ const 规范化开局运行时快照 = (raw?: any): OpeningRuntimeSnapshot | und
                 名称: 读取文本(item?.名称),
                 描述: 读取文本(item?.描述),
                 效果: 读取文本(item?.效果),
-                叙事约束: item?.叙事约束
+                叙事约束: item?.叙事约束,
+                ...(item?.隐藏 === true ? { 隐藏: true as const } : {})
             }))
             .filter((item) => item.名称 && item.描述 && item.效果)
         : [];

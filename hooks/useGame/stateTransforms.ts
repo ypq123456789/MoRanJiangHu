@@ -479,9 +479,9 @@ const 标准化角色技艺 = (raw: any): Array<{ 名称: string; 等级: string
     return Array.from(byName.values());
 };
 
-const 标准化天赋列表 = (raw: any): Array<{ 名称: string; 描述: string; 效果: string; 叙事约束?: string }> => {
+const 标准化天赋列表 = (raw: any): Array<{ 名称: string; 描述: string; 效果: string; 叙事约束?: string; 隐藏?: boolean }> => {
     if (!Array.isArray(raw)) return [];
-    const byKey = new Map<string, { 名称: string; 描述: string; 效果: string; 叙事约束?: string }>();
+    const byKey = new Map<string, { 名称: string; 描述: string; 效果: string; 叙事约束?: string; 隐藏?: boolean }>();
     raw.forEach((item: any) => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) return;
         const 名称 = 规范化文本(item?.名称);
@@ -491,11 +491,13 @@ const 标准化天赋列表 = (raw: any): Array<{ 名称: string; 描述: string
         if (!名称 && !描述 && !效果) return;
         const key = 名称 || `${描述}|${效果}`;
         const existing = byKey.get(key);
+        const 隐藏 = item?.隐藏 === true || existing?.隐藏 === true ? true : undefined;
         byKey.set(key, {
             名称: 名称 || existing?.名称 || '',
             描述: 取更优文本(描述, existing?.描述 || ''),
             效果: 取更优文本(效果, existing?.效果 || ''),
-            叙事约束: 叙事约束 || existing?.叙事约束 || undefined
+            叙事约束: 叙事约束 || existing?.叙事约束 || undefined,
+            ...(隐藏 ? { 隐藏: true } : {})
         });
     });
     return Array.from(byKey.values());
@@ -547,18 +549,22 @@ const 标准化背景货币列表 = (rawItems: unknown): 背景开局货币[] | 
     return items.length > 0 ? items : undefined;
 };
 
-const 标准化出身背景 = (raw: any, fallback = 默认背景模板): { 名称: string; 描述: string; 效果: string; 初始物品?: { 名称: string; 数量?: number; 描述?: string; 类型?: string; }[]; 可选初始物品?: { 名称: string; 数量?: number; 描述?: string; 类型?: string; }[]; 开局货币?: 背景开局货币[] } => {
+const 标准化出身背景 = (raw: any, fallback = 默认背景模板): { 名称: string; 描述: string; 效果: string; 初始物品?: { 名称: string; 数量?: number; 描述?: string; 类型?: string; }[]; 可选初始物品?: { 名称: string; 数量?: number; 描述?: string; 类型?: string; }[]; 开局货币?: 背景开局货币[]; 自带天赋?: string[] } => {
     const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     const 初始物品 = 标准化背景物品列表(source?.初始物品);
     const 可选初始物品 = 标准化背景物品列表(source?.可选初始物品);
     const 开局货币 = 标准化背景货币列表(source?.开局货币);
+    const 自带天赋 = Array.isArray(source?.自带天赋)
+        ? source.自带天赋.map((name: unknown) => 规范化文本(name)).filter(Boolean)
+        : undefined;
     return {
         名称: 规范化文本(source?.名称, fallback.名称),
         描述: 规范化文本(source?.描述, fallback.描述),
         效果: 规范化文本(source?.效果, fallback.效果),
         ...(初始物品 && 初始物品.length > 0 ? { 初始物品 } : {}),
         ...(可选初始物品 && 可选初始物品.length > 0 ? { 可选初始物品 } : {}),
-        ...(开局货币 && 开局货币.length > 0 ? { 开局货币 } : {})
+        ...(开局货币 && 开局货币.length > 0 ? { 开局货币 } : {}),
+        ...(自带天赋 && 自带天赋.length > 0 ? { 自带天赋 } : {})
     };
 };
 

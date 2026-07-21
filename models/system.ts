@@ -817,11 +817,14 @@ export interface OpeningRuntimeSnapshot {
         初始物品?: 背景初始物品快照[];
         可选初始物品?: 背景初始物品快照[];
         开局货币?: 背景开局货币快照[];
+        自带天赋?: string[];
     }>;
     modeTalents?: Array<{
         名称: string;
         描述: string;
         效果: string;
+        叙事约束?: string;
+        隐藏?: boolean;
     }>;
 }
 
