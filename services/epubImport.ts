@@ -252,7 +252,7 @@ export const 是否跳过EPUB非正文资源 = (params: {
     if (
         params.imageCount > 0
         && params.chapterText.length < 120
-        && /(?:地图|高手榜|人物榜|关系图|封底|插图|图册|局部[·・]|(?:^|\s)[^\s]{0,8}都[·・])/u.test(`${params.title} ${params.chapterText}`)
+        && /(?:地图|高手榜|人物榜|关系图|封底|插图|图册|局部[·・]|(?:晋都|宋都|汉都|唐都|秦都)[·・])/u.test(`${params.title} ${params.chapterText}`)
     ) return true;
     return false;
 };

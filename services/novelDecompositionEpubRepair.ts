@@ -13,9 +13,7 @@ const 规范化匹配文本 = (value: string): string => String(value || '')
     .replace(/[※◆◇●○□■]+/gu, '')
     .trim();
 
-const 计算内容匹配分数 = (oldContent: string, nextContent: string): number => {
-    const oldText = 规范化匹配文本(oldContent);
-    const nextText = 规范化匹配文本(nextContent);
+const 计算规范化文本匹配分数 = (oldText: string, nextText: string): number => {
     if (oldText.length < 8 || nextText.length < 8) return 0;
     if (oldText === nextText) return 1;
     if (nextText.includes(oldText) || oldText.includes(nextText)) {
@@ -86,12 +84,14 @@ export const 修复小说拆分数据集EPUB章节 = (params: {
     const now = Date.now();
     const oldChapters = params.dataset.章节列表 || [];
     const oldToNewIndex = new Map<string, number>();
+    const normalizedImportedChapters = params.importedChapters.map((chapter) => 规范化匹配文本(chapter.内容));
 
     oldChapters.forEach((oldChapter) => {
+        const normalizedOldChapter = 规范化匹配文本(oldChapter.内容);
         let bestIndex = -1;
         let bestScore = 0;
-        params.importedChapters.forEach((chapter, index) => {
-            const score = 计算内容匹配分数(oldChapter.内容, chapter.内容);
+        normalizedImportedChapters.forEach((normalizedImportedChapter, index) => {
+            const score = 计算规范化文本匹配分数(normalizedOldChapter, normalizedImportedChapter);
             if (score > bestScore) {
                 bestScore = score;
                 bestIndex = index;
@@ -201,7 +201,7 @@ export const 修复小说拆分数据集EPUB章节 = (params: {
         ...params.dataset,
         原始文本,
         原始文本长度: 原始文本.length,
-        原始文本摘要: 原始文本.slice(0, 240),
+        原始文本摘要: 原始文本.trim().slice(0, 240),
         总章节数: chapters.length,
         章节列表: chapters,
         分段列表: repairedSegments,

@@ -559,7 +559,7 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
     const [workshopEditingId, setWorkshopEditingId] = useState('');
     const [workshopEditDraft, setWorkshopEditDraft] = useState({ title: '', workName: '', contributor: '', note: '', tags: '', anonymous: false });
     const [selectedDatasetId, setSelectedDatasetId] = useState('');
-    const [epubRepairPhase, setEpubRepairPhase] = useState<'idle' | 'parsing' | EPUB修复阶段>('idle');
+    const [epubRepairPhase, setEpubRepairPhase] = useState<'idle' | 'parsing' | 'confirming' | EPUB修复阶段>('idle');
     const segmentDetailScrollRef = useRef<HTMLDivElement | null>(null);
     const [selectedSegmentId, setSelectedSegmentId] = useState('');
     const [showStrategySection, setShowStrategySection] = useState(false);
@@ -1447,7 +1447,7 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                 tasks,
                 importedChapters: parsed.章节列表
             });
-            setEpubRepairPhase('idle');
+            setEpubRepairPhase('confirming');
             const ok = requestConfirm
                 ? await requestConfirm({
                     title: '修复当前 EPUB 章节',
@@ -2651,14 +2651,14 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                                 type="button"
                                 disabled={!selectedDataset || selectedDataset.来源类型 !== 'epub' || epubRepairPhase !== 'idle'}
                                 onClick={() => repairEpubInputRef.current?.click()}
-                                className="group relative flex flex-col items-center justify-center p-5 rounded-xl border border-amber-500/20 bg-amber-950/15 hover:bg-amber-500/10 hover:border-amber-400/40 transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="novel-epub-repair-button group relative flex flex-col items-center justify-center p-5 rounded-xl border border-amber-500/20 bg-amber-950/15 hover:bg-amber-500/10 hover:border-amber-400/40 transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                                <div className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform border border-amber-500/15 text-amber-200">
+                                <div className="novel-epub-repair-icon w-10 h-10 rounded-full bg-black/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform border border-amber-500/15 text-amber-200">
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v6h6M20 20v-6h-6M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7" /></svg>
                                 </div>
-                                <span className="text-center text-sm font-medium text-amber-100">
-                                    {epubRepairPhase === 'parsing'
-                                        ? '正在解析 EPUB…'
+                                <span className="novel-epub-repair-label text-center text-sm font-medium text-amber-100">
+                                    {epubRepairPhase === 'parsing' || epubRepairPhase === 'confirming'
+                                        ? epubRepairPhase === 'confirming' ? '等待确认修复…' : '正在解析 EPUB…'
                                         : epubRepairPhase === 'waiting'
                                             ? '正在等待后台任务收尾…'
                                             : epubRepairPhase === 'saving'

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { 执行小说拆分EPUB修复工作流 } from '../services/novelDecompositionEpubRepairWorkflow';
 
 const 创建依赖 = (calls: string[], options?: { writeFailure?: boolean }) => {
+    let idleReached = false;
     const staleDataset = { id: 'dataset-1', 标题: '旧状态', 章节列表: [] } as any;
     const freshDataset = { id: 'dataset-1', 标题: '收尾后的最新状态', 章节列表: [] } as any;
     const repairedDataset = { ...freshDataset, 标题: '已修复' } as any;
@@ -28,10 +29,11 @@ const 创建依赖 = (calls: string[], options?: { writeFailure?: boolean }) => 
             },
             waitForIdle: async () => {
                 calls.push('waitForIdle');
+                idleReached = true;
             },
             readDatasets: async () => {
                 calls.push('readDatasets');
-                return [freshDataset];
+                return [idleReached ? freshDataset : staleDataset];
             },
             readTasks: async () => {
                 calls.push('readTasks');
@@ -94,7 +96,7 @@ describe('EPUB 修复工作流', () => {
             importedChapters: [{ 标题: '第1章', 内容: '正文', 序号: 1 }],
             backgroundEnabled: true,
             dependencies: fixture.dependencies
-        })).rejects.toThrow('保存失败');
+        })).rejects.toThrow('请重新执行一次 EPUB 修复');
 
         expect(calls).not.toContain('restart');
     });
@@ -112,5 +114,47 @@ describe('EPUB 修复工作流', () => {
         });
 
         expect(calls).not.toContain('restart');
+    });
+
+    it('等待收尾失败时恢复后台调度且不执行修复写入', async () => {
+        const calls: string[] = [];
+        const fixture = 创建依赖(calls);
+        fixture.dependencies.waitForIdle = async () => {
+            calls.push('waitForIdle');
+            throw new Error('等待失败');
+        };
+
+        await expect(执行小说拆分EPUB修复工作流({
+            datasetId: 'dataset-1',
+            runningTaskIds: ['task-1'],
+            importedChapters: [{ 标题: '第1章', 内容: '正文', 序号: 1 }],
+            backgroundEnabled: true,
+            dependencies: fixture.dependencies
+        })).rejects.toThrow('等待失败');
+
+        expect(calls).toEqual(['stop', 'interrupt', 'waitForIdle', 'restart']);
+        expect(fixture.repair).not.toHaveBeenCalled();
+    });
+
+    it('目标数据集缺失时恢复后台调度且不执行写入', async () => {
+        const calls: string[] = [];
+        const fixture = 创建依赖(calls);
+        fixture.dependencies.readDatasets = async () => {
+            calls.push('readDatasets');
+            return [];
+        };
+
+        await expect(执行小说拆分EPUB修复工作流({
+            datasetId: 'dataset-missing',
+            runningTaskIds: [],
+            importedChapters: [{ 标题: '第1章', 内容: '正文', 序号: 1 }],
+            backgroundEnabled: true,
+            dependencies: fixture.dependencies
+        })).rejects.toThrow('目标小说分解数据集已不存在');
+
+        expect(calls).toEqual([
+            'stop', 'waitForIdle', 'readDatasets', 'readTasks', 'readSnapshots', 'restart'
+        ]);
+        expect(fixture.repair).not.toHaveBeenCalled();
     });
 });

@@ -30,6 +30,17 @@ describe('epubImport', () => {
         })).toBe(false);
     });
 
+    it('保留带图片的正常短章节标题', () => {
+        expect(是否跳过EPUB非正文资源({
+            href: 'chapter120.html',
+            properties: '',
+            title: '第1章 京都·夜雨',
+            chapterText: '夜雨落在京都长街，程宗扬撑伞穿过坊门。',
+            bookTitle: '六朝燕歌行',
+            imageCount: 1
+        })).toBe(false);
+    });
+
     it('跳过带出版信息和本集简介的卷说明资源', () => {
         expect(是否跳过EPUB非正文资源({
             href: 'chapter3_0256.html',

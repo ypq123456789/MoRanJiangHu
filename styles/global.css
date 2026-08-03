@@ -2743,3 +2743,22 @@ html[data-theme="day"] .right-panel-bottom-fade {
     --desktop-game-bottom: 46px;
   }
 }
+html[data-theme="day"] .novel-epub-repair-button {
+  border-color: rgba(180, 83, 9, 0.45);
+  background: rgba(254, 243, 199, 0.8);
+}
+
+html[data-theme="day"] .novel-epub-repair-button:hover {
+  border-color: rgba(146, 64, 14, 0.7);
+  background: rgba(253, 230, 138, 0.75);
+}
+
+html[data-theme="day"] .novel-epub-repair-icon {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: rgba(255, 251, 235, 0.9);
+  color: rgb(146, 64, 14);
+}
+
+html[data-theme="day"] .novel-epub-repair-label {
+  color: rgb(120, 53, 15);
+}
