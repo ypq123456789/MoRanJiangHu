@@ -60,4 +60,50 @@ describe('小说分解调度退避', () => {
             task: expect.objectContaining({ id: 'task-ready' })
         }));
     });
+
+    it('调度器空闲时立即完成等待', async () => {
+        await expect(小说拆分后台调度服务.waitForIdle()).resolves.toBeUndefined();
+    });
+
+    it('等待正在执行的任务真正收尾后才完成', async () => {
+        let finishExecutor: (() => void) | null = null;
+        const executor = vi.fn().mockImplementation(() => new Promise((resolve) => {
+            finishExecutor = () => resolve({ type: 'progress', message: '已收尾' });
+        }));
+        小说拆分后台调度服务.registerExecutor(executor);
+        schedulerMocks.readTasks.mockResolvedValue([{
+            id: 'task-busy', 名称: '正在处理', 状态: 'running', 后台运行: true, 自动续跑: true,
+            updatedAt: 1
+        }]);
+
+        const tickPromise = 小说拆分后台调度服务.tick();
+        await vi.waitFor(() => expect(executor).toHaveBeenCalledOnce());
+        let settled = false;
+        const idlePromise = 小说拆分后台调度服务.waitForIdle().then(() => {
+            settled = true;
+        });
+
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        finishExecutor?.();
+        await tickPromise;
+        await idlePromise;
+        expect(settled).toBe(true);
+    });
+
+    it('等待任务收尾超时时返回明确错误', async () => {
+        const executor = vi.fn().mockImplementation(() => new Promise(() => undefined));
+        小说拆分后台调度服务.registerExecutor(executor);
+        schedulerMocks.readTasks.mockResolvedValue([{
+            id: 'task-timeout', 名称: '无法及时收尾', 状态: 'running', 后台运行: true, 自动续跑: true,
+            updatedAt: 1
+        }]);
+
+        void 小说拆分后台调度服务.tick();
+        await vi.waitFor(() => expect(executor).toHaveBeenCalledOnce());
+        const idlePromise = 小说拆分后台调度服务.waitForIdle({ timeoutMs: 50 });
+        const rejection = expect(idlePromise).rejects.toThrow('等待小说拆分后台任务收尾超时');
+        await vi.advanceTimersByTimeAsync(50);
+        await rejection;
+    });
 });

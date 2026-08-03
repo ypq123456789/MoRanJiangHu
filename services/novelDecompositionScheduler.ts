@@ -144,6 +144,33 @@ class 小说拆分后台调度器 {
         this.emit();
     }
 
+    waitForIdle(options?: { timeoutMs?: number }): Promise<void> {
+        if (!this.state.busy) return Promise.resolve();
+
+        const timeoutMs = Math.max(1, Math.floor(Number(options?.timeoutMs) || 120_000));
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const cleanup = () => {
+                clearTimeout(timeout);
+                this.subscribers.delete(handleState);
+            };
+            const finish = (callback: () => void) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                callback();
+            };
+            const handleState = (state: 小说拆分调度状态结构) => {
+                if (!state.busy) finish(resolve);
+            };
+            const timeout = setTimeout(() => {
+                finish(() => reject(new Error('等待小说拆分后台任务收尾超时')));
+            }, timeoutMs);
+            this.subscribers.add(handleState);
+            handleState(this.getState());
+        });
+    }
+
     async tick(): Promise<小说拆分调度状态结构> {
         if (this.state.busy) return this.getState();
         this.state.busy = true;
@@ -324,6 +351,7 @@ export const 小说拆分后台调度服务 = {
     registerExecutor: (executor: 小说拆分执行器 | null) => 调度器单例.registerExecutor(executor),
     start: (intervalMs?: number) => 调度器单例.start(intervalMs),
     stop: () => 调度器单例.stop(),
+    waitForIdle: (options?: Parameters<小说拆分后台调度器['waitForIdle']>[0]) => 调度器单例.waitForIdle(options),
     tick: () => 调度器单例.tick(),
     reportProgress: (payload: Parameters<小说拆分后台调度器['reportProgress']>[0]) => 调度器单例.reportProgress(payload),
     resetLiveState: (options?: Parameters<小说拆分后台调度器['resetLiveState']>[0]) => 调度器单例.resetLiveState(options)

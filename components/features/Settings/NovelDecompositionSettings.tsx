@@ -48,6 +48,10 @@ import {
     修复小说拆分数据集EPUB章节,
     将EPUB导入章节转换为小说拆分章节
 } from '../../../services/novelDecompositionEpubRepair';
+import {
+    执行小说拆分EPUB修复工作流,
+    type EPUB修复阶段
+} from '../../../services/novelDecompositionEpubRepairWorkflow';
 import { 从原始文本提取章节, 根据章节生成分段列表, 聚合小说拆分数据集 } from '../../../services/novelDecompositionPipeline';
 import {
     下载小说分解创意工坊模块,
@@ -555,6 +559,7 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
     const [workshopEditingId, setWorkshopEditingId] = useState('');
     const [workshopEditDraft, setWorkshopEditDraft] = useState({ title: '', workName: '', contributor: '', note: '', tags: '', anonymous: false });
     const [selectedDatasetId, setSelectedDatasetId] = useState('');
+    const [epubRepairPhase, setEpubRepairPhase] = useState<'idle' | 'parsing' | EPUB修复阶段>('idle');
     const segmentDetailScrollRef = useRef<HTMLDivElement | null>(null);
     const [selectedSegmentId, setSelectedSegmentId] = useState('');
     const [showStrategySection, setShowStrategySection] = useState(false);
@@ -1431,22 +1436,25 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
     const handleRepairCurrentDatasetFromEpub = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         event.target.value = '';
-        if (!file || !selectedDataset) return;
+        if (!file || !selectedDataset || epubRepairPhase !== 'idle') return;
 
         try {
+            setEpubRepairPhase('parsing');
+            设置状态消息(`正在解析 EPUB“${file.name}”，请勿关闭页面。`);
             const parsed = await 从EPUB文件提取小说内容(file);
-            const result = 修复小说拆分数据集EPUB章节({
+            const previewResult = 修复小说拆分数据集EPUB章节({
                 dataset: selectedDataset,
                 tasks,
                 importedChapters: parsed.章节列表
             });
+            setEpubRepairPhase('idle');
             const ok = requestConfirm
                 ? await requestConfirm({
                     title: '修复当前 EPUB 章节',
                     message: [
                         `将按“${file.name}”重新识别当前数据集章节。`,
-                        `预计移除或合并 ${result.summary.removedChapters} 个误识别章节。`,
-                        `保留 ${result.summary.preservedCompletedSegments} 个已完成分段，重新排队 ${result.summary.requeuedSegments} 个分段。`,
+                        `预计移除或合并 ${previewResult.summary.removedChapters} 个误识别章节。`,
+                        `保留 ${previewResult.summary.preservedCompletedSegments} 个已完成分段，重新排队 ${previewResult.summary.requeuedSegments} 个分段。`,
                         '当前运行中的小说分解请求会先停止，修复后沿用原任务继续。'
                     ].join('\n'),
                     confirmText: '开始修复',
@@ -1455,26 +1463,50 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                 : true;
             if (!ok) return;
 
-            tasks
+            const runningTaskIds = new Set(tasks
                 .filter((task) => task.数据集ID === selectedDataset.id && task.状态 === 'running')
-                .forEach((task) => 请求中断小说拆分任务(task.id, 'paused'));
-            小说拆分后台调度服务.stop();
-
-            const repairedDataset = 聚合小说拆分数据集(result.dataset);
-            await 写入小说拆分数据集(repairedDataset);
-            await 保存小说拆分任务列表(result.tasks);
-            const rebuiltSnapshots = 构建全部小说拆分注入快照(repairedDataset);
-            await 保存小说拆分注入快照列表([
-                ...snapshots.filter((item) => item.数据集ID !== repairedDataset.id),
-                ...rebuiltSnapshots
-            ]);
-            小说拆分后台调度服务.resetLiveState({
-                stageText: 'EPUB 章节已修复，准备继续未完成分段',
-                keepTask: false,
-                keepLastResult: false
+                .map((task) => task.id));
+            const currentSchedulerTaskId = 小说拆分后台调度服务.getState().currentTaskId;
+            if (currentSchedulerTaskId && tasks.some((task) => (
+                task.id === currentSchedulerTaskId && task.数据集ID === selectedDataset.id
+            ))) {
+                runningTaskIds.add(currentSchedulerTaskId);
+            }
+            const result = await 执行小说拆分EPUB修复工作流({
+                datasetId: selectedDataset.id,
+                runningTaskIds: Array.from(runningTaskIds),
+                importedChapters: parsed.章节列表,
+                backgroundEnabled: form.功能模型占位.小说拆分后台运行,
+                onPhaseChange: setEpubRepairPhase,
+                dependencies: {
+                    stop: 小说拆分后台调度服务.stop,
+                    interrupt: 请求中断小说拆分任务,
+                    waitForIdle: 小说拆分后台调度服务.waitForIdle,
+                    readDatasets: 读取小说拆分数据集列表,
+                    readTasks: 读取小说拆分任务列表,
+                    readSnapshots: 读取小说拆分注入快照列表,
+                    repair: 修复小说拆分数据集EPUB章节,
+                    aggregate: 聚合小说拆分数据集,
+                    writeDataset: 写入小说拆分数据集,
+                    writeTasks: 保存小说拆分任务列表,
+                    buildSnapshots: 构建全部小说拆分注入快照,
+                    writeSnapshots: 保存小说拆分注入快照列表,
+                    restart: () => {
+                        小说拆分后台调度服务.resetLiveState({
+                            stageText: 'EPUB 章节已修复，准备继续未完成分段',
+                            keepTask: false,
+                            keepLastResult: false
+                        });
+                        小说拆分后台调度服务.start();
+                    }
+                }
             });
-            if (form.功能模型占位.小说拆分后台运行 && result.summary.requeuedSegments > 0) {
-                小说拆分后台调度服务.start();
+            if (!form.功能模型占位.小说拆分后台运行 || result.summary.requeuedSegments <= 0) {
+                小说拆分后台调度服务.resetLiveState({
+                    stageText: 'EPUB 章节修复完成',
+                    keepTask: false,
+                    keepLastResult: false
+                });
             }
             设置状态消息(
                 `章节修复完成：移除或合并 ${result.summary.removedChapters} 章，保留 ${result.summary.preservedCompletedSegments} 个已完成分段，${result.summary.requeuedSegments} 个分段继续处理。`
@@ -1482,6 +1514,8 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
             await refreshBoard();
         } catch (error: any) {
             推送错误提示(`修复 EPUB 章节失败：${error?.message || '未知错误'}`);
+        } finally {
+            setEpubRepairPhase('idle');
         }
     };
 
@@ -2615,14 +2649,22 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                             </button>
                             <button
                                 type="button"
-                                disabled={!selectedDataset || selectedDataset.来源类型 !== 'epub'}
+                                disabled={!selectedDataset || selectedDataset.来源类型 !== 'epub' || epubRepairPhase !== 'idle'}
                                 onClick={() => repairEpubInputRef.current?.click()}
                                 className="group relative flex flex-col items-center justify-center p-5 rounded-xl border border-amber-500/20 bg-amber-950/15 hover:bg-amber-500/10 hover:border-amber-400/40 transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 <div className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform border border-amber-500/15 text-amber-200">
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v6h6M20 20v-6h-6M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7" /></svg>
                                 </div>
-                                <span className="text-sm font-medium text-amber-100">修复当前 EPUB</span>
+                                <span className="text-center text-sm font-medium text-amber-100">
+                                    {epubRepairPhase === 'parsing'
+                                        ? '正在解析 EPUB…'
+                                        : epubRepairPhase === 'waiting'
+                                            ? '正在等待后台任务收尾…'
+                                            : epubRepairPhase === 'saving'
+                                                ? '正在保存修复结果…'
+                                                : '修复当前 EPUB'}
+                                </span>
                             </button>
                         </div>
                     </div>
