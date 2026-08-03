@@ -73,6 +73,26 @@ describe('novelDecompositionPipeline', () => {
         expect(chapters.every((chapter) => !chapter.标题.includes('命运。就是命运'))).toBe(true);
     });
 
+    it('以“话一”开头的叙事句不会被误识别成“第一话”章节标题', () => {
+        const chapters = 从原始文本提取章节(创建空小说拆分数据集({
+            id: 'dataset-dialogue-prefix',
+            原始文本: [
+                '第822章 一枕黄粱',
+                '程宗扬本能地找人分享喜悦。',
+                '话一出口，才想起吕处女还在自闭呢。',
+                '程宗扬抬起头，不由一怔。',
+                '',
+                '第823章 羽化登仙',
+                '下一章正文。'
+            ].join('\n')
+        }));
+
+        expect(chapters).toHaveLength(2);
+        expect(chapters[0].标题).toBe('第822章 一枕黄粱');
+        expect(chapters[0].内容).toContain('话一出口，才想起吕处女还在自闭呢。');
+        expect(chapters[1].标题).toBe('第823章 羽化登仙');
+    });
+
     it('补齐关键事件缺失的最早和最迟开始时间，避免长任务停在同一分段', async () => {
         vi.mocked(textAIService.generateNovelDecomposition).mockResolvedValueOnce({
             groupNumber: 43,

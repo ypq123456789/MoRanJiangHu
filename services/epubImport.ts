@@ -22,7 +22,7 @@ interface EPUB资源项结构 {
 }
 
 const 章节标题规则 = [
-    /^\s*第[0-9零一二三四五六七八九十百千万两〇○]+[章节回卷部篇集][^\n]*$/u,
+    /^\s*第\s*[0-9零一二三四五六七八九十百千万两〇○]+\s*[章节回卷部篇集][^\n]*$/u,
     /^\s*(chapter|chap)\s*[0-9]+[^\n]*$/iu
 ];
 
@@ -140,7 +140,7 @@ const 获取首个标签文本 = (doc: Document, tagNames: string[]): string => 
     return '';
 };
 
-const 从HTML提取正文 = (markup: string): { 标题: string; 内容: string } => {
+const 从HTML提取正文 = (markup: string): { 标题: string; 内容: string; 图片数量: number } => {
     const doc = new DOMParser().parseFromString(markup, 'text/html');
     doc.querySelectorAll('script,style,noscript,svg').forEach((node) => node.remove());
 
@@ -186,13 +186,14 @@ const 从HTML提取正文 = (markup: string): { 标题: string; 内容: string }
 
     return {
         标题,
+        图片数量: doc.querySelectorAll('img, image').length,
         内容: 清洗文本(chunks.join(' '))
             .replace(/ *\n */g, '\n')
             .replace(/\n{3,}/g, '\n\n')
     };
 };
 
-const 构建章节标题 = (title: string, index: number): string => {
+export const 构建EPUB章节标题 = (title: string, index: number): string => {
     const normalizedTitle = 清洗文本(title).split('\n')[0]?.trim() || '';
     if (normalizedTitle && 章节标题规则.some((rule) => rule.test(normalizedTitle))) {
         return normalizedTitle;
@@ -200,12 +201,59 @@ const 构建章节标题 = (title: string, index: number): string => {
     return normalizedTitle ? `第${index}章 ${normalizedTitle}` : `第${index}章`;
 };
 
-const 是否跳过资源 = (item: EPUB资源项结构, chapterText: string, title: string, bookTitle: string): boolean => {
-    const normalizedHint = `${item.href} ${item.properties} ${title}`.toLowerCase();
-    if (item.properties.toLowerCase().includes('nav')) return true;
-    if (/cover|封面/.test(normalizedHint) && chapterText.length < 120) return true;
-    if (/toc|contents|目录|目次|nav/.test(normalizedHint) && chapterText.length < 600) return true;
-    if (bookTitle && chapterText.length < 80 && 清洗文本(chapterText) === 清洗文本(bookTitle)) return true;
+const 提取EPUB章节号 = (title: string): number | null => {
+    const matched = String(title || '').match(/^\s*第\s*([0-9０-９]+)\s*章/u);
+    if (!matched) return null;
+    const value = Number(matched[1].replace(/[０-９]/g, (digit) => String(digit.charCodeAt(0) - 0xFF10)));
+    return Number.isFinite(value) ? value : null;
+};
+
+export const 修复EPUB相邻章节倒序 = <T extends { 标题: string }>(chapters: T[]): T[] => {
+    const repaired = [...chapters];
+    for (let index = 0; index < repaired.length - 1; index += 1) {
+        const currentNumber = 提取EPUB章节号(repaired[index].标题);
+        const nextNumber = 提取EPUB章节号(repaired[index + 1].标题);
+        const previousNumber = index > 0 ? 提取EPUB章节号(repaired[index - 1].标题) : null;
+        const followingNumber = index + 2 < repaired.length ? 提取EPUB章节号(repaired[index + 2].标题) : null;
+        if (
+            currentNumber === null
+            || nextNumber === null
+            || currentNumber !== nextNumber + 1
+            || (previousNumber !== null && previousNumber !== nextNumber - 1)
+            || (followingNumber !== null && followingNumber !== currentNumber + 1)
+        ) continue;
+        [repaired[index], repaired[index + 1]] = [repaired[index + 1], repaired[index]];
+        index += 1;
+    }
+    return repaired;
+};
+
+export const 是否跳过EPUB非正文资源 = (params: {
+    href: string;
+    properties: string;
+    chapterText: string;
+    title: string;
+    bookTitle: string;
+    imageCount: number;
+}): boolean => {
+    const normalizedHint = `${params.href} ${params.properties} ${params.title}`.toLowerCase();
+    if (params.properties.toLowerCase().includes('nav')) return true;
+    if (/cover|封面/.test(normalizedHint) && params.chapterText.length < 120) return true;
+    if (/toc|contents|目录|目次|nav/.test(normalizedHint) && params.chapterText.length < 600) return true;
+    if (params.bookTitle && params.chapterText.length < 80 && 清洗文本(params.chapterText) === 清洗文本(params.bookTitle)) return true;
+    const leadingText = params.chapterText.slice(0, 500);
+    if (/【本集内容简介】/u.test(leadingText)) return true;
+    if (/【(?:本集后记|清羽散记|太泉后记|正文拾遗|六朝闲谈)】/u.test(leadingText)) return true;
+    if (/六朝系列/u.test(params.title) && /(?:作者|简介|版本|校对|出版)/u.test(leadingText)) return true;
+    if (
+        params.chapterText.length < 80
+        && /^(?:第\s*[0-9零一二三四五六七八九十百千万两〇○]+\s*集|[（(][一二三四五六七八九十]+[）)].*(?:篇|部))/u.test(params.title.trim())
+    ) return true;
+    if (
+        params.imageCount > 0
+        && params.chapterText.length < 120
+        && /(?:地图|高手榜|人物榜|关系图|封底|插图|图册|局部[·・]|(?:^|\s)[^\s]{0,8}都[·・])/u.test(`${params.title} ${params.chapterText}`)
+    ) return true;
     return false;
 };
 
@@ -267,11 +315,18 @@ export const 从EPUB文件提取小说内容 = async (file: File): Promise<EPUB�
                 ? 去掉正文开头重复章节标题(parsed.内容, explicitTitle)
                 : parsed.内容;
             if (!cleanedContent) return;
-            if (是否跳过资源(item, cleanedContent, resolvedTitle, bookTitle)) return;
+            if (是否跳过EPUB非正文资源({
+                href: item.href,
+                properties: item.properties,
+                chapterText: cleanedContent,
+                title: resolvedTitle,
+                bookTitle,
+                imageCount: parsed.图片数量
+            })) return;
 
             const 序号 = 章节列表.length + 1;
             章节列表.push({
-                标题: 构建章节标题(resolvedTitle, 序号),
+                标题: 构建EPUB章节标题(resolvedTitle, 序号),
                 内容: cleanedContent,
                 序号,
                 href: item.href
@@ -281,7 +336,7 @@ export const 从EPUB文件提取小说内容 = async (file: File): Promise<EPUB�
         }
     });
 
-    const filteredChapters = 重排章节序号(过滤疑似目录章节(章节列表));
+    const filteredChapters = 重排章节序号(修复EPUB相邻章节倒序(过滤疑似目录章节(章节列表)));
 
     if (filteredChapters.length <= 0) {
         throw new Error('EPUB 中未找到可导入的正文章节。');

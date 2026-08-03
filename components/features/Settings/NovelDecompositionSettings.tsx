@@ -37,12 +37,17 @@ import {
     读取小说拆分注入快照列表,
     导出小说拆分分享数据,
     导入小说拆分分享数据,
-    保存小说拆分注入快照列表
+    保存小说拆分注入快照列表,
+    保存小说拆分任务列表
 } from '../../../services/novelDecompositionStore';
 import { 小说拆分后台调度服务, type 小说拆分调度状态结构 } from '../../../services/novelDecompositionScheduler';
 import { 初始化小说拆分运行时, 请求中断小说拆分任务 } from '../../../services/novelDecompositionRuntime';
 import { 构建全部小说拆分注入快照 } from '../../../services/novelDecompositionInjection';
 import { 从EPUB文件提取小说内容 } from '../../../services/epubImport';
+import {
+    修复小说拆分数据集EPUB章节,
+    将EPUB导入章节转换为小说拆分章节
+} from '../../../services/novelDecompositionEpubRepair';
 import { 从原始文本提取章节, 根据章节生成分段列表, 聚合小说拆分数据集 } from '../../../services/novelDecompositionPipeline';
 import {
     下载小说分解创意工坊模块,
@@ -590,6 +595,7 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
     const importJsonInputRef = useRef<HTMLInputElement | null>(null);
     const importTxtInputRef = useRef<HTMLInputElement | null>(null);
     const importEpubInputRef = useRef<HTMLInputElement | null>(null);
+    const repairEpubInputRef = useRef<HTMLInputElement | null>(null);
     const 实时流区域Ref = useRef<HTMLPreElement | null>(null);
     const 实时日志区域Ref = useRef<HTMLDivElement | null>(null);
 
@@ -1351,9 +1357,10 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
         text: string;
         sourceType: 小说拆分来源类型;
         successMessage: string;
+        epubChapters?: Awaited<ReturnType<typeof 从EPUB文件提取小说内容>>['章节列表'];
     }) => {
         const baseName = params.title.trim() || `导入作品 ${datasetsCount + 1}`;
-        const nextDataset = 创建空小说拆分数据集({
+        let nextDataset = 创建空小说拆分数据集({
             标题: baseName,
             作品名: baseName,
             来源类型: params.sourceType,
@@ -1365,6 +1372,15 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
             每批章数: form.功能模型占位.小说拆分按N章分组,
             激活注入: false
         });
+        if (params.epubChapters?.length) {
+            const chapters = 将EPUB导入章节转换为小说拆分章节(nextDataset.id, params.epubChapters);
+            nextDataset = {
+                ...nextDataset,
+                章节列表: chapters,
+                总章节数: chapters.length,
+                分段列表: 根据章节生成分段列表(nextDataset, chapters)
+            };
+        }
         await 写入小说拆分数据集(nextDataset);
         await refreshBoard();
         setSelectedDatasetId(nextDataset.id);
@@ -1404,10 +1420,68 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                 fileName: file.name,
                 text: parsed.原始文本,
                 sourceType: 'epub',
+                epubChapters: parsed.章节列表,
                 successMessage: `已导入 EPUB《${baseName}》。请先检查章节，确认后再点击“开始任务”。`
             });
         } catch (error: any) {
             推送错误提示(`导入 EPUB 失败：${error?.message || '未知错误'}`);
+        }
+    };
+
+    const handleRepairCurrentDatasetFromEpub = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file || !selectedDataset) return;
+
+        try {
+            const parsed = await 从EPUB文件提取小说内容(file);
+            const result = 修复小说拆分数据集EPUB章节({
+                dataset: selectedDataset,
+                tasks,
+                importedChapters: parsed.章节列表
+            });
+            const ok = requestConfirm
+                ? await requestConfirm({
+                    title: '修复当前 EPUB 章节',
+                    message: [
+                        `将按“${file.name}”重新识别当前数据集章节。`,
+                        `预计移除或合并 ${result.summary.removedChapters} 个误识别章节。`,
+                        `保留 ${result.summary.preservedCompletedSegments} 个已完成分段，重新排队 ${result.summary.requeuedSegments} 个分段。`,
+                        '当前运行中的小说分解请求会先停止，修复后沿用原任务继续。'
+                    ].join('\n'),
+                    confirmText: '开始修复',
+                    cancelText: '取消'
+                })
+                : true;
+            if (!ok) return;
+
+            tasks
+                .filter((task) => task.数据集ID === selectedDataset.id && task.状态 === 'running')
+                .forEach((task) => 请求中断小说拆分任务(task.id, 'paused'));
+            小说拆分后台调度服务.stop();
+
+            const repairedDataset = 聚合小说拆分数据集(result.dataset);
+            await 写入小说拆分数据集(repairedDataset);
+            await 保存小说拆分任务列表(result.tasks);
+            const rebuiltSnapshots = 构建全部小说拆分注入快照(repairedDataset);
+            await 保存小说拆分注入快照列表([
+                ...snapshots.filter((item) => item.数据集ID !== repairedDataset.id),
+                ...rebuiltSnapshots
+            ]);
+            小说拆分后台调度服务.resetLiveState({
+                stageText: 'EPUB 章节已修复，准备继续未完成分段',
+                keepTask: false,
+                keepLastResult: false
+            });
+            if (form.功能模型占位.小说拆分后台运行 && result.summary.requeuedSegments > 0) {
+                小说拆分后台调度服务.start();
+            }
+            设置状态消息(
+                `章节修复完成：移除或合并 ${result.summary.removedChapters} 章，保留 ${result.summary.preservedCompletedSegments} 个已完成分段，${result.summary.requeuedSegments} 个分段继续处理。`
+            );
+            await refreshBoard();
+        } catch (error: any) {
+            推送错误提示(`修复 EPUB 章节失败：${error?.message || '未知错误'}`);
         }
     };
 
@@ -2416,6 +2490,13 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                 className="hidden"
             />
             <input
+                ref={repairEpubInputRef}
+                type="file"
+                accept=".epub,application/epub+zip"
+                onChange={(e) => { void handleRepairCurrentDatasetFromEpub(e); }}
+                className="hidden"
+            />
+            <input
                 ref={importJsonInputRef}
                 type="file"
                 accept=".zip,application/zip"
@@ -2495,7 +2576,7 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                             <button
                                 onClick={() => importTxtInputRef.current?.click()}
                                 className="group relative flex flex-col items-center justify-center p-5 rounded-xl border border-white/5 bg-black/30 hover:bg-wuxia-gold/5 hover:border-wuxia-gold/30 transition-all duration-300"
@@ -2531,6 +2612,17 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" /></svg>
                                 </div>
                                 <span className="text-sm font-medium text-gray-400 group-hover:text-gray-200">新建空白集</span>
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!selectedDataset || selectedDataset.来源类型 !== 'epub'}
+                                onClick={() => repairEpubInputRef.current?.click()}
+                                className="group relative flex flex-col items-center justify-center p-5 rounded-xl border border-amber-500/20 bg-amber-950/15 hover:bg-amber-500/10 hover:border-amber-400/40 transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform border border-amber-500/15 text-amber-200">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v6h6M20 20v-6h-6M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7" /></svg>
+                                </div>
+                                <span className="text-sm font-medium text-amber-100">修复当前 EPUB</span>
                             </button>
                         </div>
                     </div>
