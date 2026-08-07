@@ -164,6 +164,28 @@ describe('chatCompletionClient Claude compatible message normalization', () => {
         expect(String(fetchMock.mock.calls[0][0])).toBe('https://open.bigmodel.cn/api/paas/v4/chat/completions');
     });
 
+    it('路径里出现 bigmodel.cn 的中转站不被误判为智谱官方域名', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+            choices: [{ message: { content: 'pong' } }]
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+        }));
+
+        await 请求模型文本({
+            ...baseConfig,
+            baseUrl: 'https://relay.example.com/v1/bigmodel.cn/glm-4',
+            model: 'glm-4.6'
+        }, [{ role: 'user', content: 'ping' }], {
+            temperature: 1.0,
+            signal: undefined,
+            streamOptions: { stream: false },
+            errorDetailLimit: 500
+        });
+
+        expect(String(fetchMock.mock.calls[0][0])).toBe('https://relay.example.com/v1/bigmodel.cn/glm-4/chat/completions');
+    });
+
     it('strips Chinese display suffixes from OpenAI-compatible model ids before sending requests', async () => {
         expect(规范化请求模型名称('gemini-3.1-pro-high-search-真流-[星星公益站-CLI渠道]'))
             .toBe('gemini-3.1-pro-high-search');

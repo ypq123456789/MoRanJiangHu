@@ -790,6 +790,24 @@ describe('storyResponseParser', () => {
         expect(parsed.tavern_commands && parsed.tavern_commands.length).toBeGreaterThan(0);
     });
 
+    it('裸正文后接 <options> 别名时，选项块不被吞入正文且解析正常', () => {
+        const parsed = parseStoryRawText([
+            '【旁白】陆凡站在礁石滩上，看着她头也不回地走远。',
+            '<options>',
+            'A. 先去南坡把野蜂窝处理干净',
+            'B. 陪柳青青一起准备下午的铺垫',
+            '</options>'
+        ].join('\n'), { requireActionOptionsTag: true, enableTagRepair: true });
+
+        expect(parsed.action_options).toEqual([
+            'A. 先去南坡把野蜂窝处理干净',
+            'B. 陪柳青青一起准备下午的铺垫'
+        ]);
+        expect(parsed.logs).toEqual([
+            { sender: '旁白', text: '陆凡站在礁石滩上，看着她头也不回地走远。' }
+        ]);
+    });
+
     it('reports concrete missing protocol tags instead of a generic parse failure', () => {
         try {
             parseStoryRawText([

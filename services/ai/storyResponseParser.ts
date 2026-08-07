@@ -364,8 +364,10 @@ const 提取候选命令文本 = (text: string): string => {
 const 提取候选正文文本 = (text: string): string => {
     let stripped = 剥离酒馆元标签区块(text || '');
     for (const tag of ['剧情规划', '变量规划', '短期记忆', '命令', '行动选项', '动态世界', 'judge']) {
-        const escapedTag = 转义正则片段(tag);
-        stripped = stripped.replace(new RegExp(`<\\s*${escapedTag}\\s*>[\\s\\S]*?<\\s*/\\s*${escapedTag}\\s*>`, 'gi'), '\n');
+        for (const variant of 协议标签所有写法(tag)) {
+            const escapedTag = 转义正则片段(variant);
+            stripped = stripped.replace(new RegExp(`<\\s*${escapedTag}\\s*>[\\s\\S]*?<\\s*/\\s*${escapedTag}\\s*>`, 'gi'), '\n');
+        }
     }
     stripped = stripped
         .replace(/<\s*\/?\s*thinking\s*>/gi, '\n')
@@ -563,13 +565,22 @@ const 写入协议标签段 = (
 // 除 <正文> 外的协议区块标签，用于定位「裸正文」与结构化区块的分界点。
 const 正文之后协议区块标签: 可标题恢复标签[] = ['剧情规划', '变量规划', '短期记忆', '命令', '行动选项', '动态世界'];
 
+// 取某规范协议标签的全部写法（规范名 + 所有别名），供「裸正文包裹」与「候选正文提取」
+// 识别模型可能使用的缩写/英文别名（如 <选项> / <options> / <choice> 等）。
+const 协议标签所有写法 = (canonical: string): string[] => {
+    const aliases = Object.keys(协议标签别名映射).filter(k => 协议标签别名映射[k] === canonical);
+    return Array.from(new Set([canonical, ...aliases]));
+};
+
 const 定位首个协议区块位置 = (text: string): number => {
     let position = -1;
     for (const tag of 正文之后协议区块标签) {
-        const escapedTag = 转义正则片段(tag);
-        const matched = (text || '').match(new RegExp(`<\\s*${escapedTag}\\s*>`, 'i'));
-        if (matched && typeof matched.index === 'number' && (position < 0 || matched.index < position)) {
-            position = matched.index;
+        for (const variant of 协议标签所有写法(tag)) {
+            const escapedTag = 转义正则片段(variant);
+            const matched = (text || '').match(new RegExp(`<\\s*${escapedTag}\\s*>`, 'i'));
+            if (matched && typeof matched.index === 'number' && (position < 0 || matched.index < position)) {
+                position = matched.index;
+            }
         }
     }
     return position;

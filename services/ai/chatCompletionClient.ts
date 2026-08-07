@@ -1579,7 +1579,16 @@ const 构建OpenAI端点 = (
 
     const lowerModel = (modelRaw || '').toLowerCase();
     const isZhipuSupplier = supplier === 'zhipu';
-    const isZhipuHost = lowerBase.includes('bigmodel.cn');
+    // [修复] 仅当 base 的 hostname 本身为 bigmodel.cn 或其子域时才视为智谱官方域名。
+    // 旧实现用 includes('bigmodel.cn') 会误命中路径里出现 bigmodel.cn 的中转站地址
+    //（如 https://relay.example.com/v1/bigmodel.cn/glm-4），把这类中转站错当成智谱官方并重写成 /api/paas/v4。
+    let isZhipuHost = false;
+    try {
+        const host = new URL(base).hostname.toLowerCase();
+        isZhipuHost = host === 'bigmodel.cn' || host.endsWith('.bigmodel.cn');
+    } catch {
+        isZhipuHost = lowerBase.includes('bigmodel.cn');
+    }
     // [修复] 模型名里带 glm 只是弱信号：第三方 OpenAI 兼容中转站（类脑、one-api 等）同样提供 glm-* 模型，
     // 但它们的正确端点是 /v1/chat/completions。旧实现只要模型名含 glm 就把用户填写的 /v1 抹掉、
     // 改写成智谱私有的 /api/paas/v4/chat/completions，导致这类中转站直接 404（模型列表能拉到、发消息就失败）。

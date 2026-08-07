@@ -603,7 +603,7 @@ export const 执行世界生成工作流 = async (
         await deps.执行开场剧情生成(
             openingBase,
             finalPrompts,
-            openingStreaming,
+            openingRequestStreaming,
             currentApi,
             {
                 命令基态: deps.创建开场命令基态(openingBase),
