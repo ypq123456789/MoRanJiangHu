@@ -745,6 +745,51 @@ describe('storyResponseParser', () => {
         })).toThrow(/疑似输出在 <短期记忆> 内被截断|提高最大输出Token/);
     });
 
+    it('模型省略 <正文> 标签时，标签修复不会吞掉后面的 <行动选项>/<短期记忆>', () => {
+        const parsed = parseStoryRawText([
+            '【旁白】陆凡站在礁石滩上，看着她头也不回地走远。',
+            '<短期记忆>',
+            '陆凡到礁石滩找陆芹，帮她解开卡在石缝的蟹笼。',
+            '</短期记忆>',
+            '<行动选项>',
+            'A. 先去南坡把野蜂窝处理干净',
+            'B. 陪柳青青一起准备下午的铺垫',
+            'C. 带着陆荷陆养再去水洼边玩一会',
+            '</行动选项>'
+        ].join('\n'), { requireActionOptionsTag: true, enableTagRepair: true });
+
+        expect(parsed.action_options).toEqual([
+            'A. 先去南坡把野蜂窝处理干净',
+            'B. 陪柳青青一起准备下午的铺垫',
+            'C. 带着陆荷陆养再去水洼边玩一会'
+        ]);
+        expect(parsed.shortTerm).toBe('陆凡到礁石滩找陆芹，帮她解开卡在石缝的蟹笼。');
+        expect(parsed.logs).toEqual([
+            { sender: '旁白', text: '陆凡站在礁石滩上，看着她头也不回地走远。' }
+        ]);
+    });
+
+    it('思考区之后省略 <正文> 标签时同样保留命令与行动选项', () => {
+        const parsed = parseStoryRawText([
+            '<thinking>先规划本回合。</thinking>',
+            '【旁白】山风穿林而过。',
+            '【陆凡】“该动身了。”',
+            '<短期记忆>陆凡准备出发。</短期记忆>',
+            '<命令>set 陆凡.体力 = 80</命令>',
+            '<行动选项>',
+            'A. 立刻出发',
+            'B. 再等等',
+            '</行动选项>'
+        ].join('\n'), { requireActionOptionsTag: true, enableTagRepair: true });
+
+        expect(parsed.action_options).toEqual(['A. 立刻出发', 'B. 再等等']);
+        expect(parsed.logs).toEqual([
+            { sender: '旁白', text: '山风穿林而过。' },
+            { sender: '陆凡', text: '“该动身了。”' }
+        ]);
+        expect(parsed.tavern_commands && parsed.tavern_commands.length).toBeGreaterThan(0);
+    });
+
     it('reports concrete missing protocol tags instead of a generic parse failure', () => {
         try {
             parseStoryRawText([
@@ -757,7 +802,9 @@ describe('storyResponseParser', () => {
             expect(error).toBeInstanceOf(StoryResponseParseError);
             const parseError = error as StoryResponseParseError;
             expect(parseError.parseDetail || '').toMatch(/顶层标签顺序错误|正文/);
-            expect(parseError.protocolIssues || []).toContain('顶层标签顺序错误：<短期记忆> 出现在 <正文> 之前');
+            // 标签修复会在首个协议区块前补上 <正文> 空壳（而不是追加到文本末尾），
+            // 因此这里不再出现「标签顺序错误」，而是给出更准确的「正文内容为空」诊断。
+            expect(parseError.protocolIssues || []).toContain('<正文>...</正文> 内容为空');
         }
     });
 

@@ -560,6 +560,48 @@ const 写入协议标签段 = (
     return `${prefix}${lineBreak}<${tag}>${finalPayload}</${tag}>`;
 };
 
+// 除 <正文> 外的协议区块标签，用于定位「裸正文」与结构化区块的分界点。
+const 正文之后协议区块标签: 可标题恢复标签[] = ['剧情规划', '变量规划', '短期记忆', '命令', '行动选项', '动态世界'];
+
+const 定位首个协议区块位置 = (text: string): number => {
+    let position = -1;
+    for (const tag of 正文之后协议区块标签) {
+        const escapedTag = 转义正则片段(tag);
+        const matched = (text || '').match(new RegExp(`<\\s*${escapedTag}\\s*>`, 'i'));
+        if (matched && typeof matched.index === 'number' && (position < 0 || matched.index < position)) {
+            position = matched.index;
+        }
+    }
+    return position;
+};
+
+// [修复] 模型省略 <正文> 标签、直接输出裸正文时，旧实现把补全的 <正文> 追加到文本末尾。
+// 由于 提取首尾思考区段 会把「最后一个 <正文> 之前的全部内容」判定为思考区，
+// 追加在末尾会导致前面的 <短期记忆>/<行动选项>/<命令> 等区块被整体吞进思考区，
+// 进而误报「缺少 <行动选项> 标签」。此处改为在首个协议区块之前就地包裹裸正文。
+const 就地包裹裸正文 = (content: string, 正文候选: string): string => {
+    const text = content || '';
+    if (/<\s*正文\s*>/i.test(text)) return text;
+
+    const 首个协议位置 = 定位首个协议区块位置(text);
+    if (首个协议位置 < 0) return text;
+
+    const head = text.slice(0, 首个协议位置);
+    const tail = text.slice(首个协议位置);
+    const thinkingCloseMatches = [...head.matchAll(/<\s*\/\s*(?:thinking|think)\s*>/gi)];
+    const lastThinkingClose = thinkingCloseMatches.length > 0
+        ? thinkingCloseMatches[thinkingCloseMatches.length - 1]
+        : null;
+    const splitAt = lastThinkingClose && typeof lastThinkingClose.index === 'number'
+        ? lastThinkingClose.index + (lastThinkingClose[0] || '').length
+        : 0;
+    const 思考前缀 = head.slice(0, splitAt);
+    const 裸正文 = 提取候选正文文本(head.slice(splitAt)) || (正文候选 || '').trim();
+    const 前缀片段 = 思考前缀.trimEnd();
+
+    return `${前缀片段}${前缀片段 ? '\n' : ''}<正文>${裸正文}</正文>\n${tail}`;
+};
+
 const 补全协议缺失区块 = (content: string): string => {
     let text = content || '';
     const sections = 提取标题区块内容(text);
@@ -567,6 +609,7 @@ const 补全协议缺失区块 = (content: string): string => {
     const 短期候选 = sections.短期记忆 || '';
     const 命令候选 = sections.命令 || 提取候选命令文本(text);
 
+    text = 就地包裹裸正文(text, 正文候选);
     text = 写入协议标签段(text, '正文', 正文候选, { 允许空内容: true });
     text = 写入协议标签段(text, '短期记忆', 短期候选, { 缺失时默认内容: '无' });
     if (命令候选) {
@@ -782,6 +825,13 @@ const 分析标签协议缺失问题 = (text: string, options: Required<StoryPar
 
     if (!/<\s*正文\s*>/i.test(normalizedText) && /^(?:【[^】]+】|[^\n]{0,20}[：:]).+/m.test(normalizedText)) {
         issues.push('检测到疑似正文内容，但没有用 <正文>...</正文> 包裹');
+    }
+
+    // 标签修复会为缺失的正文补上空壳 <正文></正文>，此时上面的「缺少标签」分支不会命中，
+    // 需要单独提示正文为空，避免只剩下无意义的 JSON 解析错误。
+    const 正文区块匹配 = normalizedText.match(/<\s*正文\s*>([\s\S]*?)<\s*\/\s*正文\s*>/i);
+    if (正文区块匹配 && !(正文区块匹配[1] || '').trim()) {
+        issues.push('<正文>...</正文> 内容为空');
     }
 
     if (/(?:标签协议|输出格式|请按标签|完整闭合|只输出标签)/.test(normalizedText) && !/<\s*正文\s*>/i.test(normalizedText)) {

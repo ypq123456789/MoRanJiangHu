@@ -252,7 +252,15 @@ export const 执行世界生成工作流 = async (
         deps.setShowSettings(true);
         return;
     }
-    const openingRequestStreaming = openingStreaming && 开局阶段是否使用流式请求(currentApi);
+    // [修复] 开局主剧情请求此前只看新游戏面板的“流式开场”开关与供应商判断，
+    // 完全忽略设置里的全局“启用非流式输出”与分功能“主剧情非流式输出”。
+    // 结果是玩家打开非流式后开局依旧走流式（尤其快速重开会沿用旧快照里的 openingStreaming）。
+    // 这里与局内主剧情保持一致：任一非流式开关打开即强制非流式。
+    const 开局强制非流式输出 = normalizedGameConfig.启用非流式输出 === true
+        || deps.apiConfig?.功能模型占位?.主剧情非流式输出 === true;
+    const openingRequestStreaming = openingStreaming
+        && !开局强制非流式输出
+        && 开局阶段是否使用流式请求(currentApi);
 
     const normalizedOpeningExtraPrompt = (openingExtraPrompt || '').trim();
     const normalizedOpeningConfig = openingConfig
