@@ -14,7 +14,7 @@ import type { 用户图库条目 } from '../../../services/dbService';
 import { 获取物品明细分组 } from '../../../utils/rulebook';
 import { 是否杂物类物品 } from '../../../utils/inventoryActions';
 import { 获取题材界面文案 } from '../../../utils/resourceLabels';
-import { 获取世界观BaseAmount单位标签, 获取世界观货币卡片信息, 获取背包货币物品聚合列表, 获取货币显示模式, 获取货币完整单位标签 } from '../../../utils/currencyDisplay';
+import { 获取世界观BaseAmount单位标签, 获取世界观货币卡片信息, 获取背包货币物品聚合列表, 获取货币显示模式, 获取货币完整单位标签, 获取角色金钱BaseAmount, 计算货币物品兑换底层总值, 底层总值转角色金钱, 是否货币类物品, 格式化世界观BaseAmount } from '../../../utils/currencyDisplay';
 
 interface Props {
     character: any;
@@ -188,6 +188,11 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
     const 货币卡片 = 获取世界观货币卡片信息(openingConfig, character);
     const 货币物品列表 = useMemo(() => 获取背包货币物品聚合列表(items), [items]);
     const selectedDetailGroups = selectedItem ? 获取物品明细分组(selectedItem, { 价值单位: valueUnit }) : [];
+    const selectedCanExchange = Boolean(selectedItem) && 是否货币类物品(selectedItem);
+    const 待兑换总值 = selectedCanExchange
+        ? 计算货币物品兑换底层总值(selectedItem, openingConfig?.modeRuntimeProfile ?? null, currencyMode)
+        : 0;
+    const 待兑换文本 = 格式化世界观BaseAmount(待兑换总值, openingConfig, character, `${待兑换总值.toLocaleString()} ${legacyValueUnit}`);
 
     const applyCharacterChange = (nextCharacter: any, selectedItemRef?: string) => {
         onCharacterChange?.(nextCharacter);
@@ -238,6 +243,33 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
         const result = onDiscardItem(itemRef);
         setActionMessage((result && result.message) || '已丢弃物品');
         if (!result || result.ok) setSelectedItem(null);
+    };
+
+    const handleExchangeSelected = () => {
+        if (!selectedItem || !onCharacterChange) return;
+        const itemRef = getSafeText(selectedItem?.ID) || getSafeText(selectedItem?.名称);
+        const nextCharacter = JSON.parse(JSON.stringify(character)) as any;
+        nextCharacter.物品列表 = Array.isArray(nextCharacter?.物品列表) ? nextCharacter.物品列表 : [];
+        const itemIndex = nextCharacter.物品列表.findIndex((item: any) => item?.ID === itemRef || item?.名称 === itemRef);
+        const item = itemIndex >= 0 ? nextCharacter.物品列表[itemIndex] : null;
+        if (!item || !是否货币类物品(item)) {
+            setActionMessage('此物品不是可兑换的货币');
+            return;
+        }
+        const 兑换总值 = 计算货币物品兑换底层总值(item, openingConfig?.modeRuntimeProfile ?? null, currencyMode);
+        if (兑换总值 <= 0) {
+            setActionMessage('该货币没有可兑换的余额');
+            return;
+        }
+        const 现有总值 = 获取角色金钱BaseAmount(nextCharacter?.金钱, openingConfig?.modeRuntimeProfile ?? null, currencyMode);
+        nextCharacter.金钱 = 底层总值转角色金钱(现有总值 + 兑换总值, openingConfig?.modeRuntimeProfile ?? null, currencyMode);
+        nextCharacter.物品列表.splice(itemIndex, 1);
+        nextCharacter.当前负重 = nextCharacter.物品列表.reduce((sum: number, it: any) => (
+            sum + getSafeNumber(it?.重量) * getSafeNumber(it?.堆叠数量, 1)
+        ), 0);
+        onCharacterChange(nextCharacter);
+        setSelectedItem(null);
+        setActionMessage(`已兑换 ${待兑换文本} 并入账`);
     };
 
     const handleRegenerateSelectedImage = async () => {
@@ -642,6 +674,23 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
                                     {actionMessage ? (
                                         <div className="mt-2 truncate text-[10px] text-amber-200/80">{actionMessage}</div>
                                     ) : null}
+                                </div>
+                            ) : null}
+
+                            {selectedCanExchange ? (
+                                <div className="rounded border border-yellow-500/25 bg-yellow-500/5 p-2">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                        <span className="text-[10px] font-bold text-yellow-200">货币兑换</span>
+                                        <span className="truncate text-[10px] text-gray-500">兑换后从背包移除</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleExchangeSelected}
+                                        disabled={!onCharacterChange || 待兑换总值 <= 0}
+                                        className="w-full rounded bg-yellow-600/40 px-3 py-2 text-xs font-bold text-yellow-100 disabled:opacity-40"
+                                    >
+                                        兑换为金钱（{待兑换文本}）
+                                    </button>
                                 </div>
                             ) : null}
                         </div>

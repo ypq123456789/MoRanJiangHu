@@ -671,4 +671,97 @@ describe('chatCompletionClient Gemini trailing model turn normalization', () => 
         expect(是否Gemini系模型('流式抗截断/gemini-3.1-pro-preview')).toBe(true);
         expect(是否Gemini系模型('deepseek-v4-pro')).toBe(false);
     });
+
+    it('emits an activity heartbeat for filtered reasoning so the first-response timer keeps running', async () => {
+        // 思考型模型的真实流序：先推 reasoning_content，再推 content。
+        // includeReasoning 默认关闭，思维链不应进正文，但流确实在动，
+        // 必须仍然回调 onDelta 一次，否则上层的“等待首次响应超时”会误杀长思考请求。
+        const sse = [
+            'data: {"choices":[{"delta":{"reasoning_content":"先分析一下当前局势"}}]}',
+            '',
+            'data: {"choices":[{"delta":{"content":"正文输出"}}]}',
+            '',
+            'data: [DONE]',
+            ''
+        ].join('\n');
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(sse, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' }
+        }));
+        const deltaSpy = vi.fn();
+
+        const result = await 请求模型文本(baseConfig, [{ role: 'user', content: 'ping' }], {
+            temperature: 0.7,
+            signal: undefined,
+            streamOptions: { stream: true, onDelta: deltaSpy },
+            errorDetailLimit: 500
+        });
+
+        expect(result).toBe('正文输出');
+        expect(result).not.toContain('先分析一下当前局势');
+
+        // 关键回归点：思维链阶段也要触发 onDelta
+        expect(deltaSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+        const heartbeat = deltaSpy.mock.calls[0];
+        expect(heartbeat[0]).toBe('');
+        expect(heartbeat[1]).toBe('');
+        expect(deltaSpy.mock.calls.at(-1)?.[1]).toBe('正文输出');
+    });
+
+    it('still streams reasoning with think tags when includeReasoning is enabled', async () => {
+        const sse = [
+            'data: {"choices":[{"delta":{"reasoning_content":"先分析一下当前局势"}}]}',
+            '',
+            'data: {"choices":[{"delta":{"content":"正文输出"}}]}',
+            '',
+            'data: [DONE]',
+            ''
+        ].join('\n');
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(sse, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' }
+        }));
+        const deltaSpy = vi.fn();
+
+        const result = await 请求模型文本(baseConfig, [{ role: 'user', content: 'ping' }], {
+            temperature: 0.7,
+            signal: undefined,
+            streamOptions: { stream: true, onDelta: deltaSpy },
+            errorDetailLimit: 500,
+            includeReasoning: true
+        });
+
+        expect(result).toContain('先分析一下当前局势');
+        expect(result).toContain('</think>正文输出');
+        // 开启后产出非空，走的是普通增量而不是心跳
+        expect(deltaSpy.mock.calls[0][0]).not.toBe('');
+    });
+
+    it('does not emit heartbeats for idle keep-alive frames that carry no data', async () => {
+        // 网关的心跳空帧不代表模型在产出，不应被当成活动来续命计时器
+        const sse = [
+            'data: {"choices":[{"delta":{}}]}',
+            '',
+            'data: {"choices":[{"delta":{"content":"正文输出"}}]}',
+            '',
+            'data: [DONE]',
+            ''
+        ].join('\n');
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(sse, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' }
+        }));
+        const deltaSpy = vi.fn();
+
+        const result = await 请求模型文本(baseConfig, [{ role: 'user', content: 'ping' }], {
+            temperature: 0.7,
+            signal: undefined,
+            streamOptions: { stream: true, onDelta: deltaSpy },
+            errorDetailLimit: 500
+        });
+
+        expect(result).toBe('正文输出');
+        expect(deltaSpy).toHaveBeenCalledTimes(1);
+        expect(deltaSpy.mock.calls[0][0]).toBe('正文输出');
+    });
 });

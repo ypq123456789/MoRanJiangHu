@@ -1,6 +1,7 @@
 import React from 'react';
 import { generatePolishedBody } from '../../../services/ai/text';
 import { 获取文章优化接口配置, 接口配置是否可用 } from '../../../utils/apiConfig';
+import { 写入并分享设备文件 } from '../../../utils/deviceFileShare';
 
 interface Props {
     isOpen: boolean;
@@ -309,6 +310,16 @@ const saveTextFile = async (content: string, prefix: string, extension: 'txt' | 
 
     if (filesystem?.writeFile) {
         try {
+            // [修复] 原生 APP：先落盘私有文档目录，再唤起系统分享面板
+            // 让玩家选择保存位置——Android 11+ 私有 Documents 在文件管理器不可见。
+            const shareResult = await 写入并分享设备文件(fileName, encodeBase64(content), '保存导出文件');
+            if (shareResult.method !== 'none') {
+                return {
+                    method: shareResult.method === 'shared' ? 'file' : 'download',
+                    message: shareResult.message,
+                    fileName
+                };
+            }
             await filesystem.writeFile({
                 path: fileName,
                 data: encodeBase64(content),

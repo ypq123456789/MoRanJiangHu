@@ -15,7 +15,18 @@ import { 获取物品明细分组 } from '../../../utils/rulebook';
 import { 是否杂物类物品 } from '../../../utils/inventoryActions';
 import { 规范化消耗品使用效果 } from '../../../utils/itemEffects';
 import { 获取题材界面文案 } from '../../../utils/resourceLabels';
-import { 格式化世界观BaseAmount, 获取世界观BaseAmount单位标签, 获取世界观货币卡片信息, 获取背包货币物品聚合列表, 获取货币显示模式, 获取货币完整单位标签 } from '../../../utils/currencyDisplay';
+import {
+    格式化世界观BaseAmount,
+    获取世界观BaseAmount单位标签,
+    获取世界观货币卡片信息,
+    获取背包货币物品聚合列表,
+    获取货币显示模式,
+    获取货币完整单位标签,
+    获取角色金钱BaseAmount,
+    计算货币物品兑换底层总值,
+    底层总值转角色金钱,
+    是否货币类物品
+} from '../../../utils/currencyDisplay';
 
 interface Props {
     character: any;
@@ -115,6 +126,40 @@ const applyConsumableEffect = (character: any, selectedItem: any) => {
     }
     nextCharacter.当前负重 = recalculateWeight(nextCharacter.物品列表);
     return { nextCharacter, message: `已使用${getSafeText(item?.名称, '消耗品')}`, consumed: true };
+};
+
+/**
+ * 把「货币:xxx」实体货币物品兑换进角色金钱。
+ *
+ * 玩家反馈：商店买到的货币类物品（描述为"通用流通货币"等）在背包里点"使用"只有
+ * "此物品不可使用"——既花不掉也换不成钱，成了死物品。这里补上入账通道。
+ */
+const applyCurrencyExchange = (
+    character: any,
+    selectedItem: any,
+    openingConfig?: any
+) => {
+    const nextCharacter = cloneData(character);
+    nextCharacter.物品列表 = Array.isArray(nextCharacter?.物品列表) ? nextCharacter.物品列表 : [];
+    const itemRef = getSafeText(selectedItem?.ID) || getSafeText(selectedItem?.名称);
+    const itemIndex = nextCharacter.物品列表.findIndex((item: any) => item?.ID === itemRef || item?.名称 === itemRef);
+    const item = itemIndex >= 0 ? nextCharacter.物品列表[itemIndex] : null;
+    if (!item || !是否货币类物品(item)) {
+        return { nextCharacter, message: '此物品不是可兑换的货币', exchanged: false, amount: 0 };
+    }
+
+    const 货币模式 = 获取货币显示模式(openingConfig, character);
+    const profile = openingConfig?.modeRuntimeProfile ?? null;
+    const 兑换总值 = 计算货币物品兑换底层总值(item, profile, 货币模式);
+    if (兑换总值 <= 0) {
+        return { nextCharacter, message: '该货币没有可兑换的余额', exchanged: false, amount: 0 };
+    }
+
+    const 现有总值 = 获取角色金钱BaseAmount(nextCharacter?.金钱, profile, 货币模式);
+    nextCharacter.金钱 = 底层总值转角色金钱(现有总值 + 兑换总值, profile, 货币模式);
+    nextCharacter.物品列表.splice(itemIndex, 1);
+    nextCharacter.当前负重 = recalculateWeight(nextCharacter.物品列表);
+    return { nextCharacter, message: '', exchanged: true, amount: 兑换总值 };
 };
 
 const getCategoryCount = (items: any[], category: ItemCategory) => {
@@ -265,6 +310,11 @@ const InventoryModal: React.FC<Props> = ({ character, openingConfig, onClose, on
     const selectedEquipSlots = selectedItem ? 获取物品可装备槽位(selectedItem) : [];
     const selectedCanEquip = selectedItem ? 是否可装备物品(selectedItem) : false;
     const selectedCanUse = getSafeText(selectedItem?.类型) === '消耗品';
+    const selectedCanExchange = Boolean(selectedItem) && 是否货币类物品(selectedItem);
+    const 待兑换总值 = selectedCanExchange
+        ? 计算货币物品兑换底层总值(selectedItem, openingConfig?.modeRuntimeProfile ?? null, currencyMode)
+        : 0;
+    const 待兑换文本 = 格式化世界观BaseAmount(待兑换总值, openingConfig, character, `${待兑换总值.toLocaleString()} ${legacyValueUnit}`);
     const selectedDetailGroups = selectedItem ? 获取物品明细分组(selectedItem, { 价值单位: valueUnit }) : [];
 
     const applyCharacterChange = (nextCharacter: any, selectedItemRef?: string) => {
@@ -351,6 +401,18 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
             setSelectedItem(nextItem || null);
         }
         setActionMessage((result && result.message) || '');
+    };
+
+    const handleExchangeSelected = () => {
+        if (!selectedItem || !onCharacterChange) return;
+        const result = applyCurrencyExchange(character, selectedItem, openingConfig);
+        if (!result.exchanged) {
+            setActionMessage(result.message || '兑换失败');
+            return;
+        }
+        onCharacterChange(result.nextCharacter);
+        setSelectedItem(null);
+        setActionMessage(`已兑换 ${待兑换文本} 并入账`);
     };
 
     const handleSellSelected = () => {
@@ -872,6 +934,27 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                                             </button>
                                             {actionMessage ? (
                                                 <div className="mt-2 truncate text-xs text-emerald-100">{actionMessage}</div>
+                                            ) : null}
+                                        </div>
+                                    ) : selectedCanExchange ? (
+                                        <div className="col-start-1 row-start-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3">
+                                            <div className="mb-2 flex items-center justify-between gap-3">
+                                                <span className="text-sm font-bold tracking-[0.12em] text-amber-100">货币兑换</span>
+                                                <span className="truncate text-xs text-gray-300">持有：{getSafeNumber(selectedItem?.堆叠数量, 1)}</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleExchangeSelected}
+                                                disabled={!onCharacterChange || 待兑换总值 <= 0}
+                                                className="w-full rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2.5 text-sm font-semibold text-amber-50 transition hover:border-amber-300/60 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                                            >
+                                                兑换为金钱（{待兑换文本}）
+                                            </button>
+                                            <div className="mt-2 text-xs leading-4 text-gray-400">
+                                                实体货币会按当前汇率折算入账到钱财，兑换后该物品从背包移除。
+                                            </div>
+                                            {actionMessage ? (
+                                                <div className="mt-2 truncate text-xs text-amber-100">{actionMessage}</div>
                                             ) : null}
                                         </div>
                                     ) : (

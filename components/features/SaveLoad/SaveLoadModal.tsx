@@ -73,6 +73,9 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
     const hydratedSummaryIdsRef = useRef<Set<number>>(new Set());
     const hydratedSummaryCountRef = useRef(0);
     const hydrateRunningRef = useRef(false);
+    // [读档看门狗] 大存档读取可能超过 25s；期间给出"仍在读取"提示，
+    // 避免玩家误以为卡死而杀掉应用（读档是重同步转换，需要时间）
+    const loadWatchdogRef = useRef<number | null>(null);
 
     useEffect(() => {
         void loadSaves(true);
@@ -462,6 +465,16 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
         try {
             setSyncing(true);
             setTransferMessage(`正在读取：${构建存档标题(save)}`);
+            // [修复] 大存档在低端机上同步读档转换可能耗时较长；超过 25s 给玩家明确提示，
+            // 并把看门狗事件写入诊断日志（trace 开启时），便于后续定位卡读点
+            loadWatchdogRef.current = window.setTimeout(() => {
+                recordSaveLoadTrace('modal.loadClick.watchdog', {
+                    id,
+                    elapsedMs: Date.now() - startAt,
+                    message: '读档耗时超过 25s，仍在执行存档状态重建，请耐心等待'
+                });
+                setTransferMessage(`存档较大，仍在恢复存档状态（${构建存档标题(save)}）… 请耐心等待`);
+            }, 25000);
             const fullSave = await 读取完整存档(save);
             recordSaveLoadTrace('modal.loadClick.beforeOnLoad', {
                 id,
@@ -479,8 +492,13 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
                 elapsedMs: Date.now() - startAt
             });
             console.error(error);
-            alert(`读取失败：${error?.message || '未知错误'}`);
+            const 存档标识 = 构建存档标题(save);
+            alert(`读取失败：${error?.message || '未知错误'}\n\n存档：${存档标识}（#${id}）\n\n若反复失败，可先导出此档备份，或到“设置-数据存储”关闭存档保护后删除异常节点。`);
         } finally {
+            if (loadWatchdogRef.current !== null) {
+                window.clearTimeout(loadWatchdogRef.current);
+                loadWatchdogRef.current = null;
+            }
             recordSaveLoadTrace('modal.loadClick.finally', {
                 id,
                 elapsedMs: Date.now() - startAt

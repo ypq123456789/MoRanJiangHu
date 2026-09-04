@@ -62,6 +62,7 @@ import {
     type 小说分解创意工坊条目
 } from '../../../services/workshopNovelDecomposition';
 import { 发布创意工坊模块, 导入本地创意工坊模块 } from '../../../services/creativeWorkshop';
+import { 写入并分享设备文件 } from '../../../utils/deviceFileShare';
 import { 构建小说拆分模式包创意工坊模块, 解析小说模式包题材 } from '../../../services/novelDecompositionWorkshopBridge';
 import { 题材模式顺序 } from '../../../utils/topicModeProfiles';
 import { generateNovelSegmentFieldCompletion } from '../../../services/ai/storyTasks';
@@ -1869,9 +1870,17 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
         const filesystem = runtime?.Capacitor?.Plugins?.Filesystem;
         if (filesystem?.writeFile) {
             try {
+                const data = await blob转Base64(zipBlob);
+                // [修复] Android 11+ Scoped Storage 下应用私有 Documents 目录
+                // 玩家在系统文件管理器看不到；先落盘再唤起系统分享面板让玩家选择保存位置。
+                const shareResult = await 写入并分享设备文件(fileName, data, '保存小说分解分享包');
+                if (shareResult.method !== 'none') {
+                    return shareResult.message;
+                }
+                // 工具内判定非原生环境（通常不会走到这里，因为上方已按插件存在分流）
                 await filesystem.writeFile({
                     path: fileName,
-                    data: await blob转Base64(zipBlob),
+                    data,
                     directory: 'DOCUMENTS',
                     recursive: false
                 });
