@@ -845,12 +845,22 @@ const 错误疑似不支持流式 = (error: unknown): boolean => {
 
 type 增量提取器 = ((payload: any) => string) & {
     finalize?: () => string;
+    /**
+     * 取出并清空“本次提取观察到活动、但产出被过滤”的标记。
+     *
+     * 典型场景：思考型模型先流一段 `reasoning_content`，而 includeReasoning=false
+     * 时这段内容不应进入正文，extract 会返回空串；此时流其实在正常工作，
+     * 需要上报一次活动以维持上游的流式超时计时器。
+     */
+    drainActivity?: () => boolean;
 };
 
 const 创建OpenAI流增量提取器 = (options?: { includeReasoning?: boolean }): 增量提取器 => {
     const includeReasoning = options?.includeReasoning === true;
     let inReasoningPhase = false;
     let needsClosingTag = false;
+    // [修复] 累计“流在动但产出被丢弃”的次数，供 SSE 处理器取用后上报活动心跳
+    let pendingActivity = false;
 
     const extract = ((payload: any): string => {
         const delta = payload?.choices?.[0]?.delta;
@@ -860,7 +870,15 @@ const 创建OpenAI流增量提取器 = (options?: { includeReasoning?: boolean }
 
         if (hasReasoningContent) {
             const reasoningText = typeof reasoningContent === 'string' ? reasoningContent : '';
-            if (!includeReasoning) return '';
+            if (!includeReasoning) {
+                // [修复] 思考型模型会在输出正文前先流式推送一段思维链。此前这里直接返回空串，
+                // 而 emitDelta 对空串直接 return，onDelta 永不触发，上游的流式活动计时器
+                // 就一直不重置；思考耗时一旦超过「等待首次响应超时」阈值（主剧情默认 90s），
+                // 请求会被误判为超时并中止重试——玩家侧的体感就是“思考越久越容易失败”。
+                // 这里仅记录活动标记，不把思维链混进正文。
+                if (reasoningText) pendingActivity = true;
+                return '';
+            }
             if (!inReasoningPhase && reasoningText) {
                 inReasoningPhase = true;
                 needsClosingTag = true;
@@ -894,6 +912,12 @@ const 创建OpenAI流增量提取器 = (options?: { includeReasoning?: boolean }
 
         return '';
     }) as 增量提取器;
+
+    extract.drainActivity = () => {
+        if (!pendingActivity) return false;
+        pendingActivity = false;
+        return true;
+    };
 
     extract.finalize = () => {
         if (includeReasoning && needsClosingTag) {
@@ -965,6 +989,24 @@ const 创建SSE文本处理器 = (
         onDelta?.(delta, accumulated);
     };
 
+    /**
+     * 把一次提取结果投递给上游。
+     *
+     * 产出为空不代表流卡住了：思考型模型在这一阶段推送的是思维链，
+     * 被提取器有意过滤掉（不进正文）。此时必须仍然通知上游一次，
+     * 否则依赖 onDelta 维持的活动计时器会误判为“等待首次响应超时”。
+     * 心跳用空 delta 投递，accumulated 保持不变，不会污染已渲染的正文。
+     */
+    const 投递增量 = (delta: string) => {
+        if (delta) {
+            emitDelta(delta);
+            return;
+        }
+        if (typeof extractDelta.drainActivity === 'function' && extractDelta.drainActivity()) {
+            onDelta?.('', accumulated);
+        }
+    };
+
     const 尝试解析JSON并提取 = (payloadText: string): boolean => {
         const payload = payloadText.trim();
         if (!payload) return true;
@@ -975,11 +1017,11 @@ const 创建SSE文本处理器 = (
             if (typeof finishReason === 'string' && finishReason.trim()) {
                 lastFinishReason = finishReason.trim();
             }
-            emitDelta(extractDelta(json));
+            投递增量(extractDelta(json));
             return true;
         } catch {
             if (!payload.startsWith('{') && !payload.startsWith('[')) {
-                emitDelta(payload);
+                投递增量(payload);
                 return true;
             }
             return false;

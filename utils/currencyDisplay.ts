@@ -837,3 +837,61 @@ export const 获取背包货币物品聚合列表 = (items?: any[] | null): 货�
     });
     return Array.from(byType.values()).sort((a, b) => a.分类名.localeCompare(b.分类名, 'zh-Hans-CN'));
 };
+
+/**
+ * 推断「货币:xxx」这类物品单个可兑换多少底层货币（记账单位）。
+ *
+ * 优先用物品自带的 `价值`（AI 生成货币物品时通常会填，最贴近剧情里的购买力），
+ * 其次按分类名匹配当前世界观的货币层级，未知货币退化为 1:1，
+ * 避免玩家从商店买来的货币变成永远花不掉的死物品。
+ */
+const 推断货币物品底层单价 = (
+    item: any,
+    profile?: ModeRuntimeProfile | null,
+    mode: 货币显示模式 = 'wuxia'
+): number => {
+    const 价值 = Number(item?.价值);
+    if (Number.isFinite(价值) && 价值 > 0) return Math.floor(价值);
+
+    const 分类名 = 读取货币类型分类名(typeof item?.类型 === 'string' ? item.类型 : '');
+    if (!分类名) return 1;
+
+    const slots = 获取世界观货币层级配置(profile, mode);
+    const 命中层级 = slots.find((slot) => slot.key === 分类名)
+        || slots.find((slot) => slot.label === 分类名 || slot.fullLabel === 分类名);
+    if (命中层级) return Math.max(1, 命中层级.multiplier);
+
+    const 命中别名层级 = (Object.keys(题材货币字段别名) as 货币层级键[])
+        .find((层级) => 题材货币字段别名[层级].includes(分类名));
+    if (命中别名层级) {
+        return Math.max(1, slots.find((slot) => slot.key === 命中别名层级)?.multiplier || 1);
+    }
+    return 1;
+};
+
+/**
+ * 计算一个「货币:xxx」物品全部兑换后能得到的底层货币总值。
+ */
+export const 计算货币物品兑换底层总值 = (
+    item: any,
+    profile?: ModeRuntimeProfile | null,
+    mode: 货币显示模式 = 'wuxia'
+): number => {
+    if (!item) return 0;
+    // [安全防护] 拒绝非有限数量（如 "1e309" / NaN），避免 Infinity 进入兑换金额
+    const 原始数量 = Number(item?.堆叠数量 ?? item?.数量 ?? 1);
+    const 数量 = Number.isFinite(原始数量)
+        ? Math.max(0, Math.floor(原始数量))
+        : 0;
+    if (数量 <= 0) return 0;
+    // [安全防护] 单价 × 数量超出安全整数范围时返回 0，复用"没有可兑换余额"的处理，避免不精确金额入账
+    const 总值 = 推断货币物品底层单价(item, profile, mode) * 数量;
+    return Number.isSafeInteger(总值) ? 总值 : 0;
+};
+
+/**
+ * 判断物品是否为「货币:xxx」类型的实体货币载体。
+ */
+export const 是否货币类物品 = (item: any): boolean => (
+    读取货币类型分类名(typeof item?.类型 === 'string' ? item.类型.trim() : '') !== ''
+);

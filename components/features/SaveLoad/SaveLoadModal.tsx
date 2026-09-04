@@ -73,6 +73,20 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
     const hydratedSummaryIdsRef = useRef<Set<number>>(new Set());
     const hydratedSummaryCountRef = useRef(0);
     const hydrateRunningRef = useRef(false);
+    // [读档看门狗] 大存档读取可能超过 25s；期间给出"仍在读取"提示，
+    // 避免玩家误以为卡死而杀掉应用（读档是重同步转换，需要时间）
+    const loadWatchdogRef = useRef<number | null>(null);
+    // [并发读档防护] 读档（含确认对话框停留期）期间拒绝重复触发，避免多个读档共享看门狗句柄
+    const loadInFlightRef = useRef(false);
+
+    useEffect(() => () => {
+        // [卸载清理] 组件在读档未完成时被关闭（标题栏 onClose 仍可点），
+        // 卸载后清除看门狗定时器，避免其继续调用 setTransferMessage
+        if (loadWatchdogRef.current !== null) {
+            window.clearTimeout(loadWatchdogRef.current);
+            loadWatchdogRef.current = null;
+        }
+    }, []);
 
     useEffect(() => {
         void loadSaves(true);
@@ -442,6 +456,12 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
     const handleLoadClick = async (save: 存档列表项) => {
         if (mode !== 'load') return;
         const id = typeof save.id === 'number' ? save.id : 0;
+        // [并发读档防护] 前一次读档仍在进行（含确认对话框停留期）时直接拒绝，避免看门狗句柄互相覆盖
+        if (loadInFlightRef.current) {
+            recordSaveLoadTrace('modal.loadClick.blocked', { id });
+            return;
+        }
+        loadInFlightRef.current = true;
         const startAt = Date.now();
         recordSaveLoadTrace('modal.loadClick.start', {
             id,
@@ -458,32 +478,59 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
             })
             : true;
         recordSaveLoadTrace('modal.loadClick.confirm', { id, ok });
-        if (!ok) return;
+        if (!ok) {
+            loadInFlightRef.current = false;
+            return;
+        }
+        // [读档阶段计时起点] 确认框停留时间不计入读档耗时，从实际开始读档起算
+        const loadStartAt = Date.now();
+        // [读档看门狗] 每次调用持有局部 timer id，finally 只清理本次创建的定时器
+        let watchdogId: number | null = null;
         try {
             setSyncing(true);
             setTransferMessage(`正在读取：${构建存档标题(save)}`);
+            // [修复] 大存档在低端机上同步读档转换可能耗时较长；超过 25s 给玩家明确提示，
+            // 并把看门狗事件写入诊断日志（trace 开启时），便于后续定位卡读点
+            watchdogId = window.setTimeout(() => {
+                recordSaveLoadTrace('modal.loadClick.watchdog', {
+                    id,
+                    elapsedMs: Date.now() - loadStartAt,
+                    message: '读档耗时超过 25s，仍在执行存档状态重建，请耐心等待'
+                });
+                setTransferMessage(`存档较大，仍在恢复存档状态（${构建存档标题(save)}）… 请耐心等待`);
+            }, 25000);
+            loadWatchdogRef.current = watchdogId;
             const fullSave = await 读取完整存档(save);
             recordSaveLoadTrace('modal.loadClick.beforeOnLoad', {
                 id,
-                elapsedMs: Date.now() - startAt,
+                elapsedMs: Date.now() - loadStartAt,
                 save: buildSaveDebugSummary(fullSave)
             });
             await Promise.resolve(onLoadGame(fullSave));
             recordSaveLoadTrace('modal.loadClick.afterOnLoad', {
                 id,
-                elapsedMs: Date.now() - startAt
+                elapsedMs: Date.now() - loadStartAt
             });
         } catch (error: any) {
             recordSaveLoadError('modal.loadClick.error', error, {
                 id,
-                elapsedMs: Date.now() - startAt
+                elapsedMs: Date.now() - loadStartAt
             });
             console.error(error);
-            alert(`读取失败：${error?.message || '未知错误'}`);
+            const 存档标识 = 构建存档标题(save);
+            alert(`读取失败：${error?.message || '未知错误'}\n\n存档：${存档标识}（#${id}）\n\n若反复失败，可先导出此档备份，或到“设置-数据存储”关闭存档保护后删除异常节点。`);
         } finally {
+            // 只清理本次调用创建的定时器；卸载清理（useEffect）与这里保持幂等
+            if (watchdogId !== null) {
+                window.clearTimeout(watchdogId);
+                if (loadWatchdogRef.current === watchdogId) {
+                    loadWatchdogRef.current = null;
+                }
+            }
+            loadInFlightRef.current = false;
             recordSaveLoadTrace('modal.loadClick.finally', {
                 id,
-                elapsedMs: Date.now() - startAt
+                elapsedMs: Date.now() - loadStartAt
             });
             setSyncing(false);
             setTransferMessage('');
