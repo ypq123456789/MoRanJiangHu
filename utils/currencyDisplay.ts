@@ -878,9 +878,15 @@ export const 计算货币物品兑换底层总值 = (
     mode: 货币显示模式 = 'wuxia'
 ): number => {
     if (!item) return 0;
-    const 数量 = Math.max(0, Math.floor(Number(item?.堆叠数量 ?? item?.数量 ?? 1) || 0));
+    // [安全防护] 拒绝非有限数量（如 "1e309" / NaN），避免 Infinity 进入兑换金额
+    const 原始数量 = Number(item?.堆叠数量 ?? item?.数量 ?? 1);
+    const 数量 = Number.isFinite(原始数量)
+        ? Math.max(0, Math.floor(原始数量))
+        : 0;
     if (数量 <= 0) return 0;
-    return 推断货币物品底层单价(item, profile, mode) * 数量;
+    // [安全防护] 单价 × 数量超出安全整数范围时返回 0，复用"没有可兑换余额"的处理，避免不精确金额入账
+    const 总值 = 推断货币物品底层单价(item, profile, mode) * 数量;
+    return Number.isSafeInteger(总值) ? 总值 : 0;
 };
 
 /**

@@ -30,6 +30,7 @@ export const 写入并分享设备文件 = async (
     if (!isNativeCapacitorEnvironment()) {
         return { method: 'none', message: '当前不是原生 APP 环境。', fileName };
     }
+    // [写入防护] 写入失败时文件并不存在，不能返回 fallback（调用方会把它当成功而跳过浏览器下载回退）
     try {
         await Filesystem.writeFile({
             path: fileName,
@@ -37,6 +38,15 @@ export const 写入并分享设备文件 = async (
             directory: Directory.Documents,
             recursive: false
         });
+    } catch (error) {
+        console.warn('[设备文件分享] 写入应用文档目录失败。', error);
+        return {
+            method: 'none',
+            message: `无法写入应用文档目录，「${fileName}」未保存。`,
+            fileName
+        };
+    }
+    try {
         const uri = await Filesystem.getUri({ directory: Directory.Documents, path: fileName });
         await Share.share({
             files: [uri.uri],
