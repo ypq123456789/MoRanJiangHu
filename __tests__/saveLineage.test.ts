@@ -62,7 +62,7 @@ describe('存档谱系补全', () => {
         expect(normalized.元数据.存档分支输入).toBe('开局');
     });
 
-    it('本地旧坏谱系存在中途开线时，会修成同一条从0开始的连续线', () => {
+    it('本地旧坏谱系存在多个回合同 series 时，每个根都独立成树，不再强行串到 primary', () => {
         const root: any = {
             id: 1,
             类型: 'auto',
@@ -103,15 +103,21 @@ describe('存档谱系补全', () => {
         };
 
         const repaired = 修复本地存档谱系列表([middleRoot, root]);
-        const ordered = [...repaired.saves].sort((a: any, b: any) => a.元数据.游戏回合数 - b.元数据.游戏回合数);
+        const original = repaired.saves.find((item: any) => item.id === 1) as any;
+        const orphan = repaired.saves.find((item: any) => item.id === 2) as any;
 
         expect(repaired.changed).toBe(true);
-        expect(ordered.map((item: any) => item.元数据.游戏回合数)).toEqual([0, 1]);
-        expect(ordered[1].元数据).toEqual(expect.objectContaining({
-            存档根节点哈希: 'aaaaaaaaaaaaaaaa',
-            存档父节点哈希: 'aaaaaaaaaaaaaaaa',
-            存档谱系深度: 1
-        }));
+        // 第一棵：保留原根
+        expect(original.元数据.存档根节点哈希).toBe('aaaaaaaaaaaaaaaa');
+        expect(original.元数据.存档父节点哈希).toBe('');
+        expect(original.元数据.存档谱系深度).toBe(0);
+        expect(original.元数据.游戏回合数).toBe(0);
+        // 第二棵：自己独立成根（不再被串到第一棵末尾）
+        expect(orphan.元数据.存档根节点哈希).toBe('bbbbbbbbbbbbbbbb');
+        expect(orphan.元数据.存档父节点哈希).toBe('');
+        expect(orphan.元数据.存档谱系深度).toBe(0);
+        // 显式回合数（云端下传但本地历史不足以重算）应被尊重
+        expect(orphan.元数据.游戏回合数).toBe(5);
     });
 
     it('新存档当前地点变化时，会继承已有父节点系列并连续接上', () => {
@@ -238,9 +244,14 @@ describe('存档谱系补全', () => {
 
         const repaired = 修复本地存档谱系列表([secondRoot, firstRoot]);
 
-        expect(repaired.changed).toBe(true);
-        expect(repaired.saves.find((item: any) => item.id === 1)?.元数据.存档系列ID).toBe('series-collided');
-        expect(repaired.saves.find((item: any) => item.id === 2)?.元数据.存档系列ID).toBe('series-collided');
+        // 玩家反馈一/二：两个本是不同档（不同存档哈希），不应被画到同一条时间树。
+        // 新行为：每个根各自独立保留各自的 seriesId/rootHash/游戏回合数，绝不互相改写根哈希。
+        const first = repaired.saves.find((item: any) => item.id === 1) as any;
+        const second = repaired.saves.find((item: any) => item.id === 2) as any;
+        expect(first.元数据.存档系列ID).toBe('series-collided');
+        expect(second.元数据.存档系列ID).toBe('series-collided');
+        expect(first.元数据.存档根节点哈希).toBe('aaaaaaaaaaaaaaaa');
+        expect(second.元数据.存档根节点哈希).toBe('bbbbbbbbbbbbbbbb');
         expect(repaired.saves.map((item: any) => item.元数据.游戏回合数)).toEqual([0, 0]);
     });
 

@@ -37,6 +37,7 @@ import { 构建运行时额外提示词 } from '../../prompts/runtime/nsfw';
 import { 获取DeepSeek主剧情兼容提示词 } from '../../prompts/runtime/deepseekMode';
 import { 获取GLM主剧情兼容提示词 } from '../../prompts/runtime/glmMode';
 import { 包装繁体任务提示, 获取繁体输出指令 } from '../../utils/traditionalChinese';
+import { 修补开局角色姓名占位 } from '../../utils/openingProtagonistName';
 import { 提取叙事约束块, 是否有叙事约束 } from '../../utils/narrativeConstraint';
 import { 构建标签缺失补充提示 } from '../../utils/parseErrorHints';
 import { 构建世界演变COT提示词, 世界演变COT伪装历史消息提示词 } from '../../prompts/runtime/worldEvolutionCot';
@@ -103,6 +104,35 @@ export const 安全触发开局主角自动生图 = async (
         return false;
     }
 };
+/**
+ * 开局命令处理完成后的主角姓名修补与角色状态写回。
+ *
+ * 背景：processResponseCommands（applyState 默认开启）在应用 tavern_commands 时会把 AI
+ * 返回的角色（可能含「未命名」「未知角色」等占位姓名）写入前端角色状态；因此必须在姓名修补
+ * 完成**之后**无条件再次写回角色状态——即使本回合存在 tavern_commands（工作流里该路径会
+ * 跳过其余字段的整体写回块）也不能漏掉角色，否则界面会残留占位姓名（玩家反馈三）。
+ *
+ * 注意：修补仅在 AI 姓名确实是占位符时发生，绝不覆盖 AI 给出的具体名字。
+ *
+ * @returns 修补后的开场状态（其 角色 已带玩家姓名，调用方可直接用于自动存档等下游）。
+ */
+export const 修补并回写开局主角角色 = (
+    openingStateAfterCommands: 开场命令基态,
+    fallbackRole: any,
+    deps: Pick<开场剧情生成依赖, '设置角色' | '规范化角色物品容器映射'>,
+    options?: {
+        启用饱腹口渴系统?: boolean;
+        题材模式?: unknown;
+    }
+): 开场命令基态 => {
+    修补开局角色姓名占位(openingStateAfterCommands.角色, fallbackRole);
+    deps.设置角色(deps.规范化角色物品容器映射(openingStateAfterCommands.角色, {
+        启用饱腹口渴系统: options?.启用饱腹口渴系统,
+        题材模式: options?.题材模式
+    }));
+    return openingStateAfterCommands;
+};
+
 const 开场剧情流式空闲超时毫秒 = 90000;
 const 开场剧情默认最大输出Token = 32768;
 
@@ -2148,13 +2178,23 @@ export const 执行开场剧情生成工作流 = async (
         // 这里再同步一次：把没有显式位置的在场 NPC 的 当前位置/位置路径 用当前环境地点填充，
         // 确保开局伙伴能正确显示在地图上（地图显示由社交 NPC 位置字段驱动）。
         openingStateAfterCommands.社交 = 同步在场NPC当前位置(openingStateAfterCommands.社交, openingStateAfterCommands.环境);
+        // [玩家反馈三] AI 在开局场景里偶发返回空姓名或回退成「未命名」「未知角色」，
+        // 一旦写入会覆盖玩家开局时设定的主角姓名，导致存档与界面都呈现「未命名」；
+        // 用开局基态的角色姓名兜底回填（仅当 AI 姓名确实是占位符时才修补，绝不覆盖具体名字）。
+        // 修补完成后无条件写回前端角色状态——即使存在 tavern_commands（下方整体写回块会
+        // 被跳过），也不能漏掉角色写回，否则界面残留命令处理阶段写入的占位姓名。
+        修补并回写开局主角角色(
+            openingStateAfterCommands,
+            commandBaseState.角色 || (deps as any).角色,
+            deps,
+            {
+                启用饱腹口渴系统: openingGameConfig.启用饱腹口渴系统,
+                题材模式: options?.开局配置?.题材模式
+            }
+        );
         const openingNewNpcList = deps.提取新增NPC列表(commandBaseState.社交, openingStateAfterCommands.社交);
         const hasOpeningCommands = Array.isArray(responseForExecution?.tavern_commands) && responseForExecution.tavern_commands.length > 0;
         if (!hasOpeningCommands) {
-            deps.设置角色(deps.规范化角色物品容器映射(openingStateAfterCommands.角色, {
-                启用饱腹口渴系统: openingGameConfig.启用饱腹口渴系统,
-                题材模式: options?.开局配置?.题材模式
-            }));
             deps.设置环境(deps.规范化环境信息(openingStateAfterCommands.环境));
             deps.设置世界(deps.规范化世界状态(openingStateAfterCommands.世界));
             deps.设置战斗(deps.规范化战斗状态(openingStateAfterCommands.战斗));

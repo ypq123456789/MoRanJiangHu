@@ -15,6 +15,7 @@ import { isNativeCapacitorEnvironment } from '../../../utils/nativeRuntime';
 import { 创建并记录ObjectURL, 延迟释放并记录ObjectURL } from '../../../utils/objectUrlLifecycle';
 import { buildSaveDebugSummary, recordSaveLoadError, recordSaveLoadTrace } from '../../../utils/saveLoadTrace';
 import { 读取存档游玩回合数 } from '../../../utils/saveTurn';
+import { 读取存档本地分组键 } from '../../../utils/saveLoadGroupKey';
 import GameButton from '../../ui/GameButton';
 
 interface Props {
@@ -36,14 +37,7 @@ const 需要刷新回合数摘要 = (save: 存档列表项): boolean => (
     && Number(save.元数据?.历史记录条数 || 0) > 0
 );
 
-const 读取本地系列Key = (save: 存档列表项): string => {
-    const metadataSeriesId = typeof save.元数据?.存档系列ID === 'string' ? save.元数据.存档系列ID.trim() : '';
-    if (metadataSeriesId) return metadataSeriesId;
-    const rootHash = typeof save.元数据?.存档根节点哈希 === 'string' ? save.元数据.存档根节点哈希.trim() : '';
-    if (rootHash) return rootHash;
-    const roleName = typeof save.角色数据?.姓名 === 'string' && save.角色数据.姓名.trim() ? save.角色数据.姓名.trim() : '未知角色';
-    return `legacy-${roleName}`;
-};
+const 读取本地系列Key = (save: 存档列表项): string => 读取存档本地分组键(save);
 
 const 计算文本短哈希 = (text: string): string => {
     let hash = 2166136261;
