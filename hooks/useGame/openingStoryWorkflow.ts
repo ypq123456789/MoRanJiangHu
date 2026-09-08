@@ -1197,8 +1197,7 @@ export const 执行开场剧情生成工作流 = async (
                             prefixMode: openingDeepSeekPrefixMode || openingGLMPrefixMode,
                             disableThinking: (openingGameConfig.DeepSeek策略?.开局Thinking !== true) && (openingGameConfig.GLM策略?.开局Thinking !== true),
                             stripReasoning: (openingGameConfig.DeepSeek策略?.开局Thinking !== true) && (openingGameConfig.GLM策略?.开局Thinking !== true),
-                            includeReasoning: (openingGameConfig.DeepSeek策略?.开局Thinking === true) || (openingGameConfig.GLM策略?.开局Thinking === true),
-                            glmHTMLCommentThinking: openingGLMHTMLCommentThinking
+                            includeReasoning: (openingGameConfig.DeepSeek策略?.开局Thinking === true) || (openingGameConfig.GLM策略?.开局Thinking === true)
                         }
                     );
                 if (!useStreaming) {
