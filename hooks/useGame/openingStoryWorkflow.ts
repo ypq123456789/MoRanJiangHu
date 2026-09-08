@@ -37,6 +37,7 @@ import { 构建运行时额外提示词 } from '../../prompts/runtime/nsfw';
 import { 获取DeepSeek主剧情兼容提示词 } from '../../prompts/runtime/deepseekMode';
 import { 获取GLM主剧情兼容提示词 } from '../../prompts/runtime/glmMode';
 import { 包装繁体任务提示, 获取繁体输出指令 } from '../../utils/traditionalChinese';
+import { 修补开局角色姓名占位 } from '../../utils/openingProtagonistName';
 import { 提取叙事约束块, 是否有叙事约束 } from '../../utils/narrativeConstraint';
 import { 构建标签缺失补充提示 } from '../../utils/parseErrorHints';
 import { 构建世界演变COT提示词, 世界演变COT伪装历史消息提示词 } from '../../prompts/runtime/worldEvolutionCot';
@@ -2148,6 +2149,11 @@ export const 执行开场剧情生成工作流 = async (
         // 这里再同步一次：把没有显式位置的在场 NPC 的 当前位置/位置路径 用当前环境地点填充，
         // 确保开局伙伴能正确显示在地图上（地图显示由社交 NPC 位置字段驱动）。
         openingStateAfterCommands.社交 = 同步在场NPC当前位置(openingStateAfterCommands.社交, openingStateAfterCommands.环境);
+        // [玩家反馈三] AI 在开局场景里偶发返回空姓名或回退成「未命名」「未知角色」，
+        // 一旦写入会覆盖玩家开局时设定的主角姓名，导致存档与界面都呈现「未命名」；
+        // 在这里用开局基态的角色姓名兜底回填，确保玩家命名不会被空白覆盖。
+        // 注意：仅在 AI 返回的角色姓名确实是占位符时才修补，绝不覆盖 AI 给出的具体名字。
+        修补开局角色姓名占位(openingStateAfterCommands.角色, commandBaseState.角色 || (deps as any).角色);
         const openingNewNpcList = deps.提取新增NPC列表(commandBaseState.社交, openingStateAfterCommands.社交);
         const hasOpeningCommands = Array.isArray(responseForExecution?.tavern_commands) && responseForExecution.tavern_commands.length > 0;
         if (!hasOpeningCommands) {

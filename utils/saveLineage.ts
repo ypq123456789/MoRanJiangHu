@@ -241,14 +241,44 @@ const 写入谱系节点元数据 = <T extends Partial<存档结构>>(
     ordered.forEach((save, offset) => {
         const metadata = save.元数据 as any;
         const index = startIndex + offset;
-        const nextGameRound = 读取谱系回合数(save);
-        const nextParentHash = index === 0 ? '' : (offset === 0 ? parentBeforeFirst : 读取存档谱系哈希(ordered[offset - 1]));
-        const nextBranchInput = index === 0 ? '开局' : (readText(metadata.存档分支输入) || 读取历史用户输入(save, 0) || '继续游玩');
+        const wasPatched = metadata.__补丁挂载标志 === true;
+        // 父节点哈希：第 0 项自身为根，否则指向同子树内的前一项。
+        // 注意：parentBeforeFirst 仅在调用方显式传入时生效（兼容性保留）。
+        const explicitParentHash = offset === 0 ? '' : (parentBeforeFirst && !readText(metadata.存档父节点哈希)
+            ? parentBeforeFirst
+            : 读取存档谱系哈希(ordered[offset - 1]));
+        // 谱系深度：尊重显式值（如云端下载/旧存档迁移可能已有更大 depth），
+        // 但当显式值不连续（小于 index）或本节点被重新挂接到新位置（wasPatched）时，
+        // 强制按新挂接位置对齐 depth，避免出现"自称深度 17 却在第 1 个位置"的歧义。
+        const explicitDepth = Number(metadata.存档谱系深度);
+        const nextDepth = offset === 0
+            ? 0
+            : (wasPatched
+                ? index
+                : (Number.isFinite(explicitDepth) && explicitDepth >= index
+                    ? Math.floor(explicitDepth)
+                    : index));
+        // 回合数：尊重显式值（云端下载/迁移缓存），仅在显式无效或被补丁时回退。
+        // 被补丁的节点必须按挂接后的位置重新计算回合数，避免与新父错位。
+        const explicitTurn = Number(metadata.游戏回合数);
+        const nextGameRound = offset === 0
+            ? (wasPatched ? 0 : (Number.isFinite(explicitTurn) && explicitTurn >= 0 ? Math.floor(explicitTurn) : 0))
+            : (wasPatched
+                ? 读取谱系回合数(save)
+                : (Number.isFinite(explicitTurn) && explicitTurn >= 0
+                    ? Math.floor(explicitTurn)
+                    : 读取谱系回合数(save)));
+        const nextParentHash = offset === 0
+            ? ''
+            : (readText(metadata.存档父节点哈希) || explicitParentHash);
+        const nextBranchInput = offset === 0
+            ? '开局'
+            : (readText(metadata.存档分支输入) || 读取历史用户输入(save, 0) || '继续游玩');
         if (
             metadata.存档系列ID !== seriesId
             || metadata.存档根节点哈希 !== rootHash
             || metadata.存档父节点哈希 !== nextParentHash
-            || metadata.存档谱系深度 !== index
+            || metadata.存档谱系深度 !== nextDepth
             || metadata.游戏回合数 !== nextGameRound
             || metadata.存档分支输入 !== nextBranchInput
             || metadata.存档谱系版本 !== 1
@@ -258,10 +288,11 @@ const 写入谱系节点元数据 = <T extends Partial<存档结构>>(
         metadata.存档系列ID = seriesId;
         metadata.存档根节点哈希 = rootHash;
         metadata.存档父节点哈希 = nextParentHash;
-        metadata.存档谱系深度 = index;
+        metadata.存档谱系深度 = nextDepth;
         metadata.游戏回合数 = nextGameRound;
         metadata.存档分支输入 = nextBranchInput;
         metadata.存档谱系版本 = 1;
+        delete metadata.__补丁挂载标志;
     });
     return repairedNodes;
 };
@@ -287,6 +318,7 @@ export const 修复本地存档谱系列表 = <T extends Partial<存档结构>>(
     let repairedNodes = 0;
     bySeries.forEach((items) => {
         const hashToItem = new Map(items.map((item) => [读取存档谱系哈希(item), item]).filter(([hash]) => Boolean(hash)) as Array<[string, T]>);
+        // 第一遍：基于已声明的存档父节点哈希 建立子表。
         const childrenByParent = new Map<string, T[]>();
         items.forEach((item) => {
             const parentHash = readText((item.元数据 as any)?.存档父节点哈希);
@@ -294,47 +326,44 @@ export const 修复本地存档谱系列表 = <T extends Partial<存档结构>>(
             childrenByParent.set(parentHash, [...(childrenByParent.get(parentHash) || []), item]);
         });
 
-        const trueRoots = items.filter(是可信谱系根).sort(比较谱系顺序);
-        if (trueRoots.length <= 0) {
-            const ordered = [...items].sort(比较谱系顺序);
-            const first = ordered[0];
-            const rootHash = 读取存档谱系哈希(first);
-            const seriesId = readText((first?.元数据 as any)?.存档系列ID);
-            if (!rootHash || !seriesId) return;
-            const groupChanged = 写入谱系节点元数据(ordered, rootHash, seriesId, 0, '');
-            if (groupChanged > 0) {
-                repairedNodes += groupChanged;
-                repairedGroups += 1;
-            }
-            return;
-        }
+        // 第二遍：补全"存档父节点哈希 已声明但本组找不到 / 或父哈希缺失 且 存档根节点哈希
+        // 指向组内某 item"的节点。典型场景：只下载到中段、缺父；以及一些孤儿新存档。
+        // 关键设计：保留各自 seriesId/rootHash，绝不强行把所有根并到 primary 上。
+        items.forEach((item) => {
+            const metadata = item.元数据 as any;
+            const explicitParentHash = readText(metadata.存档父节点哈希);
+            // 父哈希已声明且组内能找到 → 第一遍已收，无需修补
+            if (explicitParentHash && hashToItem.has(explicitParentHash)) return;
+            const rootHash = readText(metadata.存档根节点哈希);
+            if (!rootHash) return;
+            const matchedRoot = hashToItem.get(rootHash);
+            if (!matchedRoot || matchedRoot === item) return;
+            const matchedHash = 读取存档谱系哈希(matchedRoot);
+            if (!matchedHash) return;
+            metadata.存档父节点哈希 = matchedHash;
+            // 标记此节点被父哈希修补：写入时使用新的挂接位置而非保留旧 depth/turn，
+            // 避免出现"自称深度 17 却在第 1 个位置"的歧义。
+            metadata.__补丁挂载标志 = true;
+            childrenByParent.set(matchedHash, [...(childrenByParent.get(matchedHash) || []), item]);
+        });
 
-        const primaryRoot = trueRoots[0];
-        const primaryRootHash = 读取存档谱系哈希(primaryRoot);
-        const primarySeriesId = readText((primaryRoot.元数据 as any)?.存档系列ID);
-        const used = new Set<string>();
-        let groupChanged = 0;
-        const primaryComponent = 收集谱系子树(primaryRoot, childrenByParent);
-        primaryComponent.forEach((item) => used.add(读取存档谱系哈希(item)));
-        groupChanged += 写入谱系节点元数据(primaryComponent, primaryRootHash, primarySeriesId, 0, '');
-        const unattachedRoots = items
-            .filter((item) => {
-                const hash = 读取存档谱系哈希(item);
-                if (!hash || used.has(hash)) return false;
-                const parentHash = readText((item.元数据 as any)?.存档父节点哈希);
-                if (!parentHash) return true;
-                return !hashToItem.has(parentHash);
-            })
+        // 第三遍：识别所有"根"——未被任何其他节点指向其作为父、且自身有哈希。
+        // 这里是关键：原本会把"未挂接的根"强接到 primary 链末尾，导致不同存档被错并到同一棵。
+        // 现在每个根各自成独立一棵子树，原始 seriesId/rootHash 不被改写到另一棵树。
+        const allChildren = new Set<T>();
+        childrenByParent.forEach((list) => list.forEach((child) => allChildren.add(child)));
+        const roots = items
+            .filter((item) => !allChildren.has(item))
+            .filter((item) => 读取存档谱系哈希(item))
             .sort(比较谱系顺序);
-        let previousHash = primaryRootHash;
-        let nextIndex = primaryComponent.length;
-        unattachedRoots.forEach((root) => {
-            if (!primaryRootHash || !previousHash) return;
+
+        let groupChanged = 0;
+        roots.forEach((root) => {
+            const rootHash = 读取存档谱系哈希(root);
+            const seriesId = readText((root.元数据 as any)?.存档系列ID);
+            if (!rootHash || !seriesId) return;
             const component = 收集谱系子树(root, childrenByParent);
-            component.forEach((item) => used.add(读取存档谱系哈希(item)));
-            groupChanged += 写入谱系节点元数据(component, primaryRootHash, primarySeriesId, nextIndex, previousHash);
-            previousHash = 读取存档谱系哈希(component[component.length - 1]) || previousHash;
-            nextIndex += component.length;
+            groupChanged += 写入谱系节点元数据(component, rootHash, seriesId, 0, '');
         });
 
         if (groupChanged > 0) {
