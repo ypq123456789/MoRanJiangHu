@@ -242,32 +242,33 @@ const 写入谱系节点元数据 = <T extends Partial<存档结构>>(
         const metadata = save.元数据 as any;
         const index = startIndex + offset;
         const wasPatched = metadata.__补丁挂载标志 === true;
-        // 父节点哈希：第 0 项自身为根，否则指向同子树内的前一项。
-        // 注意：parentBeforeFirst 仅在调用方显式传入时生效（兼容性保留）。
         const explicitParentHash = offset === 0 ? '' : (parentBeforeFirst && !readText(metadata.存档父节点哈希)
             ? parentBeforeFirst
             : 读取存档谱系哈希(ordered[offset - 1]));
-        // 谱系深度：尊重显式值（如云端下载/旧存档迁移可能已有更大 depth），
-        // 但当显式值不连续（小于 index）或本节点被重新挂接到新位置（wasPatched）时，
-        // 强制按新挂接位置对齐 depth，避免出现"自称深度 17 却在第 1 个位置"的歧义。
+        // 谱系深度：以"父节点的深度 + 1"为基准回退值（而非 DFS 的 index）。
+        // 显式深度在「有效且不小于父深度+1」时被保留；否则使用父深度+1。
+        // 被重新挂接的节点必须按新父位置对齐深度，绝不保留与父链脱节的旧深度。
+        const previousItem = offset === 0 ? null : ordered[offset - 1];
+        const parentDepthBase = previousItem
+            ? Math.max(0, Number((previousItem.元数据 as any)?.存档谱系深度 || 0))
+            : -1;
+        const desiredDepth = offset === 0 ? 0 : parentDepthBase + 1;
         const explicitDepth = Number(metadata.存档谱系深度);
         const nextDepth = offset === 0
             ? 0
             : (wasPatched
-                ? index
-                : (Number.isFinite(explicitDepth) && explicitDepth >= index
+                ? desiredDepth
+                : (Number.isFinite(explicitDepth) && explicitDepth >= desiredDepth
                     ? Math.floor(explicitDepth)
-                    : index));
-        // 回合数：尊重显式值（云端下载/迁移缓存），仅在显式无效或被补丁时回退。
-        // 被补丁的节点必须按挂接后的位置重新计算回合数，避免与新父错位。
+                    : desiredDepth));
+        // 回合数：显式值有效（有限非负）时一律保留（含被补丁节点，CodeRabbit #2），
+        // 仅在显式值无效时才回退重算，避免下载/迁移档被本地重算错写。
         const explicitTurn = Number(metadata.游戏回合数);
         const nextGameRound = offset === 0
-            ? (wasPatched ? 0 : (Number.isFinite(explicitTurn) && explicitTurn >= 0 ? Math.floor(explicitTurn) : 0))
-            : (wasPatched
-                ? 读取谱系回合数(save)
-                : (Number.isFinite(explicitTurn) && explicitTurn >= 0
-                    ? Math.floor(explicitTurn)
-                    : 读取谱系回合数(save)));
+            ? (Number.isFinite(explicitTurn) && explicitTurn >= 0 ? Math.floor(explicitTurn) : 0)
+            : (Number.isFinite(explicitTurn) && explicitTurn >= 0
+                ? Math.floor(explicitTurn)
+                : 读取谱系回合数(save));
         const nextParentHash = offset === 0
             ? ''
             : (readText(metadata.存档父节点哈希) || explicitParentHash);
@@ -328,7 +329,44 @@ export const 修复本地存档谱系列表 = <T extends Partial<存档结构>>(
 
         // 第二遍：补全"存档父节点哈希 已声明但本组找不到 / 或父哈希缺失 且 存档根节点哈希
         // 指向组内某 item"的节点。典型场景：只下载到中段、缺父；以及一些孤儿新存档。
-        // 关键设计：保留各自 seriesId/rootHash，绝不强行把所有根并到 primary 上。
+        // 关键设计：
+        //  a) 保留各自 seriesId/rootHash，绝不强行把所有根并到 primary 上；
+        //  b) 仅当目标 matchedRoot 是组内真实根（自身无父、未被任何人当父指向）且
+        //     挂接不会使当前 item 变成自身后代（防环）时才补挂，否则拒绝（CodeRabbit #4）。
+        const isKnownChild = (item: T): boolean => {
+            const hash = 读取存档谱系哈希(item);
+            if (!hash) return false;
+            for (const list of childrenByParent.values()) {
+                if (list.includes(item)) return true;
+            }
+            return false;
+        };
+        // matchedRoot 需是"可信根"：自身无父哈希，或父哈希在本组解析不到（视为断档根），
+        // 且尚未被任何其他节点挂在名下。
+        const isTrustedRootCandidate = (item: T): boolean => {
+            if (isKnownChild(item)) return false;
+            const parentHash = readText((item.元数据 as any)?.存档父节点哈希);
+            if (!parentHash) return true;
+            return !hashToItem.has(parentHash);
+        };
+        // 从 item 出发沿"已有子表"可达的节点集合——若 matchedRoot 可达 item 自身则成环，必须拒绝。
+        const 会形成环 = (root: T, child: T): boolean => {
+            const startHash = 读取存档谱系哈希(root);
+            if (!startHash) return false;
+            const stack = [...(childrenByParent.get(startHash) || [])];
+            const visited = new Set<T>();
+            while (stack.length > 0) {
+                const current = stack.pop() as T;
+                if (!current || visited.has(current)) continue;
+                visited.add(current);
+                if (current === child) return true;
+                const currentHash = 读取存档谱系哈希(current);
+                if (!currentHash) continue;
+                const nextChildren = childrenByParent.get(currentHash);
+                if (nextChildren) stack.push(...nextChildren);
+            }
+            return false;
+        };
         items.forEach((item) => {
             const metadata = item.元数据 as any;
             const explicitParentHash = readText(metadata.存档父节点哈希);
@@ -338,6 +376,10 @@ export const 修复本地存档谱系列表 = <T extends Partial<存档结构>>(
             if (!rootHash) return;
             const matchedRoot = hashToItem.get(rootHash);
             if (!matchedRoot || matchedRoot === item) return;
+            // CodeRabbit #4：拒绝把 item 挂到一个会形成环的目标上，
+            // 且目标必须是组内可信根（自身无父 / 父断档 / 未被他人当子）。
+            if (!isTrustedRootCandidate(matchedRoot)) return;
+            if (会形成环(matchedRoot, item)) return;
             const matchedHash = 读取存档谱系哈希(matchedRoot);
             if (!matchedHash) return;
             metadata.存档父节点哈希 = matchedHash;
