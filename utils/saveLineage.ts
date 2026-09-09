@@ -22,9 +22,33 @@ const 读取历史长度 = (save: Partial<存档结构>): number => {
     return history.length;
 };
 
+// [修复] 开局存档的历史记录[0] 始终是同一条系统占位消息（"系统: 正在生成开场内容..."），
+// 不能作为不同开局之间的区分特征。必须跳过所有 system 角色，找到首条真实对话消息，
+// 否则同角色名多次开局会被错误判定为"同一开局"而串到同一棵时间树（玩家反馈）。
+const 是系统占位消息 = (item: any): boolean => {
+    if (!item || typeof item !== 'object') return false;
+    if (item.role === 'system') return true;
+    // 兜底：仅当 role 缺失（既非 user 也非 assistant，例如工具/占位条目）时，
+    // 内容以"系统:"/"系统："开头才视为开场生成占位文案。明确的 user/assistant 真实回复
+    // 即便偶然以"系统："开头，也绝不按内容误判为系统占位——否则首条真实对话会被跳过、
+    // 首条历史签名与 seriesId 的 seed 错位（CodeRabbit 评审指出）。
+    if (item.role === 'user' || item.role === 'assistant') return false;
+    const content = typeof item.content === 'string' ? item.content.trim() : '';
+    return content.startsWith('系统:') || content.startsWith('系统：');
+};
+
+const 寻找首条非系统历史 = (history: any[]): any | null => {
+    if (!Array.isArray(history)) return null;
+    for (let index = 0; index < history.length; index += 1) {
+        const item = history[index];
+        if (!是系统占位消息(item)) return item || null;
+    }
+    return null;
+};
+
 const 读取首条历史签名 = (save: Partial<存档结构>): string => {
     const history = Array.isArray(save.历史记录) ? save.历史记录 : [];
-    const first = history[0] as any;
+    const first = 寻找首条非系统历史(history) || history[0] || null;
     if (!first || typeof first !== 'object') return 'null';
     return JSON.stringify({
         role: first.role,
@@ -40,11 +64,24 @@ const 是同一开局候选 = (save: Partial<存档结构>, candidate: Partial<�
 
     const currentInitialTime = readText(save.游戏初始时间);
     const candidateInitialTime = readText(candidate.游戏初始时间);
-    if (currentInitialTime && candidateInitialTime) return currentInitialTime === candidateInitialTime;
+    // [修复] 旧版本在此处直接 return currentInitialTime === candidateInitialTime，
+    // 即只要初始时间匹配就视为同一开局。这会让同名"陆凡"等玩家在短时间内多次开局时，
+    // 后几次开局被错误判定为与前次开局同一棵谱系（玩家反馈一）。修复：初始时间只是
+    // 必要条件之一，最终还要看首条 AI 签名是否一致。
+    if (currentInitialTime && candidateInitialTime && currentInitialTime !== candidateInitialTime) return false;
 
     const currentFirstHistory = 读取首条历史签名(save);
     const candidateFirstHistory = 读取首条历史签名(candidate);
-    return currentFirstHistory === candidateFirstHistory;
+    // [修复] 双方首条真实对话都不可用（AI 尚未响应），退化为时间戳近邻判别：
+    // 1秒内的视为同一局（同一未完成开局），超过 1 秒视为不同局。
+    if (currentFirstHistory === 'null' && candidateFirstHistory === 'null') {
+        const currentTs = Number(save.时间戳 || 0);
+        const candidateTs = Number(candidate.时间戳 || 0);
+        if (currentTs > 0 && candidateTs > 0 && Math.abs(currentTs - candidateTs) > 1000) return false;
+        return true;
+    }
+    if (currentFirstHistory !== candidateFirstHistory) return false;
+    return true;
 };
 
 const 读取谱系回合数 = (save: Partial<存档结构>): number => {
@@ -79,7 +116,9 @@ export const 读取存档系列ID = (save: Partial<存档结构>): string => {
     const existing = readText((save.元数据 as any)?.存档系列ID);
     if (existing) return existing;
     const history = Array.isArray(save.历史记录) ? save.历史记录 : [];
-    const firstHistory = history[0] || null;
+    // [修复] 与 读取首条历史签名 保持一致：必须跳过系统占位消息，
+    // 否则同角色名开局会产生完全相同的 seed 哈希，seriesId 撞车后被串到同一条时间树。
+    const firstHistory = 寻找首条非系统历史(history);
     const env: any = save.环境信息 || {};
     const seed = {
         title: readText(save.角色数据?.姓名),

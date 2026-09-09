@@ -111,6 +111,7 @@ import { 应用NPC记忆总结, 构建手动NPC记忆总结候选, 构建自动N
 import { 规范化游戏设置 } from '../utils/gameSettings';
 import { 规范化视觉设置 } from '../utils/visualSettings';
 import { 默认图片管理设置, 规范化图片管理设置 } from '../utils/imageManagerSettings';
+import { 解析文生图功能配置 } from '../utils/imageFeatureConfig';
 import { 规范化可选开局配置 } from '../utils/openingConfig';
 import { 设置NPC调试日志, NPC调试日志已启用 } from '../utils/debugFlags';
 import { 修复开局伙伴社交列表 } from '../utils/openingCompanion';
@@ -1865,50 +1866,11 @@ export const useGame = () => {
         加载图片AI服务
     });
 
-    const 读取文生图功能配置 = () => {
-        const feature = apiConfig?.功能模型占位 as any;
-        const 当前后端 = feature?.文生图后端类型 === 'novelai' || feature?.文生图后端类型 === 'comfyui'
-            ? feature.文生图后端类型
-            : 'other';
-        const 场景横竖屏 = feature?.自动场景生图横竖屏 === '竖屏' ? '竖屏' : '横屏';
-        const 场景尺寸 = typeof feature?.自动场景生图分辨率 === 'string' && feature.自动场景生图分辨率.trim()
-            ? feature.自动场景生图分辨率.trim()
-            : (场景横竖屏 === '竖屏' ? '576x1024' : '1024x576');
-        const 自动任务已开启 = Boolean(
-            feature?.NPC生图启用
-            || feature?.物品自动生图启用
-            || feature?.自动场景生图启用
-        );
-        return {
-            总开关: Boolean(feature?.文生图功能启用 || 自动任务已开启),
-            NPC开关: Boolean(feature?.NPC生图启用),
-            使用词组转化器: 当前后端 === 'novelai'
-                ? true
-                : feature?.NPC生图使用词组转化器 !== false,
-            性别筛选: feature?.NPC生图性别筛选 === '男' || feature?.NPC生图性别筛选 === '女' || feature?.NPC生图性别筛选 === '全部'
-                ? feature.NPC生图性别筛选
-                : '全部',
-            重要性筛选: feature?.NPC生图重要性筛选 === '仅重要' || feature?.NPC生图重要性筛选 === '全部'
-                ? feature.NPC生图重要性筛选
-                : '全部',
-            NPC画风: feature?.自动NPC生图画风 === '二次元' || feature?.自动NPC生图画风 === '写实' || feature?.自动NPC生图画风 === '国风'
-                ? feature.自动NPC生图画风
-                : '通用',
-            场景画风: feature?.自动场景生图画风 === '二次元' || feature?.自动场景生图画风 === '写实' || feature?.自动场景生图画风 === '国风'
-                ? feature.自动场景生图画风
-                : '通用',
-            场景构图要求: feature?.自动场景生图构图要求 === '故事快照' || feature?.自动场景生图构图要求 === '剧照'
-                ? feature.自动场景生图构图要求
-                : '纯场景',
-            场景横竖屏,
-           场景尺寸,
-            用头像: feature?.自动生图子类型启用头像 !== false,
-            用立绘: feature?.自动生图子类型启用立绘 !== false,
-            用半身: feature?.自动生图子类型启用半身 !== false,
-            用私密部位: feature?.自动生图子类型启用私密部位 !== false
-        } as const;
-    };
-
+    // [拆分] 文生图配置解析为纯函数（utils/imageFeatureConfig.ts），便于单测。
+    // [修复] 总开关必须严格等于 文生图功能启用。旧版本 OR 上 NPC/物品/场景自动任务
+    // 开关，导致玩家关掉总开关但子开关还在时，总开关仍为 true、自动生图照常被触发并报错
+    // （玩家反馈）。总开关就是总开关——只有它自己决定全局文生图是否启用。
+    const 读取文生图功能配置 = () => 解析文生图功能配置(apiConfig);
     const NPC符合自动生图条件 = (npc: any): boolean => {
         const config = 读取文生图功能配置();
         if (!config.总开关 || !config.NPC开关) return false;
