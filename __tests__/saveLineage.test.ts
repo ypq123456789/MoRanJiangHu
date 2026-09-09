@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { 修复本地存档谱系列表, 补全存档谱系元数据 } from '../utils/saveLineage';
+import { 修复本地存档谱系列表, 补全存档谱系元数据, 读取存档系列ID } from '../utils/saveLineage';
 
 describe('存档谱系补全', () => {
     it('云端导入存档已带父节点时，不因本地暂缺父节点而降级成根节点', () => {
@@ -301,5 +301,122 @@ describe('存档谱系补全', () => {
             存档谱系深度: 1,
             游戏回合数: 17
         }));
+    });
+
+    // [回归] 玩家反馈：同名"陆凡"等极常见角色名多次开局时，旧版本会把所有开局归到同一 seriesId
+    // 进而被串到同一条时间树。原因是 读取首条历史签名 / 读取存档系列ID 只看 history[0]，
+    // 而 history[0] 是固定系统占位"系统: 正在生成开场内容..."，两次开局该位完全一致。
+    it('同角色名多次开局：必须根据 AI 首条回复区分出独立 seriesId', () => {
+        const buildOpening = (openingAiContent: string) => ({
+            id: 1,
+            类型: 'auto',
+            时间戳: 1779000000000,
+            角色数据: { 姓名: '陆凡' },
+            游戏初始时间: '永昌三年·春',
+            环境信息: { 具体地点: '破庙' },
+            历史记录: [
+                { role: 'system', content: '系统: 正在生成开场内容...' },
+                { role: 'assistant', content: openingAiContent, structuredResponse: { logs: [] } }
+            ],
+            元数据: {}
+        });
+
+        const openingA = 读取存档系列ID(buildOpening('春雷初动，你从破庙残瓦下醒来。') as any);
+        const openingB = 读取存档系列ID(buildOpening('暴雨如注，你被人追杀至荒山古寺。') as any);
+        const openingC = 读取存档系列ID(buildOpening('雪夜孤灯，你正在研读一卷泛黄手札。') as any);
+
+        expect(openingA).not.toBe(openingB);
+        expect(openingA).not.toBe(openingC);
+        expect(openingB).not.toBe(openingC);
+    });
+
+    // [回归] 玩家反馈：同名同 initialTime 但首条 AI 内容不同的两个旧存档，
+    // 经过 启动旧存档谱系迁移 后必须保留各自的 seriesId/rootHash，绝不互相串线。
+    it('迁移同名开局时：两次开局的 AI 首条内容不同则各自保留独立根，不互相继承', async () => {
+        const buildLegacyOpening = (id: number, hash: string, openingAiContent: string, ts: number) => ({
+            id,
+            类型: 'auto',
+            时间戳: ts,
+            角色数据: { 姓名: '陆凡' },
+            游戏初始时间: '永昌三年·春',
+            环境信息: { 具体地点: '破庙' },
+            历史记录: [
+                { role: 'system', content: '系统: 正在生成开场内容...' },
+                { role: 'assistant', content: openingAiContent, structuredResponse: { logs: [] } }
+            ],
+            元数据: {
+                存档哈希: hash
+            }
+        });
+
+        const saveA = buildLegacyOpening(1, 'aaaaaaaaaaaaaaaa', '春雷初动，你从破庙残瓦下醒来。', 1779000000000);
+        const saveB = buildLegacyOpening(2, 'bbbbbbbbbbbbbbbb', '暴雨如注，你被人追杀至荒山古寺。', 1779000005000);
+
+        // 模拟 启动旧存档谱系迁移 的实际流程：先逐条 补全存档谱系元数据（按 id 升序），
+        // 再统一 修复本地存档谱系列表。修复前 saveB 会通过 是同一开局候选 继承 saveA 的 seriesId。
+        const candidates: any[] = [];
+        const normalizedA = 补全存档谱系元数据(saveA as any, candidates) as any;
+        candidates.push(normalizedA);
+        const normalizedB = 补全存档谱系元数据(saveB as any, candidates) as any;
+        candidates.push(normalizedB);
+
+        const repaired = 修复本地存档谱系列表([normalizedA, normalizedB] as any);
+
+        const a = repaired.saves.find((item: any) => item.id === 1) as any;
+        const b = repaired.saves.find((item: any) => item.id === 2) as any;
+        expect(a.元数据.存档系列ID).not.toBe(b.元数据.存档系列ID);
+        expect(a.元数据.存档根节点哈希).toBe('aaaaaaaaaaaaaaaa');
+        expect(b.元数据.存档根节点哈希).toBe('bbbbbbbbbbbbbbbb');
+        expect(a.元数据.存档父节点哈希).toBe('');
+        expect(b.元数据.存档父节点哈希).toBe('');
+        expect(a.元数据.存档谱系深度).toBe(0);
+        expect(b.元数据.存档谱系深度).toBe(0);
+    });
+
+    // [回归] 同一开局内连续多次自动存档应继续被串到同一棵（正向路径必须仍然成立）。
+    it('同一开局后续自动存档：与开局根共享 seriesId 且父节点指向根', async () => {
+        const openingRoot = {
+            id: 1,
+            类型: 'auto',
+            时间戳: 1779000000000,
+            角色数据: { 姓名: '陆凡' },
+            游戏初始时间: '永昌三年·春',
+            环境信息: { 具体地点: '破庙' },
+            历史记录: [
+                { role: 'system', content: '系统: 正在生成开场内容...' },
+                { role: 'assistant', content: '春雷初动，你从破庙残瓦下醒来。', structuredResponse: { logs: [] } }
+            ],
+            元数据: { 存档哈希: 'aaaaaaaaaaaaaaaa' }
+        };
+        const laterAuto = {
+            id: 2,
+            类型: 'auto',
+            时间戳: 1779000050000,
+            角色数据: { 姓名: '陆凡' },
+            游戏初始时间: '永昌三年·春',
+            环境信息: { 具体地点: '破庙' },
+            历史记录: [
+                { role: 'system', content: '系统: 正在生成开场内容...' },
+                { role: 'assistant', content: '春雷初动，你从破庙残瓦下醒来。', structuredResponse: { logs: [] } },
+                { role: 'user', content: '出门看看' },
+                { role: 'assistant', content: '你推开破庙木门。', structuredResponse: { logs: [] } }
+            ],
+            元数据: { 存档哈希: 'bbbbbbbbbbbbbbbb' }
+        };
+
+        // 同样按真实迁移流程跑：先 补全 后 修复
+        const candidates: any[] = [];
+        const root = 补全存档谱系元数据(openingRoot as any, candidates) as any;
+        candidates.push(root);
+        const child = 补全存档谱系元数据(laterAuto as any, candidates) as any;
+
+        const repaired = 修复本地存档谱系列表([root, child] as any);
+        const rootFinal = repaired.saves.find((item: any) => item.id === 1) as any;
+        const childFinal = repaired.saves.find((item: any) => item.id === 2) as any;
+        expect(rootFinal.元数据.存档系列ID).toBe(childFinal.元数据.存档系列ID);
+        expect(childFinal.元数据.存档父节点哈希).toBe('aaaaaaaaaaaaaaaa');
+        expect(childFinal.元数据.存档根节点哈希).toBe('aaaaaaaaaaaaaaaa');
+        expect(rootFinal.元数据.存档谱系深度).toBe(0);
+        expect(childFinal.元数据.存档谱系深度).toBe(1);
     });
 });
