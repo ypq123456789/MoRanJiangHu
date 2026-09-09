@@ -28,7 +28,11 @@ const 读取历史长度 = (save: Partial<存档结构>): number => {
 const 是系统占位消息 = (item: any): boolean => {
     if (!item || typeof item !== 'object') return false;
     if (item.role === 'system') return true;
-    // 兜底：role 缺失但内容是开场生成占位文案也视为系统消息
+    // 兜底：仅当 role 缺失（既非 user 也非 assistant，例如工具/占位条目）时，
+    // 内容以"系统:"/"系统："开头才视为开场生成占位文案。明确的 user/assistant 真实回复
+    // 即便偶然以"系统："开头，也绝不按内容误判为系统占位——否则首条真实对话会被跳过、
+    // 首条历史签名与 seriesId 的 seed 错位（CodeRabbit 评审指出）。
+    if (item.role === 'user' || item.role === 'assistant') return false;
     const content = typeof item.content === 'string' ? item.content.trim() : '';
     return content.startsWith('系统:') || content.startsWith('系统：');
 };

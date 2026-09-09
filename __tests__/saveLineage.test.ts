@@ -419,4 +419,30 @@ describe('存档谱系补全', () => {
         expect(rootFinal.元数据.存档谱系深度).toBe(0);
         expect(childFinal.元数据.存档谱系深度).toBe(1);
     });
+
+    // [回归] CodeRabbit 评审指出：是系统占位消息 的内容兜底对"任何 role"都执行，
+    // 若某条真实 assistant 开场回复恰好以"系统："开头，会被误判为系统占位而跳过，
+    // 导致首条真实对话签名错位、seriesId 错乱。修复后明确的 assistant 回复即使以
+    // "系统："开头也绝不按内容兜底，仍作为真实首条历史参与 seriesId 区分。
+    it('首条 assistant 回复即便以"系统："开头也不被误判为占位，仍参与 seriesId 区分', () => {
+        const buildOpening = (openingAiContent: string) => ({
+            id: 1,
+            类型: 'auto',
+            时间戳: 1779000000000,
+            角色数据: { 姓名: '陆凡' },
+            游戏初始时间: '永昌三年·春',
+            环境信息: { 具体地点: '破庙' },
+            历史记录: [
+                { role: 'system', content: '系统: 正在生成开场内容...' },
+                { role: 'assistant', content: openingAiContent, structuredResponse: { logs: [] } }
+            ],
+            元数据: {}
+        });
+        const a = 读取存档系列ID(buildOpening('系统：你从破庙中缓缓睁开双眼。') as any);
+        const b = 读取存档系列ID(buildOpening('系统：一道惊雷劈开夜幕。') as any);
+        const c = 读取存档系列ID(buildOpening('春雷初动，你从破庙残瓦下醒来。') as any);
+        expect(a).not.toBe(b);
+        expect(a).not.toBe(c);
+        expect(b).not.toBe(c);
+    });
 });
