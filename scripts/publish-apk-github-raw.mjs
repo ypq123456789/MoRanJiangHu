@@ -55,15 +55,26 @@ run('git', ['status', '--short'], { timeout: 30_000 });
 const tmpParent = fs.mkdtempSync(path.join(os.tmpdir(), 'moran-apk-raw-'));
 const worktree = path.join(tmpParent, 'worktree');
 
-const branchExists = spawnSync('git', ['ls-remote', '--exit-code', '--heads', remote, branch], {
-  cwd: rootDir,
-  encoding: 'utf8',
-  timeout: 60_000
-}).status === 0;
+const resolveRemoteBranchSha = () => {
+  const result = spawnSync('git', ['ls-remote', '--heads', remote, branch], {
+    cwd: rootDir,
+    encoding: 'utf8',
+    timeout: 60_000
+  });
+  const line = String(result.stdout || '').trim().split('\n').find(Boolean) || '';
+  return line.split(/\s+/)[0] || '';
+};
+
+const remoteBranchSha = resolveRemoteBranchSha();
+const branchExists = Boolean(remoteBranchSha);
 
 try {
   if (branchExists) {
-    run('git', ['worktree', 'add', worktree, `${remote}/${branch}`], { timeout: 120_000 });
+    // 显式抓取目标分支尖端再以 FETCH_HEAD 建 worktree，不依赖 origin/<branch> 远端跟踪引用。
+    // 精简/部分克隆仓库中可能完全没有 refs/remotes/origin/*，此时 worktree add origin/<branch>
+    // 会直接报 "fatal: invalid reference"，导致发布流程在第一步就失败。
+    run('git', ['fetch', '--depth=1', remote, branch], { timeout: 300_000 });
+    run('git', ['worktree', 'add', '--detach', worktree, 'FETCH_HEAD'], { timeout: 120_000 });
   } else {
     run('git', ['worktree', 'add', '--detach', worktree, 'HEAD'], { timeout: 120_000 });
     run('git', ['checkout', '--orphan', branch], { cwd: worktree, timeout: 60_000 });

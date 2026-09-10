@@ -22,6 +22,50 @@ if (typeof releaseConfig.versionName !== 'string' || !releaseConfig.versionName.
   throw new Error('release.config.json 中的 versionName 不能为空。');
 }
 
+// 顶层 releasePublishedAt / changes / notes / releaseNotes 必须与 releaseHistory[0] 一致：
+// changelog.html 的「最新版本」卡片直接读取顶层 releasePublishedAt 与 changes，
+// 而 publish-apk-github-raw.mjs 等发布脚本也读取顶层 releasePublishedAt。
+// 一旦升版本时只更新了 releaseHistory 却漏改顶层字段，线上更新日志就会
+// 「版本号是新的、发布时间和内容还是上一版」。这里以 releaseHistory[0] 为准自动校正并回写配置。
+const releaseHistory = Array.isArray(releaseConfig.releaseHistory) ? releaseConfig.releaseHistory : [];
+const latestHistoryEntry = releaseHistory[0];
+if (latestHistoryEntry && latestHistoryEntry.versionName === releaseConfig.versionName.trim()) {
+  const latestNotes = Array.isArray(latestHistoryEntry.releaseNotes)
+    ? latestHistoryEntry.releaseNotes.filter((item) => typeof item === 'string' && item.trim())
+    : [];
+  const latestPublishedAt = typeof latestHistoryEntry.releasePublishedAt === 'string'
+    ? latestHistoryEntry.releasePublishedAt.trim()
+    : '';
+  const corrections = [];
+
+  if (latestPublishedAt && releaseConfig.releasePublishedAt !== latestPublishedAt) {
+    corrections.push(`releasePublishedAt: ${releaseConfig.releasePublishedAt || '(空)'} -> ${latestPublishedAt}`);
+    releaseConfig.releasePublishedAt = latestPublishedAt;
+  }
+
+  if (latestNotes.length > 0) {
+    if (!Array.isArray(releaseConfig.releaseNotes) || JSON.stringify(releaseConfig.releaseNotes) !== JSON.stringify(latestNotes)) {
+      corrections.push(`releaseNotes: 已按 releaseHistory[0].releaseNotes 修正（${Array.isArray(releaseConfig.releaseNotes) ? releaseConfig.releaseNotes.length : 0} 条 -> ${latestNotes.length} 条）`);
+      releaseConfig.releaseNotes = [...latestNotes];
+    }
+    if (!Array.isArray(releaseConfig.changes) || JSON.stringify(releaseConfig.changes) !== JSON.stringify(latestNotes)) {
+      corrections.push(`changes: 已按 releaseHistory[0].releaseNotes 修正（${Array.isArray(releaseConfig.changes) ? releaseConfig.changes.length : 0} 条 -> ${latestNotes.length} 条）`);
+      releaseConfig.changes = [...latestNotes];
+    }
+    const notesJoined = latestNotes.join('\n');
+    if (releaseConfig.notes !== notesJoined) {
+      corrections.push('notes: 已按 releaseHistory[0].releaseNotes 重新拼接');
+      releaseConfig.notes = notesJoined;
+    }
+  }
+
+  if (corrections.length > 0) {
+    fs.writeFileSync(releaseConfigPath, `${JSON.stringify(releaseConfig, null, 2)}\n`, 'utf8');
+    console.log('[sync-release] 已修正 release.config.json 顶层字段与 releaseHistory[0] 不一致的问题：');
+    corrections.forEach((line) => console.log(`  - ${line}`));
+  }
+}
+
 const normalizedConfig = {
   ...releaseConfig,
   versionName: releaseConfig.versionName.trim(),
