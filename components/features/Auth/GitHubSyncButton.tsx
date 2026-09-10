@@ -189,7 +189,7 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
 
     const handleUpload = async () => {
         if (!(await saveRepoBinding())) return;
-        if (!window.confirm('这会把当前本机的全部存档、设置与相关素材完整打包上传到 GitHub 私有仓库，确定继续吗？')) return;
+        if (!window.confirm('这会把当前本机的全部存档、提示词、世界书、设置与相关素材完整打包上传到 GitHub 私有仓库（界面视觉设置按设备保留），确定继续吗？')) return;
         setIsSyncing(true);
         setProgress(null);
         try {
@@ -209,7 +209,7 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
 
     const handleDownload = async () => {
         if (!(await saveRepoBinding())) return;
-        if (!window.confirm('下载会用云端存档完整覆盖当前本地设置和进度，且不可撤销，是否继续？')) return;
+        if (!window.confirm('下载会用云端存档完整覆盖当前本地存档、提示词、世界书与设置（界面视觉设置按设备保留），且不可撤销，是否继续？')) return;
         setIsSyncing(true);
         setProgress(null);
         try {
@@ -550,6 +550,10 @@ export const GitHubSyncButton: React.FC<GitHubSyncButtonProps> = ({ floating = t
                                             </div>
                                         ) : (
                                             <div className="grid gap-3">
+                                                <div className="rounded-xl border border-sky-700/20 bg-sky-50/80 px-3 py-2 text-[11px] leading-5 text-sky-900">
+                                                    「上传到 GitHub 云端」＝存档 + 提示词 + 世界书 + 设置，一键打包，不用再单独传设置；
+                                                    「只上传设置」＝只同步设置，不含存档。界面视觉设置按设备各自保留。
+                                                </div>
                                                 <button
                                                     type="button"
                                                     onClick={handleUpload}

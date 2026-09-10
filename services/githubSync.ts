@@ -69,6 +69,12 @@ type 云同步ZIP清单 = {
         indexFile: string;
         count: number;
     };
+    /**
+     * 该存档包是否已包含提示词类设置（提示词池 / 内置提示词 / 世界书 / 世界书预设组）。
+     * 旧版本上传的存档包没有这个字段，恢复时必须继续跳过提示词类设置，
+     * 否则会用「包内没有」判定为「本地应当删除」，把玩家的提示词和世界书清空。
+     */
+    includesPromptSettings?: boolean;
 };
 
 type 云同步存档索引项 = {
@@ -1048,7 +1054,9 @@ const 写入图片资源 = async (assets: Array<{ id: string; dataUrl: string; c
 const 构建云同步ZIP二进制 = async (): Promise<Uint8Array> => {
     const savePayload = await dbService.导出存档数据();
     const saves = 去重云同步存档列表(Array.isArray(savePayload.saves) ? savePayload.saves : []);
-    const settings = await 读取全部待同步设置();
+    // 完整存档包同时带上提示词类设置（提示词池 / 内置提示词 / 世界书 / 世界书预设组），
+    // 这样玩家只按一个按钮就能把「存档 + 世界书」一起搬走；界面视觉设置仍按设备保留。
+    const settings = await 读取全部待同步设置({ includePromptSettings: true });
 
     const assetIds = new Set<string>();
     收集图片资源引用ID({ ...savePayload, saves }, assetIds);
@@ -1118,7 +1126,8 @@ const 构建云同步ZIP二进制 = async (): Promise<Uint8Array> => {
         assets: {
             indexFile: 'assets/index.json',
             count: assetIndex.length
-        }
+        },
+        includesPromptSettings: true
     };
 
     files['manifest.json'] = strToU8(JSON.stringify(manifest, null, 2));
@@ -1183,7 +1192,8 @@ const 构建设置云同步ZIP二进制 = async (): Promise<Uint8Array> => {
         assets: {
             indexFile: 'assets/index.json',
             count: assetIndex.length
-        }
+        },
+        includesPromptSettings: true
     };
 
     files['manifest.json'] = strToU8(JSON.stringify(manifest, null, 2));
@@ -1312,17 +1322,25 @@ export async function restoreSyncData(zipBytes: Uint8Array): Promise<云同步�
         }
 
         stage = 'restoring_settings';
+        // 旧版存档包不含提示词类设置：只有清单明确声明包含时才允许覆盖/删除本地提示词与世界书，
+        // 否则恢复旧备份会把玩家本地的提示词池、内置提示词、世界书当成「多余项」清掉。
+        const 包内包含提示词设置 = manifest.includesPromptSettings === true;
+        const 应跳过恢复设置键 = (key: string): boolean => {
+            if (!key || key === GITHUB_TOKEN_KEY) return true;
+            if (是设备本地设置键(key)) return true;
+            return !包内包含提示词设置 && 是否提示词相关键(key);
+        };
         const importedSettingKeys = new Set(settingsList.map((item) => item.key).filter(Boolean));
         const currentSettings = await dbService.获取设置管理清单();
         for (const current of currentSettings) {
-            if (!current.key || current.key === GITHUB_TOKEN_KEY || 是否提示词相关键(current.key) || 是设备本地设置键(current.key)) continue;
+            if (应跳过恢复设置键(current.key)) continue;
             if (!importedSettingKeys.has(current.key)) {
                 await dbService.删除设置(current.key);
             }
         }
 
         for (const item of settingsList) {
-            if (!item.key || item.key === GITHUB_TOKEN_KEY || 是否提示词相关键(item.key) || 是设备本地设置键(item.key)) continue;
+            if (应跳过恢复设置键(item.key)) continue;
             const entry = entries[item.file];
             if (!entry) {
                 throw new Error(`缺少设置文件：${item.file}`);
