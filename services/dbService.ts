@@ -7,7 +7,7 @@ import { 获取设置项定义, 设置分类定义表, 设置键, type 设置分
 import { 默认功能模型占位, 规范化接口设置 } from '../utils/apiConfig';
 import { isNativeCapacitorEnvironment } from '../utils/nativeRuntime';
 import { buildSaveDebugSummary, recordSaveLoadError, recordSaveLoadTrace } from '../utils/saveLoadTrace';
-import { 修复本地存档谱系列表, 补全存档谱系元数据 } from '../utils/saveLineage';
+import { 修复本地存档谱系列表, 补全存档谱系元数据, 是系统占位历史消息 } from '../utils/saveLineage';
 import { 读取存档游玩回合数 } from '../utils/saveTurn';
 
 import { recordDiagnosticLog } from './diagnosticLog';
@@ -2330,12 +2330,18 @@ export const 投影存档谱系轻量视图 = (raw: Partial<存档结构> & { id
     };
     const firstUserInput = history
         .find((item: any) => item?.role === 'user' && typeof item?.content === 'string' && /\S/.test(item.content));
+    // [修复] 必须保留"首条非系统消息"（正常开局里就是 history[1] 的开场 assistant 回复）。
+    // 谱系算法用 读取首条历史签名 判断两次开局是否同一局，完整存档取到的是这条开场回复；
+    // 若投影只留 [history[0]=system, 首条 user]，轻量视图取到的却是首条玩家输入，
+    // 两边签名永远不等 → 是同一开局候选 恒 false → 存档节点不再合并（玩家反馈）。
+    // 用 是系统占位历史消息 复用同一判定，确保投影与签名算法永不漂移。
+    const firstNonSystem = history.find((item: any) => !是系统占位历史消息(item));
     const metadata = (raw?.元数据 && typeof raw.元数据 === 'object') ? { ...raw.元数据 } : ({} as 存档结构['元数据']);
     if (metadata) {
         metadata.历史记录条数 = history.length;
         metadata.游戏回合数 = 读取存档游玩回合数(raw);
     }
-    const boundaryHistory = [history[0], firstUserInput]
+    const boundaryHistory = [history[0], firstNonSystem, firstUserInput]
         .filter((item, index, list) => Boolean(item) && list.indexOf(item) === index)
         .map(投影边界消息)
         .filter(Boolean) as 存档谱系轻量视图['历史记录'];
@@ -2354,7 +2360,8 @@ export const 投影存档谱系轻量视图 = (raw: Partial<存档结构> & { id
                 具体地点: typeof (raw as any).环境信息.具体地点 === 'string' ? (raw as any).环境信息.具体地点 : undefined
             }
             : undefined,
-        // 仅保留谱系算法实际会触碰的两条边界元素，避免把整段历史正文加载进内存。
+        // 仅保留谱系算法实际会触碰的边界元素（首条 / 首条非系统 / 首条 user），
+        // 避免把整段历史正文加载进内存。
         历史记录: boundaryHistory
     };
 };

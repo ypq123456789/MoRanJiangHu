@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { 修复本地存档谱系列表, 补全存档谱系元数据, 读取存档系列ID } from '../utils/saveLineage';
+import { 投影存档谱系轻量视图 } from '../services/dbService';
 
 describe('存档谱系补全', () => {
     it('云端导入存档已带父节点时，不因本地暂缺父节点而降级成根节点', () => {
@@ -444,5 +445,350 @@ describe('存档谱系补全', () => {
         expect(a).not.toBe(b);
         expect(a).not.toBe(c);
         expect(b).not.toBe(c);
+    });
+
+    // [回归] v1.0.665 玩家反馈：存档节点突然不再合并（每个新存档都变成独立根、回合数归零）。
+    // 根因：候选集来自 dbService.投影存档谱系轻量视图（只保留 history[0] 与首条 user 输入），
+    // 而 读取首条历史签名 取的是"首条非系统消息"——完整存档里是 history[1] 的开场 assistant
+    // 回复，轻量视图里却退化成首条玩家输入，两边签名永远不等 → 是同一开局候选 恒 false。
+    // 本用例必须使用"真实投影函数"构造候选，才能覆盖这条曾经完全没被测试的路径。
+    it('完整存档（真实轻量视图候选）必须继承系列并挂到上一版存档之下', () => {
+        const 系统占位 = { role: 'system', content: '系统: 正在生成开场内容...' };
+        const 开场回复 = { role: 'assistant', content: '【旁白】乱星海的浪涛拍击礁石……', structuredResponse: { 正文: '乱星海的浪涛拍击礁石' } };
+        const 首条玩家输入 = { role: 'user', content: '我要前往乱星海寻找天星城' };
+        const history: any[] = [系统占位, 开场回复, 首条玩家输入];
+        for (let i = 0; i < 118; i += 1) {
+            history.push({ role: 'assistant', content: `第 ${i + 1} 回合正文`, structuredResponse: { 正文: `第 ${i + 1} 回合` } });
+            history.push({ role: 'user', content: `第 ${i + 1} 回合玩家输入` });
+        }
+        const 上一条存档: any = {
+            id: 290,
+            类型: 'auto',
+            时间戳: 1789301570000,
+            元数据: {
+                存档哈希: 'b7700cd681e85341',
+                存档系列ID: 'series-ea80a0cee595ab13',
+                存档根节点哈希: 'b7700cd681e85341',
+                存档父节点哈希: '',
+                存档谱系深度: 0,
+                存档分支输入: '开局',
+                存档谱系版本: 1,
+                游戏回合数: 97,
+                自动存档节点ID: 'turn:97|time:123:11:16:10:00|loc:天星城/外海岛链/乱星海'
+            },
+            游戏初始时间: '123:10:00:00:00',
+            角色数据: { 姓名: '何夫锐' },
+            环境信息: { 大地点: '乱星海', 中地点: '外海岛链', 小地点: '天星城', 具体地点: '天星城·坊市' },
+            历史记录: history.slice(0, 238)
+        };
+        const 轻量候选 = 投影存档谱系轻量视图(上一条存档, 290);
+
+        // 新存档由 创建存档数据 产出：元数据里没有 存档系列ID/根节点哈希，
+        // 存档哈希 由 清洗导入存档 已经算好（此处用固定值模拟）。
+        const 新存档: any = {
+            时间戳: 1789301571660,
+            类型: 'auto',
+            元数据: {
+                历史记录条数: 240,
+                游戏回合数: 98,
+                存档哈希: 'c1a1b2c3d4e5f607',
+                自动存档节点ID: 'turn:98|time:123:11:16:14:15|loc:外海狂暴水域高空航道（飞遁返程中）/天星城/外海岛链/乱星海'
+            },
+            游戏初始时间: '123:10:00:00:00',
+            角色数据: { 姓名: '何夫锐' },
+            环境信息: { 大地点: '乱星海', 中地点: '外海岛链', 小地点: '天星城', 具体地点: '外海狂暴水域高空航道（飞遁返程中）' },
+            历史记录: history.slice(0, 240)
+        };
+
+        const out: any = 补全存档谱系元数据(新存档, [轻量候选 as any]);
+
+        expect(out.元数据.存档系列ID).toBe('series-ea80a0cee595ab13');
+        expect(out.元数据.存档父节点哈希).toBe('b7700cd681e85341');
+        expect(out.元数据.存档根节点哈希).toBe('b7700cd681e85341');
+        expect(out.元数据.存档谱系深度).toBe(1);
+        expect(out.元数据.存档分支输入).toBe('第 118 回合玩家输入');
+    });
+
+    // [回归] 投影会裁掉 timestamp/gameTime 并把 content 截断到 256，因此 seriesId 的 seed
+    // 绝不能内嵌原始历史对象，也绝不能包含"当前地点"（每回合都变）。否则同一开局的完整存档
+    // 与轻量视图会算出两个 seriesId，选择存档父节点 的 seriesId 过滤必然落空。
+    it('完整存档与其轻量视图投影必须算出同一个 seriesId', () => {
+        const buildSave = (openingAiContent: string) => {
+            const 系统占位 = { role: 'system', content: '系统: 正在生成开场内容...', timestamp: 1 };
+            const 开场回复 = { role: 'assistant', content: openingAiContent, structuredResponse: { 正文: openingAiContent }, timestamp: 2 };
+            const 首条玩家输入 = { role: 'user', content: '出门看看', timestamp: 3 };
+            const history: any[] = [系统占位, 开场回复, 首条玩家输入];
+            for (let i = 0; i < 5; i += 1) {
+                history.push({ role: 'assistant', content: `第 ${i + 1} 回合正文`, timestamp: 10 + i * 2 });
+                history.push({ role: 'user', content: `第 ${i + 1} 回合玩家输入`, timestamp: 11 + i * 2 });
+            }
+            return {
+                id: 1,
+                类型: 'auto' as const,
+                时间戳: 1779000000000,
+                角色数据: { 姓名: '何夫锐' },
+                游戏初始时间: '123:10:00:00:00',
+                // 故意让当前地点与投影来源不同：seriesId 不得受当前地点影响
+                环境信息: { 大地点: '乱星海', 中地点: '外海岛链', 小地点: '天星城', 具体地点: '外海狂暴水域' },
+                历史记录: history,
+                元数据: {}
+            };
+        };
+
+        const fullA = buildSave('【旁白】乱星海的浪涛拍击礁石，远处天星城灯火明灭。');
+        const viewA = 投影存档谱系轻量视图(fullA as any, 1);
+        const fullB = buildSave('【旁白】暴雨如注，你被追杀至荒山古寺。');
+
+        expect(读取存档系列ID(viewA as any)).toBe(读取存档系列ID(fullA as any));
+        expect(读取存档系列ID(fullB as any)).not.toBe(读取存档系列ID(fullA as any));
+    });
+
+    // [回归] 修复投影后仍必须保留"同名同初始时间、不同开场"的区分能力：
+    // 若两次开局的开场 AI 回复不同，绝不能因为退化匹配而错误并到同一棵时间树。
+    it('开场内容不同的轻量视图候选不得被误并到同一系列', () => {
+        const buildSave = (openingAiContent: string, 当前地点: string) => {
+            const history: any[] = [
+                { role: 'system', content: '系统: 正在生成开场内容...' },
+                { role: 'assistant', content: openingAiContent, structuredResponse: { 正文: openingAiContent } },
+                { role: 'user', content: '我要出发', },
+                { role: 'assistant', content: '你踏上旅程。', structuredResponse: { 正文: '你踏上旅程。' } }
+            ];
+            return {
+                id: 1,
+                类型: 'auto' as const,
+                时间戳: 1779000000000,
+                角色数据: { 姓名: '陆凡' },
+                游戏初始时间: '永昌三年·春',
+                环境信息: { 具体地点: 当前地点 },
+                历史记录: history,
+                元数据: {}
+            };
+        };
+
+        const 旧开局候选 = 投影存档谱系轻量视图(buildSave('春雷初动，你从破庙残瓦下醒来。', '破庙') as any, 1);
+        const 新开局存档: any = {
+            ...buildSave('暴雨如注，你被人追杀至荒山古寺。', '古寺'),
+            元数据: { 存档哈希: 'dddddddddddddddd', 历史记录条数: 4, 游戏回合数: 1 }
+        };
+
+        const out: any = 补全存档谱系元数据(新开局存档, [旧开局候选 as any]);
+
+        expect(out.元数据.存档父节点哈希).toBe('');
+        expect(out.元数据.存档谱系深度).toBe(0);
+        expect(out.元数据.存档系列ID).not.toBe(读取存档系列ID(旧开局候选 as any));
+    });
+});
+
+describe('本地存档谱系自愈（v1.0.665 写坏的"异常根续档"）', () => {
+    const 默认开场 = '【旁白】乱星海的浪涛拍击礁石，远处天星城灯火明灭。';
+
+    const 构建存档 = (options: {
+        id: number;
+        时间戳: number;
+        回合数: number;
+        元数据: Record<string, unknown>;
+        开场内容?: string;
+    }) => {
+        const 开场内容 = options.开场内容 || 默认开场;
+        const history: any[] = [
+            { role: 'system', content: '系统: 正在生成开场内容...' },
+            { role: 'assistant', content: 开场内容, structuredResponse: { 正文: 开场内容 } }
+        ];
+        for (let i = 0; i < options.回合数; i += 1) {
+            history.push({ role: 'assistant', content: `第 ${i + 1} 回合正文`, structuredResponse: { 正文: `第 ${i + 1} 回合` } });
+            history.push({ role: 'user', content: `第 ${i + 1} 回合玩家输入` });
+        }
+        return {
+            id: options.id,
+            类型: 'auto' as const,
+            时间戳: options.时间戳,
+            角色数据: { 姓名: '何夫锐' },
+            游戏初始时间: '123:10:00:00:00',
+            环境信息: { 大地点: '乱星海', 具体地点: '天星城·坊市' },
+            历史记录: history,
+            元数据: options.元数据
+        };
+    };
+
+    // 完整链：开局根(0 回合) → 正常续档(50 回合) → 被写坏的根续档(98、110 回合)。
+    // 被写坏的两个节点元数据里 游戏回合数 已被清 0、父哈希空、深度 0，但历史记录条数
+    // 远大于开局（198 / 222 条）。修复后必须串成 0 → 1 → 2 → 3 深度的一条线。
+    const 构建玩家数据 = () => {
+        const 开局根 = 构建存档({
+            id: 1,
+            时间戳: 1779000000000,
+            回合数: 0,
+            元数据: {
+                存档哈希: 'root000000000001',
+                存档系列ID: 'series-chain',
+                存档根节点哈希: 'root000000000001',
+                存档父节点哈希: '',
+                存档谱系深度: 0,
+                游戏回合数: 0,
+                存档分支输入: '开局',
+                存档谱系版本: 1
+            }
+        });
+        const 正常续档 = 构建存档({
+            id: 2,
+            时间戳: 1779000100000,
+            回合数: 50,
+            元数据: {
+                存档哈希: 'mid0000000000002',
+                存档系列ID: 'series-chain',
+                存档根节点哈希: 'root000000000001',
+                存档父节点哈希: 'root000000000001',
+                存档谱系深度: 1,
+                游戏回合数: 50,
+                存档分支输入: '继续游玩',
+                存档谱系版本: 1
+            }
+        });
+        const 写坏A = 构建存档({
+            id: 3,
+            时间戳: 1779000200000,
+            回合数: 98,
+            元数据: {
+                存档哈希: 'brokenA000000003',
+                存档系列ID: 'series-brokenA',
+                存档根节点哈希: 'brokenA000000003',
+                存档父节点哈希: '',
+                存档谱系深度: 0,
+                游戏回合数: 0,
+                存档分支输入: '开局',
+                存档谱系版本: 1
+            }
+        });
+        const 写坏B = 构建存档({
+            id: 4,
+            时间戳: 1779000300000,
+            回合数: 110,
+            元数据: {
+                存档哈希: 'brokenB000000004',
+                存档系列ID: 'series-brokenB',
+                存档根节点哈希: 'brokenB000000004',
+                存档父节点哈希: '',
+                存档谱系深度: 0,
+                游戏回合数: 0,
+                存档分支输入: '开局',
+                存档谱系版本: 1
+            }
+        });
+        return [开局根, 正常续档, 写坏A, 写坏B].map((save, index) => 投影存档谱系轻量视图(save as any, index + 1));
+    };
+
+    it('被写坏的根续档必须重新挂回同一开局链，并恢复回合数', () => {
+        const views = 构建玩家数据();
+        const repaired = 修复本地存档谱系列表(views as any);
+
+        // 必须报告 changed：否则 校正并写回本地存档谱系 会跳过落库，自愈只在内存里生效。
+        expect(repaired.changed).toBe(true);
+
+        const 取 = (id: number) => repaired.saves.find((item: any) => item.id === id) as any;
+        const 开局根 = 取(1);
+        const 正常续档 = 取(2);
+        const 写坏A = 取(3);
+        const 写坏B = 取(4);
+
+        // 真实开局根不受影响，仍是 0 深度根节点
+        expect(开局根.元数据.存档父节点哈希).toBe('');
+        expect(开局根.元数据.存档谱系深度).toBe(0);
+        expect(开局根.元数据.存档系列ID).toBe('series-chain');
+        expect(开局根.元数据.存档分支输入).toBe('开局');
+
+        // 正常续档保持原样
+        expect(正常续档.元数据.存档父节点哈希).toBe('root000000000001');
+        expect(正常续档.元数据.存档谱系深度).toBe(1);
+
+        // 写坏A：挂到 50 回合的正常续档之下，并入 series-chain，回合数从 0 恢复为 98
+        expect(写坏A.元数据.存档系列ID).toBe('series-chain');
+        expect(写坏A.元数据.存档父节点哈希).toBe('mid0000000000002');
+        expect(写坏A.元数据.存档根节点哈希).toBe('root000000000001');
+        expect(写坏A.元数据.存档谱系深度).toBe(2);
+        expect(写坏A.元数据.游戏回合数).toBe(98);
+        expect(写坏A.元数据.存档分支输入).not.toBe('开局');
+
+        // 写坏B：挂到写坏A之下，深度继续递增
+        expect(写坏B.元数据.存档系列ID).toBe('series-chain');
+        expect(写坏B.元数据.存档父节点哈希).toBe('brokenA000000003');
+        expect(写坏B.元数据.存档根节点哈希).toBe('root000000000001');
+        expect(写坏B.元数据.存档谱系深度).toBe(3);
+        expect(写坏B.元数据.游戏回合数).toBe(110);
+    });
+
+    it('已挂接到写坏节点的后续存档必须同步切换系列与深度（防二次断裂）', () => {
+        // 修复上线后新建的续档会挂在"写坏的根"之下：它本身元数据正确（深度 1、回合数正常），
+        // 但父节点被自愈改换系列后，它必须跟着切换，否则会被再次拆成独立根。
+        const views = 构建玩家数据();
+        const 后续存档 = 投影存档谱系轻量视图(构建存档({
+            id: 5,
+            时间戳: 1779000400000,
+            回合数: 104,
+            元数据: {
+                存档哈希: 'followUp00000005',
+                存档系列ID: 'series-brokenA',
+                存档根节点哈希: 'brokenA000000003',
+                存档父节点哈希: 'brokenA000000003',
+                存档谱系深度: 1,
+                游戏回合数: 104,
+                存档分支输入: '继续游玩',
+                存档谱系版本: 1
+            }
+        }) as any, 5);
+
+        const repaired = 修复本地存档谱系列表([...views, 后续存档] as any);
+        expect(repaired.changed).toBe(true);
+
+        const 取 = (id: number) => repaired.saves.find((item: any) => item.id === id) as any;
+        const 写坏A = 取(3);
+        const 后续 = 取(5);
+
+        expect(写坏A.元数据.存档系列ID).toBe('series-chain');
+        expect(后续.元数据.存档系列ID).toBe('series-chain');
+        expect(后续.元数据.存档根节点哈希).toBe('root000000000001');
+        expect(后续.元数据.存档父节点哈希).toBe('brokenA000000003');
+        expect(后续.元数据.存档谱系深度).toBe(3);
+        expect(后续.元数据.游戏回合数).toBe(104);
+    });
+
+    it('真实开局档（短历史、0 回合根）绝不被误判为异常根续档', () => {
+        const 开局A = 投影存档谱系轻量视图(构建存档({
+            id: 1,
+            时间戳: 1779000000000,
+            回合数: 0,
+            元数据: {
+                存档哈希: 'openA00000000001',
+                存档系列ID: 'series-openA',
+                存档根节点哈希: 'openA00000000001',
+                存档父节点哈希: '',
+                存档谱系深度: 0,
+                游戏回合数: 0,
+                存档分支输入: '开局',
+                存档谱系版本: 1
+            }
+        }) as any, 1);
+        const 开局B = 投影存档谱系轻量视图(构建存档({
+            id: 2,
+            时间戳: 1779000005000,
+            回合数: 0,
+            元数据: {
+                存档哈希: 'openB00000000002',
+                存档系列ID: 'series-openB',
+                存档根节点哈希: 'openB00000000002',
+                存档父节点哈希: '',
+                存档谱系深度: 0,
+                游戏回合数: 0,
+                存档分支输入: '开局',
+                存档谱系版本: 1
+            }
+        }) as any, 2);
+
+        const repaired = 修复本地存档谱系列表([开局A, 开局B] as any);
+
+        const 取 = (id: number) => repaired.saves.find((item: any) => item.id === id) as any;
+        expect(取(1).元数据.存档父节点哈希).toBe('');
+        expect(取(1).元数据.存档系列ID).toBe('series-openA');
+        expect(取(2).元数据.存档父节点哈希).toBe('');
+        expect(取(2).元数据.存档系列ID).toBe('series-openB');
     });
 });

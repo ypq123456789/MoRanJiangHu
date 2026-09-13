@@ -25,7 +25,10 @@ const 读取历史长度 = (save: Partial<存档结构>): number => {
 // [修复] 开局存档的历史记录[0] 始终是同一条系统占位消息（"系统: 正在生成开场内容..."），
 // 不能作为不同开局之间的区分特征。必须跳过所有 system 角色，找到首条真实对话消息，
 // 否则同角色名多次开局会被错误判定为"同一开局"而串到同一棵时间树（玩家反馈）。
-const 是系统占位消息 = (item: any): boolean => {
+// 导出该判定供 dbService.投影存档谱系轻量视图 复用：投影时必须保留"首条非系统消息"，
+// 否则完整存档（首条非系统 = 开场 assistant 回复）与轻量视图（首条非系统 = 首条玩家输入）
+// 算出的签名永远不等，谱系继承整体失效（v1.0.665 存档节点不再合并的根因）。
+export const 是系统占位历史消息 = (item: any): boolean => {
     if (!item || typeof item !== 'object') return false;
     if (item.role === 'system') return true;
     // 兜底：仅当 role 缺失（既非 user 也非 assistant，例如工具/占位条目）时，
@@ -41,7 +44,7 @@ const 寻找首条非系统历史 = (history: any[]): any | null => {
     if (!Array.isArray(history)) return null;
     for (let index = 0; index < history.length; index += 1) {
         const item = history[index];
-        if (!是系统占位消息(item)) return item || null;
+        if (!是系统占位历史消息(item)) return item || null;
     }
     return null;
 };
@@ -115,16 +118,18 @@ export const 计算谱系短哈希 = (value: string): string => {
 export const 读取存档系列ID = (save: Partial<存档结构>): string => {
     const existing = readText((save.元数据 as any)?.存档系列ID);
     if (existing) return existing;
-    const history = Array.isArray(save.历史记录) ? save.历史记录 : [];
-    // [修复] 与 读取首条历史签名 保持一致：必须跳过系统占位消息，
-    // 否则同角色名开局会产生完全相同的 seed 哈希，seriesId 撞车后被串到同一条时间树。
-    const firstHistory = 寻找首条非系统历史(history);
-    const env: any = save.环境信息 || {};
+    // [修复] seed 只允许放"同一开局内绝对稳定"的特征：
+    //  1) 姓名 + 游戏初始时间；
+    //  2) 开局签名（读取首条历史签名）——与 是同一开局候选 同源，用来区分
+    //     同名同初始时间但内容不同的两次开局（玩家反馈一）。
+    // 绝不能放 当前地点：它每回合都变，会让继承失败后的回退 seriesId 每次都不同，
+    // 连"上一版存档"都匹配不上（存档节点不再合并的直接放大器）。
+    // 也不能放原始历史对象：完整存档与轻量视图的 JSON 形状不同（投影会裁掉
+    // timestamp/gameTime 并把 content 截断到 256），会让同一开局算出两个 seriesId。
     const seed = {
         title: readText(save.角色数据?.姓名),
         initialTime: readText(save.游戏初始时间),
-        firstHistory,
-        firstLocation: readText(env.具体地点 || env.小地点 || env.中地点 || env.大地点)
+        openingSignature: 读取首条历史签名(save)
     };
     return `series-${计算谱系短哈希(JSON.stringify(seed))}`;
 };
@@ -198,7 +203,12 @@ export const 补全存档谱系元数据 = <T extends Partial<存档结构>>(
     const explicitParentHash = readText(metadata.存档父节点哈希);
     const explicitRootHash = readText(metadata.存档根节点哈希);
     const explicitDepth = Number(metadata.存档谱系深度);
-    const parent = 选择存档父节点({ ...save, 元数据: metadata } as Partial<存档结构>, candidates);
+    // [修复] 兜底：当 选择可继承系列父节点 已认定存在"同一开局的更早存档"时，
+    // 即便 选择存档父节点 因 seriesId/节点ID/回合数等过滤条件漏掉它，也必须挂上去，
+    // 绝不能再把延续存档声明成新根节点（否则玩家看到存档节点不再合并、回合数归零）。
+    const 可信继承父节点 = (inheritedParent && 读取存档谱系哈希(inheritedParent)) ? inheritedParent : null;
+    const parent = 选择存档父节点({ ...save, 元数据: metadata } as Partial<存档结构>, candidates)
+        || 可信继承父节点;
     const parentHash = parent ? 读取存档谱系哈希(parent) : explicitParentHash;
     const parentHistoryCount = parent ? 读取历史长度(parent) : 0;
     const existingBranchInput = readText(metadata.存档分支输入);
@@ -346,6 +356,85 @@ export const 修复本地存档谱系列表 = <T extends Partial<存档结构>>(
             ...((save.元数据 && typeof save.元数据 === 'object') ? save.元数据 : {})
         }
     })) as T[];
+
+    // [修复] v1.0.665 已写坏存档的自愈（随启动时的 校正并写回本地存档谱系 一起执行）。
+    // 补全存档谱系元数据 找不到父节点时会走"根节点"分支，把延续存档写成
+    // 父哈希空 / 深度 0 / 回合数清 0；但它的历史记录条数远大于真实开局档
+    // （开局只有 系统占位 + 开场回复，最多 2 条）。这类"异常根续档"必须重新挂回
+    // 同一开局的上一版存档之下，否则玩家的时间树会永久碎成 N 个独立根、回合数显示为 0。
+    // 判定刻意收紧到「深度 0 + 无父哈希 + 历史记录条数 >= 10」，真实开局档不可能命中。
+    const 构建开局键 = (item: Partial<存档结构>): string => [
+        readText(item.角色数据?.姓名),
+        readText(item.游戏初始时间),
+        读取首条历史签名(item)
+    ].join('\u0000');
+    const 是异常根续档 = (item: T): boolean => (
+        Boolean(读取存档谱系哈希(item))
+        && !readText((item.元数据 as any)?.存档父节点哈希)
+        && Number((item.元数据 as any)?.存档谱系深度 || 0) === 0
+        && 读取历史长度(item) >= 10
+    );
+    // 重新挂接后必须把新的系列信息同步到整棵子树：否则"父节点换了系列、子节点还留在
+    // 旧系列"会在随后的按系列分组里被再次拆成独立根（二次断裂）。用显式栈避免深链递归爆栈。
+    // 注意：这些改动发生在 写入谱系节点元数据 之前，写入器比较的是"改动后"的元数据（自然相等），
+    // 因此必须单独计数，否则 changed 为 false，校正并写回本地存档谱系 不会把修复落库。
+    let 重新挂接节点数 = 0;
+    const 同步子树系列信息 = (node: T): void => {
+        const stack: Array<[T, number]> = [[node, Math.max(0, Number((node.元数据 as any)?.存档谱系深度 || 0))]];
+        const visited = new Set<T>();
+        while (stack.length > 0) {
+            const [current, depth] = stack.pop() as [T, number];
+            if (visited.has(current)) continue;
+            visited.add(current);
+            const currentHash = 读取存档谱系哈希(current);
+            if (!currentHash) continue;
+            const seriesId = readText((current.元数据 as any)?.存档系列ID);
+            const rootHash = readText((current.元数据 as any)?.存档根节点哈希);
+            next.forEach((item) => {
+                if (item === current) return;
+                if (readText((item.元数据 as any)?.存档父节点哈希) !== currentHash) return;
+                const metadata = item.元数据 as any;
+                if (seriesId) metadata.存档系列ID = seriesId;
+                if (rootHash) metadata.存档根节点哈希 = rootHash;
+                metadata.存档谱系深度 = depth + 1;
+                metadata.存档谱系版本 = 1;
+                重新挂接节点数 += 1;
+                stack.push([item, depth + 1]);
+            });
+        }
+    };
+    const 异常根续档列表 = next
+        .filter(是异常根续档)
+        .sort((a, b) => (读取历史长度(a) - 读取历史长度(b)) || (Number(a.时间戳 || 0) - Number(b.时间戳 || 0)));
+    if (异常根续档列表.length > 0) {
+        const 开局键表 = new Map<T, string>(next.map((item) => [item, 构建开局键(item)]));
+        异常根续档列表.forEach((child) => {
+            const childKey = 开局键表.get(child) as string;
+            const childLength = 读取历史长度(child);
+            const parent = next
+                .filter((item) => item !== child)
+                .filter((item) => Boolean(读取存档谱系哈希(item)))
+                .filter((item) => 开局键表.get(item) === childKey)
+                .filter((item) => 读取历史长度(item) < childLength)
+                .sort((a, b) => (读取历史长度(b) - 读取历史长度(a)) || (Number(b.时间戳 || 0) - Number(a.时间戳 || 0)))[0];
+            const parentHash = parent ? 读取存档谱系哈希(parent) : '';
+            if (!parent || !parentHash) return;
+            const metadata = child.元数据 as any;
+            metadata.存档父节点哈希 = parentHash;
+            const parentSeriesId = readText((parent.元数据 as any)?.存档系列ID);
+            if (parentSeriesId) metadata.存档系列ID = parentSeriesId;
+            metadata.存档根节点哈希 = readText((parent.元数据 as any)?.存档根节点哈希) || parentHash;
+            metadata.存档谱系深度 = Math.max(0, Number((parent.元数据 as any)?.存档谱系深度 || 0)) + 1;
+            // 被写坏的是"回合数被清 0"，这里用可信来源（轻量视图的元数据回合数 / 完整历史）恢复。
+            const trueTurns = 读取谱系回合数(child);
+            if (Number.isFinite(trueTurns) && trueTurns >= 0) metadata.游戏回合数 = Math.floor(trueTurns);
+            metadata.存档分支输入 = 读取历史用户输入(child, 读取历史长度(parent)) || '继续游玩';
+            metadata.存档谱系版本 = 1;
+            重新挂接节点数 += 1;
+            同步子树系列信息(child);
+        });
+    }
+
     const bySeries = new Map<string, T[]>();
     next.forEach((save) => {
         const seriesId = readText((save.元数据 as any)?.存档系列ID);
@@ -455,8 +544,10 @@ export const 修复本地存档谱系列表 = <T extends Partial<存档结构>>(
 
     return {
         saves: next,
-        changed: repairedNodes > 0,
-        repairedGroups,
-        repairedNodes
+        // 异常根续档的重新挂接发生在写入器之前，必须计入 changed，否则
+        // 校正并写回本地存档谱系 会认为"没有变化"而跳过落库（修复只在内存里生效）。
+        changed: repairedNodes > 0 || 重新挂接节点数 > 0,
+        repairedGroups: repairedGroups + (重新挂接节点数 > 0 ? 1 : 0),
+        repairedNodes: repairedNodes + 重新挂接节点数
     };
 };
