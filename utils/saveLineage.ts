@@ -411,11 +411,17 @@ export const 修复本地存档谱系列表 = <T extends Partial<存档结构>>(
         异常根续档列表.forEach((child) => {
             const childKey = 开局键表.get(child) as string;
             const childLength = 读取历史长度(child);
+            const childTimestamp = Number(child.时间戳 || 0);
             const parent = next
                 .filter((item) => item !== child)
                 .filter((item) => Boolean(读取存档谱系哈希(item)))
                 .filter((item) => 开局键表.get(item) === childKey)
                 .filter((item) => 读取历史长度(item) < childLength)
+                // 与 选择存档父节点 保持同一约束：父节点保存时间不得晚于子节点。
+                // 玩家读回较早存档再走另一条分支时，若只按"历史更短"选父，会把更晚保存的
+                // 分支档当成父节点，写出倒序且跨分支的父子关系；这种无法验证祖先关系的
+                // 情况一律保留独立根（CodeRabbit P2）。
+                .filter((item) => Number(item.时间戳 || 0) <= childTimestamp || childTimestamp <= 0)
                 .sort((a, b) => (读取历史长度(b) - 读取历史长度(a)) || (Number(b.时间戳 || 0) - Number(a.时间戳 || 0)))[0];
             const parentHash = parent ? 读取存档谱系哈希(parent) : '';
             if (!parent || !parentHash) return;
