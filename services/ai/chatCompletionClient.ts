@@ -87,6 +87,23 @@ export class 协议请求错误 extends Error {
 
 const 清理末尾斜杠 = (baseUrl: string): string => baseUrl.replace(/\/+$/, '');
 
+/**
+ * 524 / 504 是网关侧超时，不是接口协议错误。
+ *
+ * Cloudflare 的 524 表示「源站在 100 秒内没有给出响应」，响应体往往只有一行
+ * `error code: 524`。原样抛出会让玩家以为游戏坏了，这里翻译成可执行的中文说明，
+ * 并保留原始信息片段便于排障。
+ */
+export const 翻译网关超时提示 = (status: number, detail?: string): string | null => {
+    if (status !== 524 && status !== 504) return null;
+    const 前缀 = status === 524
+        ? 'AI 接口网关超时（524）：请求已经发出，但服务商侧在 100 秒内没有返回内容。'
+        : 'AI 接口网关超时（504）：服务商网关等待上游响应超时。';
+    const 建议 = '通常是模型响应过慢或服务商侧不稳定，建议改用更快的模型、精简输入，或稍后重试。';
+    const 原始 = (detail || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+    return `${前缀}${建议}${原始 ? `（原始信息：${原始}）` : ''}`;
+};
+
 const 响应详情疑似不支持流式 = (text: string): boolean => {
     const raw = (text || '').toLowerCase();
     if (raw.includes('event-stream')) return true;
@@ -1052,14 +1069,11 @@ const 创建SSE文本处理器 = (
         const payload = payloadText.trim();
         if (!payload) return true;
 
+        // 先单独做 JSON 解析：下面的错误帧需要 throw，
+        // 若留在原 try 里会被 catch 当成「解析失败」而静默吞掉。
+        let json: any;
         try {
-            const json = JSON.parse(payload);
-            const finishReason = json?.choices?.[0]?.finish_reason;
-            if (typeof finishReason === 'string' && finishReason.trim()) {
-                lastFinishReason = finishReason.trim();
-            }
-            投递增量(extractDelta(json));
-            return true;
+            json = JSON.parse(payload);
         } catch {
             if (!payload.startsWith('{') && !payload.startsWith('[')) {
                 投递增量(payload);
@@ -1067,6 +1081,24 @@ const 创建SSE文本处理器 = (
             }
             return false;
         }
+
+        // 流内错误帧：上游（以及同域中转在「提前返回流式」之后）会把失败写成
+        // `data: {"error":{"message":"..."}}`。旧实现直接忽略它，玩家只会看到
+        // 「返回为空」，拿不到真正的失败原因。
+        const 流内错误文本 = typeof json?.error === 'string'
+            ? json.error
+            : (json?.error?.message || '');
+        if (typeof 流内错误文本 === 'string' && 流内错误文本.trim()) {
+            const 状态码 = Number(json?.error?.code);
+            throw new 协议请求错误(流内错误文本.trim(), Number.isFinite(状态码) && 状态码 > 0 ? 状态码 : undefined);
+        }
+
+        const finishReason = json?.choices?.[0]?.finish_reason;
+        if (typeof finishReason === 'string' && finishReason.trim()) {
+            lastFinishReason = finishReason.trim();
+        }
+        投递增量(extractDelta(json));
+        return true;
     };
 
     const 处理事件块 = (eventBlock: string) => {
@@ -1497,6 +1529,11 @@ const 解析SSE文本XHR = (
             });
             if (xhr.status < 200 || xhr.status >= 300) {
                 const detail = (xhr.responseText || '').trim();
+                const 网关超时提示 = 翻译网关超时提示(xhr.status, detail);
+                if (网关超时提示) {
+                    settleReject(new 协议请求错误(网关超时提示, xhr.status, detail));
+                    return;
+                }
                 settleReject(new 协议请求错误(`API Error: ${xhr.status}${detail ? ` - ${detail}` : ''}`, xhr.status, detail));
                 return;
             }
@@ -1974,6 +2011,9 @@ const 请求OpenAI家族文本 = async (
             // 不能让玩家看到 `API Error: 400 - {"error":...}`。
             const 中转拒绝提示 = viaRelay ? 翻译跨域中转拒绝(response.status, detail) : null;
             if (中转拒绝提示) throw new Error(中转拒绝提示);
+            // 网关超时（524/504）同样要给出可执行说明，而不是一串 `error code: 524`。
+            const 网关超时提示 = 翻译网关超时提示(response.status, detail);
+            if (网关超时提示) throw new 协议请求错误(网关超时提示, response.status, detail);
             if (useStream && 响应详情疑似不支持流式(detail) && !downgradedFromStream) {
                 useStream = false;
                 downgradedFromStream = true;

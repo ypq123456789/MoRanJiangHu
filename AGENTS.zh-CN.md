@@ -1002,3 +1002,20 @@ B2 APK 分发已于 2026-07-13 废弃。部分遗留辅助代码和环境变量�
 - 中转限制依旧存在且绕不过：`http` 仅允许 80 端口、`https` 仅允许 443 端口，私有/回环 IP 与自家域名一律拒绝，请求体上限 2 MB。因此默认的本地 Ollama（`127.0.0.1:11434`）**永远无法**走中转——这类玩家需要用 APK（原生流式，不受 CORS 限制），或把服务放到公网 443 的 HTTPS 地址上。
 - 测试：`__tests__/aiRelayStreamFallback.test.ts`（8 个用例；证明直连网络失败后中转确实被调用，且收到部分正文后绝不重发），另在 `aiRelayCors.test.ts` 增加一条断言鉴权头被转发的用例。
 - 验证教训：`wrangler deploy` 打包的是预先构建好的 `.tmp-worker-build/index.js`，所以任何 `functions/` 改动都必须先跑 `npm run worker:functions`，并在该产物里 grep 一个新加入的符号。不要用陈旧的产物去部署 `functions/` 改动。
+
+## 2026-09-14 中转提前返回流式以对抗 Cloudflare 524，以及流内错误帧（待发布）
+
+- 后续玩家反馈：v1.0.667 之后同一玩家（用的是 **Ollama 云模型**，不是本地）仍然失败，这次是世界观生成阶段报 `API Error: 524 - error code: 524`。云与本地的区别很关键：云端 Ollama 端点在公网 443 上可达，因此可以走中转；本地 `127.0.0.1:11434` 则不行。
+- 根因：中转原本是 `const upstream = await fetch(...)` 拿到响应头之后才 `return new Response(upstream.body)`。Cloudflare 边缘对「源站在 100 秒内没有产出**响应头**」会直接掐断客户端连接，并代之以自己的 524 页面（响应体字面上就是 `error code: 524`）。于是只要上游首字节慢于 100 秒，中转就把「慢但可用」的模型悄悄变成了不可读的网关错误——而这恰恰只打击了"唯一通道就是中转"的那批玩家。
+- `functions/api/ai-relay/[[path]].ts` 的修复：
+  - 仅对**流式请求**（`Accept: text/event-stream`，或请求体里出现 `"stream":true`）生效：把上游 fetch 与 `EARLY_STREAM_DEADLINE_MS = 80_000` 做 `Promise.race`。若到期先到，中转立刻返回 `200` + `text/event-stream` 并带上响应头 `X-MSJH-Relay-Early: 1`，抢在 Cloudflare 的 100 秒限制之前把 SSE 管道打开；上游真正到达后再通过 `TransformStream` 逐块推进去。
+  - 收尾任务通过 Pages Functions 的 `waitUntil` 托管，否则处理器一返回运行时就会回收实例，管道会以空流关闭。
+  - 若上游最终失败，中转写出 `data: {"error":{"message":"API Error: <状态码> - <详情>"}}` 再补一个 `data: [DONE]`，让失败以"数据"的形式抵达前端，而不是无声无息。
+  - 非流式请求刻意保持 await 上游、永不提前返回：对它们回 SSE 反而会让前端 JSON 解析失败。
+- 客户端侧（`services/ai/chatCompletionClient.ts`）：
+  - `创建SSE文本处理器.尝试解析JSON并提取` 现在遇到携带 `error`（字符串或 `.message`）的帧会**抛出** `协议请求错误`。此前这些帧被静默忽略，中转报出的失败在玩家侧只表现为「回复为空」。
+  - 新增导出 `翻译网关超时提示(status, detail)`，把 524/504 翻成可执行的中文说明（网关超时、100 秒内上游无输出、建议换更快的模型/精简输入/稍后重试），同时保留截断后的原始片段便于排障；已分别接入 XHR `onload` 非 2xx 分支与 fetch 非 ok 分支。
+  - 524 刻意**不**自动重试：网关已经给出了回答，重发有重复生成与重复计费的风险。`疑似浏览器跨域失败` 在错误携带状态码时返回 false，因此也不会再次尝试中转。
+- 需要如实说明的、有意保留的边界：中转的提前返回只拆掉了 **Cloudflare 的** 100 秒天花板。客户端自身的首字节看门狗依然生效——主剧情的上限是 `首次响应超时秒`（默认 120 秒），世界观生成则是 300 秒的空闲预算（`执行带超时(..., { idleTimeout: true })`，每来一个流式增量就重置）。若模型需要的时间超过调用方给的预算，仍会被中止；这属于设置/产品层面的决策，不是中转的缺陷。
+- 测试：`__tests__/aiRelayCors.test.ts` 新增两条用例（超过 80 秒后提前返回 200 + `X-MSJH-Relay-Early` 并把收尾交给 `waitUntil`，随后把上游 524 变成可读的 SSE 错误帧；非流式请求超过截止时间则**不得**提前返回），`__tests__/aiRelayStreamFallback.test.ts` 新增「网关超时」「流内错误帧」用例以及一个 `翻译网关超时提示` 分组。
+- 测试套件说明：`npm run test:run` 报出的失败只来自两处——`.release-repo-v634/**`（仍被 vitest 收集的陈旧备份目录，含其自带的 `node_modules`）与真实调用 AI 的 E2E 用例（返回 HTTP 403 `PERMISSION_DENIED`，Gemini 授权问题）。两者都与源码改动无关；请以非 E2E 的单测套件作为判断依据。

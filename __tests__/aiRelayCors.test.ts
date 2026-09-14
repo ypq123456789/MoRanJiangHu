@@ -122,6 +122,79 @@ describe('AI 同域中转端点防护', () => {
             vi.unstubAllGlobals();
         }
     });
+
+    // 关键回归：中转过去是 await fetch(上游) 拿到响应头才返回。上游首字节慢于
+    // Cloudflare 边缘的 100 秒限制时，玩家只能拿到 CF 的 524 错误页（body 恰为
+    // `error code: 524`），真实原因完全丢失。流式请求必须提前返回响应头，
+    // 把 SSE 管道先打开，等上游真正响应后再逐块推进去。
+    it('流式请求上游超过 80 秒未响应头时提前返回 SSE，并把失败写成可读错误帧', async () => {
+        vi.useFakeTimers();
+        let 释放上游: (res: Response) => void = () => {};
+        const 上游响应 = new Promise<Response>((resolve) => { 释放上游 = resolve; });
+        const fetchMock = vi.fn().mockReturnValue(上游响应);
+        vi.stubGlobal('fetch', fetchMock);
+        // Workers 不会为处理器返回后的异步任务续命，收尾必须交给 waitUntil 托管
+        const waitUntilMock = vi.fn();
+        try {
+            const target = 'https://api.example.com/v1/chat/completions';
+            const 处理中 = onRequestPost({
+                request: makeRequest(`https://msjh.bacon159.pp.ua/api/ai-relay?target=${encodeURIComponent(target)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+                    body: JSON.stringify({ model: 'slow-model', messages: [], stream: true })
+                }),
+                waitUntil: waitUntilMock
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(80_001);
+            const res = await 处理中;
+            expect(res.status).toBe(200);
+            expect(res.headers.get('X-MSJH-Relay-Early')).toBe('1');
+            expect(res.headers.get('Content-Type')).toContain('text/event-stream');
+            expect(waitUntilMock).toHaveBeenCalledTimes(1);
+            expect(waitUntilMock.mock.calls[0][0]).toBeInstanceOf(Promise);
+            // 打开管道时上游还没回，此时不应有任何内容
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // 上游最终以 524 失败：必须变成前端可解析的 SSE 错误帧，而不是空白流
+            释放上游(new Response('error code: 524', { status: 524, headers: { 'Content-Type': 'text/plain' } }));
+            const 文本 = await res.text();
+            expect(文本).toContain('"error"');
+            expect(文本).toContain('524');
+            expect(文本).toContain('[DONE]');
+        } finally {
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
+
+    it('非流式请求不提前返回（SSE 响应头会破坏 JSON 解析）', async () => {
+        vi.useFakeTimers();
+        let 释放上游: (res: Response) => void = () => {};
+        const 上游响应 = new Promise<Response>((resolve) => { 释放上游 = resolve; });
+        vi.stubGlobal('fetch', vi.fn().mockReturnValue(上游响应));
+        try {
+            const target = 'https://api.example.com/v1/chat/completions';
+            let 已返回 = false;
+            const 处理中 = onRequestPost({
+                request: makeRequest(`https://msjh.bacon159.pp.ua/api/ai-relay?target=${encodeURIComponent(target)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: 'slow-model', messages: [] })
+                })
+            }).then((r) => { 已返回 = true; return r; });
+            await vi.advanceTimersByTimeAsync(90_000);
+            expect(已返回).toBe(false); // 非流式仍应继续等上游，不提前返回
+            释放上游(okUpstream('{"content":"late"}'));
+            const res = await 处理中;
+            expect(res.status).toBe(200);
+            expect(res.headers.get('X-MSJH-Relay-Early')).toBeNull();
+            expect(await res.json()).toEqual({ content: 'late' });
+        } finally {
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
 });
 
 describe('corsRelay 前端判定与降级', () => {

@@ -6,11 +6,11 @@
 // 根因就是 XHR 流式路径没有任何中转兜底，却抛出"已自动尝试同域中转仍失败"的文案。
 // 本文件锁定修复后的四条路径：改走中转、零输出才允许重发、中转拒绝要翻译、正常流式不受影响。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { 请求模型文本 } from '../services/ai/chatCompletionClient';
+import { 请求模型文本, 翻译网关超时提示 } from '../services/ai/chatCompletionClient';
 import { 翻译跨域中转拒绝 } from '../services/ai/corsRelay';
 import { 创建接口配置模板 } from '../utils/apiConfig';
 
-type 剧本 = '网络失败' | '先产出再中断' | '中转拒绝' | '正常流式';
+type 剧本 = '网络失败' | '先产出再中断' | '中转拒绝' | '正常流式' | '网关超时' | '流内错误帧';
 
 let 直连剧本: 剧本 = '网络失败';
 let 中转剧本: 剧本 = '网络失败';
@@ -69,6 +69,20 @@ class 可控XHR {
             if (当前剧本 === '中转拒绝') {
                 this.status = 400;
                 this.responseText = JSON.stringify({ error: '不允许通过中转访问私有地址' });
+                this.onload?.();
+                return;
+            }
+            if (当前剧本 === '网关超时') {
+                // Cloudflare 524：响应体就是一行 `error code: 524`
+                this.status = 524;
+                this.responseText = 'error code: 524';
+                this.onload?.();
+                return;
+            }
+            if (当前剧本 === '流内错误帧') {
+                // 上游/中转把失败写成 SSE 错误帧，而不是 HTTP 状态码
+                this.status = 200;
+                this.responseText = 'data: {"error":{"message":"API Error: 524 - error code: 524"}}\n\ndata: [DONE]\n\n';
                 this.onload?.();
                 return;
             }
@@ -148,6 +162,24 @@ describe('网页版流式请求的跨域中转兜底', () => {
         await expect(执行流式请求()).resolves.toBe('你好');
         expect(可控XHR.中转请求数).toBe(0);
     });
+
+    it('网关超时 524 不触发中转重试（响应已到达，重发可能重复计费），并给出可读说明', async () => {
+        直连剧本 = '网关超时';
+        const 报错文本 = await 捕获报错文本();
+
+        expect(可控XHR.中转请求数).toBe(0);
+        expect(报错文本).toContain('524');
+        expect(报错文本).toContain('网关超时');
+        // 不再把 CF 的裸响应体当成玩家可见文案
+        expect(报错文本).not.toBe('API Error: 524 - error code: 524');
+    });
+
+    it('流内错误帧必须抛出真实原因，不能静默当成空回复', async () => {
+        直连剧本 = '流内错误帧';
+        const 报错文本 = await 捕获报错文本();
+
+        expect(报错文本).toContain('API Error: 524');
+    });
 });
 
 describe('翻译跨域中转拒绝', () => {
@@ -170,5 +202,22 @@ describe('翻译跨域中转拒绝', () => {
         expect(翻译跨域中转拒绝(401, '{"error":"invalid api key"}')).toBeNull();
         expect(翻译跨域中转拒绝(500, 'internal error')).toBeNull();
         expect(翻译跨域中转拒绝(400, '')).toBeNull();
+    });
+});
+
+describe('翻译网关超时提示', () => {
+    it('524 / 504 翻译成中文处置建议并保留原始片段', () => {
+        const 文本524 = 翻译网关超时提示(524, 'error code: 524')!;
+        expect(文本524).toContain('524');
+        expect(文本524).toContain('100 秒');
+        expect(文本524).toContain('更快的模型');
+        expect(文本524).toContain('error code: 524');
+        expect(翻译网关超时提示(504, '')).toContain('504');
+    });
+
+    it('其它状态码不翻译', () => {
+        expect(翻译网关超时提示(500, 'internal error')).toBeNull();
+        expect(翻译网关超时提示(401, 'unauthorized')).toBeNull();
+        expect(翻译网关超时提示(200, '')).toBeNull();
     });
 });

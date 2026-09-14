@@ -102,27 +102,26 @@ const buildForwardHeaders = (request: Request): Headers => {
     return headers;
 };
 
-const relay = async (request: Request): Promise<Response> => {
-    const target = resolveTargetUrl(request);
-    const init: RequestInit = {
-        method: request.method,
-        headers: buildForwardHeaders(request),
-        redirect: 'error'
-    };
-    if (request.method === 'POST') {
-        const body = await request.arrayBuffer();
-        if (body.byteLength > MAX_BODY_BYTES) return jsonError('请求体过大，中转上限 2MB', 413);
-        init.body = body;
-    } else if (request.method !== 'GET') {
-        return jsonError('仅支持 GET/POST', 405);
-    }
+// Cloudflare 边缘对「源站多久没给出响应头」有 100 秒硬限制（超出即 524）。
+// 中转载过去是 await fetch(上游) 拿到响应头之后才返回，于是上游首字节慢于 100 秒时，
+// 玩家拿到的是 CF 的 524 错误页（body 恰为 `error code: 524`），看不到任何真实原因，
+// 而这条路径往往正是「接口无 CORS、只能靠中转」的玩家唯一的通道。
+// 这里留出安全余量，在到期时改为「先返回响应头、内容走管道」，让等待可以超过 100 秒。
+const EARLY_STREAM_DEADLINE_MS = 80_000;
 
-    // Workers 的 fetch 不支持 redirect:'error'，用 manual 并显式拒绝 3xx，
-    // 防止重定向跳转绕过上方的主机/路径校验。
-    const upstream = await fetch(target.toString(), { ...init, redirect: 'manual' });
-    if (upstream.status >= 300 && upstream.status < 400) {
-        return jsonError('上游返回了重定向，中转不支持跟随重定向', 502);
+// 只有流式请求才适合「提前返回」：非流式请求若超时，回 SSE 反而会让前端解析失败。
+const 是否流式请求 = (request: Request, body: ArrayBuffer | undefined): boolean => {
+    const accept = (request.headers.get('Accept') || '').toLowerCase();
+    if (accept.includes('text/event-stream')) return true;
+    if (!body || body.byteLength === 0 || body.byteLength > 256 * 1024) return false;
+    try {
+        return /"stream"\s*:\s*true/i.test(new TextDecoder().decode(body));
+    } catch {
+        return false;
     }
+};
+
+const 透传上游响应 = (upstream: Response): Response => {
     const responseHeaders = new Headers();
     const contentType = upstream.headers.get('Content-Type');
     if (contentType) responseHeaders.set('Content-Type', contentType);
@@ -133,21 +132,129 @@ const relay = async (request: Request): Promise<Response> => {
     return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 };
 
+// 上游在 EARLY_STREAM_DEADLINE_MS 内没给出响应头时，先以 200 + text/event-stream
+// 把响应交给玩家，再在管道里继续等上游；上游最终失败则以 SSE 错误帧告知
+// （前端 创建SSE文本处理器 已识别 error 帧）。
+const 提前返回流式 = (
+    upstreamPromise: Promise<Response>,
+    waitUntil?: (promise: Promise<any>) => void
+): Response => {
+    const encoder = new TextEncoder();
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const 写错误帧 = async (message: string) => {
+        try {
+            const writer = writable.getWriter();
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ error: { message } })}\n\n`));
+            await writer.write(encoder.encode('data: [DONE]\n\n'));
+            await writer.close();
+        } catch {
+            // 客户端已断开，忽略
+        }
+    };
+    const 收尾 = (async () => {
+        try {
+            const upstream = await upstreamPromise;
+            if (upstream.status >= 300 && upstream.status < 400) {
+                await 写错误帧('上游返回了重定向，中转不支持跟随重定向');
+                return;
+            }
+            if (!upstream.ok || !upstream.body) {
+                const detail = await upstream.text().catch(() => '');
+                const 摘要 = detail.trim().slice(0, 500);
+                await 写错误帧(`API Error: ${upstream.status}${摘要 ? ` - ${摘要}` : ''}`);
+                return;
+            }
+            await upstream.body.pipeTo(writable);
+        } catch (error: any) {
+            await 写错误帧(String(error?.message || error || 'AI 中转失败'));
+        }
+    })();
+    // 关键：响应头先返回，收尾工作在响应之后才结束。Workers 不会自动为
+    // 「事件处理器已返回」的异步任务续命，必须显式交给 waitUntil 托管，
+    // 否则上游刚连上就被回收，管道会以空流关闭，玩家依旧看不到内容。
+    if (typeof waitUntil === 'function') {
+        try {
+            waitUntil(收尾);
+        } catch {
+            // waitUntil 不可用（本地测试/非 Workers 环境）时忽略
+        }
+    }
+    return new Response(readable, {
+        status: 200,
+        headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'X-MSJH-Relay': '1',
+            'X-MSJH-Relay-Early': '1',
+            ...CORS_HEADERS
+        }
+    });
+};
+
+const relay = async (
+    request: Request,
+    waitUntil?: (promise: Promise<any>) => void
+): Promise<Response> => {
+    const target = resolveTargetUrl(request);
+    const init: RequestInit = {
+        method: request.method,
+        headers: buildForwardHeaders(request),
+        redirect: 'error'
+    };
+    let requestBody: ArrayBuffer | undefined;
+    if (request.method === 'POST') {
+        const body = await request.arrayBuffer();
+        if (body.byteLength > MAX_BODY_BYTES) return jsonError('请求体过大，中转上限 2MB', 413);
+        requestBody = body;
+        init.body = body;
+    } else if (request.method !== 'GET') {
+        return jsonError('仅支持 GET/POST', 405);
+    }
+
+    // Workers 的 fetch 不支持 redirect:'error'，用 manual 并显式拒绝 3xx，
+    // 防止重定向跳转绕过上方的主机/路径校验。
+    const upstreamPromise = fetch(target.toString(), { ...init, redirect: 'manual' });
+
+    if (!是否流式请求(request, requestBody)) {
+        const upstream = await upstreamPromise;
+        if (upstream.status >= 300 && upstream.status < 400) {
+            return jsonError('上游返回了重定向，中转不支持跟随重定向', 502);
+        }
+        return 透传上游响应(upstream);
+    }
+
+    let 到期定时器: ReturnType<typeof setTimeout> | undefined;
+    const 到期 = new Promise<null>((resolve) => {
+        到期定时器 = setTimeout(() => resolve(null), EARLY_STREAM_DEADLINE_MS);
+    });
+    const 先到者 = await Promise.race<Response | null>([upstreamPromise, 到期]);
+    if (到期定时器 !== undefined) clearTimeout(到期定时器);
+    if (!先到者) {
+        // 上游慢于安全阈值：不再让 CF 的 100 秒限制落在中转身上，
+        // 先返回响应头把 SSE 管道打开，等上游真正响应后再逐块推进去。
+        return 提前返回流式(upstreamPromise, waitUntil);
+    }
+    if (先到者.status >= 300 && 先到者.status < 400) {
+        return jsonError('上游返回了重定向，中转不支持跟随重定向', 502);
+    }
+    return 透传上游响应(先到者);
+};
+
 export function onRequestOptions(): Response {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
-export async function onRequestGet({ request }: any): Promise<Response> {
+export async function onRequestGet({ request, waitUntil }: any): Promise<Response> {
     try {
-        return await relay(request);
+        return await relay(request, waitUntil);
     } catch (error: any) {
         return jsonError(error?.message || 'AI 中转失败', 400);
     }
 }
 
-export async function onRequestPost({ request }: any): Promise<Response> {
+export async function onRequestPost({ request, waitUntil }: any): Promise<Response> {
     try {
-        return await relay(request);
+        return await relay(request, waitUntil);
     } catch (error: any) {
         return jsonError(error?.message || 'AI 中转失败', 400);
     }
