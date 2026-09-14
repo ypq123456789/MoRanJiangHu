@@ -13,10 +13,15 @@
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept'
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, api-key, x-api-key, x-goog-api-key, Accept'
 };
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+// 需要原样透传的鉴权请求头：Authorization（Bearer）之外，部分供应商使用专用头
+// （小米 MiMo 用 `api-key`，部分自建网关用 `x-api-key`/`x-goog-api-key`）。
+// 漏传这些头会让中转变成 401，前端的中转兜底对这类供应商形同失效。
+const FORWARDED_AUTH_HEADERS = ['Authorization', 'api-key', 'x-api-key', 'x-goog-api-key'];
 
 const jsonError = (message: string, status: number): Response => (
     new Response(JSON.stringify({ error: message }), {
@@ -86,10 +91,12 @@ const resolveTargetUrl = (request: Request): URL => {
 
 const buildForwardHeaders = (request: Request): Headers => {
     const headers = new Headers();
-    const authorization = request.headers.get('Authorization')?.trim() || '';
+    for (const name of FORWARDED_AUTH_HEADERS) {
+        const value = request.headers.get(name)?.trim() || '';
+        if (value) headers.set(name, value);
+    }
     const contentType = request.headers.get('Content-Type')?.trim() || 'application/json';
     const accept = request.headers.get('Accept')?.trim() || '';
-    if (authorization) headers.set('Authorization', authorization);
     headers.set('Content-Type', contentType);
     if (accept) headers.set('Accept', accept);
     return headers;
