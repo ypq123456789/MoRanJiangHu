@@ -990,3 +990,15 @@ B2 APK 分发已于 2026-07-13 废弃。部分遗留辅助代码和环境变量�
 - k-vault 部署地雷（关键）：线上 DB 绑定是 `k-vault-metadata-fresh`（`1f747ac2-7845-41d7-9613-4d85708912ab`），而本地 `wrangler.152.toml` 之前指向 `k-vault-metadata-backup`（`1455d6e0-...`，只有 2.3 万行的不完整副本）。用未修正的 toml 部署会静默把元数据存储回退。toml 已修正；今后任何 k-vault 部署后必须核对 DB 绑定。
 - 操作者凭据笔记的坑：粘贴的笔记里 `旧bottoken`/`新bottoken`/`TG_Bot_Token` 属于不同机器人。k-vault 存储 bot 是与 k-vault `TG_Chat_ID` 成对出现、名字为自用图床（@ziyongtuchuang_bot）的那一个。采信笔记前先用真实存量 `tgs_` 载荷做 HMAC 验证。严禁把 bot token 写入仓库文件；运行时从笔记提取、经 stdin 传入。
 - 同日 v1.0.659 发版：PR #78（日间主题新增两组色系浅染规则修复彩色深底胶囊可读性；小说分解"注入关"标签 `bg-gray-800`→`bg-black/50`；`InlineSelect` 新增可选 `wrapLabel`；生成流程图渠道/模型文字与内联下拉改为自动换行不再省略号）——CodeRabbit CHILL 审查零意见。发版流程：合并 → 升版 1.0.659 → 备份提交 `80a3724` → 发布时间刷新 `3b51035` → 用最终 main 重打 APK（sha256 `455e028f...`，apksigner v2，证书 `0c638692...` 与发布密钥库一致）→ OneDrive + KV 清单 → GitHub Release v1.0.659 + apk-dist 同步 → 双域验证（release-info 版本/时间、bundle 哈希 `index-B2R19kHK.js`、三渠道 APK sha256 一致）。切记：`release:manifest` 不会自动创建 GitHub Release 资产——必须跑 `npm run release:github`，否则默认 APK 重定向在 gh-proxy 处 404。
+
+## 2026-09-14 流式请求补同域中转兜底 与 中转鉴权头转发（v1.0.667）
+
+- 玩家反馈：网页版玩家遇到 `无法连接到接口服务器（已自动尝试同域中转仍失败）`，底层错误是 `API Error: network error during stream request`；但应用内「测试连接」按钮却能通过。而且那句提示本身也不属实——流式路径根本没有尝试过中转。
+- 根因：流式路径（`services/ai/chatCompletionClient.ts` 的 `解析SSE文本XHR`）用 `xhr.open('POST', endpoint)` 直连上游地址，**完全没有** `/api/ai-relay` 兜底；而非流式路径（`fetchWithCorsRelay`）早就有中转重试。由于 `enableStream = !!streamOptions?.stream`，「测试连接」走非流式所以成功，主剧情流式必然失败。
+- 修复（PR #86，合并进 `main` 为 `9b43c9b`）：
+  - 流式 XHR 调用被包装：直连失败且是网络层错误、**且尚未收到任何响应字节**时，才通过 `/api/ai-relay` 重试一次。已经产生正文的请求绝不重发（避免重复生成/重复计费）；`协议请求错误.已接收字节` 负责记录已收到的正文长度。
+  - 连接失败文案改为真实：只有真的尝试过中转才显示「已自动尝试同域中转仍失败」；正文中断的情况改为说明"为避免重复计费未自动重发"。本地/局域网地址会额外给出针对性提示。
+  - `functions/api/ai-relay/[[path]].ts` 现在转发 `Authorization`、`api-key`、`x-api-key`、`x-goog-api-key`（此前只转发 `Authorization`），`Access-Control-Allow-Headers` 也同步放开。没有这一步，用 `api-key` 鉴权的供应商（例如小米 MiMo）经中转调用恒返回 401。
+- 中转限制依旧存在且绕不过：`http` 仅允许 80 端口、`https` 仅允许 443 端口，私有/回环 IP 与自家域名一律拒绝，请求体上限 2 MB。因此默认的本地 Ollama（`127.0.0.1:11434`）**永远无法**走中转——这类玩家需要用 APK（原生流式，不受 CORS 限制），或把服务放到公网 443 的 HTTPS 地址上。
+- 测试：`__tests__/aiRelayStreamFallback.test.ts`（8 个用例；证明直连网络失败后中转确实被调用，且收到部分正文后绝不重发），另在 `aiRelayCors.test.ts` 增加一条断言鉴权头被转发的用例。
+- 验证教训：`wrangler deploy` 打包的是预先构建好的 `.tmp-worker-build/index.js`，所以任何 `functions/` 改动都必须先跑 `npm run worker:functions`，并在该产物里 grep 一个新加入的符号。不要用陈旧的产物去部署 `functions/` 改动。
