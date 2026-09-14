@@ -4,7 +4,7 @@ import { isNativeCapacitorEnvironment } from '../../utils/nativeRuntime';
 import { OpenAI兼容地址已包含版本路径, 去除OpenAI兼容聊天端点 } from '../../utils/openAICompatibleEndpoint';
 import { 小米MiMo稳定输出预设 } from '../../prompts/providers/xiaomiMiMoStablePreset';
 import { GLM稳定输出预设 } from '../../prompts/providers/glmStablePreset';
-import { fetchWithCorsRelay, 疑似浏览器跨域失败, 中转可用 } from './corsRelay';
+import { fetchWithCorsRelay, 疑似浏览器跨域失败, 中转可用, 构建AI中转地址, 翻译跨域中转拒绝 } from './corsRelay';
 
 export type 通用消息角色 = 'system' | 'user' | 'assistant';
 
@@ -70,6 +70,12 @@ const 原生聊天流 = registerPlugin<原生聊天流插件>('NativeChatStreame
 export class 协议请求错误 extends Error {
     status?: number;
     detail?: string;
+    /**
+     * 网络层中断时已接收的响应字节数。
+     * >0 表示上游已经开始产出正文，此时重发请求会产生重复调用与重复计费，
+     * 因此不允许改走同域中转重试（见 可以安全改走中转）。
+     */
+    已接收字节?: number;
 
     constructor(message: string, status?: number, detail?: string) {
         super(message);
@@ -747,6 +753,41 @@ export const 规范化流式连接错误提示 = (message: string): string => {
     return '模型流式连接中途断开，通常是网络波动、代理断流或上游模型服务提前关闭连接导致。系统会自动重试；如果仍失败，请稍后重试或切换网络/API节点。';
 };
 
+/**
+ * 原生（APK）流式请求的底层连接报错 → 玩家可读提示。
+ * 原生插件直接走 HttpURLConnection，报错形如 "Failed to connect to /192.168.1.5:11434"，
+ * 原样弹给玩家看不出该怎么处理。
+ */
+export const 规范化原生连接错误提示 = (message: string): string => {
+    const raw = (message || '').trim();
+    if (!raw) return raw;
+    const lower = raw.toLowerCase();
+    const 连接层失败 = lower.includes('failed to connect')
+        || lower.includes('connection refused')
+        || lower.includes('unable to resolve host')
+        || lower.includes('unknownhost')
+        || lower.includes('no route to host')
+        || lower.includes('network is unreachable')
+        || lower.includes('connect timed out');
+    if (!连接层失败) return raw;
+    return '无法连接到接口服务器：连接被拒绝或网络不可达。'
+        + '请确认接口地址可以从本机访问、服务已启动，且手机与接口服务器处于同一网络；'
+        + '若接口只监听 127.0.0.1，需要在服务端放开对外监听（例如 Ollama 设置 OLLAMA_HOST=0.0.0.0）。';
+};
+
+/**
+ * 浏览器直连被网络层拦截后，是否可以安全地改走同域中转重试。
+ *
+ * 只有"一个字节正文都没收到"的失败才允许重试：
+ * 若响应已经开始产出正文后中断，说明请求已抵达上游并已开始计费，
+ * 重发会造成重复调用与重复扣费。
+ */
+export const 可以安全改走中转 = (error: unknown): boolean => {
+    if (!疑似浏览器跨域失败(error)) return false;
+    if (error instanceof 协议请求错误 && (error.已接收字节 || 0) > 0) return false;
+    return true;
+};
+
 const 读取错误状态码 = (error: unknown): number | undefined => {
     if (!error || typeof error !== 'object') return undefined;
     const anyErr = error as any;
@@ -1297,7 +1338,7 @@ const 解析SSE文本原生 = async (
 
                 if (event.type === 'error') {
                     const rawMessage = event.message || 'API Error: native stream failed';
-                    const normalizedMessage = 规范化流式连接错误提示(rawMessage);
+                    const normalizedMessage = 规范化原生连接错误提示(规范化流式连接错误提示(rawMessage));
                     settleReject(new 协议请求错误(
                         normalizedMessage || rawMessage,
                         event.status || undefined
@@ -1315,6 +1356,11 @@ const 解析SSE文本原生 = async (
             const message = 读取错误消息(error);
             if (是否流式连接中断错误消息(message)) {
                 settleReject(new 协议请求错误(规范化流式连接错误提示(message), undefined, message));
+                return;
+            }
+            const 友好提示 = 规范化原生连接错误提示(message);
+            if (友好提示 !== message) {
+                settleReject(new 协议请求错误(友好提示, undefined, message));
                 return;
             }
             settleReject(error);
@@ -1427,7 +1473,12 @@ const 解析SSE文本XHR = (
             readyState: xhr.readyState,
             status: xhr.status
         });
-        settleReject(new 协议请求错误('API Error: network error during stream request'));
+        settleReject((() => {
+            const networkError = new 协议请求错误('API Error: network error during stream request');
+            // 记录已收到的正文字节数：>0 说明上游已开始产出，不允许再改走中转重发（避免重复计费）。
+            networkError.已接收字节 = (xhr.responseText || '').length;
+            return networkError;
+        })());
     };
 
     xhr.ontimeout = () => {
@@ -1850,20 +1901,40 @@ const 请求OpenAI家族文本 = async (
                 model: requestModel || apiConfig.model,
                 supplier: apiConfig.供应商
             });
+            const 执行XHR流式 = (请求地址: string) => 解析SSE文本XHR(
+                请求地址,
+                requestHeaders,
+                requestBody,
+                signal,
+                创建OpenAI流增量提取器({ includeReasoning: requestOptions?.includeReasoning }),
+                streamOptions?.onDelta,
+                effectiveStreamOptions?.onStreamEnd
+            );
             try {
-                return 收尾流式结果(await 解析SSE文本XHR(
-                    endpoint,
-                    requestHeaders,
-                    requestBody,
-                    signal,
-                    创建OpenAI流增量提取器({ includeReasoning: requestOptions?.includeReasoning }),
-                    streamOptions?.onDelta,
-                    effectiveStreamOptions?.onStreamEnd
-                ));
+                return 收尾流式结果(await 执行XHR流式(endpoint));
             } catch (error) {
                 写入流式诊断日志('xhr stream failed', {
                     message: 读取错误消息(error)
                 });
+                // [修复] 浏览器直连被网络层拦截（CORS/混合内容/私有网络预检）时，
+                // 改走同域中转 /api/ai-relay 再试一次——此前流式路径完全没有中转兜底，
+                // 导致"测试连接（非流式，有兜底）正常、进游戏生成（流式）报无法连接"。
+                if (可以安全改走中转(error) && 中转可用()) {
+                    const 中转地址 = 构建AI中转地址(endpoint);
+                    写入流式诊断日志('direct xhr stream blocked (suspected CORS), retrying via same-origin relay', { endpoint });
+                    try {
+                        return 收尾流式结果(await 执行XHR流式(中转地址));
+                    } catch (relayError) {
+                        写入流式诊断日志('xhr stream via relay failed', {
+                            message: 读取错误消息(relayError)
+                        });
+                        const 友好提示 = relayError instanceof 协议请求错误
+                            ? 翻译跨域中转拒绝(relayError.status, relayError.detail || 读取错误消息(relayError))
+                            : null;
+                        if (友好提示) throw new Error(友好提示);
+                        throw relayError;
+                    }
+                }
                 if (!downgradedFromStream && 错误疑似不支持流式(error)) {
                     useStream = false;
                     downgradedFromStream = true;
@@ -1889,6 +1960,10 @@ const 请求OpenAI家族文本 = async (
 
         if (!response.ok) {
             const detail = await 读取失败详情文本(response, errorDetailLimit);
+            // 中转端点自身的拒绝（内网地址/非标准端口/体积超限）要翻译成处置建议，
+            // 不能让玩家看到 `API Error: 400 - {"error":...}`。
+            const 中转拒绝提示 = viaRelay ? 翻译跨域中转拒绝(response.status, detail) : null;
+            if (中转拒绝提示) throw new Error(中转拒绝提示);
             if (useStream && 响应详情疑似不支持流式(detail) && !downgradedFromStream) {
                 useStream = false;
                 downgradedFromStream = true;
@@ -2035,12 +2110,15 @@ export const 请求模型文本 = async (
         });
     } catch (error) {
         if (疑似浏览器跨域失败(error)) {
-            const relayHint = 中转可用()
-                ? '（已自动尝试同域中转仍失败）'
-                : '（网页版可在接口设置中开启"网页版跨域自动中转"）';
+            const relayHint = !中转可用()
+                ? '（网页版可在接口设置中开启"网页版跨域自动中转"）'
+                : (可以安全改走中转(error)
+                    ? '（已自动尝试同域中转仍失败）'
+                    : '（响应中断前已收到部分内容，为避免重复计费未自动重发，请直接重试）');
             throw new Error(
                 `无法连接到接口服务器${relayHint}。可能原因：接口地址填写错误、服务未开放、密钥无效，或该接口在浏览器端被跨域（CORS）拦截。` +
                 `建议：核对 Base URL 与 API Key；网页版用户可改用 APK 版本（不受跨域限制）；或更换支持浏览器跨域的接口。` +
+                `若接口是本机/局域网地址（127.0.0.1、192.168.x.x 等），网页版浏览器与同域中转都无法访问，请改用 APK 版本。` +
                 `原始错误：${读取错误消息(error) || 'Failed to fetch'}`
             );
         }
