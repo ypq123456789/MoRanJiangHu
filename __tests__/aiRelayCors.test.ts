@@ -70,8 +70,35 @@ describe('AI 同域中转端点防护', () => {
         }
     });
 
-    it('models 列表（GET）可中转', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(okUpstream('{"data":[{"id":"m1"}]}'));
+    it('透传 api-key 等专用鉴权头（小米 MiMo / 自建网关）', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(okUpstream('{"ok":true}'));
+        vi.stubGlobal('fetch', fetchMock);
+        try {
+            const target = 'https://api.example.com/v1/chat/completions';
+            const res = await onRequestPost({
+                request: makeRequest(`https://msjh.bacon159.pp.ua/api/ai-relay?target=${encodeURIComponent(target)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'api-key': 'mimo-key',
+                        'x-api-key': 'gw-key',
+                        'x-goog-api-key': 'gemini-key'
+                    },
+                    body: JSON.stringify({ model: 'mimo-v2-flash', messages: [] })
+                })
+            });
+            expect(res.status).toBe(200);
+            const [, init] = fetchMock.mock.calls[0];
+            const forwarded = (init as any).headers as Headers;
+            expect(forwarded.get('api-key')).toBe('mimo-key');
+            expect(forwarded.get('x-api-key')).toBe('gw-key');
+            expect(forwarded.get('x-goog-api-key')).toBe('gemini-key');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('models 列表（GET）可中转', async () => {        const fetchMock = vi.fn().mockResolvedValue(okUpstream('{"data":[{"id":"m1"}]}'));
         vi.stubGlobal('fetch', fetchMock);
         try {
             const target = 'https://api.example.com/v1/models';
