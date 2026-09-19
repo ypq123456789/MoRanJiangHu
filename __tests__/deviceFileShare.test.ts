@@ -107,18 +107,31 @@ describe('写入并分享设备文件', () => {
         expect(Share.share).not.toHaveBeenCalled();
     });
 
-    it('写入成功但分享面板失败时返回 fallback（文件已在应用目录内）', async () => {
+    it('分享面板未唤起（非玩家取消）时返回 none，让调用方继续走下载兜底', async () => {
         nativeMock.isNative = true;
         vi.mocked(Filesystem.writeFile).mockResolvedValueOnce({ uri: 'file:///ext/a.zip' } as any);
         vi.mocked(Filesystem.getUri).mockResolvedValueOnce({ uri: 'file:///ext/a.zip' } as any);
-        vi.mocked(Share.share).mockRejectedValueOnce(new Error('no activity'));
+        vi.mocked(Share.share).mockRejectedValueOnce(new Error('Failed to find configured root'));
+
+        const result = await 写入并分享设备文件('a.zip', 'aGVsbG8=');
+
+        // 面板根本没起来时文件还在应用专属目录，玩家取不回来 ⇒ 必须报 none
+        expect(result.method).toBe('none');
+        expect(result.message).toContain('a.zip');
+        expect(Filesystem.getUri).toHaveBeenCalledTimes(1);
+        expect(Share.share).toHaveBeenCalledTimes(1);
+    });
+
+    it('玩家主动取消分享时返回 fallback（文件已交付，不重复触发下载）', async () => {
+        nativeMock.isNative = true;
+        vi.mocked(Filesystem.writeFile).mockResolvedValueOnce({ uri: 'file:///ext/a.zip' } as any);
+        vi.mocked(Filesystem.getUri).mockResolvedValueOnce({ uri: 'file:///ext/a.zip' } as any);
+        vi.mocked(Share.share).mockRejectedValueOnce(new Error('Share canceled'));
 
         const result = await 写入并分享设备文件('a.zip', 'aGVsbG8=');
 
         expect(result.method).toBe('fallback');
-        expect(result.message).toContain('a.zip');
-        expect(Filesystem.getUri).toHaveBeenCalledTimes(1);
-        expect(Share.share).toHaveBeenCalledTimes(1);
+        expect(result.message).toContain('取消');
     });
 
     it('写入、取 URI、分享全部成功时返回 shared，并把正确 URI 交给面板', async () => {

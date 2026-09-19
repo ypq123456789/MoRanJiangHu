@@ -706,13 +706,31 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
                         setTransferMessage(`正在写入总存档包 ${current} / ${total}：${save.角色数据?.姓名 || '未知角色'}`);
                     }
                 });
-                // 流式写完后走系统分享面板，让玩家把 ZIP 落到自己选的位置
+                // 流式写完后走系统分享面板，让玩家把 ZIP 落到自己选的位置。
+                // [修复] 分享面板唤起失败时不能直接抛错：此时 ZIP 已经完整生成，
+                // 抛错会被外层 catch 当作「导出失败」并把成品删掉（下面按
+                // nativeExportPath 清理），玩家白等一场还拿不到文件。
+                // 改为：面板未起来就保留文件并提示可重试，玩家取消则视为完成。
                 const shareUri = await Filesystem.getUri({ directory: 导出目录, path: fileName });
-                await Share.share({
-                    files: [shareUri.uri],
-                    title: fileName,
-                    dialogTitle: '保存全部存档包'
-                });
+                try {
+                    await Share.share({
+                        files: [shareUri.uri],
+                        title: fileName,
+                        dialogTitle: '保存全部存档包'
+                    });
+                } catch (shareError) {
+                    const shareMessage = (shareError as any)?.message;
+                    const 玩家取消 = typeof shareMessage === 'string' && /canceled|cancelled|取消/i.test(shareMessage);
+                    if (!玩家取消) {
+                        console.error('[存档导出] 分享面板未唤起，保留已生成的 ZIP。', shareError);
+                        // 标记为已交付，避免外层 catch 清理掉可用成品
+                        nativeExportPath = '';
+                        const 重试提示 = `总存档包已生成：${fileName}（共 ${completed} 条），但系统保存面板未能打开。请重试导出，或改用「云同步」获取。`;
+                        setTransferMessage(重试提示);
+                        alert(重试提示);
+                        return;
+                    }
+                }
             } else {
                 const root = await navigator.storage?.getDirectory?.();
                 if (!root) throw new Error('当前浏览器不支持低内存单文件导出，请使用最新版 Chrome 或 APK');

@@ -3,10 +3,28 @@ import { Share } from '@capacitor/share';
 import { isNativeCapacitorEnvironment } from './nativeRuntime';
 
 export type 设备文件保存结果 = {
-    /** shared = 已通过系统分享面板交给玩家；fallback = 文件已落盘但分享面板未唤起；none = 无法保存 */
+    /**
+     * shared = 已通过系统分享面板交给玩家；
+     * fallback = 文件已落盘但分享面板未唤起（调用方应继续提供下载/重试入口）；
+     * none = 未保存，调用方必须走浏览器下载兜底。
+     */
     method: 'shared' | 'fallback' | 'none';
     message: string;
     fileName: string;
+};
+
+/**
+ * 判断分享失败是否只是「玩家自己取消」。
+ *
+ * `SharePlugin.activityResult` 在玩家于面板上按返回键时 `call.reject("Share canceled")`；
+ * 这种情况文件其实已经递到玩家手上，不该再报失败或重复触发下载。
+ * 其余失败（FileProvider 异常、无可用 Activity 等）说明**面板根本没起来**，
+ * 文件只留在应用专属目录里 —— 目标机型上玩家从文件管理器取不回来，
+ * 因此必须降级为 `none`，让调用方走浏览器下载，而不是假装成功。
+ */
+const 是玩家取消分享 = (error: unknown): boolean => {
+    const message = (error as any)?.message;
+    return typeof message === 'string' && /canceled|cancelled|取消/i.test(message);
 };
 
 /**
@@ -133,11 +151,21 @@ export const 写入并分享设备文件 = async (
             fileName
         };
     } catch (error) {
-        // 分享面板异常（如机型限制、玩家取消）时文件仍在应用目录内
-        console.warn('[设备文件分享] 分享面板唤起失败，文件保留在应用目录。', error);
+        if (是玩家取消分享(error)) {
+            // 面板起来了、玩家自己关掉：文件已交付，按成功处理，别再重复触发下载
+            console.warn('[设备文件分享] 玩家取消了分享面板。', error);
+            return {
+                method: 'fallback',
+                message: `已生成「${fileName}」，你取消了分享。可重新导出并选择保存位置。`,
+                fileName
+            };
+        }
+        // 面板根本没起来（FileProvider 异常 / 无可用 Activity 等）：
+        // 文件只留在应用专属目录，玩家取不回来，必须当作失败让调用方走下载兜底。
+        console.error('[设备文件分享] 分享面板未能唤起，判定为导出失败。', error);
         return {
-            method: 'fallback',
-            message: `文件已生成「${fileName}」（保存在${目录名称(written.directory)}）。如系统分享面板未出现，可尝试通过“导出/上传到云端”等其他方式获取。`,
+            method: 'none',
+            message: `导出失败：「${fileName}」无法打开系统保存面板，已改用其他方式导出。`,
             fileName
         };
     }
