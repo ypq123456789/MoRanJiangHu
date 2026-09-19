@@ -309,31 +309,19 @@ const saveTextFile = async (content: string, prefix: string, extension: 'txt' | 
     const filesystem = runtime?.Capacitor?.Plugins?.Filesystem;
 
     if (filesystem?.writeFile) {
-        try {
-            // [修复] 原生 APP：先落盘私有文档目录，再唤起系统分享面板
-            // 让玩家选择保存位置——Android 11+ 私有 Documents 在文件管理器不可见。
-            const shareResult = await 写入并分享设备文件(fileName, encodeBase64(content), '保存导出文件');
-            if (shareResult.method !== 'none') {
-                return {
-                    method: shareResult.method === 'shared' ? 'file' : 'download',
-                    message: shareResult.message,
-                    fileName
-                };
-            }
-            await filesystem.writeFile({
-                path: fileName,
-                data: encodeBase64(content),
-                directory: 'DOCUMENTS',
-                recursive: false
-            });
+        // [修复] 原生 APP：写入应用自有目录 + 唤起系统分享面板。
+        // 此前这里在分享失败后还会再写一次 `directory:'DOCUMENTS'`（公共 Documents），
+        // 该写入在 Android 11+ 必然失败，却仍返回“已保存到设备文档目录”的成功文案，
+        // 让玩家以为导出成功——现改为：只有真正落盘/分享成功才报成功，否则继续走下载兜底。
+        const shareResult = await 写入并分享设备文件(fileName, encodeBase64(content), '保存导出文件');
+        if (shareResult.method !== 'none') {
             return {
-                method: 'file',
-                message: `已保存到设备文档目录：${fileName}`,
+                method: shareResult.method === 'shared' ? 'file' : 'download',
+                message: shareResult.message,
                 fileName
             };
-        } catch (error) {
-            console.error('Filesystem.writeFile failed', error);
         }
+        console.warn('[小说导出] 设备文件保存失败，改用浏览器下载兜底。', shareResult.message);
     }
 
     if (typeof document !== 'undefined') {

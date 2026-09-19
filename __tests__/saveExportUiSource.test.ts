@@ -19,7 +19,7 @@ describe('存档批量导出 UI', () => {
         expect(source).toContain('已处理 ${completed} / ${total} 条');
     });
 
-    it('APK 使用已安装的 Capacitor Filesystem 插件写入文档目录', () => {
+    it('APK 通过 Capacitor Filesystem 写入应用自有目录并交给分享面板（不再写公共 Documents）', () => {
         const source = fs.readFileSync(
             path.join(process.cwd(), 'components/features/SaveLoad/SaveLoadModal.tsx'),
             'utf8'
@@ -27,7 +27,13 @@ describe('存档批量导出 UI', () => {
         const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
 
         expect(source).toContain("from '@capacitor/filesystem'");
-        expect(source).toContain('directory: Directory.Documents');
         expect(packageJson.dependencies['@capacitor/filesystem']).toBeTruthy();
+
+        // 回归（2026-09-19）：公共 Documents 在 Android 11+ 下无权限且不在
+        // FileProvider 已声明路径内，写入/分享都会失败，必须改用应用自有目录。
+        expect(source).not.toContain('directory: Directory.Documents');
+        expect(source).not.toContain("directory: 'DOCUMENTS'");
+        expect(source).toContain('Directory.External');
+        expect(source).toContain('Share.share');
     });
 });
