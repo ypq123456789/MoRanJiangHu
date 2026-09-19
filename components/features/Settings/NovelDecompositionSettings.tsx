@@ -1871,22 +1871,15 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
         if (filesystem?.writeFile) {
             try {
                 const data = await blob转Base64(zipBlob);
-                // [修复] Android 11+ Scoped Storage 下应用私有 Documents 目录
-                // 玩家在系统文件管理器看不到；先落盘再唤起系统分享面板让玩家选择保存位置。
+                // [修复] 写入应用自有目录（不再用公共 Documents：Android 11+ 下
+                // 既需要存储权限、又不在 FileProvider 已声明路径内），再唤起系统分享面板。
                 const shareResult = await 写入并分享设备文件(fileName, data, '保存小说分解分享包');
                 if (shareResult.method !== 'none') {
                     return shareResult.message;
                 }
-                // 工具内判定非原生环境（通常不会走到这里，因为上方已按插件存在分流）
-                await filesystem.writeFile({
-                    path: fileName,
-                    data,
-                    directory: 'DOCUMENTS',
-                    recursive: false
-                });
-                return `已保存到设备文档目录：${fileName}`;
+                console.warn('[小说分解] 设备文件保存失败，改用浏览器下载兜底。', shareResult.message);
             } catch (error) {
-                console.warn('小说分解分享 ZIP 写入设备文档目录失败，改用浏览器下载。', error);
+                console.warn('小说分解分享 ZIP 写入设备目录失败，改用浏览器下载。', error);
             }
         }
         const url = URL.createObjectURL(zipBlob);

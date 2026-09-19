@@ -1,5 +1,6 @@
 import { 提示词结构 } from '../types';
 import { isNativeCapacitorEnvironment } from './nativeRuntime';
+import { 写入并分享设备文件 } from './deviceFileShare';
 import { 创建并记录ObjectURL, 延迟释放并记录ObjectURL } from './objectUrlLifecycle';
 
 export type 提示词导出结果 = {
@@ -28,18 +29,19 @@ export const 导出提示词到文件 = async (prompts: 提示词结构[]): Prom
     const filesystem = 读取原生文件系统插件();
 
     if (filesystem?.writeFile) {
+        // [修复] 原先写 `directory: 'DOCUMENTS'`（公共 Documents）：Android 11+ 下
+        // 无存储权限且不在 FileProvider 已声明路径内，写入必失败，却仍返回
+        // “已导出到设备文档目录”的成功文案。现统一走应用自有目录 + 系统分享面板。
         try {
-            await filesystem.writeFile({
-                path: 提示词导出文件名,
-                data: 编码Base64(content),
-                directory: 'DOCUMENTS',
-                recursive: false
-            });
-            return {
-                method: 'file',
-                fileName: 提示词导出文件名,
-                message: `已导出到设备文档目录：${提示词导出文件名}`
-            };
+            const result = await 写入并分享设备文件(提示词导出文件名, 编码Base64(content), '保存提示词文件');
+            if (result.method !== 'none') {
+                return {
+                    method: 'file',
+                    fileName: 提示词导出文件名,
+                    message: result.message
+                };
+            }
+            console.warn('[提示词导出] 设备文件保存失败，尝试浏览器下载兜底:', result.message);
         } catch (error) {
             console.error('提示词原生文件导出失败，尝试浏览器下载兜底:', error);
         }

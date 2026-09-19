@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import * as dbService from '../../../services/dbService';
 import {
     读取云端游玩会话,
@@ -12,6 +13,7 @@ import { 创建存档ZIP流式写入, 导出ZIP存档文件, 解析ZIP存档文�
 import { 存档结构 } from '../../../types';
 import { parseJsonWithRepair } from '../../../utils/jsonRepair';
 import { isNativeCapacitorEnvironment } from '../../../utils/nativeRuntime';
+import { 写入并分享设备文件 } from '../../../utils/deviceFileShare';
 import { 创建并记录ObjectURL, 延迟释放并记录ObjectURL } from '../../../utils/objectUrlLifecycle';
 import { buildSaveDebugSummary, recordSaveLoadError, recordSaveLoadTrace } from '../../../utils/saveLoadTrace';
 import { 读取存档游玩回合数 } from '../../../utils/saveTurn';
@@ -609,19 +611,27 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
     const saveArchiveToDevice = async (blob: Blob, fileName: string): Promise<boolean> => {
         if (!isNativeCapacitorEnvironment()) return false;
 
-        await Filesystem.writeFile({
-            path: fileName,
-            data: await blobToBase64(blob),
-            directory: Directory.Documents,
-            recursive: false
-        });
-        return true;
+        // [修复] 原实现写 `Directory.Documents`（公共 Documents）：Android 11+ 下
+        // 既缺存储权限、又不在 FileProvider 已声明路径内，写入必然抛异常，
+        // 而这里的异常此前无人处理，会直接冒泡打断导出流程。
+        // 现统一走应用自有目录 + 系统分享面板，失败时返回 false 走浏览器下载。
+        try {
+            const result = await 写入并分享设备文件(fileName, await blobToBase64(blob), '保存导出存档');
+            if (result.method === 'none') {
+                console.warn('[存档导出] 设备文件保存失败，改用浏览器下载兜底。', result.message);
+                return false;
+            }
+            setTransferMessage(result.message);
+            return true;
+        } catch (error) {
+            console.warn('[存档导出] 保存到设备失败，改用浏览器下载兜底。', error);
+            return false;
+        }
     };
 
     const downloadArchiveBlob = async (blob: Blob, fileName: string, options?: { batch?: boolean }): Promise<void> => {
         if (await saveArchiveToDevice(blob, fileName)) {
-            setTransferMessage(`已导出到设备文档目录：${fileName}`);
-            if (!options?.batch) alert(`导出完成：${fileName}\n已保存到设备文档目录。`);
+            if (!options?.batch) alert(`导出完成：${fileName}\n请在系统面板中选择保存位置。`);
             return;
         }
 
@@ -669,7 +679,13 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
             if (nativeExport) {
                 nativeExportPath = fileName;
                 let firstChunk = true;
-                await Filesystem.deleteFile({ path: fileName, directory: Directory.Documents }).catch(() => undefined);
+                // [修复] 这里原先把 ZIP 流式写入 `Directory.Documents`（公共 Documents）：
+                // Android 11+ 下没有存储权限、且不在 FileProvider 已声明路径内，
+                // 第一步 writeFile 就会抛异常导致整包导出失败。
+                // 改用应用自有目录（EXTERNAL = getExternalFilesDir，无需权限且在
+                // file_paths.xml 的 external-files-path 覆盖内），最后再交给分享面板。
+                const 导出目录 = Directory.External;
+                await Filesystem.deleteFile({ path: fileName, directory: 导出目录 }).catch(() => undefined);
                 await 创建存档ZIP流式写入({
                     total: allSummaries.length,
                     readSave: (index) => 读取完整存档(allSummaries[index]),
@@ -678,10 +694,10 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
                         for (let offset = 0; offset < chunk.length; offset += chunkSize) {
                             const data = bytesToBase64(chunk.subarray(offset, offset + chunkSize));
                             if (firstChunk) {
-                                await Filesystem.writeFile({ path: fileName, data, directory: Directory.Documents, recursive: false });
+                                await Filesystem.writeFile({ path: fileName, data, directory: 导出目录, recursive: false });
                                 firstChunk = false;
                             } else {
-                                await Filesystem.appendFile({ path: fileName, data, directory: Directory.Documents });
+                                await Filesystem.appendFile({ path: fileName, data, directory: 导出目录 });
                             }
                         }
                     },
@@ -690,6 +706,31 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
                         setTransferMessage(`正在写入总存档包 ${current} / ${total}：${save.角色数据?.姓名 || '未知角色'}`);
                     }
                 });
+                // 流式写完后走系统分享面板，让玩家把 ZIP 落到自己选的位置。
+                // [修复] 分享面板唤起失败时不能直接抛错：此时 ZIP 已经完整生成，
+                // 抛错会被外层 catch 当作「导出失败」并把成品删掉（下面按
+                // nativeExportPath 清理），玩家白等一场还拿不到文件。
+                // 改为：面板未起来就保留文件并提示可重试，玩家取消则视为完成。
+                const shareUri = await Filesystem.getUri({ directory: 导出目录, path: fileName });
+                try {
+                    await Share.share({
+                        files: [shareUri.uri],
+                        title: fileName,
+                        dialogTitle: '保存全部存档包'
+                    });
+                } catch (shareError) {
+                    const shareMessage = (shareError as any)?.message;
+                    const 玩家取消 = typeof shareMessage === 'string' && /canceled|cancelled|取消/i.test(shareMessage);
+                    if (!玩家取消) {
+                        console.error('[存档导出] 分享面板未唤起，保留已生成的 ZIP。', shareError);
+                        // 标记为已交付，避免外层 catch 清理掉可用成品
+                        nativeExportPath = '';
+                        const 重试提示 = `总存档包已生成：${fileName}（共 ${completed} 条），但系统保存面板未能打开。请重试导出，或改用「云同步」获取。`;
+                        setTransferMessage(重试提示);
+                        alert(重试提示);
+                        return;
+                    }
+                }
             } else {
                 const root = await navigator.storage?.getDirectory?.();
                 if (!root) throw new Error('当前浏览器不支持低内存单文件导出，请使用最新版 Chrome 或 APK');
@@ -720,13 +761,13 @@ const SaveLoadModal: React.FC<Props> = ({ onClose, onLoadGame, onSaveGame, mode,
                 }
             }
 
-            const destination = nativeExport ? '设备文档目录' : '浏览器下载目录';
+            const destination = nativeExport ? '设备（请在系统面板中选择保存位置）' : '浏览器下载目录';
             setTransferMessage(`全部导出完成：共 ${completed} 条，已合并为一个 ZIP 保存到${destination}。`);
             alert(`导出完成：共 ${completed} 条存档。\n已合并为一个 ZIP 保存到${destination}。`);
         } catch (error: any) {
             console.error(error);
             if (nativeExportPath) {
-                await Filesystem.deleteFile({ path: nativeExportPath, directory: Directory.Documents }).catch(() => undefined);
+                await Filesystem.deleteFile({ path: nativeExportPath, directory: Directory.External }).catch(() => undefined);
             }
             const progressText = total > 0 ? `已处理 ${completed} / ${total} 条。` : '';
             setTransferMessage(`导出失败：${error?.message || '未知错误'}${progressText ? ` ${progressText}` : ''}`);
