@@ -463,6 +463,45 @@ const stripSameOriginAssetCrossoriginPlugin = (): Plugin => ({
   }
 });
 
+/**
+ * 构建产物守卫：每个 JS chunk 内只允许存在一份 React 运行时。
+ *
+ * 背景（v1.0.669 线上白屏事故）：react-vendor chunk 内被内联了两份 react.production.js，
+ * 两份各自持有独立的 ReactSharedInternals（{H:null}）。App 组件从第一份拿 useRef，
+ * 而 react-dom 渲染时激活的是第二份的 dispatcher，于是 R.H 恒为 null：
+ *   TypeError: Cannot read properties of null (reading 'useRef')
+ * 页面直接白屏。该构建是**非确定性**的（同源码重新构建即恢复正常），
+ * 因此必须在构建期做硬性校验，而不是依赖人工核对哈希/体积。
+ */
+const assertSingleReactInstancePlugin = (): Plugin => ({
+  name: 'assert-single-react-instance',
+  apply: 'build',
+  generateBundle(_options, bundle) {
+    const problems: string[] = [];
+    for (const [fileName, chunk] of Object.entries(bundle)) {
+      if (chunk.type !== 'chunk' || !fileName.endsWith('.js')) continue;
+      const code = chunk.code;
+      // react.production.js / react.development.js 各出现一次 = 一份 React 运行时
+      const prodCopies = (code.match(/react\.production\.js/g) || []).length;
+      const devCopies = (code.match(/react\.development\.js/g) || []).length;
+      const internalsCopies = (code.match(/\{H:null,A:null,T:null,S:null\}/g) || []).length;
+      if (prodCopies > 1 || devCopies > 1 || internalsCopies > 1) {
+        problems.push(
+          `${fileName}: react.production.js×${prodCopies}, react.development.js×${devCopies}, ` +
+          `ReactSharedInternals×${internalsCopies}`
+        );
+      }
+    }
+    if (problems.length) {
+      this.error(
+        '检测到打包产物内存在多份 React 运行时，会导致运行时 "Cannot read properties of null (reading \'useRef\')" 白屏。\n' +
+        problems.map((p) => `  - ${p}`).join('\n') +
+        '\n请检查 vite.config.ts 的 manualChunks 与 react/react-dom 的解析结果是否被重复打包。'
+      );
+    }
+  }
+});
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const productionBase = env.VITE_BASE_PATH || '/';
@@ -473,7 +512,12 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       allowedHosts: ['.cnb.run', '.cnb.space', '.cnb.cool']
     },
-    plugins: [react(), imageDevProxyPlugin(), stripSameOriginAssetCrossoriginPlugin()],
+    plugins: [
+      react(),
+      imageDevProxyPlugin(),
+      stripSameOriginAssetCrossoriginPlugin(),
+      assertSingleReactInstancePlugin()
+    ],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
@@ -540,6 +584,10 @@ export default defineConfig(({ mode }) => {
       }
     },
     resolve: {
+      // 强制 react/react-dom/scheduler 只解析到同一份实体，避免被打包成多份运行时。
+      // 多份 React 会各自持有独立的 ReactSharedInternals（{H:null}），
+      // 导致 hooks 报 "Cannot read properties of null (reading 'useRef')" 白屏（v1.0.669 事故）。
+      dedupe: ['react', 'react-dom', 'scheduler'],
       alias: {
         '@': path.resolve(__dirname, '.'),
       }

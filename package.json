@@ -30,6 +30,7 @@
     "dev": "npm run release:sync && vite",
     "build": "npm run release:sync && vite build",
     "build:apk": "npm run release:sync && vite build --base=/",
+    "verify:render": "node scripts/verify-render.mjs",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
