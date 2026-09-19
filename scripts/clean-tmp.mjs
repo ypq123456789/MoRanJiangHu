@@ -13,6 +13,9 @@
  * 1. **默认安全**：只删除「项目根目录下、名字以 `.tmp-` 开头」的条目，绝不递归到别处。
  * 2. **保护例外**：个别 `.tmp-*` 文件可能已被 git 跟踪（历史误提交），
  *    删除它们会让仓库出现「已删除」变更。这些条目默认跳过，除非显式加 `--include-tracked`。
+ * 2b. **保护构建入口**：`.tmp-worker-build/` 是 `wrangler.jsonc` 的 `main` 指向的
+ *    Worker 构建产物。收尾钩子挂在 `release:manifest` 上，跑在 `wrangler deploy`
+ *    之前，若把它删掉，紧接着的部署会因找不到入口直接失败。见 PROTECTED_NAMES。
  * 3. **保护近期产物**：支持 `--keep-days=N` 保留最近 N 天内的条目，
  *    避免误删正在使用（例如正在排查问题）的产物。
  * 4. **先看后删**：默认只做 dry-run 列出将被删除的内容，必须显式 `--yes` 才真正删除。
@@ -38,6 +41,17 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 const TMP_PREFIX = '.tmp-';
+
+/**
+ * 名字虽然是 `.tmp-*`，但**绝对不能删**的条目。
+ *
+ * `.tmp-worker-build/` 是 `wrangler.jsonc` / `wrangler.152.jsonc` 的 `main`
+ * （`.tmp-worker-build/worker-entry.ts`）。发布顺序是 `release:manifest` → `wrangler deploy`，
+ * 而收尾清理挂在 `release:manifest` 末尾，删掉它会让随后的部署直接失败。
+ */
+const PROTECTED_NAMES = new Set([
+  '.tmp-worker-build'
+]);
 
 /** 被 git 跟踪的 `.tmp-*` 条目：删除会产生仓库变更，默认保护。 */
 const getTrackedTmpEntries = (targetRoot = rootDir) => {
@@ -94,7 +108,7 @@ const mb = (n) => (n / 1024 / 1024).toFixed(2);
  * @param {number|null} [options.keepDays]     保留最近 N 天内的条目
  * @param {number|null} [options.olderThanDays] 只删超过 N 天的条目
  * @param {boolean} [options.quiet]       静默模式（发布脚本收尾用，只输出一行摘要）
- * @returns {{deleted:number, failed:number, freedBytes:number, candidates:number, keptTracked:string[]}}
+ * @returns {{deleted:number, failed:number, freedBytes:number, candidates:number, keptTracked:string[], keptProtected:string[]}}
  */
 export const cleanTmpArtifacts = (options = {}) => {
   const targetRoot = options.root || rootDir;
@@ -128,10 +142,15 @@ export const cleanTmpArtifacts = (options = {}) => {
 
   const toDelete = [];
   const keptTracked = [];
+  const keptProtected = [];
   const keptRecent = [];
 
   for (const item of candidates) {
     const age = daysAgo(item.mtime);
+    if (PROTECTED_NAMES.has(item.name)) {
+      keptProtected.push(item.name);
+      continue;
+    }
     if (tracked.has(item.name) && !includeTracked) {
       keptTracked.push(item.name);
       continue;
@@ -153,6 +172,9 @@ export const cleanTmpArtifacts = (options = {}) => {
   log(`[clean-tmp] 扫描目录: ${targetRoot}`);
   log(`[clean-tmp] 发现 ${TMP_PREFIX}* 条目: ${candidates.length} 项`);
   log(`[clean-tmp] 待删除: ${toDelete.length} 项 / ${mb(totalBytes)} MB / ${totalFiles} 个文件`);
+  if (keptProtected.length) {
+    log(`[clean-tmp] 保留(受保护，非临时产物): ${keptProtected.join(', ')}`);
+  }
   if (keptTracked.length) {
     log(`[clean-tmp] 保留(git 已跟踪，加 --include-tracked 可删): ${keptTracked.join(', ')}`);
   }
@@ -162,7 +184,7 @@ export const cleanTmpArtifacts = (options = {}) => {
 
   if (!toDelete.length) {
     log('[clean-tmp] 没有需要清理的条目。');
-    return { deleted: 0, failed: 0, freedBytes: 0, candidates: candidates.length, keptTracked };
+    return { deleted: 0, failed: 0, freedBytes: 0, candidates: candidates.length, keptTracked, keptProtected };
   }
 
   if (dryRun) {
@@ -173,7 +195,7 @@ export const cleanTmpArtifacts = (options = {}) => {
       .forEach((i) => log(`    ${mb(i.size).padStart(9)} MB  ${i.name}`));
     if (toDelete.length > 30) log(`    ... 另有 ${toDelete.length - 30} 项`);
     log('\n[clean-tmp] dry-run 结束，未改动任何文件。');
-    return { deleted: 0, failed: 0, freedBytes: 0, candidates: candidates.length, keptTracked };
+    return { deleted: 0, failed: 0, freedBytes: 0, candidates: candidates.length, keptTracked, keptProtected };
   }
 
   let deleted = 0;
@@ -192,7 +214,7 @@ export const cleanTmpArtifacts = (options = {}) => {
 
   log(`\n[clean-tmp] 已删除 ${deleted} 项，回收 ${mb(freed)} MB`);
   if (failed) console.warn(`[clean-tmp] ${failed} 项删除失败`);
-  return { deleted, failed, freedBytes: freed, candidates: candidates.length, keptTracked };
+  return { deleted, failed, freedBytes: freed, candidates: candidates.length, keptTracked, keptProtected };
 };
 
 /**
