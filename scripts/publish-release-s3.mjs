@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
+import { cleanTmpAfterRelease } from './clean-tmp.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -342,3 +343,6 @@ console.log(`S3 publish complete:
 - latest.apk object upload=${uploadLatestApk ? 'enabled' : 'skipped; website latest endpoint redirects to the versioned APK'}
 - apkSha256=${apkSha256}
 - apkSize=${apkSize}`);
+
+// 收尾清理临时产物（保留最近 1 天，绝不抛错影响发布结果）
+cleanTmpAfterRelease();

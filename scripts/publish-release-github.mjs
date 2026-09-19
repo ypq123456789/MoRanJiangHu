@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { cleanTmpAfterRelease } from './clean-tmp.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,3 +142,6 @@ GitHub Release publish complete:
 - API tag URL: ${githubApiAssetUrl}
 - All historical releases are preserved (GitHub free unlimited storage for public repos)
 `);
+
+// 收尾清理临时产物（保留最近 1 天，绝不抛错影响发布结果）
+cleanTmpAfterRelease();

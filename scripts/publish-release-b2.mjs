@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolvePreferredApkProvider } from './apk-provider-selection.mjs';
 import { uploadApkFileToOpenListWithCurl, verifyOpenListApkFiles } from './upload-apk-onedrive.mjs';
+import { cleanTmpAfterRelease } from './clean-tmp.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -635,3 +636,6 @@ console.log(`Release manifest publish complete:
 - b2Distribution=decommissioned
 - keptVersionedApks=${uploadedVersions.map((item) => item.versionName).join(', ')}
 - staleVersionedApksDeleted=${deletedCount}`);
+
+// 收尾清理临时产物（保留最近 1 天，绝不抛错影响发布结果）
+cleanTmpAfterRelease();
