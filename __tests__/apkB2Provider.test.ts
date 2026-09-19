@@ -4,7 +4,7 @@ import { onRequestGet } from '../functions/api/apk/version/[file]';
 import { onRequestGet as onLatestApkRequestGet } from '../functions/api/apk/latest.apk';
 
 describe('APK B2 provider', () => {
-    it('uses Quark TV for latest.apk when the manifest does not declare a provider', async () => {
+    it('uses Quark for latest.apk when the manifest does not declare a provider', async () => {
         const originalFetch = globalThis.fetch;
         globalThis.fetch = (async () => new Response(JSON.stringify({
             code: 200,
@@ -36,7 +36,7 @@ describe('APK B2 provider', () => {
             } as any);
 
             expect(response.status).toBe(302);
-            expect(response.headers.get('Location')).toBe('https://openlist.bacon.de5.net/d/%E5%A4%B8%E5%85%8BTV/MoRanJiangHu/releases/latest.apk?sign=default-provider-token');
+            expect(response.headers.get('Location')).toBe('https://openlist.bacon.de5.net/d/%E5%A4%B8%E5%85%8B/MoRanJiangHu/releases/latest.apk?sign=default-provider-token');
             expect(response.headers.get('X-Moran-Apk-Source')).toBe('quark-tv');
         } finally {
             globalThis.fetch = originalFetch;

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildQuarkTvApkRedirect } from '../functions/api/apk/_shared';
@@ -199,5 +202,38 @@ describe('Quark TV APK redirect', () => {
         expect(response.status).toBe(302);
         expect(response.headers.get('X-Moran-Apk-Source')).toBe('quark-tv');
         expect(response.headers.get('Location')).toContain('MoRanJiangHu-v1.0.627.apk?sign=versioned-sign');
+    });
+
+    it('leaves no stale /夸克TV literal behind in the source or the test suite', () => {
+        // 2026-09-19 夸克通道从 /夸克TV 切到 /夸克。当时漏改了 apkB2Provider.test.ts，
+        // 直到 CI 才暴露。这条守卫把「路径字面量」锁死，避免同类漏改再次发生。
+        // 注意：注释里允许提到历史路径，所以只匹配真正的路径字面量。
+        const staleLiterals = [
+            "'/夸克TV/MoRanJiangHu/releases'",
+            '"/夸克TV/MoRanJiangHu/releases"',
+            '%E5%A4%B8%E5%85%8BTV/MoRanJiangHu/releases'
+        ];
+        const roots = ['__tests__', 'tests', 'functions', 'scripts', 'services'];
+        // 本文件自己就存着这些字面量（就在上面的数组里），必须排除，否则自我命中。
+        const SELF = path.resolve(fileURLToPath(import.meta.url));
+        const offenders: string[] = [];
+        const walk = (dir: string) => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) { walk(full); continue; }
+                if (!/\.(ts|tsx|mjs|cjs|js)$/.test(entry.name)) continue;
+                if (path.resolve(full) === SELF) continue;
+                const source = fs.readFileSync(full, 'utf8');
+                for (const literal of staleLiterals) {
+                    if (source.includes(literal)) offenders.push(`${full} → ${literal}`);
+                }
+            }
+        };
+        roots.forEach((root) => {
+            if (fs.existsSync(root)) walk(root);
+        });
+
+        expect(offenders).toEqual([]);
     });
 });
