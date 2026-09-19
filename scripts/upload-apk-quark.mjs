@@ -11,11 +11,12 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // MORAN_OPENLIST_AUTH_TOKEN 而失败（见 load-dev-vars.mjs）。
 const devVarsLoad = loadDevVars();
 
-// ⚠️ 上传目录与校验目录必须是同一个。
-// Worker 侧读的是 QUARK_TV_APK_DIR = '/夸克TV/MoRanJiangHu/releases'
-// （见 functions/api/apk/_shared.ts），此前这里上传到 '/夸克/...' 却去
-// '/夸克TV/...' 校验，即便存储正常也会在校验阶段必然失败。
-const QUARK_APK_ROOT = '/夸克TV/MoRanJiangHu/releases';
+// ⚠️ 上传目录与 Worker 读取目录必须是同一个。
+// 2026-09-19 起 Worker 侧读的是 QUARK_APK_DIR = '/夸克/MoRanJiangHu/releases'
+// （见 functions/api/apk/_shared.ts）。原先两边都用 '/夸克TV/...'，但那个挂载是
+// QuarkTV driver：既要扫码换 refresh token，又是 NoUpload，APK 根本传不进去。
+// 现改用 '/夸克'（Quark driver + 网页 cookie，支持上传），此常量必须与新路径一致。
+const QUARK_APK_ROOT = '/夸克/MoRanJiangHu/releases';
 
 const apkPath = path.resolve(
   process.argv[2]

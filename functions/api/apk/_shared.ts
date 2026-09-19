@@ -333,7 +333,12 @@ export const buildB2ApkRedirect = async (
 
 const ONEDRIVE_APK_DIR = '/Onedrive/MoRanJiangHu/releases';
 const ONEDRIVE_APK_FILE = 'latest.apk';
-const QUARK_TV_APK_DIR = '/夸克TV/MoRanJiangHu/releases';
+// ⚠️ 夸克 APK 目录：历史上读的是 /夸克TV，但那个挂载用的是 QuarkTV driver ——
+// 它既要扫码换 refresh token（无法无头续期），又是 NoUpload（APK 根本传不进去），
+// 所以那条链路从未有过可用产物。2026-09-19 起改读 /夸克：Quark driver + 网页 cookie，
+// 支持上传、可正常签发下载签名。
+// 对外 provider 键仍是 'quark-tv'（不改动，避免破坏老客户端与既有的下载统计口径）。
+const QUARK_APK_DIR = '/夸克/MoRanJiangHu/releases';
 const FULLSTACK_APK_ROOT = '/全栈云盘/MoRanJiangHu';
 const ONEDRIVE_SIGN_CACHE_CONTROL = 'public, max-age=3600';
 const DEFAULT_OPENLIST_PUBLIC_BASE_URL = 'https://openlist.bacon.de5.net';
@@ -404,9 +409,9 @@ export const buildQuarkTvApkRedirect = async (
     downloadFileName: string,
     cacheControl = APK_LATEST_CACHE_CONTROL
 ): Promise<Response | null> => {
-    const sign = await fetchOpenListFileSign(env, QUARK_TV_APK_DIR, storageFileName);
+    const sign = await fetchOpenListFileSign(env, QUARK_APK_DIR, storageFileName);
     if (!sign) return null;
-    const encodedPath = QUARK_TV_APK_DIR
+    const encodedPath = QUARK_APK_DIR
         .split('/')
         .filter(Boolean)
         .map(encodeURIComponent)

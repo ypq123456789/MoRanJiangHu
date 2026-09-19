@@ -26,7 +26,7 @@ describe('Quark TV APK redirect', () => {
             'https://openlist.example/api/fs/list',
             expect.objectContaining({
                 body: JSON.stringify({
-                    path: '/夸克TV/MoRanJiangHu/releases',
+                    path: '/夸克/MoRanJiangHu/releases',
                     password: '',
                     page: 1,
                     per_page: 100,
@@ -36,7 +36,7 @@ describe('Quark TV APK redirect', () => {
         );
         expect(response?.status).toBe(302);
         expect(response?.headers.get('Location')).toBe(
-            'https://openlist.example/d/%E5%A4%B8%E5%85%8BTV/MoRanJiangHu/releases/latest.apk?sign=quark%20sign'
+            'https://openlist.example/d/%E5%A4%B8%E5%85%8B/MoRanJiangHu/releases/latest.apk?sign=quark%20sign'
         );
         expect(response?.headers.get('X-Moran-Apk-Source')).toBe('quark-tv');
     });
@@ -60,7 +60,7 @@ describe('Quark TV APK redirect', () => {
         );
 
         expect(response?.headers.get('Location')).toContain(
-            '/d/%E5%A4%B8%E5%85%8BTV/MoRanJiangHu/releases/MoRanJiangHu-v1.0.627.apk?sign=version-sign'
+            '/d/%E5%A4%B8%E5%85%8B/MoRanJiangHu/releases/MoRanJiangHu-v1.0.627.apk?sign=version-sign'
         );
     });
 

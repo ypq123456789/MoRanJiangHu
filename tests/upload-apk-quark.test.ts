@@ -78,13 +78,13 @@ describe('Quark APK upload', () => {
         await expect(verifyOpenListApkFiles({
             versionName: '1.0.627',
             expectedSize: 12,
-            downloadRoot: '/夸克TV/MoRanJiangHu/releases',
+            downloadRoot: '/夸克/MoRanJiangHu/releases',
             baseUrl: 'https://openlist.example',
             authToken: 'token',
             fetchImpl
         })).resolves.toEqual(expect.objectContaining({
             ok: true,
-            root: '/夸克TV/MoRanJiangHu/releases'
+            root: '/夸克/MoRanJiangHu/releases'
         }));
     });
 
@@ -106,5 +106,40 @@ describe('Quark APK upload', () => {
             authToken: 'token',
             fetchImpl
         })).rejects.toThrow('size mismatch');
+    });
+
+    it('retries verification while the storage backend is still indexing the upload', async () => {
+        // 复现真实故障：夸克对 PUT 返回 200 后是「异步入库」的，列表最初看不到文件。
+        // 旧实现只查一轮就抛 missing，把成功上传误判成失败。
+        const full = [
+            { name: 'latest.apk', is_dir: false, size: 12, sign: 'latest-sign' },
+            { name: 'MoRanJiangHu-v1.0.627.apk', is_dir: false, size: 12, sign: 'version-sign' }
+        ];
+        const listCalls: number[] = [];
+        const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+            if (String(url).endsWith('/api/fs/list')) {
+                listCalls.push(1);
+                // 前两轮空目录（尚未入库），第三轮才可见
+                const content = listCalls.length < 3 ? [] : full;
+                return new Response(JSON.stringify({ code: 200, data: { content } }), { status: 200 });
+            }
+            // 兜底的单文件查询同样还查不到
+            return new Response(JSON.stringify({ code: 500, message: 'object not found' }), { status: 200 });
+        });
+
+        await expect(verifyOpenListApkFiles({
+            versionName: '1.0.627',
+            expectedSize: 12,
+            downloadRoot: '/夸克/MoRanJiangHu/releases',
+            baseUrl: 'https://openlist.example',
+            authToken: 'token',
+            fetchImpl,
+            verifyRetryDelayMs: 0
+        })).resolves.toEqual(expect.objectContaining({
+            ok: true,
+            root: '/夸克/MoRanJiangHu/releases'
+        }));
+
+        expect(listCalls.length).toBe(3);
     });
 });

@@ -344,7 +344,8 @@ const installUpdateInNativeApp = async (manifest: UpdateManifest) => {
     const getChannelLabel = (url: string): string => {
         const lower = url.toLowerCase();
         if (lower.includes('provider=fullstack') || lower.includes('/d/%e5%85%a8%e6%a0%88%e4%ba%91%e7%9b%98/')) return '全栈云盘';
-        if (lower.includes('provider=quark-tv') || lower.includes('/d/%e5%a4%b8%e5%85%8btv/')) return '夸克TV';
+        // 夸克通道自 2026-09-19 起改读 /夸克（Quark driver），provider 键仍是 quark-tv
+        if (lower.includes('provider=quark-tv') || lower.includes('provider=quark') || lower.includes('/d/%e5%a4%b8%e5%85%8b/')) return '夸克';
         if (lower.includes('moranjianghu.bacon159.pp.ua')) return 'VPS';
         if (lower.includes('provider=github-raw') || lower.includes('cloudflare-proxy-6rw.pages.dev/https://raw.githubusercontent.com') || lower.includes('raw.githubusercontent.com/ypq123456789/moranjianghu/apk-dist')) return 'GitHub Raw加速';
         if (lower.includes('provider=github') || lower.includes('objects.githubusercontent.com') || lower.includes('github.com/ypq123456789/moranjianghu/releases')) return 'GitHub';

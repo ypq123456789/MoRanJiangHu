@@ -111,10 +111,12 @@ export const uploadApkToOpenList = async ({
 export const verifyOpenListApkFiles = async ({
   versionName,
   expectedSize,
-  downloadRoot = '/夸克TV/MoRanJiangHu/releases',
+  downloadRoot = '/夸克/MoRanJiangHu/releases',
   baseUrl = 'https://openlist.bacon.de5.net',
   authToken,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  verifyAttempts = 6,
+  verifyRetryDelayMs = 3000
 }) => {
   if (!authToken) throw new Error('Missing MORAN_OPENLIST_AUTH_TOKEN.');
   if (!versionName) throw new Error('release.config.json versionName is empty.');
@@ -124,20 +126,24 @@ export const verifyOpenListApkFiles = async ({
 
   const normalizedBaseUrl = String(baseUrl).replace(/\/+$/, '');
   const normalizedRoot = `/${String(downloadRoot).replace(/^\/+|\/+$/g, '')}`;
-  const response = await fetchImpl(`${normalizedBaseUrl}/api/fs/list`, {
-    method: 'POST',
-    headers: { Authorization: authToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: normalizedRoot, page: 1, per_page: 100, refresh: true }),
-    signal: AbortSignal.timeout(30_000)
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok || payload?.code !== 200 || !Array.isArray(payload?.data?.content)) {
-    throw new Error(`OpenList verification failed for ${normalizedRoot}`);
-  }
 
-  const requiredNames = ['latest.apk', `MoRanJiangHu-v${versionName}.apk`];
-  // OpenList 的目录列表有缓存（refresh:true 也可能返回旧索引），刚上传的文件
-  // 可能短暂不出现在列表里。列表缺失时用 /api/fs/get 逐个兜底确认。
+  const listDirectory = async () => {
+    const response = await fetchImpl(`${normalizedBaseUrl}/api/fs/list`, {
+      method: 'POST',
+      headers: { Authorization: authToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: normalizedRoot, page: 1, per_page: 100, refresh: true }),
+      signal: AbortSignal.timeout(30_000)
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.code !== 200 || !Array.isArray(payload?.data?.content)) {
+      throw new Error(`OpenList verification failed for ${normalizedRoot}`);
+    }
+    return payload.data.content;
+  };
+
+  // 目录列表有缓存（refresh:true 也可能返回旧索引），且夸克这类驱动是
+  // 「PUT 返回 200 之后异步入库」的 —— 文件要过几秒才可见。列表缺失时先用
+  // /api/fs/get 兜底，再整体重试若干轮，避免把「刚上传成功」误判成失败。
   const fetchFileInfo = async (name) => {
     const response = await fetchImpl(`${normalizedBaseUrl}/api/fs/get`, {
       method: 'POST',
@@ -151,18 +157,46 @@ export const verifyOpenListApkFiles = async ({
     }
     return null;
   };
-  const files = await Promise.all(requiredNames.map(async (name) => {
-    let item = payload.data.content.find((entry) => entry?.name === name && !entry?.is_dir);
-    if (!item) item = await fetchFileInfo(name);
-    if (!item) throw new Error(`OpenList verification missing ${name}`);
-    if (Number(item.size) !== expectedSize) {
-      throw new Error(`OpenList verification size mismatch for ${name}: ${item.size}`);
-    }
-    if (!item.sign) throw new Error(`OpenList verification missing sign for ${name}`);
-    return { name, size: Number(item.size), sign: String(item.sign) };
-  }));
 
-  return { ok: true, root: normalizedRoot, files };
+  const requiredNames = ['latest.apk', `MoRanJiangHu-v${versionName}.apk`];
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const resolveOnce = async () => {
+    const content = await listDirectory();
+    const missing = [];
+    const files = [];
+    for (const name of requiredNames) {
+      let item = content.find((entry) => entry?.name === name && !entry?.is_dir);
+      if (!item) item = await fetchFileInfo(name);
+      if (!item) {
+        // 尚未入库 → 可重试
+        missing.push(name);
+        continue;
+      }
+      // 已经出现，说明入库完成；此时尺寸/签名不符属于确定性失败，立即抛出。
+      if (Number(item.size) !== expectedSize) {
+        throw new Error(`OpenList verification size mismatch for ${name}: ${item.size}`);
+      }
+      if (!item.sign) throw new Error(`OpenList verification missing sign for ${name}`);
+      files.push({ name, size: Number(item.size), sign: String(item.sign) });
+    }
+    return { missing, files };
+  };
+
+  const attempts = Number.isSafeInteger(verifyAttempts) && verifyAttempts > 0 ? verifyAttempts : 6;
+  let missing = requiredNames;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const result = await resolveOnce();
+    if (result.missing.length === 0) {
+      return { ok: true, root: normalizedRoot, files: result.files };
+    }
+    missing = result.missing;
+    if (attempt < attempts) {
+      console.log(`[OpenList] 校验第 ${attempt}/${attempts} 轮未见到 ${missing.join(', ')}，${Math.round(verifyRetryDelayMs / 1000)}s 后重试...`);
+      await sleep(verifyRetryDelayMs);
+    }
+  }
+  throw new Error(`OpenList verification missing ${missing.join(', ')} after ${attempts} attempts`);
 };
 
 export const uploadApkFileToOpenListWithCurl = ({

@@ -135,7 +135,7 @@ describe('appUpdate native APK download', () => {
         expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'HEAD')).toBe(false);
     });
 
-    it('labels a Quark TV APK source in update progress', async () => {
+    it('labels a Quark APK source in update progress', async () => {
         const quarkTvUrl = 'https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=quark-tv';
         vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
             if (init?.method === 'HEAD') return new Response(null, { status: 200 });
@@ -164,7 +164,7 @@ describe('appUpdate native APK download', () => {
             unsubscribe();
         }
 
-        expect(messages).toContain('正在准备下载更新包（渠道：夸克TV）...');
+        expect(messages).toContain('正在准备下载更新包（渠道：夸克）...');
     });
 
     it('falls back to bundled release info when the App plugin is unavailable in native webview mode', async () => {
