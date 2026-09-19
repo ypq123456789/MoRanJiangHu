@@ -21,6 +21,11 @@ const handleLatestApkRequest = async (context: any, method: 'GET' | 'HEAD'): Pro
         if (requestedProvider === 'b2') {
             return buildTextResponse('B2 APK provider is decommissioned', 410);
         }
+        // 全栈云盘（WebDAV）挂载的写入上限 < 3MB，5.88MB 的 APK 结构性传不上去，
+        // 该 provider 从未有过可用产物。已下线，明确返回 410 而不是让客户端拿到 503。
+        if (requestedProvider === 'fullstack') {
+            return buildTextResponse('Fullstack APK provider is decommissioned', 410);
+        }
         const resolved = await resolveApkDownload({
             env,
             requestedProvider,

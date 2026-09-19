@@ -298,7 +298,8 @@ const normalizeApkDownloadUrl = (rawUrl?: string): string => {
 const resolveNativeApkDownloadUrls = (manifest: UpdateManifest): string[] => {
     const rawCandidates = [
         ...(Array.isArray(manifest.apkUrls) ? manifest.apkUrls : []),
-        manifest.fullstackApkUrl,
+        // manifest.fullstackApkUrl 已于 2026-09-19 下线（<3MB 写入上限，无可用产物）：
+        // Worker 侧恒返回空串，这里也不再把它当候选，避免旧清单/缓存把客户端指向死链。
         manifest.directApkUrl,
         manifest.oneDriveDirectApkUrl,
         manifest.apkUrl,

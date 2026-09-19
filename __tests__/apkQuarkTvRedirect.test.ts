@@ -149,7 +149,9 @@ describe('Quark TV APK redirect', () => {
         expect(response.status).toBe(302);
         expect(response.headers.get('X-Moran-Apk-Source')).toBe('vps');
         expect(response.headers.get('location')).toBe('https://moranjianghu.bacon159.pp.ua/latest.apk');
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        // 候选链：quark-tv（1 次 OpenList 探测，取不到 sign）→ vps（不发请求，直接 302）。
+        // fullstack 已于 2026-09-19 下线，不再占用一次探测。
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('keeps VPS as the final direct fallback when API-backed providers are unavailable', async () => {

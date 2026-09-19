@@ -63,6 +63,8 @@ export async function onRequestGet({ request, env }: any): Promise<Response> {
             : `${baseUrl}/api/apk/latest.apk`;
         const stableManifestUrl = `${baseUrl}/api/apk/latest.json`;
         const latestApkUrl = `${baseUrl}/api/apk/latest.apk`;
+        // fullstack（全栈云盘）已于 2026-09-19 下线：该 WebDAV 挂载写入上限 < 3MB，
+        // 5.88MB 的 APK 结构性传不上去。字段保留空串仅为兼容老客户端的解析。
         const fullstackApkUrl = '';
         // VPS 通道（moranjianghu.bacon159.pp.ua/latest.apk）已长期未同步、无可用部署通道，
         // 不再对外暴露 stale 死链；需要时由发布流程重新写入有效地址。

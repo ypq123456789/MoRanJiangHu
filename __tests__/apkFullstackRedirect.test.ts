@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildFullstackApkRedirect } from '../functions/api/apk/_shared';
 import { onRequestGet as onLatestApkRequestGet } from '../functions/api/apk/latest.apk';
 
-describe('Fullstack cloud APK redirect', () => {
+describe('Fullstack cloud APK redirect (provider 已下线)', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
     });
@@ -40,11 +40,16 @@ describe('Fullstack cloud APK redirect', () => {
         expect(response?.headers.get('X-Moran-Apk-Source')).toBe('fullstack');
     });
 
-    it('uses Fullstack cloud for an explicitly requested latest APK provider', async () => {
-        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    it('keeps the legacy builder for reference but no longer routes it', async () => {
+        // buildFullstackApkRedirect 仍保留（与 b2 的处理方式一致，便于将来复用），
+        // 但它已不在 _providerRouter 的候选链里，任何显式请求都必须拿到 410。
+        expect(typeof buildFullstackApkRedirect).toBe('function');
+
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
             code: 200,
             data: { content: [{ name: 'latest.apk', is_dir: false, sign: 'latest-sign' }] }
-        }), { status: 200 })));
+        }), { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
 
         const response = await onLatestApkRequestGet({
             request: new Request('https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=fullstack'),
@@ -56,7 +61,30 @@ describe('Fullstack cloud APK redirect', () => {
             }
         } as any);
 
-        expect(response.status).toBe(302);
-        expect(response.headers.get('X-Moran-Apk-Source')).toBe('fullstack');
+        expect(response.status).toBe(410);
+        expect(await response.text()).toContain('decommissioned');
+        // 已下线，连 OpenList 都不该再去问
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('never falls back to the Fullstack provider when no provider is requested', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+            code: 200,
+            data: { content: [] }
+        }), { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const response = await onLatestApkRequestGet({
+            request: new Request('https://msjh.bacon159.pp.ua/api/apk/latest.apk'),
+            env: {
+                MORAN_OPENLIST_AUTH_TOKEN: 'token',
+                RELEASE_MANIFEST: {
+                    get: async () => ({ latest: { versionName: '1.0.633', versionCode: 633 } })
+                }
+            }
+        } as any);
+
+        // 无论落到哪个 provider，都不允许出现 fullstack 的来源标记
+        expect(response.headers.get('X-Moran-Apk-Source')).not.toBe('fullstack');
     });
 });

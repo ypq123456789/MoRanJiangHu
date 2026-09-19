@@ -23,11 +23,8 @@ if (!websiteBaseUrl) {
 }
 
 const providers = [
-  {
-    provider: 'fullstack',
-    label: '全栈云盘',
-    url: `${websiteBaseUrl}/api/apk/latest.apk?provider=fullstack`
-  },
+  // fullstack（全栈云盘）已于 2026-09-19 下线：该 WebDAV 挂载写入上限 < 3MB，
+  // 5.88MB 的 APK 结构性传不上去，benchmark 它只会得到一个稳定的 410。
   {
     provider: 'vps',
     label: 'VPS 直连',
