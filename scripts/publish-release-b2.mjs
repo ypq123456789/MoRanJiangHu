@@ -7,47 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { resolvePreferredApkProvider } from './apk-provider-selection.mjs';
 import { uploadApkFileToOpenListWithCurl, verifyOpenListApkFiles } from './upload-apk-onedrive.mjs';
 import { cleanTmpAfterRelease } from './clean-tmp.mjs';
+import { loadDevVars } from './load-dev-vars.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-/**
- * 从项目根目录的 .dev.vars 载入凭据到 process.env（已存在的环境变量优先，不被覆盖）。
- *
- * 为什么需要：本脚本此前只从 process.env 读配置，却从未加载 .dev.vars，
- * 因此写 KV 时 wrangler 子进程拿不到 CLOUDFLARE_EMAIL/CLOUDFLARE_API_KEY，
- * 写入静默失败（2026-09-19 v1.0.669 发布时复现），而脚本仍以 exit 0 收尾，造成「假成功」。
- * 这里让脚本自足：即使操作者忘记用 run-with-cf-creds.mjs 包裹也能正常发布。
- *
- * .dev.vars 已被 .gitignore（`.dev.vars*`）忽略，凭据只留在本机，不会进仓库。
- * 注意：生产账号 B 用的是 Global API Key，必须同时提供 CLOUDFLARE_EMAIL；
- * 误用 CLOUDFLARE_API_TOKEN 会得到 `Invalid access token [code: 9109]`。
- */
-const loadDevVars = () => {
-  const devVarsPath = path.join(rootDir, '.dev.vars');
-  let raw = '';
-  try {
-    raw = fs.readFileSync(devVarsPath, 'utf8');
-  } catch {
-    return { loaded: false, keys: [] };
-  }
-  const keys = [];
-  raw.split(/\r?\n/).forEach((line) => {
-    const text = line.trim();
-    if (!text || text.startsWith('#')) return;
-    const idx = text.indexOf('=');
-    if (idx <= 0) return;
-    const key = text.slice(0, idx).trim();
-    const value = text.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
-    if (!key || !value) return;
-    if (process.env[key]) return; // 真实环境变量优先
-    process.env[key] = value;
-    keys.push(key);
-  });
-  return { loaded: true, keys };
-};
-
+// 见 scripts/load-dev-vars.mjs 的说明：本脚本必须自足加载 .dev.vars，
+// 否则写 KV 时 wrangler 子进程拿不到 CLOUDFLARE_EMAIL/CLOUDFLARE_API_KEY，
+// 写入静默失败却仍 exit 0，造成「假成功」。
 const devVarsLoad = loadDevVars();
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));

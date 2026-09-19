@@ -6,10 +6,15 @@ import {
   uploadApkFileToOpenListWithCurl,
   verifyOpenListApkTargets
 } from './upload-apk-onedrive.mjs';
+import { loadDevVars } from './load-dev-vars.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const rootDir = path.resolve(path.dirname(__filename), '..');
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+
+// 自足加载 .dev.vars，否则本机直接 `npm run release:fullstack` 会因缺少
+// MORAN_OPENLIST_AUTH_TOKEN 而失败（见 load-dev-vars.mjs）。
+const devVarsLoad = loadDevVars();
 
 export const buildFullstackUploadTargets = (versionName) => {
   const safeVersion = String(versionName || '').trim();
@@ -69,6 +74,10 @@ if (isMain) {
   const timeoutMs = Math.max(1000, Number(process.env.MORAN_OPENLIST_UPLOAD_TIMEOUT_MS || 600000));
 
   if (!fs.existsSync(apkPath)) throw new Error(`APK not found: ${apkPath}`);
+  console.log(devVarsLoad.loaded
+    ? `[env] .dev.vars loaded (${devVarsLoad.keys.length} keys applied)`
+    : '[env] .dev.vars not found — 仅使用当前 shell 环境变量');
+  if (!authToken) throw new Error('缺少 MORAN_OPENLIST_AUTH_TOKEN：请写入 .dev.vars 或显式导出该环境变量。');
   const result = await uploadApkToFullstack({
     apkPath,
     versionName: releaseInfo.versionName,

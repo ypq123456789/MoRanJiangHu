@@ -192,37 +192,32 @@ describe('appUpdate native APK download', () => {
         expect(result.opened).toBe(true);
     });
 
-    it('downloads the web APK through a Blob URL without navigating to a cross-origin redirect', async () => {
+    it('hands the web APK URL straight to the browser instead of fetching it, so third-party redirects cannot break it via CORS', async () => {
         nativeRuntimeMock.native = false;
         const click = vi.fn();
         const remove = vi.fn();
         const appendChild = vi.fn();
-        const revokeObjectURL = vi.fn();
-        const createObjectURL = vi.fn(() => 'blob:https://msjh.bacon159.pp.ua/apk');
         const link: Record<string, any> = { click, remove, style: {} };
         vi.stubGlobal('document', {
             body: { appendChild },
             createElement: vi.fn(() => link)
         });
-        vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
-        const apkBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
-        const fetchMock = vi.fn(async () => new Response(apkBytes, {
-            status: 200,
-            headers: { 'Content-Type': 'application/vnd.android.package-archive' }
-        }));
+        // /api/apk/* 会 302 到第三方加速镜像（如 gh-proxy.com），而 fetch 默认是
+        // mode:'cors'，末跳响应不带 Access-Control-Allow-Origin 时会抛
+        // `TypeError: Failed to fetch`。浏览器端必须走顶层导航，绝不能再 fetch。
+        const fetchMock = vi.fn(async () => {
+            throw new TypeError('Failed to fetch');
+        });
         vi.stubGlobal('fetch', fetchMock);
 
         const { downloadLatestApkPackage } = await import('../services/appUpdate');
         await downloadLatestApkPackage();
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            'https://msjh.bacon159.pp.ua/api/apk/latest.apk',
-            expect.objectContaining({ method: 'GET' })
-        );
-        expect(link.href).toBe('blob:https://msjh.bacon159.pp.ua/apk');
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(appendChild).toHaveBeenCalledWith(link);
+        expect(link.href).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk');
         expect(link.download).toBe('MoRanJiangHu-v1.0.289.apk');
         expect(click).toHaveBeenCalledTimes(1);
-        expect(revokeObjectURL).toHaveBeenCalledWith('blob:https://msjh.bacon159.pp.ua/apk');
     });
 
     it('downloads the web APK from the VPS origin when opened on the VPS backup domain', async () => {
@@ -241,22 +236,13 @@ describe('appUpdate native APK download', () => {
             body: { appendChild: vi.fn() },
             createElement: vi.fn(() => link)
         });
-        vi.stubGlobal('URL', Object.assign(URL, {
-            createObjectURL: vi.fn(() => 'blob:https://moranjianghu.bacon159.pp.ua/apk'),
-            revokeObjectURL: vi.fn()
-        }));
-        const fetchMock = vi.fn(async () => new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), {
-            status: 200,
-            headers: { 'Content-Type': 'application/vnd.android.package-archive' }
-        }));
+        const fetchMock = vi.fn();
         vi.stubGlobal('fetch', fetchMock);
 
         const { downloadLatestApkPackage } = await import('../services/appUpdate');
         await downloadLatestApkPackage();
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            'https://moranjianghu.bacon159.pp.ua/api/apk/latest.apk',
-            expect.objectContaining({ method: 'GET' })
-        );
+        expect(link.href).toBe('https://moranjianghu.bacon159.pp.ua/api/apk/latest.apk');
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 });

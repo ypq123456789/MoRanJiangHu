@@ -3,8 +3,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { uploadApkFileToOpenListWithCurl, verifyOpenListApkFiles } from './upload-apk-onedrive.mjs';
+import { loadDevVars } from './load-dev-vars.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// 自足加载 .dev.vars，否则本机直接 `npm run release:quark` 会因缺少
+// MORAN_OPENLIST_AUTH_TOKEN 而失败（见 load-dev-vars.mjs）。
+const devVarsLoad = loadDevVars();
+
+// ⚠️ 上传目录与校验目录必须是同一个。
+// Worker 侧读的是 QUARK_TV_APK_DIR = '/夸克TV/MoRanJiangHu/releases'
+// （见 functions/api/apk/_shared.ts），此前这里上传到 '/夸克/...' 却去
+// '/夸克TV/...' 校验，即便存储正常也会在校验阶段必然失败。
+const QUARK_APK_ROOT = '/夸克TV/MoRanJiangHu/releases';
+
 const apkPath = path.resolve(
   process.argv[2]
   || path.join(rootDir, 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
@@ -15,10 +27,16 @@ const baseUrl = String(process.env.MORAN_OPENLIST_BASE_URL || 'https://openlist.
 const authToken = String(process.env.MORAN_OPENLIST_AUTH_TOKEN || '').trim();
 const timeoutMs = Math.max(1000, Number(process.env.MORAN_OPENLIST_UPLOAD_TIMEOUT_MS || 600000));
 
+console.log(devVarsLoad.loaded
+  ? `[env] .dev.vars loaded (${devVarsLoad.keys.length} keys applied)`
+  : '[env] .dev.vars not found — 仅使用当前 shell 环境变量');
+if (!authToken) throw new Error('缺少 MORAN_OPENLIST_AUTH_TOKEN：请写入 .dev.vars 或显式导出该环境变量。');
+console.log(`[quark] 上传目标 ${QUARK_APK_ROOT}（v${releaseInfo.versionName}，${apkSize} 字节）`);
+
 const uploaded = uploadApkFileToOpenListWithCurl({
   apkPath,
   versionName: releaseInfo.versionName,
-  targetRoot: '/夸克/MoRanJiangHu/releases',
+  targetRoot: QUARK_APK_ROOT,
   baseUrl,
   authToken,
   timeoutMs
@@ -26,7 +44,7 @@ const uploaded = uploadApkFileToOpenListWithCurl({
 const verified = await verifyOpenListApkFiles({
   versionName: releaseInfo.versionName,
   expectedSize: apkSize,
-  downloadRoot: '/夸克TV/MoRanJiangHu/releases',
+  downloadRoot: QUARK_APK_ROOT,
   baseUrl,
   authToken
 });

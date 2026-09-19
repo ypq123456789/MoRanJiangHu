@@ -143,22 +143,28 @@ const triggerBrowserFileDownload = (url: string, filename: string): void => {
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
+    // 不要在 click() 之后同步移除：部分浏览器还没开始读取 href 就把节点摘掉，下载会静默失败。
     window.setTimeout(() => {
         link.remove();
-    }, 0);
+    }, 1000);
 };
 
-const downloadBrowserFile = async (url: string, filename: string): Promise<void> => {
-    const response = await fetch(url, { method: 'GET' });
-    if (!response.ok) {
-        throw new Error(`APK 下载请求失败，HTTP ${response.status}`);
-    }
-    const objectUrl = URL.createObjectURL(await response.blob());
-    try {
-        triggerBrowserFileDownload(objectUrl, filename);
-    } finally {
-        URL.revokeObjectURL(objectUrl);
-    }
+/**
+ * 触发浏览器端 APK 下载。
+ *
+ * ⚠️ 这里**刻意不用 fetch + Blob**：`/api/apk/*` 会 302 到第三方加速镜像
+ * （GitHub Release 加速、OpenList 代理等），而 `fetch` 默认是 `mode: 'cors'`，
+ * **末跳响应必须带 `Access-Control-Allow-Origin`**，否则抛
+ * `TypeError: Failed to fetch`（站内那个 302 自己带的 CORS 头不算数）。
+ * 实测 `gh-proxy.com`、`ghfast.top` 都不带该头，一旦它们被选为 provider，
+ * 网页端下载就必然失败。
+ *
+ * 顶层导航不受 CORS 约束，且每个 provider 的 302 都带
+ * `Content-Disposition: attachment; filename=...`，所以直接交给浏览器下载最稳，
+ * 也顺带避免了「Blob URL 用完立刻 revoke 把下载掐断」的老问题。
+ */
+const downloadBrowserFile = (url: string, filename: string): void => {
+    triggerBrowserFileDownload(url, filename);
 };
 
 const resolveBrowserApkDownloadUrl = (rawUrl: string): string => {
@@ -406,7 +412,7 @@ export const downloadLatestApkPackage = async (): Promise<void> => {
     if (!isNativeCapacitorEnvironment()) {
         const rawUrl = RELEASE_INFO.apkDownloadUrl;
         if (!rawUrl) throw new Error('缺少 APK 下载地址。');
-        await downloadBrowserFile(
+        downloadBrowserFile(
             resolveBrowserApkDownloadUrl(rawUrl),
             `MoRanJiangHu-v${RELEASE_INFO.versionName}.apk`
         );
