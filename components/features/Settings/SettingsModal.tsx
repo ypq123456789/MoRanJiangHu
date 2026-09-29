@@ -156,10 +156,10 @@ const SettingsModal: React.FC<Props> = ({
         { id: 'theme', label: '界面风格' },
         { id: 'storage', label: '数据存储' }
     ] as const;
-    const diagnosticsEnabled = (gameConfig as any)?.启用研发诊断模式 === true;
-    const visibleTabItems = diagnosticsEnabled
-        ? tabItems
-        : tabItems.filter((item) => !['context', 'history'].includes(item.id));
+    // 「上下文」是排查提示词 / 额外提示词来源的唯一入口，必须始终可见；
+    // 只有偏调试性质的「互动历史」才随研发 / 诊断模式显隐。
+    const visibleTabItems = tabItems.filter((item) => item.id !== 'history'
+        || (gameConfig as any)?.启用研发诊断模式 === true).slice();
     React.useEffect(() => {
         if (!visibleTabItems.some((item) => item.id === activeTab)) {
             onTabChange('game');

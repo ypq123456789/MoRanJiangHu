@@ -654,7 +654,7 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                 <div className="flex items-center justify-between gap-4">
                     <div>
                         <div className="text-sm text-wuxia-cyan font-bold">研发 / 诊断模式</div>
-                        <div className="text-xs text-gray-400 mt-1">开启后显示运行日志、NPC 管理、变量管理、地图 NPC 调试等高级排错入口；关闭后普通玩家界面更干净。</div>
+                        <div className="text-xs text-gray-400 mt-1">开启后显示互动历史（含记忆回溯）、运行日志、地图 NPC 调试等高级排错入口；关闭后普通玩家界面更干净。注：「上下文」入口始终可见。</div>
                     </div>
                     <ToggleSwitch
                         checked={(form as any).启用研发诊断模式 === true}
