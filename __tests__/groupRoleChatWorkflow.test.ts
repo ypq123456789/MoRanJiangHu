@@ -62,6 +62,13 @@ describe('群聊模型输出解析', () => {
         expect(提取群聊流式正文('<正文>轮到老李了。</正文><调度>{"action":"continue"}'))
             .toBe('轮到老李了。');
     });
+
+    it('模型重复打开正文标签时，正文不残留标签', () => {
+        const result = 解析群聊模型输出('<正文>（拱手）今夜我值守阁楼，子时换灯。<正文>');
+        expect(result.正文).toBe('（拱手）今夜我值守阁楼，子时换灯。');
+        expect(result.动作).toBe('wait');
+        expect(result.调度有效).toBe(false);
+    });
 });
 
 describe('群聊自动接话', () => {

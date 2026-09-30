@@ -869,7 +869,8 @@ const 清洗导入存档 = (raw: any): Omit<存档结构, 'id'> | null => {
         核心提示词快照: raw.核心提示词快照 && typeof raw.核心提示词快照 === 'object' ? 深拷贝(raw.核心提示词快照) : undefined,
         角色锚点列表: Array.isArray(raw.角色锚点列表) ? 深拷贝(raw.角色锚点列表) : undefined,
         当前角色锚点ID: typeof raw.当前角色锚点ID === 'string' ? raw.当前角色锚点ID : undefined,
-        拍卖行: raw.拍卖行 && typeof raw.拍卖行 === 'object' ? 深拷贝(raw.拍卖行) : undefined
+        拍卖行: raw.拍卖行 && typeof raw.拍卖行 === 'object' && !Array.isArray(raw.拍卖行) ? 深拷贝(raw.拍卖行) : undefined,
+        场外对话: Array.isArray(raw.场外对话) ? 深拷贝(raw.场外对话) : undefined
     };
 
     normalized.元数据 = {

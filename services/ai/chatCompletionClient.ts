@@ -104,6 +104,25 @@ export const 翻译网关超时提示 = (status: number, detail?: string): strin
     return `${前缀}${建议}${原始 ? `（原始信息：${原始}）` : ''}`;
 };
 
+/**
+ * 401 / 403 / 404 多为渠道配置问题而非游戏故障：Key 无效、地址拼错或模型不存在。
+ * 原样抛出 `API Error: 401 - {"error":...}` 对玩家没有可操作性，这里翻译成排查建议，
+ * 并保留原始信息片段便于排障（与 翻译网关超时提示 同一模式）。
+ */
+export const 翻译鉴权与地址错误提示 = (status: number, detail?: string): string | null => {
+    if (status !== 401 && status !== 403 && status !== 404) return null;
+    const 前缀 = status === 401
+        ? 'AI 接口鉴权失败（401）：服务商拒绝了这把 API Key。'
+        : status === 403
+            ? 'AI 接口拒绝访问（403）：这把 Key 无权使用该接口，或来源 IP/地区被限制。'
+            : 'AI 接口返回 404：接口地址或模型不存在。';
+    const 建议 = status === 404
+        ? '请检查 Base URL 是否拼错（例如缺 /v1 后缀）、模型名在该服务商处是否确实存在；部分渠道过载或限流时也会短暂返回 404，可稍后重试。'
+        : '请到接口设置核对 API Key 是否正确、是否过期，账户是否有余额或权限；更换 Key 或渠道后再试。';
+    const 原始 = (detail || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+    return `${前缀}${建议}${原始 ? `（原始信息：${原始}）` : ''}`;
+};
+
 const 响应详情疑似不支持流式 = (text: string): boolean => {
     const raw = (text || '').toLowerCase();
     if (raw.includes('event-stream')) return true;
@@ -1534,6 +1553,11 @@ const 解析SSE文本XHR = (
                     settleReject(new 协议请求错误(网关超时提示, xhr.status, detail));
                     return;
                 }
+                const 鉴权地址提示 = 翻译鉴权与地址错误提示(xhr.status, detail);
+                if (鉴权地址提示) {
+                    settleReject(new 协议请求错误(鉴权地址提示, xhr.status, detail));
+                    return;
+                }
                 settleReject(new 协议请求错误(`API Error: ${xhr.status}${detail ? ` - ${detail}` : ''}`, xhr.status, detail));
                 return;
             }
@@ -2023,6 +2047,9 @@ const 请求OpenAI家族文本 = async (
             // 网关超时（524/504）同样要给出可执行说明，而不是一串 `error code: 524`。
             const 网关超时提示 = 翻译网关超时提示(response.status, detail);
             if (网关超时提示) throw new 协议请求错误(网关超时提示, response.status, detail);
+            // 401/403/404 是配置问题的概率远大于游戏故障，同样翻译成排查建议。
+            const 鉴权地址提示 = 翻译鉴权与地址错误提示(response.status, detail);
+            if (鉴权地址提示) throw new 协议请求错误(鉴权地址提示, response.status, detail);
             if (useStream && 响应详情疑似不支持流式(detail) && !downgradedFromStream) {
                 useStream = false;
                 downgradedFromStream = true;

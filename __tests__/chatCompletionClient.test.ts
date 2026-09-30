@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { __测试__清除已触发上下文截断警告, 应用Claude兼容末尾User修正, 应用Gemini尾部Model回合修正, 是否Gemini系模型, 请求模型文本, 是否流式连接中断错误消息, 规范化流式连接错误提示, 规范化请求模型名称, type 通用消息 } from '../services/ai/chatCompletionClient';
+import { __测试__清除已触发上下文截断警告, 应用Claude兼容末尾User修正, 应用Gemini尾部Model回合修正, 是否Gemini系模型, 请求模型文本, 是否流式连接中断错误消息, 规范化流式连接错误提示, 规范化请求模型名称, 翻译鉴权与地址错误提示, type 通用消息 } from '../services/ai/chatCompletionClient';
 import type { 当前可用接口结构 } from '../utils/apiConfig';
 
 const baseConfig: 当前可用接口结构 = {
@@ -11,6 +11,23 @@ const baseConfig: 当前可用接口结构 = {
     apiKey: 'test-key',
     model: 'test-model'
 };
+
+describe('翻译鉴权与地址错误提示', () => {
+    it('401/403/404 翻译成可执行的排查建议并保留原始信息', () => {
+        const e401 = 翻译鉴权与地址错误提示(401, '{"error":{"message":"invalid api key"}}');
+        expect(e401).toContain('401');
+        expect(e401).toContain('API Key');
+        expect(e401).toContain('原始信息');
+        expect(翻译鉴权与地址错误提示(404, 'model not found')).toContain('Base URL');
+        expect(翻译鉴权与地址错误提示(403, '')).toContain('403');
+    });
+
+    it('其他状态码不接手', () => {
+        expect(翻译鉴权与地址错误提示(400, 'bad request')).toBeNull();
+        expect(翻译鉴权与地址错误提示(500, 'oops')).toBeNull();
+        expect(翻译鉴权与地址错误提示(504, 'gateway')).toBeNull();
+    });
+});
 
 describe('chatCompletionClient Claude compatible message normalization', () => {
     afterEach(() => {

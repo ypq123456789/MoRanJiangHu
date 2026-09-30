@@ -11,6 +11,9 @@ import {
 } from '../hooks/useGame/roleChatWorkflow';
 import type { 场外对话消息结构 } from '../models/system';
 
+// 「清理角色对话输出」的标签清理用例已由官方 main 合入的
+// roleChatTagBoundaryCleanup.test.ts 覆盖（成对/双开/孤立闭合/字面保留）。
+
 const 目标NPC = {
     id: 'npc-1',
     姓名: '沈听澜',

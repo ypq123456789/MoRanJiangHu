@@ -17,7 +17,7 @@ import {
     规范化接口设置
 } from '../../../utils/apiConfig';
 import type { 当前可用接口结构 } from '../../../utils/apiConfig';
-import { 请求模型文本, type 通用消息 } from '../../../services/ai/chatCompletionClient';
+import { 协议请求错误, 请求模型文本, type 通用消息 } from '../../../services/ai/chatCompletionClient';
 
 type StageStatus = 'enabled' | 'disabled' | 'fallback' | 'blocked';
 
@@ -609,7 +609,11 @@ const WorkflowGraphSettings: React.FC<{
             const reply = trim(text).replace(/\s+/g, ' ').slice(0, 80) || '无文本回复';
             setStageMessage(stage.id, `测试成功：${elapsed}ms，回复：${reply}`);
         } catch (error: any) {
-            const raw = error?.detail ?? error?.message ?? error ?? '未知错误';
+            // 协议请求错误的 message 是已翻译的中文处置建议（如 401/404），原始详情留在
+            // detail 仅作诊断，因此优先展示 message；其他错误维持原有展示顺序。
+            const raw = error instanceof 协议请求错误
+                ? error.message
+                : error?.detail ?? error?.message ?? error ?? '未知错误';
             const detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
             setStageMessage(stage.id, `测试失败：${detail.slice(0, 240)}`);
         } finally {
