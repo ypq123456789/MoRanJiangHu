@@ -5,6 +5,7 @@ import ToggleSwitch from '../../ui/ToggleSwitch';
 import { 构建OpenAI兼容模型列表候选地址, 规范化接口设置 } from '../../../utils/apiConfig';
 import { 默认角色对话提示词 } from '../../../prompts/runtime/defaults';
 import StageApiModelSelector from './StageApiModelSelector';
+import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
 interface Props {
     settings: 接口设置结构;
@@ -142,6 +143,8 @@ const RoleChatModelSettings: React.FC<Props> = ({ settings, onSave }) => {
         <div className="space-y-6 text-sm animate-fadeIn">
             <div className="flex justify-between items-center border-b border-wuxia-gold/30 pb-3 mb-6">
                 <h3 className="text-wuxia-gold font-serif font-bold text-xl">角色对话模型</h3>
+                {/* 角色对话不在「功能模型工作流」流程图里，问号挂在这里 */}
+                <功能模型建议说明 stageId="rolechat" />
             </div>
 
             <div className="rounded-md border border-wuxia-gold/20 bg-black/25 p-4 space-y-4">

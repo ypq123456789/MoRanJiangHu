@@ -18,6 +18,7 @@ import {
 } from '../../../utils/apiConfig';
 import type { 当前可用接口结构 } from '../../../utils/apiConfig';
 import { 协议请求错误, 请求模型文本, type 通用消息 } from '../../../services/ai/chatCompletionClient';
+import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
 type StageStatus = 'enabled' | 'disabled' | 'fallback' | 'blocked';
 
@@ -740,7 +741,11 @@ const WorkflowGraphSettings: React.FC<{
             <>
             <div className="flex items-start justify-between gap-2">
                 <div>
-                    <div className="text-[13px] font-bold tracking-[0.12em] text-white">{stage.title}</div>
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-bold tracking-[0.12em] text-white">{stage.title}</span>
+                        {/* 「模型配置建议」问号：与下方开关注解（做什么）互补，这里回答该配什么模型 */}
+                        <功能模型建议说明 stageId={stage.id} />
+                    </div>
                     <div className="mt-0.5 text-[10px] text-gray-400">{stage.subtitle}</div>
                 </div>
                 <span className="shrink-0 rounded border border-white/15 bg-black/25 px-1.5 py-0.5 text-[10px] text-current">

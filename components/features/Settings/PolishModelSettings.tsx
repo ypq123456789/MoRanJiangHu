@@ -6,6 +6,7 @@ import InlineSelect from '../../ui/InlineSelect';
 import { 构建OpenAI兼容模型列表候选地址, 规范化接口设置 } from '../../../utils/apiConfig';
 import { 默认文章优化提示词 } from '../../../prompts/runtime/defaults';
 import StageApiModelSelector from './StageApiModelSelector';
+import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
 interface Props {
     settings: 接口设置结构;
@@ -140,6 +141,8 @@ const PolishModelSettings: React.FC<Props> = ({ settings, onSave }) => {
         <div className="space-y-6 text-sm animate-fadeIn">
             <div className="flex justify-between items-center border-b border-wuxia-gold/30 pb-3 mb-6">
                 <h3 className="text-wuxia-gold font-serif font-bold text-xl">文章优化模型</h3>
+                {/* 「模型配置建议」问号：说清该配什么模型、三档取舍与常见误区 */}
+                <功能模型建议说明 stageId="polish" />
             </div>
 
             <div className="rounded-md border border-wuxia-gold/20 bg-black/25 p-4 space-y-4">

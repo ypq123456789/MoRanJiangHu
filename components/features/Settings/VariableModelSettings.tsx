@@ -5,6 +5,7 @@ import ToggleSwitch from '../../ui/ToggleSwitch';
 import InlineSelect from '../../ui/InlineSelect';
 import { 构建OpenAI兼容模型列表候选地址, 规范化接口设置 } from '../../../utils/apiConfig';
 import StageApiModelSelector from './StageApiModelSelector';
+import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
 interface Props {
     settings: 接口设置结构;
@@ -135,7 +136,11 @@ const VariableModelSettings: React.FC<Props> = ({ settings, onSave }) => {
         <div className="space-y-6 text-sm animate-fadeIn">
             <div className="flex items-center justify-between border-b border-cyan-500/30 pb-3 mb-6">
                 <div>
-                    <h3 className="text-cyan-200 font-serif font-bold text-xl">变量生成</h3>
+                    <div className="flex items-center gap-1.5">
+                        <h3 className="text-cyan-200 font-serif font-bold text-xl">变量生成</h3>
+                        {/* 「模型配置建议」问号：说清该配什么模型、三档取舍与常见误区 */}
+                        <功能模型建议说明 stageId="variable" />
+                    </div>
                     <div className="mt-1 text-xs text-gray-400">统一管理变量生成总开关、模型与接口。这里的开关只影响本地确定性修正和独立变量生成链路，不再向主剧情正文上下文注入旧式变量命令协议。</div>
                 </div>
             </div>
