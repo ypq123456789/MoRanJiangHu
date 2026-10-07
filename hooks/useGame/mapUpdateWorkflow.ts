@@ -526,12 +526,20 @@ export const 生成地图更新 = async (
     params.signal?.addEventListener('abort', abortRequest, { once: true });
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
-    const timeoutPromise = new Promise<never>((_, reject) => {
+    const rejectTimeoutRef: { current: ((reason?: any) => void) | null } = { current: null };
+    const 重置为完整预算 = () => {
+        // 降级非流式重试前重新计满：计时器从流式请求发起就开始走，
+        // 流式阶段耗掉的 120 秒预算会让重试几乎必然超时。
+        if (timeoutId) clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
             timedOut = true;
             requestController.abort(new Error(`地图更新请求超过 ${Math.round(地图更新请求超时毫秒 / 1000)} 秒未返回`));
-            reject(new Error(`地图更新请求超过 ${Math.round(地图更新请求超时毫秒 / 1000)} 秒未返回，已自动跳过本轮地图更新。`));
+            rejectTimeoutRef.current?.(new Error(`地图更新请求超过 ${Math.round(地图更新请求超时毫秒 / 1000)} 秒未返回，已自动跳过本轮地图更新。`));
         }, 地图更新请求超时毫秒);
+    };
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        rejectTimeoutRef.current = reject;
+        重置为完整预算();
     });
 
     let rawText = '';
@@ -554,6 +562,10 @@ export const 生成地图更新 = async (
                 const 完整性结果 = await 执行带完整性校验的请求({
                     功能名: params.mode === 'memory_regenerate' ? '地图重生成' : '地图更新',
                     强制非流式: shouldNonStream || !params.onDelta,
+                    // 截断的命令块仍可能解析出部分合法命令，合并后 `commands.length > 0`
+                    // 会把「只更新了一半」判定为成功。重试也失败时整体丢弃，本轮跳过地图更新。
+                    重试失败处置: '抛出错误',
+                    重试前重置超时: 重置为完整预算,
                     发起流式请求: (streamOptions) => 发起地图更新请求({
                         stream: true,
                         onDelta: params.onDelta,

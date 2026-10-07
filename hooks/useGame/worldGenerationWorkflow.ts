@@ -174,7 +174,7 @@ const 是否模式包能力片段 = (text: string): boolean => {
 const 执行带超时 = async <T,>(
     stageLabel: string,
     timeoutMs: number,
-    task: (signal: AbortSignal, 标记活动: () => void) => Promise<T>,
+    task: (signal: AbortSignal, 标记活动: () => void, 重置为完整预算: () => void) => Promise<T>,
     options?: { idleTimeout?: boolean }
 ): Promise<T> => {
     const controller = new AbortController();
@@ -198,8 +198,15 @@ const 执行带超时 = async <T,>(
                 启动计时(rejectTimeout);
             }
         };
+        // 降级非流式重试前把计时器重置。idleTimeout 模式下计时器会在流式活动时反复重置，
+        // 非流式重试不产生任何增量，不重置必然被超时掐断。
+        const 重置为完整预算 = () => {
+            if (rejectTimeout) {
+                启动计时(rejectTimeout);
+            }
+        };
         return await Promise.race([
-            task(controller.signal, 标记活动),
+            task(controller.signal, 标记活动, 重置为完整预算),
             new Promise<T>((_, reject) => {
                 rejectTimeout = reject;
                 启动计时(reject);
@@ -427,7 +434,7 @@ export const 执行世界生成工作流 = async (
                 }, 420);
             }
 
-            realmPromptContent = await 执行带超时('同人境界体系生成', 境界阶段超时毫秒, async (signal, 标记活动) => {
+            realmPromptContent = await 执行带超时('同人境界体系生成', 境界阶段超时毫秒, async (signal, 标记活动, 重置为完整预算) => {
                 // 空闲超时只挡「长时间无新数据」，挡不住「快速断流」——
                 // 中转站收到一部分 token 就关连接时，残缺的境界体系会被直接写进提示词池。
                 const 发起境界体系请求 = (streamOptions?: { onStreamEnd?: (info: any) => void }) => textAIService.generateFandomRealmData(
@@ -459,6 +466,9 @@ export const 执行世界生成工作流 = async (
                 const 完整性结果 = await 执行带完整性校验的请求({
                     功能名: '同人境界体系生成',
                     强制非流式: !openingRequestStreaming,
+                    // 截断的境界体系仍可能解析出**部分合法条目**，写进提示词池就是「体系只写了一半」。
+                    重试失败处置: '抛出错误',
+                    重试前重置超时: 重置为完整预算,
                     发起流式请求: (streamOptions) => 发起境界体系请求(streamOptions),
                     发起非流式请求: () => 发起境界体系请求(),
                     onFallback: (info) => {
@@ -543,7 +553,7 @@ export const 执行世界生成工作流 = async (
                 factions: [],
                 rawText: normalizedManualWorldPrompt
             }
-            : await 执行带超时(useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观', 世界观阶段超时毫秒, async (signal, 标记活动) => {
+            : await 执行带超时(useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观', 世界观阶段超时毫秒, async (signal, 标记活动, 重置为完整预算) => {
                 // 同上：残缺的世界观会被写进提示词池并参与后续所有回合，必须拦住半截结果。
                 const 发起世界观请求 = (streamOptions?: { onStreamEnd?: (info: any) => void }) => textAIService.generateWorldFoundationData(
                     worldGenerationContext,
@@ -576,6 +586,9 @@ export const 执行世界生成工作流 = async (
                 const 完整性结果 = await 执行带完整性校验的请求({
                     功能名: useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观',
                     强制非流式: !openingRequestStreaming,
+                    // 同上：残缺的世界观会被写进提示词池并参与后续所有回合，不能接受半截结果。
+                    重试失败处置: '抛出错误',
+                    重试前重置超时: 重置为完整预算,
                     发起流式请求: (streamOptions) => 发起世界观请求(streamOptions),
                     发起非流式请求: () => 发起世界观请求(),
                     onFallback: (info) => {

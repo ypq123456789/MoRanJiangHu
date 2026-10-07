@@ -1358,6 +1358,9 @@ export const useGame = () => {
         const result = await 执行带完整性校验的请求({
             功能名: '记忆总结',
             强制非流式,
+            // 记忆总结一旦应用就会**替换**原始记忆条目，半截草稿被误点应用是不可恢复的数据丢失。
+            // 重试仍失败时抛错，由两条 catch 统一进入「清空草稿 + 错误提示 + review 可重试」状态。
+            重试失败处置: '抛出错误',
             发起流式请求: (streamOptions) => textAIService.generateMemoryRecall(
                 systemPrompt,
                 userPrompt,
@@ -1368,7 +1371,7 @@ export const useGame = () => {
             发起非流式请求: () => textAIService.generateMemoryRecall(systemPrompt, userPrompt, summaryApi),
             onFallback: (info) => {
                 if (info.重试失败) {
-                    console.warn('[记忆总结] 降级非流式重试仍失败，保留流式已收到的内容', info);
+                    console.warn('[记忆总结] 降级非流式重试仍失败，丢弃本次不完整草稿', info);
                     return;
                 }
                 recordDiagnosticLog('warn', ['记忆总结流式被上游掐断-降级非流式重试', {

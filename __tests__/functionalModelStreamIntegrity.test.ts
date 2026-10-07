@@ -142,14 +142,16 @@ describe('功能模型流式完整性保护接入', () => {
         expect(textAIService.generateVariableCalibrationUpdate).toHaveBeenCalledTimes(1);
     });
 
-    it('变量生成：降级非流式重试也失败时保留流式已收到的结果，不整轮作废', async () => {
+    it('变量生成：降级非流式重试也失败时整体丢弃，不交付疑似截断的可合并命令', async () => {
+        // 半截命令块仍能解析出部分合法命令，若照原样返回会被 dedupedCommands 静默合并，
+        // 表现为「一半变量命令被写进游戏状态」。这里必须抛错，让上层保留原文并提示重试。
         vi.mocked(textAIService.generateVariableCalibrationUpdate)
             .mockImplementationOnce(模拟断流(完整变量结果, false))
             .mockImplementationOnce(async () => {
                 throw new Error('API Error: 524');
             }) as any;
 
-        const result = await 执行变量模型校准工作流({
+        await expect(执行变量模型校准工作流({
             playerInput: '挥出一剑。',
             parsedResponse: { logs: [{ sender: '旁白', text: '他挥出一剑。' }], tavern_commands: [] } as any,
             baseState,
@@ -159,10 +161,7 @@ describe('功能模型流式完整性保护接入', () => {
         } as any, {
             apiConfig: 创建功能接口配置(),
             gameConfig: {}
-        });
-
-        // 半截结果里的命令被采用（而不是抛错让整个回合失败）
-        expect(result?.commands).toEqual([{ action: 'sub', key: '角色.物品列表[0].堆叠数量', value: 1 }]);
+        })).rejects.toMatchObject({ 降级重试失败: true });
     });
 
     it('变量生成：未启用流式时完全不走流式通道', async () => {

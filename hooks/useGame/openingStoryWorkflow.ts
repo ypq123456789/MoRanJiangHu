@@ -543,7 +543,7 @@ const 执行开场剧情流式请求带空闲超时 = async <T,>(
 
 const 执行开局规划带超时 = async <T,>(
     parentSignal: AbortSignal,
-    task: (signal: AbortSignal) => Promise<T>,
+    task: (signal: AbortSignal, 重置为完整预算: () => void) => Promise<T>,
     timeoutMs = 开局规划分析请求超时毫秒
 ): Promise<T> => {
     if (parentSignal.aborted) {
@@ -552,18 +552,27 @@ const 执行开局规划带超时 = async <T,>(
     const controller = new AbortController();
     const timeoutError = 创建开局规划超时错误(timeoutMs);
     let timer: ReturnType<typeof setTimeout> | null = null;
+    const armTimer = () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+            if (!controller.signal.aborted) {
+                controller.abort(timeoutError);
+            }
+            rejectRef?.(timeoutError);
+        }, timeoutMs);
+    };
+    // 降级非流式重试前重新计满：外层计时器从流式请求发起就开始走，
+    // 流式阶段耗掉的预算会让重试几乎必然超时。
+    const 重置为完整预算 = armTimer;
+    let rejectRef: ((reason?: any) => void) | null = null;
     const abortByParent = () => controller.abort(parentSignal.reason || new DOMException('Aborted', 'AbortError'));
     parentSignal.addEventListener('abort', abortByParent, { once: true });
     try {
         return await Promise.race([
-            task(controller.signal),
+            task(controller.signal, 重置为完整预算),
             new Promise<T>((_, reject) => {
-                timer = setTimeout(() => {
-                    if (!controller.signal.aborted) {
-                        controller.abort(timeoutError);
-                    }
-                    reject(timeoutError);
-                }, timeoutMs);
+                rejectRef = reject;
+                armTimer();
             })
         ]);
     } catch (error) {
@@ -573,6 +582,7 @@ const 执行开局规划带超时 = async <T,>(
         throw error;
     } finally {
         parentSignal.removeEventListener('abort', abortByParent);
+        rejectRef = null;
         if (timer) {
             clearTimeout(timer);
         }
@@ -1748,6 +1758,8 @@ export const 执行开场剧情生成工作流 = async (
                     const 完整性结果 = await 执行带完整性校验的请求({
                         功能名: '开局世界演变',
                         强制非流式: 开局世界演变非流式输出,
+                        // 截断的命令块仍能解析出部分合法命令，合并就是「世界只初始化了一半」。
+                        重试失败处置: '抛出错误',
                         发起流式请求: (streamOptions) => 发起开局世界演变请求({
                             stream: true,
                             onDelta: (_delta: string, accumulated: string) => {
@@ -1763,7 +1775,7 @@ export const 执行开场剧情生成工作流 = async (
                         发起非流式请求: () => 发起开局世界演变请求(),
                         onFallback: (info) => {
                             if (info.重试失败) {
-                                console.warn('[开局世界演变] 降级非流式重试仍失败，保留流式已收到的结果', info);
+                                console.warn('[开局世界演变] 降级非流式重试仍失败，丢弃本次不完整结果', info);
                                 return;
                             }
                             console.warn('[开局世界演变] 流式输出疑似被上游中断，降级为非流式重新生成', info);
@@ -2052,10 +2064,13 @@ const 开局规划请求参数 = {
                     };
                     // 与游戏内规划分析同源的风险：补丁被截断后仍能解析出部分合法补丁，
                     // 「开局规划只写了一半」会被静默接受。这里校验结束标记并降级非流式重试。
-                    const planningResult = (await 执行开局规划带超时(controller.signal, async (signal) => {
+                    const planningResult = (await 执行开局规划带超时(controller.signal, async (signal, 重置为完整预算) => {
                         const 完整性结果 = await 执行带完整性校验的请求({
                             功能名: '开局规划分析',
                             强制非流式: 开局规划分析非流式输出,
+                            // 截断的规划补丁仍能解析出部分合法补丁，合并进去就是「开局规划只写了一半」。
+                            重试失败处置: '抛出错误',
+                            重试前重置超时: 重置为完整预算,
                             发起流式请求: (streamOptions) => textAIService.generatePlanningAnalysis(
                                 开局规划请求参数,
                                 openingPlanningApi,

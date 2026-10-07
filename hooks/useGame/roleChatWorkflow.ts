@@ -386,7 +386,11 @@ const 创建超时错误 = (message: string): Error => {
 // 注意：settle 必须真正结算外层 Promise（resolve/reject），否则超时/取消后外层仍要等
 // task 自己因 abort 抛错，部分回复会被丢掉、甚至一直挂着。
 export const 执行角色对话请求带超时 = (
-    task: (signal: AbortSignal, onDelta: (delta: string, accumulated: string) => void) => Promise<string>,
+    task: (
+        signal: AbortSignal,
+        onDelta: (delta: string, accumulated: string) => void,
+        进入非流式重试: () => void
+    ) => Promise<string>,
     parentSignal?: AbortSignal,
     options?: { 中断时保留部分?: boolean }
 ): Promise<string> => {
@@ -396,6 +400,9 @@ export const 执行角色对话请求带超时 = (
         let accumulated = '';
         let receivedResponse = false;
         let settled = false;
+        // 已进入降级非流式重试：此时的 accumulated 是**上一次被掐断的截断文本**，
+        // 不能再当成功回复返回，超时必须显式失败。
+        let 重试进行中 = false;
 
         const clearTimer = () => {
             if (timer !== null) {
@@ -413,21 +420,37 @@ export const 执行角色对话请求带超时 = (
         };
         const handleParentAbort = () => {
             const reason = parentSignal?.reason ?? new DOMException('请求已取消', 'AbortError');
-            if (options?.中断时保留部分 === true && accumulated.trim().length > 0) finish('resolve', accumulated);
+            if (options?.中断时保留部分 === true && !重试进行中 && accumulated.trim().length > 0) finish('resolve', accumulated);
             else finish('reject', reason);
             controller.abort(reason);
         };
         const handleTimeout = () => {
-            if (accumulated.trim().length > 0) {
+            // 重试阶段超时时，accumulated 是上一次被掐断的半截文本，返回它等于把
+            // 截断内容当成完整回复交给玩家。必须显式失败。
+            if (!重试进行中 && accumulated.trim().length > 0) {
                 finish('resolve', accumulated);
             } else {
-                finish('reject', 创建超时错误(receivedResponse ? '角色对话流式输出空闲超时' : '角色对话等待首次响应超时'));
+                finish('reject', 创建超时错误(
+                    重试进行中
+                        ? '角色对话降级非流式重试超时'
+                        : (receivedResponse ? '角色对话流式输出空闲超时' : '角色对话等待首次响应超时')
+                ));
             }
             controller.abort(new DOMException('角色对话请求超时', 'AbortError'));
         };
         const resetTimer = (timeoutMs: number) => {
             clearTimer();
             timer = setTimeout(handleTimeout, timeoutMs);
+        };
+        /**
+         * 降级非流式重试前调用：计时器切回「等待首次响应」预算，并标记重试阶段。
+         * 非流式重试不产生任何增量，若沿用流式空闲预算（90 秒且已被消耗）几乎必然超时。
+         */
+        const 进入非流式重试 = () => {
+            重试进行中 = true;
+            accumulated = '';
+            receivedResponse = false;
+            resetTimer(首次响应超时毫秒);
         };
 
         if (parentSignal) {
@@ -444,7 +467,7 @@ export const 执行角色对话请求带超时 = (
             receivedResponse = true;
             accumulated = currentAccumulated;
             resetTimer(流式空闲超时毫秒);
-        }).then(
+        }, 进入非流式重试).then(
             (result) => finish('resolve', result),
             (error) => finish('reject', error)
         );
@@ -477,7 +500,7 @@ export const 执行角色对话 = async (deps: 角色对话依赖, params: 角�
      * 这里在超时包装之内再叠一层结束标记校验，疑似被掐断就降级非流式重试一次。
      */
     const reply = await 执行角色对话请求带超时(
-        async (signal, onDelta) => {
+        async (signal, onDelta, 进入非流式重试) => {
             const 完整性结果 = await 执行带完整性校验的请求({
                 功能名: '角色对话',
                 发起流式请求: (streamOptions) => generateRoleChatReply(messages, roleChatApi as any, {
@@ -492,6 +515,10 @@ export const 执行角色对话 = async (deps: 角色对话依赖, params: 角�
                     }
                 }),
                 发起非流式请求: () => generateRoleChatReply(messages, roleChatApi as any, { signal }),
+                // 重试前把外层超时器切回首响应预算，否则非流式重试会被流式空闲计时器掐断。
+                重试前重置超时: 进入非流式重试,
+                // 重试也失败时不能把上一次的截断文本当完整回复返回。
+                重试失败处置: '抛出错误',
                 onFallback: (info) => {
                     console.warn('[角色对话] 流式输出疑似被上游中断，降级为非流式重新生成', info);
                 }

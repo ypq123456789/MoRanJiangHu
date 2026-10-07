@@ -202,7 +202,7 @@ export const 执行角色群聊 = async (deps: 角色对话依赖, params: 角�
         let raw = '';
         try {
             raw = await 执行角色对话请求带超时(
-                async (signal, onDelta) => {
+                async (signal, onDelta, 进入非流式重试) => {
                     // 与角色对话同源的风险：空闲超时挡不住「快速断流」，
                     // 半截发言会被当成完整发言（`解析群聊模型输出` 只看 <正文> 是否闭合）。
                     const 完整性结果 = await 执行带完整性校验的请求({
@@ -219,6 +219,10 @@ export const 执行角色群聊 = async (deps: 角色对话依赖, params: 角�
                             }
                         }),
                         发起非流式请求: () => generateRoleChatRawReply(messages, roleChatApi as any, { signal }),
+                        // 重试前把外层超时器切回首响应预算，否则非流式重试会被流式空闲计时器掐断。
+                        重试前重置超时: 进入非流式重试,
+                        // 重试也失败时不能把上一次的截断发言当完整发言返回。
+                        重试失败处置: '抛出错误',
                         onFallback: (info) => {
                             console.warn('[群聊] 流式输出疑似被上游中断，降级为非流式重新生成', info);
                         }

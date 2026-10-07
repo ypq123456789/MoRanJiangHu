@@ -1587,11 +1587,19 @@ const 写入流式诊断日志 = (message: string, detail?: Record<string, unkno
     }
 };
 
+/**
+ * 拿到的已经是**完整响应体**（服务端不支持流式而降级、或 Gemini Interactions 轮询完成），
+ * 此时必须把 onStreamEnd 一并回填为「完整」：
+ * - 只回填 onDelta 的话，上层的流式完整性保护收不到结束信息，
+ *   无法区分「完整但非流式」与「中途被掐断」；
+ * - 非流式响应体本身没有 [DONE] 可等，语义上就是 sawDone: true。
+ */
 const 非流式回填流式回调 = (text: string, streamOptions?: 通用流式选项) => {
-    if (!streamOptions?.stream || typeof streamOptions.onDelta !== 'function') return;
+    if (!streamOptions?.stream) return;
     const finalText = typeof text === 'string' ? text : '';
     if (!finalText) return;
-    streamOptions.onDelta(finalText, finalText);
+    streamOptions.onDelta?.(finalText, finalText);
+    streamOptions.onStreamEnd?.({ sawDone: true, finishReason: 'stop', accumulatedLength: finalText.length });
 };
 
 const 解析可能是JSON字符串 = (text: string): any | null => {

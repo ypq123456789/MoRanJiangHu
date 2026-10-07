@@ -72,7 +72,7 @@ describe('功能模型流式完整性保护', () => {
             });
         });
 
-        it('降级重试也失败时保留流式已收到的内容，不让整次调用作废', async () => {
+        it('降级重试也失败时默认保留流式已收到的内容，不让整次调用作废', async () => {
             const onFallback = vi.fn();
             const result = await 执行带完整性校验的请求({
                 发起流式请求: async (options: 功能模型流式选项) => {
@@ -90,6 +90,57 @@ describe('功能模型流式完整性保护', () => {
             expect(result.降级重试失败).toBe(true);
             expect(onFallback).toHaveBeenCalledTimes(2);
             expect(onFallback.mock.calls[1][0]).toMatchObject({ 重试失败: true, message: 'API Error: 524' });
+        });
+
+        it('结构化命令路径选择「抛出错误」时，重试失败不交付疑似截断的结果', async () => {
+            // 半截命令块仍能解析出部分合法命令，交付出去会被 applyCommands 静默合并，
+            // 所以变量/世界演变/地图这类路径必须整体丢弃而不是保留。
+            await expect(执行带完整性校验的请求({
+                功能名: '变量生成',
+                重试失败处置: '抛出错误',
+                发起流式请求: async (options: 功能模型流式选项) => {
+                    options.onStreamEnd?.({ sawDone: false, accumulatedLength: 15 });
+                    return { commands: [{ action: 'set', key: '角色.体力', value: 1 }] };
+                },
+                发起非流式请求: async () => {
+                    throw new Error('API Error: 524');
+                }
+            })).rejects.toMatchObject({ 降级重试失败: true });
+        });
+
+        it('重试前调用超时重置钩子，且不因钩子抛错而中断重试判定', async () => {
+            const 重试前重置超时 = vi.fn();
+            const onFallback = vi.fn();
+            const result = await 执行带完整性校验的请求({
+                发起流式请求: async (options: 功能模型流式选项) => {
+                    options.onStreamEnd?.({ sawDone: false, accumulatedLength: 8 });
+                    return '半截';
+                },
+                发起非流式请求: async () => '重试后的完整结果',
+                重试前重置超时,
+                onFallback
+            });
+
+            expect(重试前重置超时).toHaveBeenCalledTimes(1);
+            expect(result.结果).toBe('重试后的完整结果');
+            expect(result.已降级重试).toBe(true);
+        });
+
+        it('流式完整时不触发重置钩子，也不发多余请求', async () => {
+            const 重试前重置超时 = vi.fn();
+            const 发起非流式请求 = vi.fn();
+            const result = await 执行带完整性校验的请求({
+                发起流式请求: async (options: 功能模型流式选项) => {
+                    options.onStreamEnd?.({ sawDone: true, finishReason: 'stop', accumulatedLength: 20 });
+                    return '完整结果';
+                },
+                发起非流式请求,
+                重试前重置超时
+            });
+
+            expect(重试前重置超时).not.toHaveBeenCalled();
+            expect(发起非流式请求).not.toHaveBeenCalled();
+            expect(result.结果).toBe('完整结果');
         });
 
         it('调用方已强制非流式时完全不走流式通道', async () => {

@@ -746,6 +746,9 @@ export const 执行变量模型校准工作流 = async (
         const 结果 = await 执行带完整性校验的请求({
             功能名: '变量生成',
             强制非流式: !params.onStreamDelta,
+            // 截断的命令块仍能解析出**部分合法命令**，`dedupedCommands.length === 0` 的兜底不触发，
+            // 会静默合并一半变量命令。重试也失败时必须整体丢弃，宁可本轮不校正变量。
+            重试失败处置: '抛出错误',
             发起流式请求: (streamOptions) => textAIService.generateVariableCalibrationUpdate(
                 变量模型请求参数,
                 variableApi,
@@ -765,7 +768,7 @@ export const 执行变量模型校准工作流 = async (
             ),
             onFallback: (info) => {
                 if (info.重试失败) {
-                    console.warn('[变量生成] 降级非流式重试仍失败，保留流式已收到的结果', info);
+                    console.warn('[变量生成] 降级非流式重试仍失败，丢弃本次不完整结果', info);
                     return;
                 }
                 console.warn('[变量生成] 流式输出疑似被上游中断，降级为非流式重新生成', info);
