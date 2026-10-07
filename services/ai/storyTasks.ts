@@ -240,11 +240,21 @@ export interface StoryRequestOptions {
 export interface WorldStreamOptions {
     stream?: boolean;
     onDelta?: (delta: string, accumulated: string) => void;
+    /**
+     * 流结束回调。缺这个字段时下游无法判断 `sawDone`，
+     * 上游/中转中途断流会把半截文本当完整结果返回（2026-10-07 记忆总结截断问题的同一根因）。
+     */
+    onStreamEnd?: (info: 通用流式结束信息) => void;
 }
 
 interface RecallStreamOptions {
     stream?: boolean;
     onDelta?: (delta: string, accumulated: string) => void;
+    /**
+     * 流结束回调。记忆总结默认走流式，调用方需要靠它拿到 `sawDone`
+     * 判断上游是否中途断流（否则半截内容会被当成完整总结写进记忆）。
+     */
+    onStreamEnd?: (info: 通用流式结束信息) => void;
 }
 
 const 构建独立任务触发消息 = (
@@ -954,7 +964,13 @@ export const generateVariableCalibrationUpdate = async (
     signal?: AbortSignal,
     extraPrompt?: string,
     onStreamDelta?: (delta: string, accumulated: string) => void,
-    gptMode?: boolean
+    gptMode?: boolean,
+    /**
+     * 流结束回调。变量模型的输出是结构化命令块，截断后往往仍能解析出**部分合法子集**，
+     * `dedupedCommands.length === 0` 的兜底不会触发，于是「一半变量命令被静默合并」。
+     * 调用方必须靠它拿到 `sawDone` 才能识别断流并降级非流式重试。
+     */
+    onStreamEnd?: (info: 通用流式结束信息) => void
 ): Promise<VariableCalibrationResult> => {
     if (!apiConfig.apiKey) throw new Error('Missing API Key');
 
@@ -1035,10 +1051,11 @@ export const generateVariableCalibrationUpdate = async (
         temperature: 0.2,
         signal,
         errorDetailLimit: Number.POSITIVE_INFINITY,
-        streamOptions: onStreamDelta
+        streamOptions: onStreamDelta || onStreamEnd
             ? {
                 stream: true,
-                onDelta: onStreamDelta
+                onDelta: onStreamDelta,
+                onStreamEnd
             }
             : undefined
     });

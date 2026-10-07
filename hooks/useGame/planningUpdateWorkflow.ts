@@ -28,6 +28,7 @@ import { 后台分段执行, 后台让出主线程 } from '../../utils/backgroun
 import { 执行游戏后台重计算 } from '../../utils/gameHeavyWorkerClient';
 import { 构建规划性别比例约束摘要 } from '../../prompts/runtime/planningAnalysis';
 import { 收集在档人物名集合, 校准规划关联人物一致性 } from '../../utils/planningConsistency';
+import { 执行带完整性校验的请求 } from './streamIntegrity';
 
 type 规划更新工作流依赖 = {
     apiConfig: any;
@@ -563,7 +564,7 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
 
         检查规划分析中断(params.signal);
         const 规划分析非流式输出 = normalizedGameConfig.启用非流式输出 || normalizedGameConfig.功能模型占位?.规划分析非流式输出;
-        const result = await probe.timeAsync('规划分析模型请求总耗时', () => 执行规划分析带超时和重试((signal, markStreamActivity) => textAIService.generatePlanningAnalysis({
+        const 规划分析请求参数 = {
             playerName: (deps.角色?.姓名 || '').trim() || '未命名',
             playerInput: params.playerInput,
             currentStoryJson,
@@ -580,17 +581,48 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
             fandomEnabled,
             extraPrompt: planningExtraPrompt,
             gptMode: 独立规划分析GPT模式
-        }, planningApi, signal, 规划分析非流式输出 ? undefined : {
-            stream: true,
-            onDelta: (delta, accumulated) => {
-                markStreamActivity();
-                try {
-                    params.onStreamDelta?.(delta, accumulated);
-                } catch (err) {
-                    console.error('[规划分析] onStreamDelta 回调异常', err);
+        };
+        /**
+         * 规划补丁被截断后往往仍能解析出部分合法补丁，于是「规划只更新了一半」会被静默接受。
+         * 这里在既有的「超时 + 自动重试」之外再叠一层流式完整性校验：
+         * 收到结束标记就照常用，疑似被上游掐断则立刻降级非流式重试一次。
+         */
+        const result = await probe.timeAsync('规划分析模型请求总耗时', () => 执行规划分析带超时和重试(async (signal, markStreamActivity) => {
+            const 完整性结果 = await 执行带完整性校验的请求({
+                功能名: '规划分析',
+                强制非流式: Boolean(规划分析非流式输出),
+                发起流式请求: (streamOptions) => textAIService.generatePlanningAnalysis(
+                    规划分析请求参数,
+                    planningApi,
+                    signal,
+                    {
+                        stream: true,
+                        onDelta: (delta, accumulated) => {
+                            markStreamActivity();
+                            try {
+                                params.onStreamDelta?.(delta, accumulated);
+                            } catch (err) {
+                                console.error('[规划分析] onStreamDelta 回调异常', err);
+                            }
+                        },
+                        onStreamEnd: streamOptions.onStreamEnd
+                    }
+                ),
+                发起非流式请求: () => textAIService.generatePlanningAnalysis(
+                    规划分析请求参数,
+                    planningApi,
+                    signal
+                ),
+                onFallback: (info) => {
+                    if (info.重试失败) {
+                        console.warn('[规划分析] 降级非流式重试仍失败，保留流式已收到的结果', info);
+                        return;
+                    }
+                    console.warn('[规划分析] 流式输出疑似被上游中断，降级为非流式重新生成', info);
                 }
-            }
-        }), params.onRetry, params.signal, planningRequestTimeouts), {
+            });
+            return 完整性结果.结果;
+        }, params.onRetry, params.signal, planningRequestTimeouts), {
             firstResponseTimeoutMs: planningRequestTimeouts.firstResponseMs,
             streamIdleTimeoutMs: planningRequestTimeouts.idleMs,
             maxAttempts: 规划分析自动重试最大次数

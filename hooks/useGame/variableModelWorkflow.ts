@@ -20,6 +20,7 @@ import { 检测社交删除风险命令 } from '../../utils/npcRetentionGuard';
 import { 检测NPC境界回退风险命令 } from '../../utils/npcRealmRegressionGuard';
 import { 获取境界配置 } from '../../utils/realmConfig';
 import { 检测NPC死亡判定风险命令 } from '../../utils/npcDeathGuard';
+import { 执行带完整性校验的请求 } from './streamIntegrity';
 
 export { 检测NPC死亡判定风险命令 } from '../../utils/npcDeathGuard';
 
@@ -716,31 +717,62 @@ export const 执行变量模型校准工作流 = async (
         .join('\n\n');
 
     const 展开货币系统 = 获取展开货币系统(params.openingConfig?.modeRuntimeProfile);
-    const 请求变量模型 = (retryHint = '') => textAIService.generateVariableCalibrationUpdate(
-        {
-            stateJson: 序列化变量模型状态(params.baseState, {
-                survivalNeedsEnabled: 启用饱腹口渴系统,
-                cultivationSystemEnabled: 启用修炼体系
-            }),
-            expandedCurrencySystem: 展开货币系统,
-            世界: params.baseState?.世界,
-            response: params.parsedResponse,
-            calibrationRulesContext: calibrationRulesContextWithFandom,
-            worldEvolutionEnabled: params.worldEvolutionEnabled,
-            worldEvolutionUpdated: params.worldEvolutionUpdated === true,
-            builtinPromptEntries: params.builtinPromptEntries,
+    const 变量模型请求参数 = {
+        stateJson: 序列化变量模型状态(params.baseState, {
             survivalNeedsEnabled: 启用饱腹口渴系统,
-            cultivationSystemEnabled: 启用修炼体系,
-            recentRounds: params.recentRounds,
-            isOpeningRound: params.isOpeningRound === true,
-            openingTaskContext: params.openingTaskContext
-        },
-        variableApi,
-        params.signal,
-        [mergedExtraPrompt, retryHint].filter(Boolean).join('\n\n'),
-        params.onStreamDelta,
-        runtimeGameConfig.独立APIGPT模式?.变量生成 === true
-    );
+            cultivationSystemEnabled: 启用修炼体系
+        }),
+        expandedCurrencySystem: 展开货币系统,
+        世界: params.baseState?.世界,
+        response: params.parsedResponse,
+        calibrationRulesContext: calibrationRulesContextWithFandom,
+        worldEvolutionEnabled: params.worldEvolutionEnabled,
+        worldEvolutionUpdated: params.worldEvolutionUpdated === true,
+        builtinPromptEntries: params.builtinPromptEntries,
+        survivalNeedsEnabled: 启用饱腹口渴系统,
+        cultivationSystemEnabled: 启用修炼体系,
+        recentRounds: params.recentRounds,
+        isOpeningRound: params.isOpeningRound === true,
+        openingTaskContext: params.openingTaskContext
+    };
+    /**
+     * 变量模型的命令块截断后往往仍能解析出**部分合法子集**（`解析命令块` 有 JSON 修复与逐行降级），
+     * 所以 `dedupedCommands.length === 0` 的兜底不会触发，会出现「一半变量命令被静默合并」。
+     * 这里用统一的完整性保护：走流式时校验结束标记，疑似被上游掐断就降级非流式重试一次。
+     */
+    const 请求变量模型 = async (retryHint = '') => {
+        const 附加提示词 = [mergedExtraPrompt, retryHint].filter(Boolean).join('\n\n');
+        const 独立GPT模式 = runtimeGameConfig.独立APIGPT模式?.变量生成 === true;
+        const 结果 = await 执行带完整性校验的请求({
+            功能名: '变量生成',
+            强制非流式: !params.onStreamDelta,
+            发起流式请求: (streamOptions) => textAIService.generateVariableCalibrationUpdate(
+                变量模型请求参数,
+                variableApi,
+                params.signal,
+                附加提示词,
+                params.onStreamDelta,
+                独立GPT模式,
+                streamOptions.onStreamEnd
+            ),
+            发起非流式请求: () => textAIService.generateVariableCalibrationUpdate(
+                变量模型请求参数,
+                variableApi,
+                params.signal,
+                附加提示词,
+                undefined,
+                独立GPT模式
+            ),
+            onFallback: (info) => {
+                if (info.重试失败) {
+                    console.warn('[变量生成] 降级非流式重试仍失败，保留流式已收到的结果', info);
+                    return;
+                }
+                console.warn('[变量生成] 流式输出疑似被上游中断，降级为非流式重新生成', info);
+            }
+        });
+        return 结果.结果;
+    };
 
     const 校验并规整变量结果 = (result: Awaited<ReturnType<typeof 请求变量模型>>): 变量模型校准结果 | null => {
         const baseCommands = Array.isArray(params.parsedResponse?.tavern_commands)

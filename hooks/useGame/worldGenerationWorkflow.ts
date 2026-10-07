@@ -17,6 +17,7 @@ import { 构建开局运行时快照 } from '../../utils/customNewGamePresets';
 import { 是否官方题材世界观口径提示词, 是否官方题材境界口径提示词 } from '../../data/workshopThemes/topicModeThemeData';
 import { recordDiagnosticLog } from '../../services/diagnosticLog';
 import { 合并世界基底到开场状态 } from './storyState';
+import { 执行带完整性校验的请求 } from './streamIntegrity';
 
 type 世界生成选项 = {
     清空前端变量?: boolean;
@@ -426,31 +427,46 @@ export const 执行世界生成工作流 = async (
                 }, 420);
             }
 
-            realmPromptContent = await 执行带超时('同人境界体系生成', 境界阶段超时毫秒, (signal, 标记活动) => textAIService.generateFandomRealmData(
-                {
-                    openingConfig: effectiveOpeningConfig
-                },
-                currentApi,
-                openingRequestStreaming
-                    ? {
-                        stream: true,
-                        onDelta: (_delta, accumulated) => {
-                            标记活动();
-                            realmDeltaReceived = true;
-                            const normalized = (accumulated || '').replace(/\r/g, '');
-                            const tail = normalized.length > 420
-                                ? `...${normalized.slice(-420)}`
-                                : normalized;
-                            const preview = tail.split('\n').slice(-10).join('\n').trim();
-                            开局流式历史更新器?.更新(`【生成中】同人境界体系生成（流式预览）\n${preview || '...'}\n\n已接收 ${normalized.length} 字符`);
+            realmPromptContent = await 执行带超时('同人境界体系生成', 境界阶段超时毫秒, async (signal, 标记活动) => {
+                // 空闲超时只挡「长时间无新数据」，挡不住「快速断流」——
+                // 中转站收到一部分 token 就关连接时，残缺的境界体系会被直接写进提示词池。
+                const 发起境界体系请求 = (streamOptions?: { onStreamEnd?: (info: any) => void }) => textAIService.generateFandomRealmData(
+                    {
+                        openingConfig: effectiveOpeningConfig
+                    },
+                    currentApi,
+                    openingRequestStreaming
+                        ? {
+                            stream: true,
+                            onDelta: (_delta, accumulated) => {
+                                标记活动();
+                                realmDeltaReceived = true;
+                                const normalized = (accumulated || '').replace(/\r/g, '');
+                                const tail = normalized.length > 420
+                                    ? `...${normalized.slice(-420)}`
+                                    : normalized;
+                                const preview = tail.split('\n').slice(-10).join('\n').trim();
+                                开局流式历史更新器?.更新(`【生成中】同人境界体系生成（流式预览）\n${preview || '...'}\n\n已接收 ${normalized.length} 字符`);
+                            },
+                            onStreamEnd: streamOptions?.onStreamEnd
                         }
+                        : undefined,
+                    normalizedWorldExtraRequirement
+                        ? `【玩家世界观草稿与细化要求】\n${normalizedWorldExtraRequirement}\n- 必须优先保留玩家已写明的世界事实，并在此基础上细化，不得自顾自另起炉灶。`
+                        : '',
+                    signal
+                );
+                const 完整性结果 = await 执行带完整性校验的请求({
+                    功能名: '同人境界体系生成',
+                    强制非流式: !openingRequestStreaming,
+                    发起流式请求: (streamOptions) => 发起境界体系请求(streamOptions),
+                    发起非流式请求: () => 发起境界体系请求(),
+                    onFallback: (info) => {
+                        console.warn('[同人境界体系生成] 流式输出疑似被上游中断，降级为非流式重新生成', info);
                     }
-                    : undefined,
-                normalizedWorldExtraRequirement
-                    ? `【玩家世界观草稿与细化要求】\n${normalizedWorldExtraRequirement}\n- 必须优先保留玩家已写明的世界事实，并在此基础上细化，不得自顾自另起炉灶。`
-                    : '',
-                signal
-            ), { idleTimeout: openingRequestStreaming });
+                });
+                return 完整性结果.结果;
+            }, { idleTimeout: openingRequestStreaming });
             if (realmStreamHeartbeat) clearInterval(realmStreamHeartbeat);
             开局流式历史更新器?.停止();
         }
@@ -527,33 +543,47 @@ export const 执行世界生成工作流 = async (
                 factions: [],
                 rawText: normalizedManualWorldPrompt
             }
-            : await 执行带超时(useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观', 世界观阶段超时毫秒, (signal, 标记活动) => textAIService.generateWorldFoundationData(
-                worldGenerationContext,
-                charData,
-                currentApi,
-                openingRequestStreaming
-                    ? {
-                        stream: true,
-                        onDelta: (_delta, accumulated) => {
-                            标记活动();
-                            worldDeltaReceived = true;
-                            const normalized = (accumulated || '').replace(/\r/g, '');
-                            const tail = normalized.length > 480
-                                ? `...${normalized.slice(-480)}`
-                                : normalized;
-                            const preview = tail.split('\n').slice(-10).join('\n').trim();
-                            开局流式历史更新器?.更新(`【生成中】${useWorldRefinement ? 'AI 细化世界观与世界基底' : 'AI 生成世界观与世界基底'}（流式预览）\n${preview || '...'}\n\n已接收 ${normalized.length} 字符`);
+            : await 执行带超时(useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观', 世界观阶段超时毫秒, async (signal, 标记活动) => {
+                // 同上：残缺的世界观会被写进提示词池并参与后续所有回合，必须拦住半截结果。
+                const 发起世界观请求 = (streamOptions?: { onStreamEnd?: (info: any) => void }) => textAIService.generateWorldFoundationData(
+                    worldGenerationContext,
+                    charData,
+                    currentApi,
+                    openingRequestStreaming
+                        ? {
+                            stream: true,
+                            onDelta: (_delta, accumulated) => {
+                                标记活动();
+                                worldDeltaReceived = true;
+                                const normalized = (accumulated || '').replace(/\r/g, '');
+                                const tail = normalized.length > 480
+                                    ? `...${normalized.slice(-480)}`
+                                    : normalized;
+                                const preview = tail.split('\n').slice(-10).join('\n').trim();
+                                开局流式历史更新器?.更新(`【生成中】${useWorldRefinement ? 'AI 细化世界观与世界基底' : 'AI 生成世界观与世界基底'}（流式预览）\n${preview || '...'}\n\n已接收 ${normalized.length} 字符`);
+                            },
+                            onStreamEnd: streamOptions?.onStreamEnd
                         }
+                        : undefined,
+                    worldGenerationExtraPrompt,
+                    worldGenerationCotPseudoPrompt,
+                    {
+                        启用修炼体系,
+                        openingConfig: effectiveOpeningConfig,
+                        signal
                     }
-                    : undefined,
-                worldGenerationExtraPrompt,
-                worldGenerationCotPseudoPrompt,
-                {
-                    启用修炼体系,
-                    openingConfig: effectiveOpeningConfig,
-                    signal
-                }
-            ), { idleTimeout: openingRequestStreaming });
+                );
+                const 完整性结果 = await 执行带完整性校验的请求({
+                    功能名: useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观',
+                    强制非流式: !openingRequestStreaming,
+                    发起流式请求: (streamOptions) => 发起世界观请求(streamOptions),
+                    发起非流式请求: () => 发起世界观请求(),
+                    onFallback: (info) => {
+                        console.warn('[世界观生成] 流式输出疑似被上游中断，降级为非流式重新生成', info);
+                    }
+                });
+                return 完整性结果.结果;
+            }, { idleTimeout: openingRequestStreaming });
         if (worldStreamHeartbeat) clearInterval(worldStreamHeartbeat);
         开局流式历史更新器?.停止();
 

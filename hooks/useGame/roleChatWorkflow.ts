@@ -11,6 +11,7 @@ import { generateRoleChatReply, 清理角色对话输出 } from '../../services/
 import { 规范化环境信息 } from './stateTransforms';
 import { 环境时间转标准串 } from './timeUtils';
 import { 判断角色对话位置 } from '../../utils/roleChatLocation';
+import { 执行带完整性校验的请求 } from './streamIntegrity';
 
 // 「角色对话」侧聊工作流。
 // 设计原则：注入的是“这一名角色的认知范围”，不是主剧情 AI 的全知视角——
@@ -469,17 +470,34 @@ export const 执行角色对话 = async (deps: 角色对话依赖, params: 角�
     }
 
     const messages = 构建角色对话消息序列(deps, params);
+    /**
+     * 空闲超时只能挡住「长时间没有新数据」，挡不住「快速断流」——
+     * 中转站在收到一部分 token 后直接关掉连接时，超时计时器根本不会触发，
+     * 半句台词会被当成完整回复返回（2026-10-07 记忆总结截断的同一根因）。
+     * 这里在超时包装之内再叠一层结束标记校验，疑似被掐断就降级非流式重试一次。
+     */
     const reply = await 执行角色对话请求带超时(
-        (signal, onDelta) => generateRoleChatReply(messages, roleChatApi as any, {
-            signal,
-            streamOptions: {
-                stream: true,
-                onDelta: (delta, accumulated) => {
-                    onDelta(delta, accumulated);
-                    params.onDelta?.(delta, accumulated);
+        async (signal, onDelta) => {
+            const 完整性结果 = await 执行带完整性校验的请求({
+                功能名: '角色对话',
+                发起流式请求: (streamOptions) => generateRoleChatReply(messages, roleChatApi as any, {
+                    signal,
+                    streamOptions: {
+                        stream: true,
+                        onDelta: (delta, accumulated) => {
+                            onDelta(delta, accumulated);
+                            params.onDelta?.(delta, accumulated);
+                        },
+                        onStreamEnd: streamOptions.onStreamEnd
+                    }
+                }),
+                发起非流式请求: () => generateRoleChatReply(messages, roleChatApi as any, { signal }),
+                onFallback: (info) => {
+                    console.warn('[角色对话] 流式输出疑似被上游中断，降级为非流式重新生成', info);
                 }
-            }
-        }),
+            });
+            return 完整性结果.结果;
+        },
         params.signal,
         { 中断时保留部分: true }
     );

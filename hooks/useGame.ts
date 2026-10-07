@@ -57,6 +57,7 @@ import {
     应用记忆压缩结果,
     记忆压缩任务结构
 } from './useGame/memoryUtils';
+import { 执行带完整性校验的请求 } from './useGame/streamIntegrity';
 import { 执行主剧情发送工作流, 提取自动重试原因文本 } from './useGame/sendWorkflow';
 import { 执行正文润色 as 执行正文润色工作流 } from './useGame/bodyPolish';
 import { 执行角色对话 as 执行角色对话工作流, 构建场外对话记录块, 规范化场外对话列表 } from './useGame/roleChatWorkflow';
@@ -1344,6 +1345,43 @@ export const useGame = () => {
         return text;
     };
 
+    /**
+     * 统一发起记忆总结请求：流式完成后校验结束标记，疑似被上游掐断则自动降级非流式重试一次。
+     * 记忆总结输出通常只有几百字，非流式重试成本很低，远优于让玩家手动重来。
+     */
+    const 请求记忆总结文本 = async (
+        summaryApi: 当前可用接口结构,
+        systemPrompt: string,
+        userPrompt: string,
+        强制非流式: boolean
+    ): Promise<string> => {
+        const result = await 执行带完整性校验的请求({
+            功能名: '记忆总结',
+            强制非流式,
+            发起流式请求: (streamOptions) => textAIService.generateMemoryRecall(
+                systemPrompt,
+                userPrompt,
+                summaryApi,
+                undefined,
+                streamOptions
+            ),
+            发起非流式请求: () => textAIService.generateMemoryRecall(systemPrompt, userPrompt, summaryApi),
+            onFallback: (info) => {
+                if (info.重试失败) {
+                    console.warn('[记忆总结] 降级非流式重试仍失败，保留流式已收到的内容', info);
+                    return;
+                }
+                recordDiagnosticLog('warn', ['记忆总结流式被上游掐断-降级非流式重试', {
+                    sawDone: info.sawDone,
+                    finishReason: info.finishReason,
+                    已收到字符数: info.accumulatedLength
+                }]);
+                console.warn('[记忆总结] 流式输出疑似被上游中断，降级为非流式重新生成', info);
+            }
+        });
+        return result.结果;
+    };
+
     const handleStartMemorySummary = async (): Promise<void> => {
         if (!待处理记忆总结任务) return;
         const summaryApi = 获取记忆总结接口配置(apiConfig);
@@ -1357,12 +1395,11 @@ export const useGame = () => {
         set记忆总结错误('');
         try {
             const 记忆总结非流式输出 = gameConfig?.启用非流式输出 || apiConfig.功能模型占位?.记忆总结非流式输出 === true;
-            const raw = await textAIService.generateMemoryRecall(
+            const raw = await 请求记忆总结文本(
+                summaryApi,
                 task.提示词模板,
                 构建记忆总结用户提示词(task),
-                summaryApi,
-                undefined,
-                记忆总结非流式输出 ? undefined : { stream: true }
+                记忆总结非流式输出
             );
             set记忆总结草稿(清理记忆总结输出(raw));
             set记忆总结阶段('review');
@@ -1435,12 +1472,11 @@ export const useGame = () => {
         setNPC记忆总结错误('');
         try {
             const 记忆总结非流式输出 = gameConfig?.启用非流式输出 || apiConfig.功能模型占位?.记忆总结非流式输出 === true;
-            const raw = await textAIService.generateMemoryRecall(
+            const raw = await 请求记忆总结文本(
+                summaryApi,
                 currentTask.提示词模板,
                 构建NPC记忆总结用户提示词(currentTask),
-                summaryApi,
-                undefined,
-                记忆总结非流式输出 ? undefined : { stream: true }
+                记忆总结非流式输出
             );
             const cleaned = 清理记忆总结输出(raw);
             setNPC记忆总结草稿(cleaned || 构建NPC记忆总结回退文案(
