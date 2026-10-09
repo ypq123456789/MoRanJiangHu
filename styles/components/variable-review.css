@@ -1,0 +1,52 @@
+/* 统一PC/手机弹窗：长命令换行，底栏留在可视窗口中。 */
+.variable-review-backdrop { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); background: rgba(73, 57, 40, .58); overflow: hidden; }
+.variable-review-modal { width: 100%; max-width: 820px; max-height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; border: 1px solid #99816a; background: #352b24; color: #f8eedc; box-shadow: 0 12px 50px rgba(45, 31, 18, .4); font-size: 14px; line-height: 1.65; }
+.variable-review-header, .variable-review-footer { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; }
+.variable-review-header { border-bottom: 1px solid #99816a; }
+.variable-review-header h2 { font-size: 20px; font-weight: 700; }
+.variable-review-footer { border-top: 1px solid #99816a; justify-content: flex-end; }
+.variable-review-body { min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 18px; }
+.variable-review-body > * + * { margin-top: 16px; }
+.variable-review-body h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.variable-review-body h4 { font-weight: 700; margin-top: 12px; }
+.variable-review-body p, .variable-review-body li { overflow-wrap: anywhere; }
+.variable-review-label { display: block; font-weight: 600; }
+.variable-review-modal textarea { display: block; width: 100%; min-height: 100px; resize: vertical; padding: 10px; border: 1px solid #b29c82; border-radius: 8px; background: #493c32; color: #fff4df; }
+.variable-review-modal textarea::placeholder { color: #d1c0a6; }
+.variable-review-modal textarea:focus-visible, .variable-review-modal button:focus-visible, .variable-review-modal summary:focus-visible { outline: 2px solid #d6a848; outline-offset: 3px; }
+.variable-review-primary, .variable-review-secondary { border: 1px solid #b29c82; border-radius: 8px; padding: 9px 14px; font-size: 14px; line-height: 1.4; font-weight: 600; }
+.variable-review-primary { background: #f1d696; color: #382711; }
+.variable-review-secondary { background: transparent; color: inherit; }
+.variable-review-primary:disabled, .variable-review-secondary:disabled { opacity: .55; cursor: not-allowed; }
+.variable-review-muted { color: #dac9b2; }
+.variable-review-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.variable-review-counts span { min-width: 0; padding: 8px; border: 1px solid #99816a; border-radius: 8px; background: rgba(180, 155, 116, .12); overflow-wrap: anywhere; }
+.variable-review-wrap, .variable-review-modal pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }
+.variable-review-modal pre { font-size: 12px; max-height: 260px; overflow-y: auto; margin: 6px 0; }
+.variable-review-modal summary { cursor: pointer; overflow-wrap: anywhere; }
+.variable-review-change { min-width: 0; border: 1px solid #99816a; border-radius: 8px; padding: 10px; margin-top: 10px; }
+.variable-review-value { min-width: 0; }
+.variable-review-warning, .variable-review-error, .variable-review-success, .variable-review-loading { padding: 12px; border-radius: 8px; border: 1px solid; }
+.variable-review-warning { background: #fff2c7; color: #713d12; border-color: #c18d31; }
+.variable-review-error { background: #fff1ef; color: #922f26; border-color: #bc645a; }
+.variable-review-success { background: #eef9ef; color: #24562b; border-color: #6b9d72; }
+.variable-review-loading { background: #f8eddb; color: #4b3625; border-color: #b49b74; }
+html[data-theme="day"] .variable-review-modal { background: #fffaf0; color: #382e24; }
+html[data-theme="day"] .variable-review-modal textarea { background: #fffef9; color: #382e24; }
+html[data-theme="day"] .variable-review-modal textarea::placeholder { color: #75644e; }
+html[data-theme="day"] .variable-review-muted { color: #645440; }
+@media (max-width: 480px) { .variable-review-backdrop { padding-left: 8px; padding-right: 8px; } .variable-review-body { padding: 12px; } .variable-review-footer, .variable-review-header { padding: 10px 12px; } .variable-review-footer button { flex: 1 1 auto; } }
+/* 审查独立配置与策略编辑，PC/手机共用。 */
+.variable-review-settings { min-width: 0; }
+.variable-review-settings > * + * { margin-top: 10px; }
+.variable-review-settings-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.variable-review-settings-row > input, .variable-review-settings-row > div { flex: 1 1 160px; min-width: 0; }
+.variable-review-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.variable-review-settings input:not([type="radio"]) { width: 100%; min-width: 0; padding: 9px; border: 1px solid #b29c82; border-radius: 8px; background: #493c32; color: #fff4df; }
+.variable-review-modal .variable-review-control, .variable-review-modal .variable-review-select-panel { background: #493c32; color: #fff4df; border-color: #b29c82; }
+.variable-review-settings input::placeholder { color: #d1c0a6; }
+.variable-review-settings input:focus-visible { outline: 2px solid #d6a848; outline-offset: 2px; }
+html[data-theme="day"] .variable-review-settings input:not([type="radio"]), html[data-theme="day"] .variable-review-modal .variable-review-control, html[data-theme="day"] .variable-review-modal .variable-review-select-panel { background: #fffef9; color: #382e24; border-color: #9a8469; }
+html[data-theme="day"] .variable-review-settings input::placeholder { color: #75644e; }
+html[data-theme="day"] .variable-review-modal .variable-review-select-option { color: #382e24; }
+@media (max-width: 480px) { .variable-review-settings-grid { grid-template-columns: minmax(0, 1fr); } }

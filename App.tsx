@@ -3699,6 +3699,8 @@ const App: React.FC = () => {
                             onUploadNpcImage={actions.uploadNpcImageToSlot}
                             onReplaceVariableSection={actions.updateRuntimeVariableSection}
                             onApplyVariableCommand={actions.applyRuntimeVariableCommand}
+                            variableReviewActions={actions}
+                            variableReviewRevision={meta.variableReviewRevision}
                             onRepairGameInitialTime={actions.修正游戏初始时间}
                             onUpdatePrompts={actions.updatePrompts}
                             onUpdateFestivals={actions.updateFestivals}
@@ -3746,6 +3748,8 @@ const App: React.FC = () => {
                             onUploadNpcImage={actions.uploadNpcImageToSlot}
                             onReplaceVariableSection={actions.updateRuntimeVariableSection}
                             onApplyVariableCommand={actions.applyRuntimeVariableCommand}
+                            variableReviewActions={actions}
+                            variableReviewRevision={meta.variableReviewRevision}
                             onRepairGameInitialTime={actions.修正游戏初始时间}
                             onUpdatePrompts={actions.updatePrompts}
                             onUpdateFestivals={actions.updateFestivals}

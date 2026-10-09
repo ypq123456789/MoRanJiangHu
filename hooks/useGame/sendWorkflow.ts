@@ -1608,6 +1608,7 @@ export const 执行主剧情发送工作流 = async (
         resolve自动存档完成(id);
     };
     const 本回合重Roll快照: 回合快照结构 = {
+        审查基准来源: '真实回合前',
         玩家输入: sendInput,
         游戏时间: currentGameTime,
         自动存档完成,
@@ -2192,6 +2193,7 @@ export const 执行主剧情发送工作流 = async (
             { commandCount: 获取响应命令数量(responseForExecution) }
         );
         const turnSnapshot: 回合快照结构 = {
+            审查基准来源: '真实回合前',
             玩家输入: sendInput,
             游戏时间: currentGameTime,
             回档前状态: {

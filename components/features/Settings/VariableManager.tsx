@@ -2,6 +2,8 @@ import React from 'react';
 import type { OpeningConfig, TavernCommand } from '../../../types';
 import { 构建变量管理动态钱包视图, 构建角色金钱显示快照 } from '../../../utils/currencyDisplay';
 import { 构建变量路径登记表, 校验变量命令是否登记 } from '../../../utils/variableRegistry';
+import type { VariableReviewActions } from '../../../hooks/useGame/variableReviewActions';
+import VariableReviewModal from './VariableReviewModal';
 
 type 变量根键 = '角色' | '环境' | '社交' | '世界' | '地图系统' | '战斗' | '剧情' | '剧情规划' | '女主剧情规划' | '玩家门派' | '任务列表' | '约定列表' | '记忆系统';
 
@@ -31,6 +33,8 @@ interface Props {
     openingConfig?: OpeningConfig | null;
     onReplaceSection: (section: 变量根键, value: unknown) => void | Promise<void>;
     onApplyCommand: (command: TavernCommand) => void;
+    variableReviewActions?: VariableReviewActions;
+    variableReviewRevision?: unknown;
 }
 
 const 区块样式 = 'rounded-2xl border border-gray-800/80 bg-black/25 p-4 md:p-5';
@@ -187,7 +191,8 @@ const 树节点编辑器: React.FC<{
     );
 };
 
-const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onReplaceSection, onApplyCommand }) => {
+const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onReplaceSection, onApplyCommand, variableReviewActions, variableReviewRevision }) => {
+    const [reviewOpen, setReviewOpen] = React.useState(false);
     const [activeSection, setActiveSection] = React.useState<变量根键>('角色');
     const [drafts, setDrafts] = React.useState<Record<string, any>>(() => 深拷贝(runtimeState));
     const [jsonDraft, setJsonDraft] = React.useState('');
@@ -329,9 +334,13 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
     return (
         <div className="space-y-4">
             <div className={区块样式}>
-                <div className="text-lg font-bold text-paper-white">存档变量管理</div>
+                <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-lg font-bold text-paper-white">存档变量管理</div>
+                    {variableReviewActions && <button type="button" className="variable-review-primary" onClick={() => setReviewOpen(true)}>变量审查</button>}
+                </div>
                 <div className="mt-1 text-sm text-gray-500">面向当前会话的变量可视化编辑。结构树和 JSON 草稿可手动修正或新增字段；高级命令会按变量登记表校验路径，避免误写未登记变量。</div>
             </div>
+
+            {reviewOpen && variableReviewActions && <VariableReviewModal actions={variableReviewActions} revision={variableReviewRevision ?? runtimeState} onClose={() => setReviewOpen(false)} />}
 
             <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
                 <div className={区块样式}>

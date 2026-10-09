@@ -581,6 +581,7 @@ const 构建读档后重Roll快照 = (
     if (!玩家输入) return null;
     return {
         玩家输入,
+        审查基准来源: '读档重建' as const,
         游戏时间: 环境时间转标准串(loaded.env) || '未知时间',
         回档前状态: {
             角色: deps.深拷贝(loaded.role),

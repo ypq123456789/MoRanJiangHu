@@ -5,6 +5,7 @@ import { 创建图片资源引用, 解析图片资源引用ID, 是否图片资�
 import { 当前为对象存储云端游玩模式 } from '../utils/cloudPlayStorageMode';
 import { 获取设置项定义, 设置分类定义表, 设置键, type 设置分类类型 } from '../utils/settingsSchema';
 import { 默认功能模型占位, 规范化接口设置 } from '../utils/apiConfig';
+import { extractVariableReviewApiSettings } from '../utils/variableReviewSettings';
 import { isNativeCapacitorEnvironment } from '../utils/nativeRuntime';
 import { buildSaveDebugSummary, recordSaveLoadError, recordSaveLoadTrace } from '../utils/saveLoadTrace';
 import { 修复本地存档谱系列表, 补全存档谱系元数据, 是系统占位历史消息 } from '../utils/saveLineage';
@@ -3042,10 +3043,9 @@ const 读取设置保护快照 = async (keys: string[]): Promise<Array<{ key: st
     for (const key of keys) {
         const value = await 读取设置(key);
         if (value !== null && value !== undefined) {
-            snapshots.push({
-                key,
-                value: key === 设置键.API配置 ? 提取可保留接口配置(value) : value
-            });
+            const preserved = key === 设置键.API配置 ? 提取可保留接口配置(value)
+                : key === 设置键.变量审查设置 ? extractVariableReviewApiSettings(value) : value;
+            if (preserved !== undefined) snapshots.push({ key, value: preserved });
         }
     }
     return snapshots;
@@ -3170,6 +3170,15 @@ export const 导入全部设置备份 = async (
             skippedKeys.push(key);
             continue;
         }
+        if (options?.保留现有APIKey && key === 设置键.变量审查设置) {
+            const connection = extractVariableReviewApiSettings(await 读取设置(key));
+            if (connection) {
+                const incoming = (item as any).value;
+                await 保存设置(key, { ...connection, ...(typeof incoming?.customPrompt === 'string' ? { customPrompt: incoming.customPrompt } : {}) });
+                appliedKeys.push(key);
+                continue;
+            }
+        }
         await 保存设置(key, (item as any).value);
         appliedKeys.push(key);
     }
@@ -3178,7 +3187,7 @@ export const 导入全部设置备份 = async (
 
 export const 清空全部设置 = async (options?: { 保留APIKey?: boolean; 保留自定义背景天赋?: boolean }): Promise<void> => {
     const keepKeys = new Set<string>();
-    if (options?.保留APIKey) keepKeys.add(设置键.API配置);
+    if (options?.保留APIKey) { keepKeys.add(设置键.API配置); keepKeys.add(设置键.变量审查设置); }
     if (options?.保留自定义背景天赋) {
         get自定义背景天赋保护键().forEach((key) => keepKeys.add(key));
     }
@@ -3515,7 +3524,7 @@ export const 清空全部数据 = async (options?: { 保留APIKey?: boolean; 保
     const db = await 初始化数据库();
     const 存档保护开启 = await 读取存档保护状态();
     const keepKeys = new Set<string>();
-    if (options?.保留APIKey) keepKeys.add(设置键.API配置);
+    if (options?.保留APIKey) { keepKeys.add(设置键.API配置); keepKeys.add(设置键.变量审查设置); }
     if (options?.保留自定义背景天赋) {
         get自定义背景天赋保护键().forEach((key) => keepKeys.add(key));
     }

@@ -421,7 +421,7 @@ export const 同步金钱命令写入 = (role: any, touchedFields: Set<string>):
     return { ...role, 金钱: next };
 };
 
-const 从物品列表汇总角色货币 = (items: any[], fallbackMoney: Record<string, number>) => {
+export const 从物品列表汇总角色货币 = (items: any[], fallbackMoney: Record<string, number>) => {
     const hasCurrencyItems = items.some((item: any) => {
         const name = 规范化文本(item?.名称);
         const typeCurrencyKey = 解析货币类型信息(item?.类型)?.货币键;

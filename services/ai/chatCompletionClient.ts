@@ -5,6 +5,7 @@ import { OpenAI兼容地址已包含版本路径, 去除OpenAI兼容聊天端点
 import { 小米MiMo稳定输出预设 } from '../../prompts/providers/xiaomiMiMoStablePreset';
 import { GLM稳定输出预设 } from '../../prompts/providers/glmStablePreset';
 import { fetchWithCorsRelay, 疑似浏览器跨域失败, 中转可用, 构建AI中转地址, 翻译跨域中转拒绝 } from './corsRelay';
+import { supportsVariableReviewTopP } from '../../utils/variableReviewSampling';
 
 export type 通用消息角色 = 'system' | 'user' | 'assistant';
 
@@ -32,6 +33,7 @@ export type 通用流式选项 = {
 } | undefined;
 
 export type 模型请求附加选项 = {
+    variableReviewSampling?: boolean;
     includeReasoning?: boolean;
     disableThinking?: boolean;
     stripReasoning?: boolean;
@@ -1909,11 +1911,15 @@ const 请求OpenAI家族文本 = async (
             stream: useStream
         };
         if (是否小米MiMo接口配置(apiConfig)) {
-            body.top_p = 计算小米MiMoTopP(apiConfig, String(requestModel || apiConfig.model));
+            if (!requestOptions?.variableReviewSampling) body.top_p = 计算小米MiMoTopP(apiConfig, String(requestModel || apiConfig.model));
             body.max_completion_tokens = maxOutputTokens;
             body.thinking = { type: 'disabled' };
         } else {
             body.max_tokens = maxOutputTokens;
+        }
+        const configuredTopP = 读取自定义TopP(apiConfig);
+        if (requestOptions?.variableReviewSampling && supportsVariableReviewTopP(apiConfig) && configuredTopP !== undefined) {
+            body.top_p = 是否小米MiMo接口配置(apiConfig) ? 计算小米MiMoTopP(apiConfig, String(requestModel || apiConfig.model)) : configuredTopP;
         }
         if (responseFormat === 'json_object') {
             body.response_format = { type: 'json_object' };
@@ -2120,6 +2126,7 @@ export const 请求模型文本 = async (
     apiConfig: 当前可用接口结构,
     messages: 通用消息[],
     options: {
+        variableReviewSampling?: boolean;
         temperature: number;
         signal?: AbortSignal;
         streamOptions?: 通用流式选项;
@@ -2184,6 +2191,7 @@ export const 请求模型文本 = async (
                 effectiveResponseFormat,
                 options.errorDetailLimit,
                 {
+                    variableReviewSampling: options.variableReviewSampling,
                     includeReasoning: options.includeReasoning,
                     disableThinking: options.disableThinking,
                     stripReasoning: options.stripReasoning,

@@ -1,5 +1,6 @@
 /* Extracted from index.html to avoid Vite HTML inline-css proxy issues */
 @import './components/loader.css';
+@import './components/variable-review.css';
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {

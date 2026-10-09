@@ -37,6 +37,7 @@ import { 同人世界演变附加系统提示词, 同人世界演变附加COT提
 import { 归一化或补全境界体系提示词, 校验境界体系提示词完整性 } from '../../prompts/runtime/fandom';
 import { 默认COT伪装历史消息提示词 } from '../../prompts/runtime/defaults';
 import { 获取变量校准COT提示词 } from '../../prompts/runtime/variableCot';
+import { buildVariableReviewMessages, type VariableReviewTaskContext } from '../../prompts/runtime/variableReview';
 import { 构建AI角色声明提示词 } from '../../prompts/runtime/roleIdentity';
 import {
     构建统一规划分析专用上下文,
@@ -88,6 +89,7 @@ export interface VariableCalibrationResult {
     commands: TavernCommand[];
     reports: string[];
     rawText: string;
+    reviewStatus?: 'noChanges' | 'insufficientEvidence' | 'changesProposed';
 }
 
 export interface PlanningAnalysisResult {
@@ -928,10 +930,35 @@ export const generateWorldEvolutionUpdate = async (
     };
 };
 
+export const parseVariableReviewResponse = (rawText: string): VariableCalibrationResult => {
+    const match = rawText.trim().match(/^<说明>([\s\S]*?)<\/说明>\s*<命令>([\s\S]*?)<\/命令>$/u);
+    const fail = (): never => { throw new Error('变量审查输出协议解析失败：必须返回完整说明和命令块，不能将错误当作无修改。'); };
+    if (!match || !match[1].trim()) return fail();
+    const statuses = { '无需修改': 'noChanges', '证据不足': 'insufficientEvidence', '需要修复': 'changesProposed' } as const;
+    const firstLine = match[1].trim().split(/\r?\n/)[0].replace(/^[-*]\s*/, '').trim();
+    const status = statuses[firstLine.replace(/^状态[：:]\s*/, '') as keyof typeof statuses];
+    if (!/^状态[：:]/u.test(firstLine) || !status) return fail();
+    const commands: TavernCommand[] = [];
+    for (const line of match[2].split(/\r?\n/).map(s => s.trim()).filter(Boolean)) {
+        const cmd = line.match(/^(set|add|sub|push|delete)\s+(\S+?)(?:\s*=\s*([\s\S]+))?$/u);
+        if (!cmd || (cmd[1] !== 'delete' && !cmd[3])) return fail();
+        let value: unknown = null;
+        if (cmd[3]) { try { value = JSON.parse(cmd[3]); } catch { return fail(); } }
+        // 复用生产命令解析器，但不接受其针对损坏输出的部分恢复结果。
+        const parsed = 解析命令块(line);
+        if (parsed.length !== 1 || parsed[0].action !== cmd[1]) return fail();
+        commands.push({ action: cmd[1] as TavernCommand['action'], key: parsed[0].key, value });
+    }
+    if ((status === 'changesProposed') !== (commands.length > 0)) return fail();
+    return { commands, reports: match[1].trim().split(/\r?\n/).filter(Boolean), rawText, reviewStatus: status };
+};
+
 export const generateVariableCalibrationUpdate = async (
     params: {
         stateJson: string;
         response: GameResponse;
+        taskMode?: 'generate' | 'review';
+        reviewContext?: VariableReviewTaskContext;
         /**
          * Variable rules / formulas / structure prompt set for the variable-generation model.
          */
@@ -973,6 +1000,14 @@ export const generateVariableCalibrationUpdate = async (
     onStreamEnd?: (info: 通用流式结束信息) => void
 ): Promise<VariableCalibrationResult> => {
     if (!apiConfig.apiKey) throw new Error('Missing API Key');
+    if (params.taskMode === 'review') {
+        if (!params.reviewContext) throw new Error('变量审查缺少审查上下文');
+        const rawText = await 请求模型文本(apiConfig, buildVariableReviewMessages(params.stateJson, params.response, params.reviewContext, params.calibrationRulesContext || ''), {
+            temperature: apiConfig.temperature ?? 0.2, variableReviewSampling: true, signal, errorDetailLimit: Number.POSITIVE_INFINITY,
+            streamOptions: onStreamDelta || onStreamEnd ? { stream: true, onDelta: onStreamDelta, onStreamEnd } : undefined
+        });
+        return parseVariableReviewResponse(rawText);
+    }
 
     const systemPrompt = 获取内置提示词槽位内容({
         entries: params.builtinPromptEntries,

@@ -37,7 +37,10 @@ import {
     TavernCommand,
     叙事状态结构
 } from '../types';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createVariableReviewActions, findVariableReviewBeforeTurn, type VariableReviewActions } from './useGame/variableReviewActions';
+import type { VariableReviewInput } from './useGame/variableReviewWorkflow';
+import { createVariableReviewConfigurationActions } from '../services/variableReviewSettingsService';
 import * as dbService from '../services/dbService';
 import * as textAIService from '../services/ai/text';
 import { 终止全部ComfyUI生图任务 } from '../services/ai/image';
@@ -4330,6 +4333,56 @@ export const useGame = () => {
         }
     });
 
+    const variableReviewBridge = {
+        input: {
+            currentState: { 角色, 环境, 社交, 世界, 战斗, 玩家门派, 任务列表, 约定列表, 剧情, 剧情规划, 女主剧情规划, 同人剧情规划, 同人女主剧情规划, 记忆系统 },
+            history: 历史记录,
+            turnInProgress: view !== 'game' || loading || 变量生成中 || 后台队列处理中 || 世界演变更新中
+        } as VariableReviewInput,
+        dependencies: { apiConfig, gameConfig, openingConfig: 开局配置, promptPool: prompts },
+        setters: { 角色: 设置角色, 环境: 设置环境, 社交: 同步设置社交, 世界: 设置世界, 战斗: 设置战斗, 玩家门派: 设置玩家门派, 任务列表: 设置任务列表, 约定列表: 设置约定列表 },
+        performAutoSave
+    };
+    const variableReviewBridgeRef = useRef(variableReviewBridge);
+    variableReviewBridgeRef.current = variableReviewBridge;
+    const variableReviewActionsRef = useRef<VariableReviewActions | null>(null);
+    if (!variableReviewActionsRef.current) {
+        const configuration = createVariableReviewConfigurationActions(() => variableReviewBridgeRef.current.dependencies.apiConfig);
+        variableReviewActionsRef.current = { ...createVariableReviewActions({
+            getInput: () => {
+                const latest = variableReviewBridgeRef.current.input;
+                // 请求Ref即时更新，覆盖loading尚未触发React重渲染的短窗口。
+                const requestActive = [abortControllerRef.current, variableGenerationAbortControllerRef.current].some(controller => controller && !controller.signal.aborted);
+                return { ...latest, turnInProgress: latest.turnInProgress || requestActive, currentState: { ...latest.currentState, 社交: 社交Ref.current }, beforeTurn: findVariableReviewBeforeTurn(latest.history, 回合快照栈Ref.current) };
+            },
+            getDependencies: () => ({ ...variableReviewBridgeRef.current.dependencies, reviewSettings: configuration.peekSettings() }),
+            saveSettings: configuration.saveVariableReviewSettings,
+            getModelMetadata: configuration.getVariableReviewModelMetadata,
+            commitState: (next, changes) => {
+                const bridge = variableReviewBridgeRef.current;
+                const changedRoots = new Set(changes.map(change => change.path.split(/[.\[]/)[0]));
+                Object.entries(bridge.setters).forEach(([root, setter]) => {
+                    if (changedRoots.has(root)) (setter as (value: any) => void)(next[root as keyof typeof next]);
+                });
+                bridge.input = { ...bridge.input, currentState: next };
+            },
+            saveState: async (next, history) => {
+                // 显式传入全部业务域，避免React状态尚未刷新时保存旧闭包中的值。
+                const saved = await variableReviewBridgeRef.current.performAutoSave({
+                    role: next.角色, env: next.环境, social: next.社交, world: next.世界, battle: next.战斗,
+                    sect: next.玩家门派, tasks: next.任务列表, agreements: next.约定列表,
+                    story: next.剧情, storyPlan: next.剧情规划, heroinePlan: next.女主剧情规划,
+                    fandomStoryPlan: next.同人剧情规划, fandomHeroinePlan: next.同人女主剧情规划,
+                    history, force: true
+                });
+                if (!saved) throw new Error('存档入口未返回已保存的存档');
+                return saved;
+            }
+        }), ...configuration };
+    }
+    const variableReviewRevision = useMemo(() => ({}), [角色, 环境, 社交, 世界, 战斗, 玩家门派, 任务列表, 约定列表, 剧情, 剧情规划, 女主剧情规划, 同人剧情规划, 同人女主剧情规划, 记忆系统, 历史记录, loading, 变量生成中, 后台队列处理中, 世界演变更新中, view, 可重Roll计数]);
+    useEffect(() => () => variableReviewActionsRef.current?.cancelVariableReview(), []);
+
     const {
         generateNpcImageManually,
         generateNpcSecretPartImage,
@@ -4452,6 +4505,7 @@ export const useGame = () => {
             sceneImageArchive: 场景图片档案,
             sceneImageQueue: 场景生图任务队列,
             variableGenerationRunning: 变量生成中,
+            variableReviewRevision,
             postStoryQueueRunning: 后台队列处理中,
             openingMainStoryProgress: 开局主剧情进度,
             openingPolishProgress: 开局文章优化进度,
@@ -4504,6 +4558,7 @@ export const useGame = () => {
             uploadNpcImageToSlot,
             updateRuntimeVariableSection,
             applyRuntimeVariableCommand,
+            ...variableReviewActionsRef.current,
             handleStartNewGameWizard,
             handleGenerateWorld,
             handleQuickRestart,

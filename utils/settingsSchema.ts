@@ -5,6 +5,7 @@ import { 世界书存储键, 世界书预设组存储键 } from './worldbook';
 export const 设置键 = {
     应用主题: 'app_theme',
     API配置: 'api_settings',
+    变量审查设置: 'variable_review_settings',
     提示词池: 'prompts',
     节日配置: 'festivals',
     视觉设置: 'visual_settings',
@@ -124,6 +125,13 @@ export const 设置项定义列表: 设置项定义[] = [
         category: 'interface',
         description: '模型接口地址、密钥与模型选择。',
         order: 20
+    },
+    {
+        key: 设置键.变量审查设置,
+        label: '变量审查设置',
+        category: 'interface',
+        description: '手动变量审查的 API 连接、模型参数和审查策略。',
+        order: 25
     },
     {
         key: 设置键.视觉设置,

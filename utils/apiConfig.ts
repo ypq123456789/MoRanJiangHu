@@ -2261,7 +2261,44 @@ export const 获取角色对话接口配置 = (settings: 接口设置结构): �
     });
 };
 
-export const 获取变量计算接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {
+export class VariableReviewApiConfigurationError extends Error {
+    constructor(message: string) { super(message); this.name = 'VariableReviewApiConfigurationError'; }
+}
+
+// 仅手动变量审查使用严格解析；其它工作流继续使用原有fallback。
+const 获取手动变量审查接口配置 = (settings: 接口设置结构): 当前可用接口结构 => {
+    const feature = settings?.功能模型占位;
+    const channelId = 读取字符串(feature?.变量计算渠道ID).trim();
+    const model = 读取字符串(feature?.变量计算使用模型).trim();
+    const baseUrl = 读取字符串(feature?.变量计算API地址).trim();
+    const apiKey = 读取字符串(feature?.变量计算API密钥).trim();
+    const configs = Array.isArray(settings?.configs) ? settings.configs : [];
+    const fail = (message: string): never => { throw new VariableReviewApiConfigurationError(message); };
+    const selected = channelId ? configs.find(config => config.id === channelId) : undefined;
+    if (channelId && !selected) fail('变量计算 API 配置已失效，请重新选择变量渠道。');
+    if (!channelId && !model && !baseUrl && !apiKey) fail('请先配置变量计算 API。');
+    // 现有设置以空渠道ID表示继承；必须有显式变量模型，不能把全空默认配置当成继承。
+    if (!channelId && !baseUrl && !model) fail('变量计算 API 配置不完整：继承渠道时需选择变量 Model。');
+    const inherited = !channelId && !baseUrl ? configs.find(config => config.id === settings?.activeConfigId) : undefined;
+    if (!channelId && !baseUrl && !inherited) fail('变量计算 API 的继承渠道已失效，请重新选择渠道。');
+    const base = selected || inherited;
+    const result: 当前可用接口结构 = {
+        ...base, id: base?.id || 'variable-review', 名称: base?.名称 || '变量计算',
+        供应商: baseUrl ? 推断供应商(baseUrl) : base!.供应商,
+        协议覆盖: baseUrl ? 'auto' : base?.协议覆盖 || 'auto',
+        baseUrl: baseUrl || 读取字符串(base?.baseUrl).trim(),
+        // 独立URL必须配自己的密钥和模型，不能借用正文provider的凭据。
+        apiKey: baseUrl ? apiKey : apiKey || 读取字符串(base?.apiKey).trim(),
+        model: baseUrl ? model : model || 读取字符串(base?.model).trim()
+    };
+    if (!result.baseUrl) fail('变量计算 API 配置不完整：缺少 Base URL。');
+    if (!result.apiKey) fail('变量计算 API 配置不完整：缺少 API key。');
+    if (!result.model) fail('变量计算 API 配置不完整：缺少 model。');
+    return result;
+};
+
+export const 获取变量计算接口配置 = (settings: 接口设置结构, options?: { manualReview?: boolean }): 当前可用接口结构 | null => {
+    if (options?.manualReview) return 获取手动变量审查接口配置(settings);
     const feature = (settings as any)?.功能模型占位;
     const enabled = Boolean(feature?.变量计算独立模型开关);
     if (!enabled) return null;

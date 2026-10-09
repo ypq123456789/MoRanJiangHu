@@ -49,13 +49,9 @@ const 夹取数值 = (value: number, min: number, max: number): number => {
     return value;
 };
 
-export const 执行变量自动校准 = (
-    inputState: 变量校准状态,
-    deps: 变量校准依赖
-): { state: 变量校准状态; corrections: string[] } => {
+// 普通回合与审查预览共用同一套当前值/最大值范围规则，不承担时间或结算推进。
+export const 校准角色数值范围 = (角色: 角色数据结构): string[] => {
     const corrections: string[] = [];
-    const 角色 = deps.规范化角色物品容器映射(inputState.角色, { 当前时间: inputState.环境 });
-
     const 校准当前值 = (currentKey: keyof 角色数据结构, maxKey: keyof 角色数据结构, label: string) => {
         const rawCurrent = Number(角色[currentKey]);
         const rawMax = Math.max(0, Number(角色[maxKey]) || 0);
@@ -81,6 +77,18 @@ export const 执行变量自动校准 = (
         const maxKey = `${part}最大血量` as keyof 角色数据结构;
         校准当前值(currentKey, maxKey, `${part}血量`);
     });
+
+    return corrections;
+};
+
+export const 执行变量自动校准 = (
+    inputState: 变量校准状态,
+    deps: 变量校准依赖
+): { state: 变量校准状态; corrections: string[] } => {
+    const corrections: string[] = [];
+    const 角色 = deps.规范化角色物品容器映射(inputState.角色, { 当前时间: inputState.环境 });
+
+    corrections.push(...校准角色数值范围(角色));
 
     const 环境 = deps.规范化环境信息(inputState.环境);
     const 社交 = deps.规范化社交列表(inputState.社交, { 合并同名: false });

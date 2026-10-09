@@ -657,9 +657,9 @@ const StorageManager: React.FC<Props> = ({ requestConfirm }) => {
                                                                 未登记
                                                             </span>
                                                         )}
-                                                        {item.key === 设置键.API配置 && protectApiKey && (
+                                                        {(item.key === 设置键.API配置 || item.key === 设置键.变量审查设置) && protectApiKey && (
                                                             <span className="px-2 py-0.5 text-[10px] rounded border border-emerald-500/40 text-emerald-300 bg-emerald-950/20">
-                                                                受保留开关保护
+                                                                {item.key === 设置键.变量审查设置 ? 'API 连接受保留开关保护' : '受保留开关保护'}
                                                             </span>
                                                         )}
                                                     </div>

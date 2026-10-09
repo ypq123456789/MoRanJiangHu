@@ -20,6 +20,8 @@ import type {
 } from '../../types';
 
 export type 回合快照结构 = {
+    // 仅运行时使用，不写入存档schema。重Roll的合成基态不能作为审查事实基准。
+    审查基准来源?: '真实回合前' | '读档重建';
     玩家输入: string;
     游戏时间: string;
     关联自动存档ID?: number;

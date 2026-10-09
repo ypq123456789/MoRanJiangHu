@@ -1,3 +1,8 @@
+import type { TavernCommand } from '../../types';
+import { hasExplicitReviewTimeEvidence, reviewNarratorTimeFacts } from './variableReviewTimeEvidence';
+import { 校准角色数值范围 } from './variableCalibration';
+import { validateVariableCommandBasics, 校验变量命令角色安全, variableCommandProtectionCode, type VariableCommandRejectionCode } from './variableCommandValidation';
+import type { NpcTemplateNameContext } from '../../utils/npcTemplateNamePolicy';
 import { normalizeNpcNameKey, isMultilingualNpcName, isNpcNameFormatValid, hasNpcNamePollution, textMentionsNpcName } from '../../utils/npcName';
 import { 是否含姓名叙事污染 } from '../../utils/dialogueSpeakerGuard';
 import {
@@ -263,7 +268,7 @@ export type 响应命令处理状态 = {
     同人女主剧情规划?: 同人女主剧情规划结构;
 };
 
-type 响应命令处理依赖 = {
+export type 响应命令处理依赖 = {
     规范化环境信息: (envLike?: any) => 环境信息结构;
     规范化社交列表: (raw?: any[], options?: { 合并同名?: boolean }) => any[];
     规范化世界状态: (raw?: any) => 世界数据结构;
@@ -1626,24 +1631,50 @@ export const 执行响应命令处理 = (
     baseState?: Partial<响应命令处理状态>,
     options?: {
         applyState?: boolean;
+        executionMode?: 'normal' | 'review-preview' | 'review-apply';
+        reviewNameContext?: NpcTemplateNameContext;
+        reviewTimeReference?: unknown;
+        onCommandDiagnostic?: (diagnostic: { command: TavernCommand; status: 'accepted' | 'rejected'; code?: VariableCommandRejectionCode; reason?: string }) => void;
         heroinePlanEnabled?: boolean;
     }
 ): 响应命令处理状态 => {
-    const shouldApplyState = options?.applyState !== false;
+    const reviewApply = options?.executionMode === 'review-apply';
+    const reviewPreview = options?.executionMode === 'review-preview' || reviewApply;
+    if (reviewPreview) {
+        currentState = JSON.parse(JSON.stringify(currentState));
+        baseState = baseState ? JSON.parse(JSON.stringify(baseState)) : undefined;
+        response = JSON.parse(JSON.stringify(response));
+        // 空命令审查不能借规范化修改任何状态。
+        if (!response.tavern_commands?.length) return { ...currentState, ...baseState };
+        try {
+            校验变量命令角色安全(response.tavern_commands, {
+                baseState: { ...currentState, ...baseState }, parsedResponse: response,
+                realmConfig: deps.境界配置,
+                npcNameContext: options?.reviewNameContext || { currentSocial: (baseState || currentState).社交 }
+            });
+        } catch (error: any) {
+            response.tavern_commands.forEach(command => options?.onCommandDiagnostic?.({ command, status: 'rejected', code: variableCommandProtectionCode(error.message), reason: error.message }));
+            return { ...currentState, ...baseState };
+        }
+    }
+    const shouldApplyState = !reviewPreview && options?.applyState !== false;
+    const touchedRoots = new Set<string>();
+    const executedCommands: TavernCommand[] = [];
+    const rejectCommand = (command: TavernCommand, reason: string, code: VariableCommandRejectionCode = 'safety') => options?.onCommandDiagnostic?.({ command, status: 'rejected', reason, code });
     const heroinePlanEnabled = options?.heroinePlanEnabled !== false;
     let charBuffer = baseState?.角色 || currentState.角色;
-    let envBuffer = deps.规范化环境信息(baseState?.环境 || currentState.环境);
+    let envBuffer = (reviewPreview ? (baseState?.环境 || currentState.环境) : deps.规范化环境信息(baseState?.环境 || currentState.环境));
     let socialBuffer = Array.isArray(baseState?.社交) ? baseState.社交 : currentState.社交;
-    let worldBuffer = deps.规范化世界状态(baseState?.世界 || currentState.世界);
-    let battleBuffer = deps.规范化战斗状态(baseState?.战斗 || currentState.战斗);
-    let sectBuffer = deps.规范化门派状态(baseState?.玩家门派 || currentState.玩家门派);
+    let worldBuffer = (reviewPreview ? (baseState?.世界 || currentState.世界) : deps.规范化世界状态(baseState?.世界 || currentState.世界));
+    let battleBuffer = (reviewPreview ? (baseState?.战斗 || currentState.战斗) : deps.规范化战斗状态(baseState?.战斗 || currentState.战斗));
+    let sectBuffer = (reviewPreview ? (baseState?.玩家门派 || currentState.玩家门派) : deps.规范化门派状态(baseState?.玩家门派 || currentState.玩家门派));
     let tasksBuffer = Array.isArray(baseState?.任务列表) ? baseState.任务列表 : currentState.任务列表;
     let agreementsBuffer = Array.isArray(baseState?.约定列表) ? baseState.约定列表 : currentState.约定列表;
-    let storyBuffer = deps.规范化剧情状态(baseState?.剧情 || currentState.剧情);
-    let storyPlanBuffer = deps.规范化剧情规划状态(baseState?.剧情规划 || currentState.剧情规划);
-    let heroinePlanBuffer = deps.规范化女主剧情规划状态(baseState?.女主剧情规划 ?? currentState.女主剧情规划);
-    let fandomStoryPlanBuffer = deps.规范化同人剧情规划状态(baseState?.同人剧情规划 ?? currentState.同人剧情规划);
-    let fandomHeroinePlanBuffer = deps.规范化同人女主剧情规划状态(baseState?.同人女主剧情规划 ?? currentState.同人女主剧情规划);
+    let storyBuffer = (reviewPreview ? (baseState?.剧情 || currentState.剧情) : deps.规范化剧情状态(baseState?.剧情 || currentState.剧情));
+    let storyPlanBuffer = (reviewPreview ? (baseState?.剧情规划 || currentState.剧情规划) : deps.规范化剧情规划状态(baseState?.剧情规划 || currentState.剧情规划));
+    let heroinePlanBuffer = (reviewPreview ? (baseState?.女主剧情规划 ?? currentState.女主剧情规划) : deps.规范化女主剧情规划状态(baseState?.女主剧情规划 ?? currentState.女主剧情规划));
+    let fandomStoryPlanBuffer = (reviewPreview ? (baseState?.同人剧情规划 ?? currentState.同人剧情规划) : deps.规范化同人剧情规划状态(baseState?.同人剧情规划 ?? currentState.同人剧情规划));
+    let fandomHeroinePlanBuffer = (reviewPreview ? (baseState?.同人女主剧情规划 ?? currentState.同人女主剧情规划) : deps.规范化同人女主剧情规划状态(baseState?.同人女主剧情规划 ?? currentState.同人女主剧情规划));
     const socialBeforeCommands = Array.isArray(socialBuffer) ? socialBuffer : [];
     const worldFactionsBeforeCommands = Array.isArray(worldBuffer?.势力列表) ? worldBuffer.势力列表 : [];
     const charGenderBeforeCommands = charBuffer?.性别;
@@ -1660,45 +1691,51 @@ export const 执行响应命令处理 = (
             deps.境界配置
         );
         response.tavern_commands.forEach((cmd, commandIndex) => {
-            if (deathRiskCommandIndices.has(commandIndex) || realmRegressionCommandIndices.has(commandIndex)) return;
-            const safeCmd = 净化新增社交命令(
-                净化越界社交索引命令(
-                净化社交姓名命令(
-                    sanitizeInventoryCommand(
-                        净化社交生理命令(
-                            净化角色天赋背景命令(
-                                净化角色装备命令(cmd, charBuffer?.装备 || {}, responseFactText),
-                                charBuffer
-                            ),
-                            responseFactText
-                        ),
-                        charBuffer,
-                        responseFactText
-                    ),
-                    socialBuffer
-                ), socialBuffer),
-                socialBuffer,
-                responseFactText,
-                dialogueSenderKeys,
-                charBuffer?.姓名
-            );
-            if (!safeCmd) return;
-            if (!heroinePlanEnabled && 是否女主规划命令(safeCmd.key)) return;
-            if (命令存在社交删除风险(safeCmd, socialBuffer)) return;
+            if (deathRiskCommandIndices.has(commandIndex) || realmRegressionCommandIndices.has(commandIndex)) {
+                rejectCommand(cmd, '死亡或境界变化证据不足', 'insufficientEvidence'); return;
+            }
+            if (reviewPreview) {
+                const issue = validateVariableCommandBasics(cmd, { 角色: charBuffer, 环境: envBuffer, 社交: socialBuffer, 世界: worldBuffer, 战斗: battleBuffer, 玩家门派: sectBuffer, 任务列表: tasksBuffer, 约定列表: agreementsBuffer }, true);
+                if (issue) { rejectCommand(cmd, issue.reason, issue.code); return; }
+                const path = normalizeStateCommandKey(cmd.key);
+                if (/^gameState\.(?:角色|环境|世界|战斗|玩家门派)$/.test(path)) { rejectCommand(cmd, '审查不允许替换完整业务对象'); return; }
+            }
+            let safeCmd: any = cmd;
+            // 普通执行与审查共用相同净化步骤；审查额外记录具体拒绝环节。
+            const stages: Array<[string, (value: any) => any]> = [
+                ['装备修改缺少正文依据', value => 净化角色装备命令(value, charBuffer?.装备 || {}, responseFactText)],
+                ['天赋/背景修改缺少正文依据', value => 净化角色天赋背景命令(value, charBuffer)],
+                ['生理字段缺少正文依据', value => 净化社交生理命令(value, responseFactText)],
+                ['物品命令未通过安全净化', value => sanitizeInventoryCommand(value, charBuffer, responseFactText)],
+                ['NPC 姓名修改被保护', value => 净化社交姓名命令(value, socialBuffer)],
+                ['越界社交索引', value => 净化越界社交索引命令(value, socialBuffer)],
+                ['NPC 姓名非法/占位/污染，或缺少正文新增依据', value => 净化新增社交命令(value, socialBuffer, responseFactText, dialogueSenderKeys, charBuffer?.姓名)]
+            ];
+            for (const [reason, sanitize] of stages) {
+                safeCmd = sanitize(safeCmd);
+                if (!safeCmd) { rejectCommand(cmd, reason, /依据/.test(reason) ? 'insufficientEvidence' : 'safety'); return; }
+            }
+            if (!heroinePlanEnabled && 是否女主规划命令(safeCmd.key)) { rejectCommand(cmd, '女主规划功能未启用'); return; }
+            if (命令存在社交删除风险(safeCmd, socialBuffer)) { rejectCommand(cmd, 'NPC 删除保护', 'npcDeletion'); return; }
             const normalizedSafeKey = normalizeStateCommandKey(typeof safeCmd.key === 'string' ? safeCmd.key : '');
             const executableCmd = normalizedSafeKey === 'gameState.社交' && safeCmd.action === 'add'
                 ? { ...safeCmd, action: 'push' as const }
                 : safeCmd;
             if (是否游戏初始时间命令(safeCmd.key)) {
-                return;
+                rejectCommand(cmd, '审查不允许更新时间'); return;
+            }
+            if (reviewPreview && /^gameState\.环境\.时间(?:[.\[]|$)/.test(normalizedSafeKey) &&
+                (normalizedSafeKey !== 'gameState.环境.时间' || safeCmd.action !== 'set' ||
+                    !hasExplicitReviewTimeEvidence(safeCmd.value, reviewNarratorTimeFacts(response.logs || []), options?.reviewTimeReference))) {
+                rejectCommand(cmd, '审查不允许更新时间：缺少可核实的明确正文时间证据', 'insufficientEvidence'); return;
             }
             if (是否环境时间命令(safeCmd.key) && safeCmd.action === 'set') {
                 if (是否时间回退或异常重置(envBuffer?.时间, safeCmd.value)) {
-                    return;
+                    rejectCommand(cmd, '时间回退或异常重置'); return;
                 }
             }
             if (safeCmd.action === 'set' && 是否缺少高层地点变更依据(safeCmd.key, envBuffer, safeCmd.value, responseFactText)) {
-                return;
+                rejectCommand(cmd, '地点变更缺少正文依据', 'insufficientEvidence'); return;
             }
             const result = applyStateCommand(
                 charBuffer,
@@ -1718,6 +1755,9 @@ export const 执行响应命令处理 = (
                 executableCmd.value,
                 executableCmd.action
             );
+            executedCommands.push(executableCmd);
+            touchedRoots.add(normalizedSafeKey.split(/[.\[]/)[1]);
+            options?.onCommandDiagnostic?.({ command: executableCmd, status: 'accepted' });
             charBuffer = result.char;
             envBuffer = result.env;
             socialBuffer = result.social;
@@ -1726,7 +1766,7 @@ export const 执行响应命令处理 = (
             sectBuffer = result.sect;
 
             // 多货币汇率系统：地点变更时触发汇率检查
-            if (safeCmd.action === 'set' && 是否具体地点变更命令(safeCmd.key)) {
+            if (!reviewPreview && safeCmd.action === 'set' && 是否具体地点变更命令(safeCmd.key)) {
                 const 当前节点 = worldBuffer?.地图层级?.find((n: any) => n.名称 === safeCmd.value);
                 if (当前节点) {
                     const 运行时配置 = deps.获取运行时配置?.();
@@ -1741,6 +1781,41 @@ export const 执行响应命令处理 = (
             fandomStoryPlanBuffer = result.fandomStoryPlan;
             fandomHeroinePlanBuffer = result.fandomHeroinePlan;
         });
+
+        if (reviewPreview) {
+            // 只执行候选命令及必要的目标域规范化。不得进入下方回合事实补全、结算和推进链路。
+            if (touchedRoots.has('角色')) {
+                charBuffer = 同步金钱命令写入(charBuffer, 提取金钱命令字段(executedCommands));
+                // 时间纠错不能让角色规范化按新时刻触发BUFF到期或恢复结算。
+                charBuffer = deps.规范化角色物品容器映射(charBuffer, { 当前时间: baseState?.环境 || currentState.环境, ...deps.角色规范化选项 });
+                校准角色数值范围(charBuffer);
+            }
+            if (touchedRoots.has('社交')) {
+                socialBuffer = deps.规范化社交列表(socialBuffer, { 合并同名: false });
+                const retained = 合并保留既有NPC列表(socialBeforeCommands, socialBuffer, charBuffer?.姓名);
+                socialBuffer = deps.规范化社交列表(retained.列表, { 合并同名: false });
+            }
+            if (touchedRoots.has('环境')) envBuffer = deps.规范化环境信息(envBuffer);
+            if (touchedRoots.has('世界')) worldBuffer = deps.规范化世界状态(worldBuffer);
+            if (touchedRoots.has('战斗')) battleBuffer = deps.规范化战斗状态(battleBuffer);
+            if (touchedRoots.has('玩家门派')) sectBuffer = deps.规范化门派状态(sectBuffer);
+            const playerKey = normalizeNpcNameKey(charBuffer?.姓名);
+            if (touchedRoots.has('社交')) socialBuffer = socialBuffer.filter(npc => !playerKey || normalizeNpcNameKey(npc?.姓名) !== playerKey);
+            const reviewedState = { ...currentState, ...baseState, 角色: charBuffer, 环境: envBuffer, 社交: socialBuffer, 世界: worldBuffer, 战斗: battleBuffer,
+                玩家门派: sectBuffer, 任务列表: tasksBuffer, 约定列表: agreementsBuffer, 剧情: storyBuffer, 剧情规划: storyPlanBuffer,
+                女主剧情规划: heroinePlanBuffer, 同人剧情规划: fandomStoryPlanBuffer, 同人女主剧情规划: fandomHeroinePlanBuffer };
+            if (reviewApply && options?.applyState !== false) {
+                if (touchedRoots.has('角色')) deps.设置角色?.(reviewedState.角色);
+                if (touchedRoots.has('环境')) deps.设置环境?.(reviewedState.环境);
+                if (touchedRoots.has('社交')) deps.设置社交?.(reviewedState.社交);
+                if (touchedRoots.has('世界')) deps.设置世界?.(reviewedState.世界);
+                if (touchedRoots.has('战斗')) deps.设置战斗?.(reviewedState.战斗);
+                if (touchedRoots.has('玩家门派')) deps.设置玩家门派?.(reviewedState.玩家门派);
+                if (touchedRoots.has('任务列表')) deps.设置任务列表?.(reviewedState.任务列表);
+                if (touchedRoots.has('约定列表')) deps.设置约定列表?.(reviewedState.约定列表);
+            }
+            return reviewedState;
+        }
 
         // 金钱命令写穿透：AI 本回合写过的金钱字段为权威，同步三层/旧别名/baseAmount，
         // 防止随后的金钱归一化用陈旧三层字段把刚写入的别名值反向吞掉
