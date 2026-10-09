@@ -10,8 +10,15 @@ import { DEFAULT_REVIEW_CONTEXT_WINDOW, MIN_REVIEW_CONTEXT_WINDOW, MAX_REVIEW_CO
 const NumericInput: React.FC<{ id: string; value?: number; min: number; max: number; step?: number; placeholder: string; disabled?: boolean; onChange: (value?: number) => void }> = ({ value, onChange, ...props }) => {
     const [draft, setDraft] = React.useState(value === undefined ? '' : String(value));
     const [warning, setWarning] = React.useState('');
-    React.useEffect(() => { setDraft(value === undefined ? '' : String(value)); }, [value]);
+    // 用户已改动但尚未失焦时，不接受外部 value 回灌：配置异步刷新恰好落在
+    // 「输入→失焦」之间会把正在编辑的数字重置掉，导致失焦时范围钳制静默失效。
+    const dirty = React.useRef(false);
+    React.useEffect(() => {
+        if (dirty.current) return;
+        setDraft(value === undefined ? '' : String(value));
+    }, [value]);
     const commit = () => {
+        dirty.current = false;
         const raw = Number(draft);
         const bounded = Math.max(props.min, Math.min(props.max, raw));
         const next = !draft || !Number.isFinite(raw) ? undefined : props.step === undefined ? Math.floor(bounded) : bounded;
@@ -19,7 +26,7 @@ const NumericInput: React.FC<{ id: string; value?: number; min: number; max: num
         setWarning(draft && next !== raw ? `已调整为有效值：${next ?? '默认值'}` : '');
         onChange(next);
     };
-    return <div><input {...props} type="number" value={draft} onChange={event => { setDraft(event.target.value); setWarning(''); }} onBlur={commit} />{warning && <p role="status" className="variable-review-muted">{warning}</p>}</div>;
+    return <div><input {...props} type="number" value={draft} onChange={event => { dirty.current = true; setDraft(event.target.value); setWarning(''); }} onBlur={commit} />{warning && <p role="status" className="variable-review-muted">{warning}</p>}</div>;
 };
 
 interface Props { configuration: VariableReviewConfiguration; actions: VariableReviewActions; onChange: (next: VariableReviewSettings) => void }
@@ -38,7 +45,9 @@ const VariableReviewSettingsPanel: React.FC<Props> = ({ configuration, actions, 
     const previousSource = React.useRef(source);
     React.useEffect(() => { if (previousSource.current !== source) { previousSource.current = source; sequence.current++; setModels([]); setMessage(''); setLoading(false); } }, [source]);
     React.useEffect(() => () => { sequence.current++; }, []);
-    const update = <K extends keyof VariableReviewSettings>(key: K, value: VariableReviewSettings[K]) => onChange({ ...settings, [key]: value });
+    // 基于最新 settings 合并，避免闭包捕获的旧 settings 覆盖刚输入的值
+    // （配置异步加载完成时 setConfiguration 替换整个对象，会把输入中的数字清空）。
+    const update = <K extends keyof VariableReviewSettings>(key: K, value: VariableReviewSettings[K]) => onChange({ ...latest.current, [key]: value });
     const refresh = async () => {
         const request = ++sequence.current;
         setLoading(true); setMessage('');
