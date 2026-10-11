@@ -43,9 +43,20 @@ describe('视口尺寸变化防抖与断点滞回', () => {
         // isMobile 通过 ref 读取
         expect(app).toMatch(/const mobile = isMobileRef\.current;/);
         expect(app).toMatch(/const priorityCount = mobile \? 5 : 9;/);
-        // effect 依赖里不能有 isMobile
-        expect(app).toMatch(/\}, \[state\.view\]\);/);
-        expect(app).not.toMatch(/\}, \[isMobile, state\.view\]\);/);
+
+        // 必须定位到「预热 effect 本身」的依赖数组再断言。
+        // 若只在整文件里搜 `}, [state.view]);`，别的 effect 恰好命中就会让测试
+        // 放过「预热 effect 被改回 [state.view, isMobile]」这种回归。
+        const warmupStart = app.indexOf('const warmup = () => {');
+        expect(warmupStart).toBeGreaterThan(-1);
+        // 该effect 的收尾依赖数组：从 warmup 定义往后找第一个 `}, [ ... ]);`
+        const warmupTail = app.slice(warmupStart).match(/\},\s*\[([^\]]*)\]\);/);
+        expect(warmupTail).not.toBeNull();
+        const warmupDeps = (warmupTail?.[1] || '').split(',').map((s) => s.trim()).filter(Boolean);
+
+        // 依赖里不能出现 isMobile，且应保留 state.view
+        expect(warmupDeps).not.toContain('isMobile');
+        expect(warmupDeps).toContain('state.view');
     });
 
     it('滞回判定在断点抖动下不会反复翻转', () => {
