@@ -504,10 +504,6 @@ const App: React.FC = () => {
         if (typeof window === 'undefined') return 1280;
         return window.innerWidth;
     });
-    const [isMobile, setIsMobile] = React.useState<boolean>(() => {
-        if (typeof window === 'undefined') return false;
-        return window.matchMedia('(max-width: 767px)').matches;
-    });
     const [isFullscreen, setIsFullscreen] = React.useState<boolean>(() => {
         if (typeof document === 'undefined') return false;
         const doc = document as Document & {
@@ -952,20 +948,74 @@ const App: React.FC = () => {
         setConfirmState((prev) => ({ ...prev, open: false }));
     }, []);
 
+    const MOBILE_BREAKPOINT = 767;
+    // iOS Safari 上下拖动页面时地址栏会连续伸缩，innerWidth 会在断点附近反复抖动。
+    // 没有滞回区间时 isMobile 会高频翻转，导致下面 28 处isMobile 分支同时换组件、
+    // 整棵树卸载重建，Safari 内存吃紧后直接杀掉标签页（表现为闪退回菜单）。
+    const [isMobile, setIsMobile] = React.useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
+        return window.innerWidth <= MOBILE_BREAKPOINT;
+    });
+    const isMobileRef = React.useRef(isMobile);
     React.useEffect(() => {
-        const mq = window.matchMedia('(max-width: 767px)');
-        const update = () => setIsMobile(mq.matches);
-        update();
-        mq.addEventListener('change', update);
-        return () => mq.removeEventListener('change', update);
+        // 滞回区间：宽度 <=767px 进入移动端，需涨到 >=815px 才退出。
+        // 中间 48px 地带保持当前形态，避免在断点上来回横跳。
+        const MOBILE_EXIT = MOBILE_BREAKPOINT + 48;
+        let current = isMobileRef.current;
+        const evaluate = (width: number) => {
+            const next = width <= MOBILE_BREAKPOINT
+                ? true
+                : (current ? width < MOBILE_EXIT : false);
+            if (next === current) return;
+            current = next;
+            isMobileRef.current = next;
+            setIsMobile(next);
+        };
+        let timerId: number | null = null;
+        const onResize = () => {
+            const width = window.innerWidth;
+            if (timerId !== null) window.clearTimeout(timerId);
+            // 拖动过程只累加判定，不逐帧写 state；停下来后再落地。
+            timerId = window.setTimeout(() => {
+                timerId = null;
+                evaluate(width);
+            }, 120);
+        };
+        evaluate(window.innerWidth);
+        window.addEventListener('resize', onResize);
+        window.addEventListener('orientationchange', onResize);
+        return () => {
+            window.removeEventListener('resize', onResize);
+            window.removeEventListener('orientationchange', onResize);
+            if (timerId !== null) window.clearTimeout(timerId);
+        };
     }, []);
+    isMobileRef.current = isMobile;
 
     React.useEffect(() => {
         if (typeof window === 'undefined') return;
-        const update = () => setViewportWidth(window.innerWidth);
+        let timerId: number | null = null;
+        let lastWidth = window.innerWidth;
+        const update = () => {
+            const width = window.innerWidth;
+            if (timerId !== null) window.clearTimeout(timerId);
+            // 旋转/分屏结束时再落地宽度，中间过程不逐帧写 state。
+            timerId = window.setTimeout(() => {
+                timerId = null;
+                // 宽度变化不足 1px 视为噪声，不写 state，避免 Safari 拖动时刷爆重渲染。
+                if (Math.abs(width - lastWidth) < 1) return;
+                lastWidth = width;
+                setViewportWidth(width);
+            }, 120);
+        };
         update();
         window.addEventListener('resize', update);
-        return () => window.removeEventListener('resize', update);
+        window.addEventListener('orientationchange', update);
+        return () => {
+            window.removeEventListener('resize', update);
+            window.removeEventListener('orientationchange', update);
+            if (timerId !== null) window.clearTimeout(timerId);
+        };
     }, []);
 
     React.useEffect(() => {
@@ -999,9 +1049,10 @@ const App: React.FC = () => {
             || (navigator as Navigator & { mozConnection?: 可选网络信息 }).mozConnection
             || (navigator as Navigator & { webkitConnection?: 可选网络信息 }).webkitConnection
             || null;
+        const mobile = isMobileRef.current;
         const preloadTargets = 网络较慢或节省流量(connection)
             ? []
-            : (isMobile ? 移动端轻量预热目标 : 桌面轻量预热目标);
+            : (mobile ? 移动端轻量预热目标 : 桌面轻量预热目标);
         const idleWindow = window as typeof window & {
             requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
             cancelIdleCallback?: (id: number) => void;
@@ -1012,7 +1063,7 @@ const App: React.FC = () => {
 
         const warmup = () => {
             if (cancelled || preloadTargets.length === 0) return;
-            const priorityCount = isMobile ? 5 : 9;
+            const priorityCount = mobile ? 5 : 9;
             preloadTargets.forEach((target, index) => {
                 const delay = index < priorityCount
                     ? 240 + index * 140
@@ -1045,7 +1096,10 @@ const App: React.FC = () => {
                 window.clearTimeout(timerId);
             }
         };
-    }, [isMobile, state.view]);
+        // 只依赖 state.view：isMobile 改走 ref读取。
+        // 否则 isMobile 每次翻转都会把18 个弹窗模块整批重新预热一遍，
+        // 在 iOS Safari 上这正是内存尖峰把标签页压垮的直接来源。
+    }, [state.view]);
 
     const parseActionOptionText = (option: unknown): string => {
         if (typeof option === 'string') return option.trim();
