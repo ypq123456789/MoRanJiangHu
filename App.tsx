@@ -10,6 +10,7 @@ import LandingPage from './components/layout/LandingPage';
 import InAppConfirmModal, { ConfirmOptions } from './components/ui/InAppConfirmModal';
 import ReleaseNotesModal from './components/ui/ReleaseNotesModal';
 import { ModalErrorBoundary } from './components/ui/ModalErrorBoundary';
+import SuspenseTimeoutBoundary from './components/ui/SuspenseTimeoutBoundary';
 import { useGame } from './hooks/useGame';
 import { use图片资源回源预取 } from './hooks/useImageAssetPrefetch';
 import { normalizeCanonicalGameTime, 环境时间转标准串 } from './hooks/useGame/timeUtils';
@@ -459,27 +460,8 @@ const 网络较慢或节省流量 = (connection?: 可选网络信息 | null): bo
     }
     return false;
 };
-const 懒加载占位: React.FC = () => (
-    <div className="lazy-scroll-loading pointer-events-none fixed inset-0 z-[260] flex items-center justify-center bg-[#f8f4e8]/70 px-6 py-10 text-center backdrop-blur-[2px]">
-        <div
-            className="lazy-scroll-shell rounded-2xl border border-wuxia-gold/35 bg-[#fffaf0]/95 px-6 py-5 text-[#7a4a1f] shadow-[0_18px_42px_rgba(120,82,38,0.18)]"
-            style={{ fontSize: 'var(--ui-compact-font-size, 14px)' }}
-        >
-            <div className="lazy-scroll-title tracking-[0.22em]">卷轴展开中…</div>
-            <div className="lazy-scroll-skeleton mt-5 grid gap-3 text-left" aria-hidden="true">
-                <div className="h-4 w-28 rounded-full bg-wuxia-gold/20" />
-                <div className="h-20 rounded-xl border border-wuxia-gold/20 bg-white/60" />
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="h-16 rounded-lg border border-wuxia-gold/15 bg-white/55" />
-                    <div className="h-16 rounded-lg border border-wuxia-gold/15 bg-white/55" />
-                </div>
-            </div>
-        </div>
-    </div>
-);
-
 const 懒加载边界: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <React.Suspense fallback={<懒加载占位 />}>{children}</React.Suspense>
+    <SuspenseTimeoutBoundary timeoutMs={20000}>{children}</SuspenseTimeoutBoundary>
 );
 
 
@@ -3219,6 +3201,10 @@ const App: React.FC = () => {
 
             {state.view === 'game' && (
                 <ModalErrorBoundary title="主界面渲染失败" importKeys={主界面懒加载keys}>
+                {/* 游戏态最外层再加一道挂起超时兜底：ErrorBoundary 抓不到 Suspense 挂起，
+                    若主界面的懒加载 Promise 一直 pending，玩家会永远停在「卷轴展开中…」。
+                    这里给 25s（比面板级更宽，给主界面更多余量）后降级为可点击的重试页。 */}
+                <SuspenseTimeoutBoundary timeoutMs={25000}>
                 {/* Main Game Frame Container */}
                 <div className={`desktop-game-frame relative flex-1 flex flex-col w-full h-full min-h-0 overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
                     {isMobile && (
@@ -3708,6 +3694,7 @@ const App: React.FC = () => {
                         </懒加载边界>
                     )}
                 </div>
+                </SuspenseTimeoutBoundary>
                 </ModalErrorBoundary>
             )}
 
