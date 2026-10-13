@@ -1217,8 +1217,9 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                 设置模式包世界书列表(modeWorldbooks);
                 // 与桌面端向导保持一致：题材包声明关闭修炼时，修炼类世界书条目
                 // 不预填进 worldConfig（写入存档后就无法再剥离了）
+                const 题材修炼开启 = 解析题材包修炼默认值(mode || openingConfig.题材模式, modeRuntimeProfile) ?? true;
                 const extractedPrompts = 从模式世界书提取提示词(modeWorldbooks, {
-                    启用修炼体系: 解析题材包修炼默认值(mode || openingConfig.题材模式, modeRuntimeProfile) ?? true
+                    启用修炼体系: 题材修炼开启
                 });
                 const topicPrompt = String(extractedPrompts.manualWorldPrompt || (module.payload as any)?.manualWorldPrompt || (isModePackage ? module.preset?.worldConfig?.manualWorldPrompt : '') || (!module.preset ? content : '')).trim();
                 if (topicPrompt) {
@@ -1230,7 +1231,11 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                 }
                 const worldExtra = String(extractedPrompts.worldExtraRequirement || (module.payload as any)?.worldExtraRequirement || module.preset?.openingExtraRequirement || '').trim();
                 if (worldExtra) setWorldConfig((prev) => ({ ...prev, worldExtraRequirement: 拼接额外要求(prev.worldExtraRequirement, worldExtra) }));
-                const realmPrompt = String(extractedPrompts.manualRealmPrompt || (module.payload as any)?.manualRealmPrompt || module.preset?.worldConfig?.manualRealmPrompt || '').trim();
+                // 修炼关闭时不得走 payload / preset 回退：完整模式包导出会把能力提示词写进
+                // payload.manualRealmPrompt，回退取回的是未经过滤的原文
+                const realmPrompt = 题材修炼开启
+                    ? String(extractedPrompts.manualRealmPrompt || (module.payload as any)?.manualRealmPrompt || module.preset?.worldConfig?.manualRealmPrompt || '').trim()
+                    : '';
                 if (realmPrompt) {
                     if (isModePackage) {
                         setWorldConfig((prev) => ({ ...prev, worldExtraRequirement: 拼接额外要求(prev.worldExtraRequirement, realmPrompt) }));

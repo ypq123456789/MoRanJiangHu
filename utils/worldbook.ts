@@ -1264,6 +1264,9 @@ type 世界书命中参数 = {
     world?: any;
     extraTexts?: string[];
     maxChars?: number;
+    // 当前存档设置：用于按 功能模块 做开关联动过滤。
+    // 不传则等同于「所有模块均启用」，条目照旧注入（保持向后兼容）。
+    gameConfig?: Partial<游戏设置结构> | null;
 };
 
 const 时间串转序数 = (value?: string): number | null => {
@@ -1292,7 +1295,8 @@ export const 选择生效世界书条目 = ({
     history,
     world,
     extraTexts,
-    maxChars
+    maxChars,
+    gameConfig
 }: 世界书命中参数): 世界书条目结构[] => {
     const activeScopes = Array.isArray(scopes) && scopes.length > 0 ? scopes : 默认作用域;
     const currentTimeText = 环境时间转标准串(environment) || 读取文本(environment?.时间).trim();
@@ -1313,7 +1317,7 @@ export const 选择生效世界书条目 = ({
     let matchedEntryChars = 0;
     let matchedEntryCount = 0;
 
-    扁平化世界书条目(books).forEach((entry) => {
+    扁平化世界书条目(books, gameConfig).forEach((entry) => {
         if (!作用域命中(entry.作用域 || 默认作用域, activeScopes)) return;
         if (!(entry.内容 || '').trim()) return;
         if (!时间线命中(entry, currentTimeText)) return;

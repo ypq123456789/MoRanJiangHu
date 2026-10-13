@@ -1463,7 +1463,8 @@ export const 构建系统提示词 = ({
             ...(Array.isArray(options?.世界书附加文本) ? options.世界书附加文本 : []),
             worldbookNpcContext.在场数据块,
             worldbookNpcContext.离场数据块
-        ]
+        ],
+        gameConfig: normalizedGameConfig
     });
     const worldPrompt = 按当前设置过滤提示词([
         renderedWorldPromptBase,

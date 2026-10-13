@@ -6,7 +6,7 @@ import {
     统计被联动隐藏的条目
 } from '../utils/worldbookFeatureLinkage';
 import { 从模式世界书提取提示词 } from '../data/creativeWorkshopModules';
-import { 扁平化世界书条目, 规范化世界书列表 } from '../utils/worldbook';
+import { 扁平化世界书条目, 规范化世界书列表, 选择生效世界书条目, 构建世界书注入文本 } from '../utils/worldbook';
 import type { 世界书结构, 世界书条目结构 } from '../types';
 
 const 造条目 = (over: Partial<世界书条目结构>): 世界书条目结构 => ({
@@ -152,5 +152,48 @@ describe('模式世界书提取与修炼开关联动', () => {
     it('缺省 config 时保持原有提取行为（向前兼容）', () => {
         const 结果 = 从模式世界书提取提示词(书);
         expect(结果.manualRealmPrompt).toContain('境界体系');
+    });
+
+    // Codex 指出：旧包把「境界体系」放在 world_lore 类型下，
+    // 只过滤 ability/rules 分支会让它被原样写进开局世界观
+    it('world_lore 类型的修炼条目在修炼关闭时也不进世界观', () => {
+        const 旧包 = [造书([
+            造条目({ id: 'a', 标题: '境界体系', 类型: 'world_lore', 内容: '练气到金丹' }),
+            造条目({ id: 'b', 标题: '地理志', 类型: 'world_lore', 内容: '山川河流' })
+        ])];
+        const 结果 = 从模式世界书提取提示词(旧包, { 启用修炼体系: false });
+        expect(结果.manualWorldPrompt).not.toContain('境界体系');
+        expect(结果.manualWorldPrompt).toContain('地理志');
+    });
+});
+
+describe('世界书注入链路必须收到 gameConfig', () => {
+    // Codex/CodeRabbit 指出：选择生效世界书条目 是主注入入口，
+    // 不传 gameConfig 时联动在真实对局中完全不生效
+    const 书 = [{
+        id: 'b1',
+        标题: '联动书',
+        启用: true,
+        条目: [
+            { id: 'a', 标题: '地理', 内容: '地理内容', 类型: 'world_lore' as const, 作用域: ['main' as const], 注入模式: 'always' as const },
+            { id: 'c', 标题: '境界', 内容: '境界内容', 类型: 'system_rule' as const, 作用域: ['main' as const], 注入模式: 'always' as const, 功能模块: 'cultivation' as const }
+        ]
+    }];
+
+    it('主注入入口按 gameConfig 过滤 cultivation 条目', () => {
+        const 关闭 = 选择生效世界书条目({ books: 书, scopes: ['main'], gameConfig: { 启用修炼体系: false } });
+        expect(关闭.map((e) => e.id)).toEqual(['a']);
+        const 开启 = 选择生效世界书条目({ books: 书, scopes: ['main'], gameConfig: { 启用修炼体系: true } });
+        expect(开启.map((e) => e.id)).toEqual(['a', 'c']);
+    });
+
+    it('不传 gameConfig 时保持原有行为（全部注入）', () => {
+        expect(选择生效世界书条目({ books: 书, scopes: ['main'] }).map((e) => e.id)).toEqual(['a', 'c']);
+    });
+
+    it('构建世界书注入文本同样受 gameConfig 约束', () => {
+        const 文本 = 构建世界书注入文本({ books: 书, scopes: ['main'], gameConfig: { 启用修炼体系: false } }).combinedText;
+        expect(文本).not.toContain('境界内容');
+        expect(文本).toContain('地理内容');
     });
 });

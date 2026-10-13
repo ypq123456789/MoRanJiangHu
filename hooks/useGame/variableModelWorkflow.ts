@@ -614,7 +614,8 @@ export const 执行变量模型校准工作流 = async (
             extraTexts: [
                 params.playerInput,
                 runtimeGameConfig.启用NSFW模式 === true ? 名器世界书触发词 : ''
-            ]
+            ],
+            gameConfig: runtimeGameConfig
         }).combinedText, runtimeGameConfig),
         按功能开关过滤提示词内容(fandomPromptBundle.同人设定摘要, runtimeGameConfig),
         dialogueNpcAuditPrompt,

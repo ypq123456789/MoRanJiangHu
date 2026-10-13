@@ -1243,8 +1243,9 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                 // 题材包声明关闭修炼时，修炼类世界书条目不预填进 worldConfig。
                 // 必须在此处（写入存档之前）过滤：一旦预填进 worldConfig，
                 // 之后再在设置里关开关，文本已经躺在存档里无法再剥离。
+                const 题材修炼开启 = 解析题材包修炼默认值(mode || openingConfig.题材模式, modeRuntimeProfile) ?? true;
                 const extractedPrompts = 从模式世界书提取提示词(modeWorldbooks, {
-                    启用修炼体系: 解析题材包修炼默认值(mode || openingConfig.题材模式, modeRuntimeProfile) ?? true
+                    启用修炼体系: 题材修炼开启
                 });
                 const topicPrompt = String(extractedPrompts.manualWorldPrompt || (module.payload as any)?.manualWorldPrompt || (isModePackage ? module.preset?.worldConfig?.manualWorldPrompt : '') || (!module.preset ? content : '')).trim();
                 if (topicPrompt) {
@@ -1256,7 +1257,12 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                 }
                 const worldExtra = String(extractedPrompts.worldExtraRequirement || (module.payload as any)?.worldExtraRequirement || module.preset?.openingExtraRequirement || worldDetailRequirement || '').trim();
                 if (worldExtra) setWorldConfig((prev) => ({ ...prev, worldExtraRequirement: 拼接额外要求(prev.worldExtraRequirement, worldExtra) }));
-                const realmPrompt = String(extractedPrompts.manualRealmPrompt || (module.payload as any)?.manualRealmPrompt || module.preset?.worldConfig?.manualRealmPrompt || '').trim();
+                // 修炼关闭时不得走 payload / preset 回退：完整模式包导出会把能力提示词写进
+                // payload.manualRealmPrompt，回退取回的是未经过滤的原文；而 mode_package
+                // 分支会把它追加进 worldExtraRequirement，绕过后续只针对 manualRealmPrompt 的剥离。
+                const realmPrompt = 题材修炼开启
+                    ? String(extractedPrompts.manualRealmPrompt || (module.payload as any)?.manualRealmPrompt || module.preset?.worldConfig?.manualRealmPrompt || '').trim()
+                    : '';
                 if (realmPrompt) {
                     if (isModePackage) {
                         setWorldConfig((prev) => ({ ...prev, worldExtraRequirement: 拼接额外要求(prev.worldExtraRequirement, realmPrompt) }));

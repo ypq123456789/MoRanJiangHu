@@ -146,13 +146,17 @@ export const 从模式世界书提取提示词 = (
     // 开关联动第一层：条目自身启用 + 显式 归属模块未关闭，才进入提取
     const entries = allEntries.filter((entry) => 世界书条目是否生效(entry, config));
     const 渲染条目 = (entry: 世界书条目结构) => `【${entry.标题}】\n${entry.内容.trim()}`;
-    const worldLore = entries.filter((entry) => entry.类型 === 'world_lore').map(渲染条目);
     // 修炼类判定：显式标记优先，标题正则兜底（旧题包没有标记字段）。
-    // 修炼关闭时修炼类条目一律排除——既不进 manualRealmPrompt，
-    // 也不能以「普通规则」的身份混进 worldExtraRequirement 绕过剥离。
+    // 修炼关闭时修炼类条目一律排除——既不进 manualRealmPrompt / manualWorldPrompt，
+    // 也不能以「世界观」或「普通规则」的身份混进 worldExtraRequirement 绕过剥离。
     const 是修炼类 = (entry: 世界书条目结构) => (
         entry.功能模块 === 'cultivation' || 修炼类标题正则.test(entry.标题)
     );
+    // world_lore 也必须过滤：旧包把「境界体系」之类的条目放在 world_lore 类型下，
+    // 若只过滤 ability/rules 分支，它们会被原样写进开局世界观
+    const worldLore = entries
+        .filter((entry) => entry.类型 === 'world_lore' && (修炼开启 || !是修炼类(entry)))
+        .map(渲染条目);
     const ability = 修炼开启 ? entries.filter(是修炼类).map(渲染条目) : [];
     const abilitySet = new Set(ability);
     const rules = entries

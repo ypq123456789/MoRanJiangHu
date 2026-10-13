@@ -1528,7 +1528,8 @@ export const 执行开场剧情生成工作流 = async (
                         environment: simulatedOpeningState.环境,
                         social: simulatedOpeningState.社交,
                         history: [],
-                        extraTexts: [openingBodyText, openingVariablePlanText]
+                        extraTexts: [openingBodyText, openingVariablePlanText],
+                        gameConfig: openingGameConfig
                     }).combinedText, openingGameConfig);
                     const variableExtraPrompt = [
                         开局变量生成附加提示词,
@@ -1712,7 +1713,8 @@ export const 执行开场剧情生成工作流 = async (
                         environment: simulatedOpeningState.环境,
                         world: simulatedOpeningState.世界,
                         history: [],
-                        extraTexts: [openingBodyText, openingPlanText, ...worldCommandTexts]
+                        extraTexts: [openingBodyText, openingPlanText, ...worldCommandTexts],
+                        gameConfig: openingGameConfig
                     }).combinedText, openingGameConfig);
                     const worldNovelDecompositionPrompt = await 获取激活小说拆分注入文本(
                         deps.apiConfig,
@@ -2021,7 +2023,8 @@ export const 执行开场剧情生成工作流 = async (
                         social: simulatedOpeningState.社交,
                         world: simulatedOpeningState.世界,
                         history: [],
-                        extraTexts: [openingBodyText, openingPlanText]
+                        extraTexts: [openingBodyText, openingPlanText],
+                        gameConfig: openingGameConfig
                     }).combinedText, openingGameConfig);
                     const planningNovelDecompositionPrompt = await 获取激活小说拆分注入文本(
                         deps.apiConfig,
