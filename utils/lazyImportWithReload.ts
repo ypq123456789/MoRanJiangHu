@@ -17,14 +17,52 @@ export const isDynamicImportFetchError = (error: unknown): boolean => {
         || DYNAMIC_IMPORT_FAILURE_PATTERNS.some((pattern) => message.includes(pattern));
 };
 
+/**
+ * 是否已经进入游戏态（读过档或新开局）。
+ *
+ * view 是纯 React state、不持久化，任何整页 reload 都会把玩家踢回主页，
+ * 并丢掉刚刚载入的对局。因此「刷新页面自愈」只能在尚未进入游戏态时使用：
+ * 那时刷新最多损失一次点击，不会毁掉玩家正在进行的存档。
+ */
+let 游戏态已激活 = false;
+
+export const setLazyImportInGameActive = (active: boolean): void => {
+    游戏态已激活 = active;
+};
+
+export const isLazyImportInGameActive = (): boolean => 游戏态已激活;
+
+const 预热标记前缀 = 'moranjianghu:lazy-import-reload:';
+
+const 生成标记键 = (importKey: string): string => `${预热标记前缀}${importKey}`;
+
+const 创建延迟加载错误 = (importKey: string, 已刷新: boolean, cause: unknown): Error => {
+    const reloadSafeError = new Error(已刷新
+        ? `功能模块 ${importKey} 暂时无法加载。系统已尝试刷新页面；请先手动保存进度，稍后重新进入新版本。`
+        : `功能模块 ${importKey} 暂时无法加载。请稍后重试，若持续失败请检查网络后刷新页面。`);
+    reloadSafeError.name = 'DynamicImportDeferredReloadError';
+    (reloadSafeError as Error & { cause?: unknown }).cause = cause;
+    return reloadSafeError;
+};
+
+type LazyImportOptions = {
+    /**
+     * 是否允许在失败时整页刷新。预热路径必须显式传false：
+     * 预热只是「提前把chunk 拿进内存」，失败最多下次点开时再试一次，
+     * 绝不该把玩家踢回主页。
+     */
+    allowReload?: boolean;
+};
+
 export const lazyImportWithReload = async <T>(
     importKey: string,
-    loader: () => Promise<T>
+    loader: () => Promise<T>,
+    options?: LazyImportOptions
 ): Promise<T> => {
     try {
         const result = await loader();
         try {
-            window.sessionStorage.removeItem(`moranjianghu:lazy-import-reload:${importKey}`);
+            window.sessionStorage.removeItem(生成标记键(importKey));
         } catch {
             // Storage cleanup is best-effort.
         }
@@ -34,21 +72,40 @@ export const lazyImportWithReload = async <T>(
             throw error;
         }
 
-        const reloadKey = `moranjianghu:lazy-import-reload:${importKey}`;
-        try {
-            if (window.sessionStorage.getItem(reloadKey) !== '1') {
-                window.sessionStorage.setItem(reloadKey, '1');
-                window.location.reload();
+        const allowReload = options?.allowReload !== false && !游戏态已激活;
+        let 已刷新 = false;
+
+        if (allowReload) {
+            const reloadKey = 生成标记键(importKey);
+            try {
+                if (window.sessionStorage.getItem(reloadKey) !== '1') {
+                    window.sessionStorage.setItem(reloadKey, '1');
+                    window.location.reload();
+                    已刷新 = true;
+                }
+            } catch {
+                // Storage/reload is best-effort; preserve the actionable error below.
             }
-        } catch {
-            // Storage/reload is best-effort; preserve the actionable error below.
         }
 
-        const reloadSafeError = new Error(
-            `功能模块 ${importKey} 暂时无法加载。系统已尝试刷新页面；请先手动保存进度，稍后重新进入新版本。`
+        console.warn(
+            `Lazy module "${importKey}" failed to load (allowReload=${allowReload}).`,
+            error
         );
-        reloadSafeError.name = 'DynamicImportDeferredReloadError';
-        (reloadSafeError as Error & { cause?: unknown }).cause = error;
-        throw reloadSafeError;
+
+        throw 创建延迟加载错误(importKey, 已刷新, error);
     }
 };
+
+/**
+ * 预热专用加载器：失败绝不整页刷新。
+ *
+ * 与 lazyImportWithReload 的区别只在于「不刷新」，但必须显式区分——
+ * 预热失败和「玩家点开弹窗时加载失败」的风险等级完全不同，
+ * 历史上正是因为两者共用了同一个 reload 路径，导致 iOS Safari 上
+ * 读档成功后触发批量预热、任一 chunk 失败即整页刷新回主页。
+ */
+export const preloadLazyImport = <T>(
+    importKey: string,
+    loader: () => Promise<T>
+): Promise<T> => lazyImportWithReload(importKey, loader, { allowReload: false });

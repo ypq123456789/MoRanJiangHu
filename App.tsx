@@ -26,7 +26,7 @@ import { 生图最大自动重试次数, 执行生图模型调用带重试, 读�
 import { 丢弃背包物品, 是否杂物类物品 } from './utils/inventoryActions';
 import { MusicProvider } from './components/features/Music/MusicProvider';
 import { isCapacitorPluginAvailable, isNativeCapacitorEnvironment } from './utils/nativeRuntime';
-import { isDynamicImportFetchError, lazyImportWithReload } from './utils/lazyImportWithReload';
+import { isDynamicImportFetchError, lazyImportWithReload, preloadLazyImport, setLazyImportInGameActive } from './utils/lazyImportWithReload';
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
 import { checkForAppUpdate, downloadLatestApkPackage, subscribeAppUpdateProgress, type AppUpdateProgressState } from './services/appUpdate';
 import { APK仅手动更新已启用 } from './utils/appUpdatePreferences';
@@ -302,9 +302,12 @@ const 创建可预加载懒组件 = <T extends React.ComponentType<any>>(
     importKey: string,
     loader: () => Promise<{ default: T }>
 ): 可预加载组件<T> => {
-    const wrappedLoader = () => lazyImportWithReload(importKey, loader);
-    const Component = React.lazy(wrappedLoader) as 可预加载组件<T>;
-    Component.preload = wrappedLoader;
+    // preload 走不带 reload 的加载器：预热失败只 warn，绝不整页刷新。
+    // 整页刷新会把 view 归零（useGameState 的 view 不持久化），
+    // 玩家刚读档进来的对局会被直接丢掉。
+    const preloadLoader = () => preloadLazyImport(importKey, loader);
+    const Component = React.lazy(() => lazyImportWithReload(importKey, loader)) as 可预加载组件<T>;
+    Component.preload = preloadLoader;
     Component.importKey = importKey;
     return Component;
 };
@@ -1034,6 +1037,13 @@ const App: React.FC = () => {
         });
         return unsubscribe;
     }, [actions]);
+
+    // 进入游戏态后，「刷新页面」不再作为动态 import 失败的自愈手段：
+    // view 不持久化，刷新等于丢掉刚读进来的对局。退出游戏态则恢复自愈。
+    React.useEffect(() => {
+        setLazyImportInGameActive(state.view === 'game');
+        return () => setLazyImportInGameActive(false);
+    }, [state.view]);
 
     React.useEffect(() => {
         if (state.view !== 'game' || typeof window === 'undefined') return;
