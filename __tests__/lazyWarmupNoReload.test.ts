@@ -14,7 +14,7 @@ describe('预热路径不得触发整页刷新', () => {
         const 源码 = 读源码('App.tsx');
         const 起点 = 源码.indexOf('const 创建可预加载懒组件');
         expect(起点).toBeGreaterThanOrEqual(0);
-        const 创建组件段 = 源码.slice(起点, 起点 + 900);
+        const 创建组件段 = 源码.slice(起点, 起点 + 1600);
 
         // 精确断言：preload 的赋值目标必须使用不走 reload 的加载器。
         // 只断言「不含 wrappedLoader」不够——有人把 preload 改回
@@ -28,6 +28,40 @@ describe('预热路径不得触发整页刷新', () => {
             expect(行).not.toMatch(/lazyImportWithReload/);
         }
         expect(创建组件段).toContain('preloadLazyImport');
+    });
+
+    // CodeRabbit PR#99 意见二：React.lazy 会缓存 rejected payload（_status=2），
+    // 失败后不再调用 loader。游戏态禁了整页刷新，若没有重建路径，
+    // 玩家点开某个弹窗失败一次就永远打不开。
+    it('懒组件必须可重建，否则游戏态内失败后无法恢复', () => {
+        const 源码 = 读源码('App.tsx');
+        const 起点 = 源码.indexOf('const 创建可预加载懒组件');
+        const 创建组件段 = 源码.slice(起点, 起点 + 1600);
+
+        // 版本号必须来自登记簿，版本一变才能造出全新的 React.lazy 实例。
+        expect(创建组件段).toMatch(/useSyncExternalStore/);
+        expect(创建组件段).toContain('读取懒组件版本');
+        expect(创建组件段).toContain('订阅懒组件重建');
+
+        // 精确定位：所有 React.lazy 调用都必须落在「依赖数组含版本」的 useMemo 内。
+        // 仅断言「出现过 useMemo」会被 App 里其它无关 useMemo 误命中。
+        const allLazy = 创建组件段.match(/React\.lazy\(/g) || [];
+        expect(allLazy.length).toBeGreaterThanOrEqual(1);
+        const versionedMemo = 创建组件段.match(
+            /React\.useMemo\(\s*\(\s*\)\s*=>\s*React\.lazy\([\s\S]*?\[\s*版本\s*\]/
+        );
+        expect(versionedMemo).not.toBeNull();
+        // useMemo 里出现 React.lazy 的次数必须等于总数（不能有裸调用的漏网之鱼）
+        const memoLazyCount = (versionedMemo?.[0].match(/React\.lazy\(/g) || []).length;
+        expect(memoLazyCount).toBe(allLazy.length);
+    });
+
+    it('ModalErrorBoundary 必须在游戏态提供重试而非刷新', () => {
+        const 源码 = 读源码('components/ui/ModalErrorBoundary.tsx');
+        expect(源码).toContain('重置懒组件重建');
+        expect(源码).toContain('isLazyImportInGameActive');
+        // 游戏态内不得再出现刷新按钮的渲染分支条件。
+        expect(源码).toMatch(/isLazyImportError && !游戏态内/);
     });
 
     it('lazyImportWithReload 必须提供显式的禁止刷新开关', () => {

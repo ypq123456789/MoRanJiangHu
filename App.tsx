@@ -27,6 +27,7 @@ import { 丢弃背包物品, 是否杂物类物品 } from './utils/inventoryActi
 import { MusicProvider } from './components/features/Music/MusicProvider';
 import { isCapacitorPluginAvailable, isNativeCapacitorEnvironment } from './utils/nativeRuntime';
 import { isDynamicImportFetchError, lazyImportWithReload, preloadLazyImport, setLazyImportInGameActive } from './utils/lazyImportWithReload';
+import { 读取懒组件版本, 订阅懒组件重建 } from './utils/lazyComponentRebuild';
 import { 小说拆分后台调度服务 } from './services/novelDecompositionScheduler';
 import { checkForAppUpdate, downloadLatestApkPackage, subscribeAppUpdateProgress, type AppUpdateProgressState } from './services/appUpdate';
 import { APK仅手动更新已启用 } from './utils/appUpdatePreferences';
@@ -293,7 +294,7 @@ const readDesktopDetailWidths = (): Record<string, number> => {
     }
 };
 
-type 可预加载组件<T extends React.ComponentType<any>> = React.LazyExoticComponent<T> & {
+type 可预加载组件<T extends React.ComponentType<any>> = React.FC<React.ComponentProps<T>> & {
     preload?: () => Promise<unknown>;
     importKey: string;
 };
@@ -306,10 +307,30 @@ const 创建可预加载懒组件 = <T extends React.ComponentType<any>>(
     // 整页刷新会把 view 归零（useGameState 的 view 不持久化），
     // 玩家刚读档进来的对局会被直接丢掉。
     const preloadLoader = () => preloadLazyImport(importKey, loader);
-    const Component = React.lazy(() => lazyImportWithReload(importKey, loader)) as 可预加载组件<T>;
-    Component.preload = preloadLoader;
-    Component.importKey = importKey;
-    return Component;
+
+    /**
+     * 用一个薄壳包住 React.lazy：
+     * React.lazy 会缓存 rejected payload（_status=2），失败后不再调用 loader。
+     * 游戏态内我们禁了整页刷新，所以必须能在失败后重建出**全新**的
+     * React.lazy 实例，否则玩家点开弹窗失败一次就永远打不开。
+     * 重建版本变化时 useMemo 会重新执行，产出新的 lazy 实例。
+     */
+    const 可重建懒壳: 可预加载组件<T> = (props) => {
+        const 版本 = React.useSyncExternalStore(
+            (listener) => 订阅懒组件重建(importKey, listener),
+            () => 读取懒组件版本(importKey),
+            () => 读取懒组件版本(importKey)
+        );
+        const 懒实例 = React.useMemo(
+            () => React.lazy(() => lazyImportWithReload(importKey, loader)) as React.LazyExoticComponent<T>,
+            [版本]
+        );
+        return React.createElement(懒实例, props);
+    };
+
+    可重建懒壳.preload = preloadLoader;
+    可重建懒壳.importKey = importKey;
+    return 可重建懒壳;
 };
 
 const CharacterModal = 创建可预加载懒组件('character-modal', () => import('./components/features/Character/CharacterModal'));
@@ -412,6 +433,19 @@ const 移动端轻量预热目标 = [
     CloudPlayModal,
     AuctionHouseModal
 ] as const;
+
+/**
+ * 主界面渲染失败时可重建的懒组件列表。
+ *
+ * 主界面这一层包着大量弹窗，失败时无法确定是哪一个，
+ * 所以把桌面/移动两套预热目标全列上，重试时统一重建。
+ */
+const 主界面懒加载keys: string[] = Array.from(
+    new Set([
+        ...桌面轻量预热目标.map((component) => component.importKey),
+        ...移动端轻量预热目标.map((component) => component.importKey)
+    ])
+);
 
 const 网络较慢或节省流量 = (connection?: 可选网络信息 | null): boolean => {
     if (!connection) return false;
@@ -3184,7 +3218,7 @@ const App: React.FC = () => {
             )}
 
             {state.view === 'game' && (
-                <ModalErrorBoundary title="主界面渲染失败">
+                <ModalErrorBoundary title="主界面渲染失败" importKeys={主界面懒加载keys}>
                 {/* Main Game Frame Container */}
                 <div className={`desktop-game-frame relative flex-1 flex flex-col w-full h-full min-h-0 overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
                     {isMobile && (
@@ -3723,7 +3757,7 @@ const App: React.FC = () => {
             {/* Settings Modal */}
             {state.showSettings && (
                 <div className={desktopRightDetailClass}>
-                <ModalErrorBoundary title="设置打开失败" onClose={closeSettings}>
+                <ModalErrorBoundary title="设置打开失败" onClose={closeSettings} importKeys={['settings-modal', 'mobile-settings-modal']}>
                 <懒加载边界>
                     {isMobile ? (
                         <MobileSettingsModal
@@ -3846,7 +3880,7 @@ const App: React.FC = () => {
 
             {showNovelDecompositionWorkbench && (
                 <div className={desktopRightDetailClass}>
-                <ModalErrorBoundary title="小说分解工作台打开失败" onClose={closeNovelDecompositionWorkbench}>
+                <ModalErrorBoundary title="小说分解工作台打开失败" onClose={closeNovelDecompositionWorkbench} importKeys={['novel-decomposition-workbench']}>
                 <懒加载边界>
                     <NovelDecompositionWorkbenchModal
                         open={showNovelDecompositionWorkbench}
@@ -4001,7 +4035,7 @@ const App: React.FC = () => {
                 <div className={desktopRightDetailClass}>
                 <懒加载边界>
                     {isMobile ? (
-                        <ModalErrorBoundary title="图册打开失败" onClose={() => setShowImageManager(false)}>
+                        <ModalErrorBoundary title="图册打开失败" onClose={() => setShowImageManager(false)} importKeys={['image-manager-modal', 'mobile-image-manager-modal']}>
                         <MobileImageManagerModal
                             initialTab={imageManagerInitialTab as any}
                             socialList={state.社交}

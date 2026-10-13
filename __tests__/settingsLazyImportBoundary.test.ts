@@ -38,7 +38,7 @@ describe('设置模块懒加载局部错误边界', () => {
         expect(settingsBlockEnd).toBeGreaterThan(settingsBlockStart);
 
         const settingsBlock = source.slice(settingsBlockStart, settingsBlockEnd);
-        const boundaryOpen = settingsBlock.indexOf('<ModalErrorBoundary title="设置打开失败" onClose={closeSettings}>');
+        const boundaryOpen = settingsBlock.indexOf('<ModalErrorBoundary title="设置打开失败"');
         const suspenseOpen = settingsBlock.indexOf('<懒加载边界>');
         const mobileSettings = settingsBlock.indexOf('<MobileSettingsModal');
         const desktopSettings = settingsBlock.indexOf('<SettingsModal');

@@ -36,14 +36,28 @@ const 预热标记前缀 = 'moranjianghu:lazy-import-reload:';
 
 const 生成标记键 = (importKey: string): string => `${预热标记前缀}${importKey}`;
 
-const 创建延迟加载错误 = (importKey: string, 已刷新: boolean, cause: unknown): Error => {
-    const reloadSafeError = new Error(已刷新
-        ? `功能模块 ${importKey} 暂时无法加载。系统已尝试刷新页面；请先手动保存进度，稍后重新进入新版本。`
-        : `功能模块 ${importKey} 暂时无法加载。请稍后重试，若持续失败请检查网络后刷新页面。`);
+const 创建延迟加载错误 = (importKey: string, 恢复方式: 恢复方式类型, cause: unknown): Error => {
+    let 提示: string;
+    switch (恢复方式) {
+        case '已刷新':
+            提示 = `功能模块 ${importKey} 暂时无法加载。系统已尝试刷新页面；请先手动保存进度，稍后重新进入新版本。`;
+            break;
+        case '游戏态':
+            // ⚠️ 游戏态绝不能引导玩家刷新页面：view 不持久化，
+            // 刷新=退出当前对局 + 丢掉未保存进度。
+            提示 = `功能模块 ${importKey} 暂时无法加载。请先保存当前进度，再点击「重试」；若持续失败，请关闭本界面后重新进入，或返回主页后刷新页面（会退出当前对局）。`;
+            break;
+        default:
+            提示 = `功能模块 ${importKey} 暂时无法加载。请稍后重试，若持续失败请检查网络后刷新页面。`;
+            break;
+    }
+    const reloadSafeError = new Error(提示);
     reloadSafeError.name = 'DynamicImportDeferredReloadError';
     (reloadSafeError as Error & { cause?: unknown }).cause = cause;
     return reloadSafeError;
 };
+
+type 恢复方式类型 = '已刷新' | '游戏态' | '默认';
 
 type LazyImportOptions = {
     /**
@@ -73,7 +87,7 @@ export const lazyImportWithReload = async <T>(
         }
 
         const allowReload = options?.allowReload !== false && !游戏态已激活;
-        let 已刷新 = false;
+        let 恢复方式: 恢复方式类型 = '默认';
 
         if (allowReload) {
             const reloadKey = 生成标记键(importKey);
@@ -81,11 +95,14 @@ export const lazyImportWithReload = async <T>(
                 if (window.sessionStorage.getItem(reloadKey) !== '1') {
                     window.sessionStorage.setItem(reloadKey, '1');
                     window.location.reload();
-                    已刷新 = true;
+                    恢复方式 = '已刷新';
                 }
             } catch {
                 // Storage/reload is best-effort; preserve the actionable error below.
             }
+        } else if (游戏态已激活) {
+            // 游戏态内禁止刷新：由调用方提供可重建的懒组件重试路径。
+            恢复方式 = '游戏态';
         }
 
         console.warn(
@@ -93,7 +110,7 @@ export const lazyImportWithReload = async <T>(
             error
         );
 
-        throw 创建延迟加载错误(importKey, 已刷新, error);
+        throw 创建延迟加载错误(importKey, 恢复方式, error);
     }
 };
 
