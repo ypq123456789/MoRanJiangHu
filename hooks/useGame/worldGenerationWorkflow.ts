@@ -358,7 +358,10 @@ export const 执行世界生成工作流 = async (
         const normalizedWorldExtraRequirement = [
             typeof worldConfig.worldExtraRequirement === 'string' ? worldConfig.worldExtraRequirement.trim() : '',
             manualWorldPromptIsModePackageFragment ? normalizedManualWorldPrompt : '',
-            manualRealmPromptIsModePackageFragment ? normalizedManualRealmPrompt : '',
+            // [修复] 模式包能力片段此前无条件拼入 worldExtraRequirement，
+            // 玩家关闭「修炼体系相关内容」后，题材包的境界/能力条目仍会经这条线进入提示词，
+            // 绕过 promptFeatureToggles 的三层剥离。修炼关闭时必须一并剔除。
+            (启用修炼体系 && manualRealmPromptIsModePackageFragment) ? normalizedManualRealmPrompt : '',
             // 势力数量约束
             typeof worldConfig.factionCount === 'number' && worldConfig.factionCount >= 3 && worldConfig.factionCount <= 15
                 ? `【势力数量要求】本次开局必须生成恰好 ${worldConfig.factionCount} 个势力组织，不多不少。`

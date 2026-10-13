@@ -1259,6 +1259,7 @@ export interface 游戏设置结构 {
     启用亲密边界机制: boolean; // Require consent, privacy, relationship thresholds, and character agency for intimacy
     启用饱腹口渴系统: boolean; // Toggle hunger/thirst prompt injection and UI visibility
     启用修炼体系: boolean; // Toggle cultivation/realm/kungfu prompt injection and related UI visibility
+    启用修炼体系已手动设置?: boolean; // 玩家在设置页手动改过修炼开关；为 true 时题材包默认值不再覆盖（见 utils/modeCultivationDefault.ts）
     剧情风格: 剧情风格类型; // Story style injected as assistant context before COT
     NTL后宫档位: NTL后宫档位; // NTL-only tier selector
     启用酒馆预设模式: boolean; // Use SillyTavern preset prompt/order pipeline

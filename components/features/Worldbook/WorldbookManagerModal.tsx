@@ -2,7 +2,7 @@ import React from 'react';
 import type { 世界书结构, 世界书条目结构, 世界书作用域, 世界书类型, 世界书条目形态, 世界书预设组结构, 内置提示词条目结构 } from '../../../types';
 import { bundledDefaultWorldbookIds, bundledWorldbookPresets, loadAllBundledWorldbookPresets, loadBundledWorldbookPreset } from '../../../data/worldbookPresets';
 import { 内置提示词分类顺序, 构建内置提示词导出数据, 解析内置提示词导入数据, 规范化内置提示词列表, 世界书本体槽位 } from '../../../utils/builtinPrompts';
-import { 世界书作用域选项, 世界书类型选项, 世界书条目形态选项, 世界书注入模式选项, 创建空世界书, 创建空世界书条目, 创建空世界书预设组, 获取世界书条目注入说明, 构建世界书导出数据, 构建世界书预设组导出数据, 应用世界书预设组到世界书列表, 解析世界书导入数据, 解析世界书预设组导入数据, 规范化世界书列表, 规范化世界书预设组列表 } from '../../../utils/worldbook';
+import { 世界书作用域选项, 世界书类型选项, 世界书条目形态选项, 世界书注入模式选项, 世界书功能模块选项, 创建空世界书, 创建空世界书条目, 创建空世界书预设组, 获取世界书条目注入说明, 构建世界书导出数据, 构建世界书预设组导出数据, 应用世界书预设组到世界书列表, 解析世界书导入数据, 解析世界书预设组导入数据, 规范化世界书列表, 规范化世界书预设组列表 } from '../../../utils/worldbook';
 import type { ConfirmOptions } from '../../ui/InAppConfirmModal';
 import ToggleSwitch from '../../ui/ToggleSwitch';
 
@@ -580,6 +580,17 @@ const WorldbookManagerModal: React.FC<Props> = ({ builtinPromptEntries, worldboo
                                                     <label className="block">
                                                         <div className={fieldLabelClass}>优先级</div>
                                                         <input className={inputClass} type="number" min={0} max={999} value={selectedEntry.优先级 ?? 50} onChange={(e) => setBookDraft((prev) => prev.map((book) => book.id === selectedBook.id ? { ...book, 更新时间: Date.now(), 条目: book.条目.map((entry) => entry.id === selectedEntry.id ? 更新条目注入说明({ ...entry, 优先级: Number(e.target.value || 0) }) : entry) } : book))} />
+                                                    </label>
+                                                    <label className="block">
+                                                            <div className={fieldLabelClass}>归属功能模块</div>
+                                                        <select className={inputClass} value={selectedEntry.功能模块 || ''} onChange={(e) => setBookDraft((prev) => prev.map((book) => book.id === selectedBook.id ? { ...book, 更新时间: Date.now(), 条目: book.条目.map((entry) => entry.id === selectedEntry.id ? 更新条目注入说明({ ...entry, 功能模块: (e.target.value || undefined) as any }) : entry) } : book))}>
+                                                            <option value="">不归属（始终注入）</option>
+                                                            {世界书功能模块选项.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                                                        </select>
+                                                        <div className="mt-1 text-[10px] leading-4 text-gray-500">
+                                                            {世界书功能模块选项.find((item) => item.value === selectedEntry.功能模块)?.description
+                                                                || '不归属任何模块时始终注入。归属后，对应设置开关关闭时该条目会被自动跳过（仅影响注入，不会删除条目）。'}
+                                                        </div>
                                                     </label>
                                                 </div>
                                                 {selectedEntry.条目形态 === 'timeline_outline' && (

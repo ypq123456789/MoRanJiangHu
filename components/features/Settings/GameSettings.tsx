@@ -1039,11 +1039,11 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                 <div className="flex items-center justify-between gap-4">
                     <div>
                         <div className="text-sm text-wuxia-cyan font-bold">修炼体系相关内容</div>
-                        <div className="text-xs text-gray-400 mt-1">关闭后，将停止注入境界/功法/内力/修炼相关提示词与上下文，并关闭前端功法模块；旧存档字段保留但不再重点管理。</div>
+                        <div className="text-xs text-gray-400 mt-1">关闭后，将停止注入境界/功法/内力/修炼相关提示词与上下文，并关闭前端功法模块；旧存档字段保留但不再重点管理。手动改动后，题材包声明的默认值不再覆盖你的选择。</div>
                     </div>
                     <ToggleSwitch
                         checked={form.启用修炼体系 !== false}
-                        onChange={(next) => 实时应用更新({ 启用修炼体系: next })}
+                        onChange={(next) => 实时应用更新({ 启用修炼体系: next, 启用修炼体系已手动设置: true })}
                         ariaLabel="切换修炼体系相关内容"
                     />
                 </div>

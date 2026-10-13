@@ -5,6 +5,7 @@ import { 预设天赋, 预设背景, 获取题材预设天赋, 获取题材预�
 import type { 开局预设方案结构 } from '../../../../data/newGamePresets';
 import { 从模式世界书提取提示词, type 创意工坊模块条目, type 创意工坊模块类型 } from '../../../../data/creativeWorkshopModules';
 import type { CurrencySystem, 题材模式类型 } from '../../../../models/system';
+import { 解析题材包修炼默认值 } from '../../../../utils/modeCultivationDefault';
 import { OrnateBorder } from '../../../ui/decorations/OrnateBorder';
 import InlineSelect from '../../../ui/InlineSelect';
 import NewGameDiyTools from '../NewGameDiyTools';
@@ -1214,7 +1215,11 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                 }
                 const modeWorldbooks = Array.isArray(module.modeWorldbooks) ? module.modeWorldbooks : Array.isArray((module.payload as any)?.modeWorldbooks) ? (module.payload as any).modeWorldbooks : [];
                 设置模式包世界书列表(modeWorldbooks);
-                const extractedPrompts = 从模式世界书提取提示词(modeWorldbooks);
+                // 与桌面端向导保持一致：题材包声明关闭修炼时，修炼类世界书条目
+                // 不预填进 worldConfig（写入存档后就无法再剥离了）
+                const extractedPrompts = 从模式世界书提取提示词(modeWorldbooks, {
+                    启用修炼体系: 解析题材包修炼默认值(mode || openingConfig.题材模式, modeRuntimeProfile) ?? true
+                });
                 const topicPrompt = String(extractedPrompts.manualWorldPrompt || (module.payload as any)?.manualWorldPrompt || (isModePackage ? module.preset?.worldConfig?.manualWorldPrompt : '') || (!module.preset ? content : '')).trim();
                 if (topicPrompt) {
                     if (isModePackage) {

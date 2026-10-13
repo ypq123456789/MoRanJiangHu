@@ -14,6 +14,7 @@ import type { 当前可用接口结构 } from '../../utils/apiConfig';
 import { 获取主剧情接口配置, 接口配置是否可用 } from '../../utils/apiConfig';
 import { 规范化游戏设置 } from '../../utils/gameSettings';
 import { 获取快速重开运行时恢复参数 } from '../../utils/customNewGamePresets';
+import { 解析题材包修炼默认值 } from '../../utils/modeCultivationDefault';
 import { 执行开场剧情生成工作流 } from './openingStoryWorkflow';
 import { 执行世界生成工作流 } from './worldGenerationWorkflow';
 
@@ -399,8 +400,24 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
             if (题材预设.叙事平静值配置 && typeof 题材预设.叙事平静值配置 === 'object') {
                 预设键值.叙事平静值配置 = 题材预设.叙事平静值配置;
             }
+            // 题材包声明的「启用修炼」此前是死字段（只影响描述文本与头像风格，从不进提示词）。
+            // 此处按「默认」语义接线：仅在玩家从未手动改过该开关时写入存档设置，
+            // 手动改过（启用修炼体系已手动设置 === true）则一律尊重玩家选择。
+            // 快速重开/重 roll 复用 handleGenerateWorld，必须跳过，否则会抹掉玩家中途的改动。
+            const 修炼默认值 = options?.重开恢复基线
+                ? undefined
+                : 解析题材包修炼默认值(openingConfig?.题材模式, 题材预设);
+            if (修炼默认值 !== undefined) {
+                预设键值.启用修炼体系 = 修炼默认值;
+            }
             if (Object.keys(预设键值).length > 0) {
-                deps.设置游戏设置((prev: any) => 规范化游戏设置({ ...prev, ...预设键值 }));
+                deps.设置游戏设置((prev: any) => {
+                    // 玩家手动改过修炼开关后，题材包不得再覆盖
+                    const 有效键值 = (修炼默认值 !== undefined && prev?.启用修炼体系已手动设置 === true)
+                        ? Object.fromEntries(Object.entries(预设键值).filter(([key]) => key !== '启用修炼体系'))
+                        : 预设键值;
+                    return 规范化游戏设置({ ...prev, ...有效键值 });
+                });
             }
         }
         return 执行世界生成工作流(

@@ -11,6 +11,7 @@ import {
 } from '../../../utils/newGameDiy';
 import DiyMapEditor from './DiyMapEditor';
 import { 是否自定义模式运行时配置, 解析生效题材配置 } from '../../../utils/effectiveTopicProfile';
+import { 解析当前题材修炼默认值 } from '../../../utils/modeCultivationDefault';
 
 type Props = {
     worldConfig: WorldGenConfig;
@@ -297,6 +298,9 @@ const NewGameDiyTools: React.FC<Props> = ({ worldConfig, charData, openingConfig
         setAiStatus({ type: 'loading', message: '正在生成世界观提示词...' });
         try {
             const hasCustomRealmGuard = needsCustomRealmGuardForDiy(worldConfig, openingConfig);
+            // 题材包声明关闭修炼时，DIY 预览也必须跟着关，否则玩家在这里预览到的
+            // 仍是带境界提示词的世界观，与实际开局结果不一致（曾硬编码为 true）。
+            const 启用修炼体系 = 解析当前题材修炼默认值(openingConfig, worldConfig) ?? true;
             const guardedExtraPrompt = [
                 worldConfig.worldExtraRequirement,
                 hasCustomRealmGuard
@@ -310,7 +314,7 @@ const NewGameDiyTools: React.FC<Props> = ({ worldConfig, charData, openingConfig
                 undefined,
                 guardedExtraPrompt,
                 undefined,
-                { 启用修炼体系: true, openingConfig }
+                { 启用修炼体系, openingConfig }
             );
             if (hasCustomRealmGuard && containsDisallowedRealmTermsForDiy(prompt, openingConfig, worldConfig)) {
                 setAiStatus({ type: 'loading', message: '世界观初稿含通用修仙词，正在按题材重写...' });
@@ -321,7 +325,7 @@ const NewGameDiyTools: React.FC<Props> = ({ worldConfig, charData, openingConfig
                     undefined,
                     `${guardedExtraPrompt}\n\n上一次输出仍包含 ${通用修仙禁词.join('、')} 等通用修仙词。请完整重写为斗气大陆/宗门/斗技/丹药/异火风格，不得出现这些禁词。`,
                     undefined,
-                    { 启用修炼体系: true, openingConfig }
+                    { 启用修炼体系, openingConfig }
                 );
             }
             if (hasCustomRealmGuard && containsDisallowedRealmTermsForDiy(prompt, openingConfig, worldConfig)) {

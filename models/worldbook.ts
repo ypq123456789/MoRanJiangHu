@@ -1,4 +1,10 @@
 export type 世界书类型 = 'world_lore' | 'system_rule' | 'command_rule' | 'output_rule';
+/**
+ * 条目归属的可选功能模块。留空表示不属于任何模块（永远注入）。
+ * 用于把世界书条目与设置页开关联动：关闭对应功能时该条目不再注入。
+ * 枚举值与 utils/promptFeatureToggles.ts 的 PROMPT_FEATURE 标记协议保持一致。
+ */
+export type 世界书条目功能模块 = 'cultivation' | 'survival' | 'femboy_nsfw';
 export type 世界书作用域 =
     | 'main'
     | 'opening'
@@ -31,6 +37,8 @@ export interface 世界书条目结构 {
     关键词?: string[];
     优先级?: number;
     启用?: boolean;
+    /** 归属的可选功能模块；关闭对应设置开关时该条目不注入（留空=始终注入） */
+    功能模块?: 世界书条目功能模块;
     内置?: boolean;
     创建时间?: number;
     更新时间?: number;
@@ -46,6 +54,11 @@ export interface 世界书结构 {
     条目: 世界书条目结构[];
     创建时间?: number;
     更新时间?: number;
+}
+
+/** 世界书联动过滤后的视图结构（条目可能少于原始书） */
+export interface 世界书功能模块结构 {
+    条目: 世界书条目结构[];
 }
 
 export interface 世界书导出结构 {

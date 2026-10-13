@@ -63,7 +63,7 @@ const 运行时配置分区列表: 运行时配置分区[] = [
             { label: '显示名', path: ['identity', 'displayName'] },
             { label: '继承官方基础模式', path: ['identity', 'baseMode'], type: 'baseMode' },
             { label: '现代题材', path: ['identity', 'isModern'], type: 'bool' },
-            { label: '启用修炼', path: ['identity', 'usesCultivation'], type: 'bool' },
+            { label: '启用修炼（仅作为新存档默认值）', path: ['identity', 'usesCultivation'], type: 'bool', placeholder: '作为新存档「修炼体系相关内容」开关的初始默认值；玩家可在游戏内设置中随时改写，不会被题材包覆盖。' },
             { label: '末日题材', path: ['identity', 'isApocalypse'], type: 'bool' },
             { label: '生存模式', path: ['identity', 'isSurvival'], type: 'bool' },
             { label: '同人/IP 模式', path: ['identity', 'isFandomIp'], type: 'bool' }
@@ -2201,14 +2201,17 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                 </label>
             );
         }
-        if (fieldType === 'bool') {
-            return (
-                <label key={key} className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-xs text-gray-200">
-                    <input type="checkbox" checked={Boolean(rawValue)} readOnly disabled className="h-3.5 w-3.5 accent-wuxia-gold disabled:opacity-100" />
-                    {field.label}
-                </label>
-            );
-        }
+if (fieldType === 'bool') {
+                return (
+                    <label key={key} className={`block text-xs text-gray-200 ${field.placeholder ? 'sm:col-span-2' : ''}`}>
+                        <span className={`flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 ${field.placeholder ? '' : 'min-h-10'}`}>
+                            <input type="checkbox" checked={Boolean(rawValue)} readOnly disabled className="h-3.5 w-3.5 accent-wuxia-gold disabled:opacity-100" />
+                            {field.label}
+                        </span>
+                        {field.placeholder && <span className="mt-1 block leading-5 text-gray-400">{field.placeholder}</span>}
+                    </label>
+                );
+            }
         if (fieldType === 'baseMode') {
             return (
                 <label key={key} className="block text-xs text-gray-300">
@@ -3029,14 +3032,17 @@ const CreativeWorkshopModal: React.FC<Props> = ({ open, onClose, onNovelDecompos
                                                                 }
                                                                 if (fieldType === 'bool') {
                                                                     return (
-                                                                        <label key={key} className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-xs text-gray-200">
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={Boolean(rawValue)}
-                                                                                onChange={(event) => 更新运行时配置字段(field, event.target.checked)}
-                                                                                className="h-3.5 w-3.5 accent-wuxia-gold"
-                                                                            />
-                                                                            {field.label}
+                                                                        <label key={key} className={`block text-xs text-gray-200 ${field.placeholder ? 'sm:col-span-2' : ''}`}>
+                                                                            <span className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={Boolean(rawValue)}
+                                                                                    onChange={(event) => 更新运行时配置字段(field, event.target.checked)}
+                                                                                    className="h-3.5 w-3.5 accent-wuxia-gold"
+                                                                                />
+                                                                                {field.label}
+                                                                            </span>
+                                                                            {field.placeholder && <span className="mt-1 block leading-5 text-gray-400">{field.placeholder}</span>}
                                                                         </label>
                                                                     );
                                                                 }

@@ -1,16 +1,19 @@
 import type {
+    游戏设置结构,
     世界书导出结构,
     世界书预设组导出结构,
     世界书预设组结构,
     世界书结构,
     世界书条目结构,
     世界书条目形态,
+    世界书条目功能模块,
     世界书内置分类,
     世界书注入模式,
     世界书作用域,
     世界书类型,
     聊天记录结构
 } from '../types';
+import { 世界书条目是否生效 } from './worldbookFeatureLinkage';
 import { normalizeCanonicalGameTime, 环境时间转标准串 } from '../hooks/useGame/timeUtils';
 import { formatHistoryToScript } from '../hooks/useGame/historyUtils';
 import { 构建AI角色声明提示词 } from '../prompts/runtime/roleIdentity';
@@ -756,6 +759,23 @@ const 规范化注入模式 = (value: unknown): 世界书注入模式 => (
         : 默认注入模式
 );
 
+/** 条目的功能模块归属；未登记的值一律按 undefined（始终注入）处理，避免题包写错导致内容静默消失 */
+const 规范化功能模块 = (value: unknown): 世界书条目功能模块 | undefined => (
+    value === 'cultivation' || value === 'survival' || value === 'femboy_nsfw'
+        ? value
+        : undefined
+);
+
+/**
+ * 条目可归属的功能模块选项（联动设置页开关）。
+ * 判定逻辑与 PROMPT_FEATURE 标记协议共用 utils/promptFeatureToggles.ts 的 功能模块是否启用。
+ */
+export const 世界书功能模块选项: Array<{ value: 世界书条目功能模块; label: string; description: string }> = [
+    { value: 'cultivation', label: '修炼体系', description: '关闭「修炼体系相关内容」时该条目不再注入。' },
+    { value: 'survival', label: '饱腹口渴', description: '关闭「饱腹口渴系统」时该条目不再注入。' },
+    { value: 'femboy_nsfw', label: '男娘 NSFW', description: '关闭 NSFW 或男娘 NSFW 内容时该条目不再注入。' }
+];
+
 const 规范化时间线时间 = (value: unknown): string => {
     const text = 读取文本(value).trim();
     if (!text) return '';
@@ -875,6 +895,9 @@ export const 规范化世界书条目 = (raw: unknown, fallback?: Partial<世界
         关键词: 解析世界书关键词(source.关键词 ?? base.关键词),
         优先级: priority,
         启用: source.启用 !== undefined ? source.启用 === true : base.启用 !== false,
+        // 归属功能模块：白名单式规范化会丢弃未显式声明的字段，
+        // 漏掉这一行会让题包作者声明的联动关系在导入/规范化后静默消失
+        功能模块: 规范化功能模块(source.功能模块 ?? base.功能模块),
         内置: isBuiltinEntry,
         创建时间: Number.isFinite(createdAtRaw) ? Math.floor(createdAtRaw) : now,
         更新时间: Number.isFinite(updatedAtRaw) ? Math.floor(updatedAtRaw) : now
@@ -1108,7 +1131,10 @@ export const 获取剧情风格世界书槽位 = (
 ): string => 获取剧情风格槽位ID(scope, style, ntlTier);
 
 
-export const 扁平化世界书条目 = (books: 世界书结构[]): 世界书条目结构[] => (
+export const 扁平化世界书条目 = (
+    books: 世界书结构[],
+    config?: Partial<游戏设置结构> | null
+): 世界书条目结构[] => (
     规范化世界书列表(books).flatMap((book) => {
         if (book.启用 === false) return [];
         const allowAppendRoute = true;
@@ -1132,7 +1158,7 @@ export const 扁平化世界书条目 = (books: 世界书结构[]): 世界书条
             : [];
         return [...outlineEntry, ...(book.条目 || [])]
             .map((entry) => 规范化世界书条目(entry))
-            .filter((entry) => entry.启用 !== false)
+            .filter((entry) => 世界书条目是否生效(entry, config))
             .map((entry) => ({
                 ...entry,
                 标题: book.标题 ? `${book.标题} / ${entry.标题}` : entry.标题

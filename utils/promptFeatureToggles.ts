@@ -51,6 +51,19 @@ const 功能附加块是否启用 = (
     }
 };
 
+/**
+ * 判断某个功能模块在当前设置下是否启用（世界书条目联动与 PROMPT_FEATURE 标记共用的单一真源）。
+ * 未登记的功能 id 一律视为启用（向前兼容：题包作者写错不该让条目静默消失）。
+ */
+export const 功能模块是否启用 = (
+    featureId: string | null | undefined,
+    config?: Partial<游戏设置结构> | null
+): boolean => {
+    const normalized = (featureId || '').trim().toLowerCase();
+    if (!normalized) return true;
+    return 功能附加块是否启用(normalized, config);
+};
+
 export const 构建功能附加块 = (featureId: string, content: string): string => {
     const normalizedFeatureId = (featureId || '').trim().toLowerCase();
     const normalizedContent = 归一化功能附加块内容(content);

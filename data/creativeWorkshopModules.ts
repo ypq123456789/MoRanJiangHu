@@ -1,7 +1,8 @@
 import type { 开局预设方案结构 } from './newGamePresets';
-import type { ModeRuntimeProfile, WorldMapDiyDraft, 世界书结构, 世界书条目结构, 世界书类型, 世界书作用域, 酒馆预设结构 } from '../types';
+import type { ModeRuntimeProfile, WorldMapDiyDraft, 游戏设置结构, 世界书结构, 世界书条目结构, 世界书类型, 世界书作用域, 酒馆预设结构 } from '../types';
 import { 题材模式配置表, 题材模式顺序 } from '../utils/workshopEngine';
 import { 构建官方模式运行时配置, 规范化模式运行时配置, 渲染模式运行时配置世界书内容 } from '../utils/modeRuntimeProfile';
+import { 世界书条目是否生效 } from '../utils/worldbookFeatureLinkage';
 import { 默认ComfyUI工作流JSON, 默认NSFWComfyUI工作流JSON } from './defaultComfyWorkflow';
 import { 获取题材预设背景, 获取题材预设天赋 } from './presets';
 
@@ -121,17 +122,43 @@ const 构建模式专属世界书 = (params: {
     }];
 };
 
-export const 从模式世界书提取提示词 = (books: 世界书结构[] | undefined): {
+/**
+ * 从模式包世界书提取三类提示词。
+ *
+ * 条目是否参与提取由两层判定决定：
+ * 1. `条目.功能模块` 显式标记（见 models/worldbook.ts 的 世界书条目功能模块）——题包作者主动声明归属；
+ * 2. 标题正则兜底——旧题包没有标记字段，仍按标题关键字识别为修炼/能力类。
+ * 无论哪种方式，最终都要过 `世界书条目是否生效`，关闭修炼时修炼类条目一律不参与提取。
+ */
+export const 从模式世界书提取提示词 = (
+    books: 世界书结构[] | undefined,
+    config?: Partial<游戏设置结构> | null
+): {
     manualWorldPrompt: string;
     worldExtraRequirement: string;
     manualRealmPrompt: string;
 } => {
-    const entries = (Array.isArray(books) ? books : [])
+    const 修炼类标题正则 = /能力|境界|成长|战力|修为|功法|修炼|神通|法术|灵根|灵体|天赋|体质|技能|属性|等级|突破|丹药|法宝|灵宝|渡劫/;
+    const 修炼开启 = config?.启用修炼体系 !== false;
+    const allEntries = (Array.isArray(books) ? books : [])
         .flatMap((book) => Array.isArray(book?.条目) ? book.条目 : [])
-        .filter((entry) => entry && entry.启用 !== false && typeof entry.内容 === 'string' && entry.内容.trim());
-    const worldLore = entries.filter((entry) => entry.类型 === 'world_lore').map((entry) => `【${entry.标题}】\n${entry.内容.trim()}`);
-    const ability = entries.filter((entry) => /能力|境界|成长|战力|修为|功法|修炼|神通|法术|灵根|灵体|天赋|体质|技能|属性|等级|突破|丹药|法宝|灵宝|渡劫/.test(entry.标题)).map((entry) => `【${entry.标题}】\n${entry.内容.trim()}`);
-    const rules = entries.filter((entry) => !ability.includes(`【${entry.标题}】\n${entry.内容.trim()}`) && entry.类型 !== 'world_lore').map((entry) => `【${entry.标题}】\n${entry.内容.trim()}`);
+        .filter((entry) => entry && typeof entry.内容 === 'string' && entry.内容.trim());
+    // 开关联动第一层：条目自身启用 + 显式 归属模块未关闭，才进入提取
+    const entries = allEntries.filter((entry) => 世界书条目是否生效(entry, config));
+    const 渲染条目 = (entry: 世界书条目结构) => `【${entry.标题}】\n${entry.内容.trim()}`;
+    const worldLore = entries.filter((entry) => entry.类型 === 'world_lore').map(渲染条目);
+    // 修炼类判定：显式标记优先，标题正则兜底（旧题包没有标记字段）。
+    // 修炼关闭时修炼类条目一律排除——既不进 manualRealmPrompt，
+    // 也不能以「普通规则」的身份混进 worldExtraRequirement 绕过剥离。
+    const 是修炼类 = (entry: 世界书条目结构) => (
+        entry.功能模块 === 'cultivation' || 修炼类标题正则.test(entry.标题)
+    );
+    const ability = 修炼开启 ? entries.filter(是修炼类).map(渲染条目) : [];
+    const abilitySet = new Set(ability);
+    const rules = entries
+        .filter((entry) => entry.类型 !== 'world_lore' && !abilitySet.has(渲染条目(entry)))
+        .filter((entry) => (修炼开启 ? true : !是修炼类(entry)))
+        .map(渲染条目);
     return {
         manualWorldPrompt: worldLore.join('\n\n'),
         worldExtraRequirement: rules.join('\n\n'),
