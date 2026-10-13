@@ -460,8 +460,8 @@ const 网络较慢或节省流量 = (connection?: 可选网络信息 | null): bo
     }
     return false;
 };
-const 懒加载边界: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <SuspenseTimeoutBoundary timeoutMs={20000}>{children}</SuspenseTimeoutBoundary>
+const 懒加载边界: React.FC<{ children: React.ReactNode; onDismiss?: () => void }> = ({ children, onDismiss }) => (
+    <SuspenseTimeoutBoundary timeoutMs={20000} onDismiss={onDismiss}>{children}</SuspenseTimeoutBoundary>
 );
 
 
@@ -3172,7 +3172,9 @@ const App: React.FC = () => {
             )}
 
             {state.view === 'new_game' && (
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={() => { state.setView('home'); }}
+                >
                     {isMobile ? (
                         <MobileNewGameWizard
                             onComplete={(worldConfig, charData, openingConfig, mode, openingStreaming, openingExtraPrompt, activeModuleExtraRules) =>
@@ -3203,8 +3205,14 @@ const App: React.FC = () => {
                 <ModalErrorBoundary title="主界面渲染失败" importKeys={主界面懒加载keys}>
                 {/* 游戏态最外层再加一道挂起超时兜底：ErrorBoundary 抓不到 Suspense 挂起，
                     若主界面的懒加载 Promise 一直 pending，玩家会永远停在「卷轴展开中…」。
-                    这里给 25s（比面板级更宽，给主界面更多余量）后降级为可点击的重试页。 */}
-                <SuspenseTimeoutBoundary timeoutMs={25000}>
+                    这里给 25s（比面板级更宽，给主界面更多余量）后降级为可点击的恢复页。
+                    onDismiss 是游戏态唯一的整页刷新替代出口：自动保存后返回主界面，
+                    既不让玩家被锁死，也不会丢掉未保存进度（CodeRabbit Major #2）。 */}
+                <SuspenseTimeoutBoundary
+                    timeoutMs={25000}
+                    onDismiss={() => { void handleReturnToHomeWithAutoSave(); }}
+                    onDismissLabel="自动保存并返回主界面"
+                >
                 {/* Main Game Frame Container */}
                 <div className={`desktop-game-frame relative flex-1 flex flex-col w-full h-full min-h-0 overflow-hidden bg-ink-black ${isMobile ? 'rounded-none shadow-none' : 'rounded-2xl shadow-2xl'}`}>
                     {isMobile && (
@@ -3686,7 +3694,9 @@ const App: React.FC = () => {
                     )}
                     {/* Mobile Music Player Drawer */}
                     {isMobile && showMobileMusic && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={closeMobileMusic}
+                        >
                             <MobileMusicPlayer 
                                 open={true}
                                 onClose={closeMobileMusic} 
@@ -3714,7 +3724,9 @@ const App: React.FC = () => {
             {/* Save/Load Modal */}
             {safeShowSaveLoad.show && (
                 <div className={desktopRightDetailClass}>
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={closeSaveLoad}
+                >
                     <SaveLoadModal 
                         onClose={closeSaveLoad}
                         onLoadGame={actions.handleLoadGame}
@@ -3728,7 +3740,9 @@ const App: React.FC = () => {
 
             {showCloudPlay && (
                 <div className={desktopRightDetailClass || 'fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm'}>
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={closeCloudPlay}
+                >
                     <div className={desktopRightDetailClass ? 'h-full w-full' : 'h-[min(760px,92vh)] w-full max-w-5xl'}>
                         <CloudPlayModal
                             onClose={closeCloudPlay}
@@ -3745,7 +3759,9 @@ const App: React.FC = () => {
             {state.showSettings && (
                 <div className={desktopRightDetailClass}>
                 <ModalErrorBoundary title="设置打开失败" onClose={closeSettings} importKeys={['settings-modal', 'mobile-settings-modal']}>
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={closeSettings}
+                >
                     {isMobile ? (
                         <MobileSettingsModal
                             activeTab={state.activeTab}
@@ -3851,7 +3867,9 @@ const App: React.FC = () => {
             )}
 
             {showWorldbookManager && (
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={() => setShowWorldbookManager(false)}
+                >
                     <WorldbookManagerModal
                         builtinPromptEntries={meta.builtinPromptEntries}
                         worldbooks={meta.worldbooks}
@@ -3868,7 +3886,9 @@ const App: React.FC = () => {
             {showNovelDecompositionWorkbench && (
                 <div className={desktopRightDetailClass}>
                 <ModalErrorBoundary title="小说分解工作台打开失败" onClose={closeNovelDecompositionWorkbench} importKeys={['novel-decomposition-workbench']}>
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={closeNovelDecompositionWorkbench}
+                >
                     <NovelDecompositionWorkbenchModal
                         open={showNovelDecompositionWorkbench}
                         settings={state.apiConfig}
@@ -3953,7 +3973,9 @@ const App: React.FC = () => {
             />
 
             {state.view === 'game' && meta.memorySummaryOpen && (
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={actions.handleCancelMemorySummary}
+                >
                     {isMobile ? (
                         <MemorySummaryFlowMobileModal
                             open={true}
@@ -3985,7 +4007,9 @@ const App: React.FC = () => {
             )}
 
             {state.view === 'game' && !meta.memorySummaryOpen && meta.npcMemorySummaryOpen && (
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={actions.handleCancelNpcMemorySummary}
+                >
                     {isMobile ? (
                         <NpcMemorySummaryFlowMobileModal
                             open={true}
@@ -4020,7 +4044,9 @@ const App: React.FC = () => {
 
             {showImageManager && (
                 <div className={desktopRightDetailClass}>
-                <懒加载边界>
+                <懒加载边界
+                    onDismiss={() => setShowImageManager(false)}
+                >
                     {isMobile ? (
                         <ModalErrorBoundary title="图册打开失败" onClose={() => setShowImageManager(false)} importKeys={['image-manager-modal', 'mobile-image-manager-modal']}>
                         <MobileImageManagerModal
@@ -4155,7 +4181,9 @@ const App: React.FC = () => {
             {state.view === 'game' && (
                 <div className={desktopRightDetailClass}>
                     {state.showInventory && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowInventory(false)}
+                        >
                             {isMobile ? (
                                 <MobileInventoryModal 
                                     character={state.角色} 
@@ -4205,7 +4233,9 @@ const App: React.FC = () => {
                     )}
 
                     {showAuctionHouse && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setShowAuctionHouse(false)}
+                        >
                             <AuctionHouseModal
                                 character={state.角色}
                                 auctionState={auctionHouseState}
@@ -4225,7 +4255,9 @@ const App: React.FC = () => {
                     )}
 
                     {showCharacter && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setShowCharacter(false)}
+                        >
                             {isMobile ? (
                                  <MobileCharacter
                                     character={state.角色}
@@ -4276,7 +4308,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showEquipment && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowEquipment(false)}
+                        >
                             <EquipmentModal 
                                 character={state.角色} 
                                 openingConfig={state.开局配置}
@@ -4290,7 +4324,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showBattle && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowBattle(false)}
+                        >
                             {isMobile ? (
                                 <MobileBattleModal
                                     character={state.角色}
@@ -4315,7 +4351,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showTeam && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowTeam(false)}
+                        >
                             {isMobile ? (
                                 <MobileTeamModal
                                     character={state.角色}
@@ -4335,7 +4373,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showSocial && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowSocial(false)}
+                        >
                             {isMobile ? (
                                 <MobileSocial
                                     socialList={state.社交}
@@ -4381,7 +4421,9 @@ const App: React.FC = () => {
                     )}
 
                     {启用修炼体系 && state.showKungfu && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowKungfu(false)}
+                        >
                             {isMobile ? (
                                 <MobileKungfuModal
                                     skills={safeCharacter?.功法列表 || []}
@@ -4401,7 +4443,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showSkills && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowSkills(false)}
+                        >
                             {isMobile ? (
                                 <MobileSkillsPanel
                                     技艺列表={safeCharacter?.技艺 || []}
@@ -4421,7 +4465,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showWorld && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowWorld(false)}
+                        >
                             {isMobile ? (
                                 <MobileWorldModal
                                     world={state.世界}
@@ -4451,7 +4497,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showMap && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowMap(false)}
+                        >
                             {isMobile ? (
                                 <MobileMapModal
                                     world={state.世界}
@@ -4485,7 +4533,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showSect && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowSect(false)}
+                        >
                             {isMobile ? (
                                 <MobileSect
                                     sectData={state.玩家门派}
@@ -4517,7 +4567,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showTask && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowTask(false)}
+                        >
                             {isMobile ? (
                                 <MobileTask
                                     tasks={state.任务列表}
@@ -4541,7 +4593,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showAgreement && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowAgreement(false)}
+                        >
                             {isMobile ? (
                                 <MobileAgreementModal
                                     agreements={state.约定列表}
@@ -4559,7 +4613,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showStory && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowStory(false)}
+                        >
                             {isMobile ? (
                                 <MobileStory
                                     story={state.剧情}
@@ -4579,7 +4635,9 @@ const App: React.FC = () => {
                     )}
 
                     {showNovelExport && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={closeNovelExport}
+                        >
                             <NovelExportModal
                                 isOpen={showNovelExport}
                                 onClose={closeNovelExport}
@@ -4591,7 +4649,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showHeroinePlan && safeGameConfig?.启用女主剧情规划 === true && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowHeroinePlan(false)}
+                        >
                             {isMobile ? (
                                 <MobileHeroinePlanModal
                                     plan={当前女主剧情规划}
@@ -4609,7 +4669,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showMemory && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowMemory(false)}
+                        >
                             {isMobile ? (
                                 <MobileMemory
                                     history={state.历史记录}
@@ -4633,7 +4695,9 @@ const App: React.FC = () => {
                     )}
 
                     {state.showRoleChat && (
-                        <懒加载边界>
+                        <懒加载边界
+                            onDismiss={() => setters.setShowRoleChat(false)}
+                        >
                             <RoleChatModal
                                 open={true}
                                 loading={state.loading}

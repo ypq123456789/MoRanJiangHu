@@ -39,7 +39,9 @@ describe('设置模块懒加载局部错误边界', () => {
 
         const settingsBlock = source.slice(settingsBlockStart, settingsBlockEnd);
         const boundaryOpen = settingsBlock.indexOf('<ModalErrorBoundary title="设置打开失败"');
-        const suspenseOpen = settingsBlock.indexOf('<懒加载边界>');
+        // 注意：懒加载边界标签可能带属性（如 onDismiss）且多行书写，
+        // 只能匹配标签名开头，不能匹配带右尖括号的单行形式。
+        const suspenseOpen = settingsBlock.indexOf('<懒加载边界');
         const mobileSettings = settingsBlock.indexOf('<MobileSettingsModal');
         const desktopSettings = settingsBlock.indexOf('<SettingsModal');
         const suspenseClose = settingsBlock.lastIndexOf('</懒加载边界>');
