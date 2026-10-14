@@ -89,6 +89,36 @@ describe('base 路径防线：断言产物引用合法（用于资源引用，�
     expect(是否本机路径('/workbuddy/resources/vendor/PortableGit/assets/index.js')).toBe(true);
     expect(是否本机路径('')).toBe(false);
   });
+
+  it('是否本机路径：对真实产物里出现过的引用一律不误报（防误伤构建）', () => {
+    // 收紧/放宽本机路径正则时极易误伤正常引用从而中断构建，逐条锁死。
+    const 正常引用 = [
+      '/assets/index-BdsIN4n-.js',
+      '/assets/react-vendor-BiU7YmE8.js',
+      '/assets/images/ui/paper-texture.png',
+      '/ui/wuxia-bg-texture.png',
+      '/msjh/assets/index-abc.js',
+      '/favicon.svg',
+      '/api/image-backend/fetch-image',
+      'https://cloud.umami.is/script.js',
+      'data:image/png;base64,AAAA',
+    ];
+    for (const 引用 of 正常引用) {
+      expect(是否本机路径(引用), 引用).toBe(false);
+    }
+  });
+
+  it('是否本机路径：跨平台本机目录都能识别', () => {
+    for (const 污染 of [
+      '/workbuddy/resources/vendor/PortableGit/assets/index-x.js',
+      'C:\\tmp\\assets\\index.js',
+      '/Users/me/proj/assets/index.js',
+      '/home/me/x.js',
+      '/msys64/tmp/x.js',
+    ]) {
+      expect(是否本机路径(污染), 污染).toBe(true);
+    }
+  });
 });
 
 describe('base 路径防线：vite.config.ts 接线', () => {
