@@ -133,13 +133,23 @@ describe('base 路径防线：vite.config.ts 接线', () => {
     expect(pluginsBlock.slice(0, 400)).toContain('assertSafeAssetBasePlugin()');
   });
 
-  it('plugin 同时含 configResolved（拦 CLI --base=）与 generateBundle（扫产物 HTML）', () => {
+  it('plugin 同时含 configResolved（拦 CLI --base=）与 writeBundle（扫产物 HTML）', () => {
     const 起点 = cfgSource.indexOf('assertSafeAssetBasePlugin');
     const 片段 = cfgSource.slice(起点, cfgSource.indexOf('stripSameOriginAssetCrossoriginPlugin = '));
     expect(片段).toMatch(/configResolved\s*\(/);
-    expect(片段).toMatch(/generateBundle\s*\(/);
     expect(片段).toMatch(/断言Base合法/);
     expect(片段).toMatch(/断言产物引用合法/);
+    // ⚠️ 回归：曾误用 generateBundle —— 该钩子执行时 vite 尚未生成 index.html，
+    // bundle 里没有任何 .html 条目，整段产物校验一次都不执行（等于死代码）。
+    // 实测探针打印 `NO HTML IN BUNDLE`；换成 writeBundle 后能真正读到落盘的 HTML。
+    expect(片段).toMatch(/writeBundle\s*\(/);
+    expect(片段).not.toMatch(/generateBundle\s*\(/);
+  });
+
+  it('plugin 设为 enforce: post（确保拿到注入完资源引用的最终 HTML）', () => {
+    const 起点 = cfgSource.indexOf('assertSafeAssetBasePlugin');
+    const 片段 = cfgSource.slice(起点, cfgSource.indexOf('stripSameOriginAssetCrossoriginPlugin = '));
+    expect(片段).toMatch(/enforce:\s*'post'/);
   });
 
   it('env 层的旧断言仍在（APK 黑屏防线不可回退）', () => {
@@ -172,5 +182,97 @@ describe('base 路径防线：产物校验脚本', () => {
       encoding: 'utf8',
     });
     expect(输出).toContain('WEB_DIST_OK');
+  });
+});
+
+describe('base 路径防线：verify-web-dist 端到端行为', () => {
+  const 脚本路径 = path.join(根目录, 'scripts/verify-web-dist.mjs');
+  const { execFileSync } = require('node:child_process') as typeof import('node:child_process');
+
+  /** 造一个临时产物目录，跑校验脚本，返回 { code, out }。 */
+  const 跑校验 = (dir: string) => {
+    try {
+      const out = execFileSync(process.execPath, [脚本路径, dir], {
+        cwd: 根目录,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      return { code: 0, out };
+    } catch (e) {
+      const err = e as { status?: number; stdout?: Buffer };
+      return { code: err.status ?? 1, out: String(err.stdout || '') };
+    }
+  };
+
+  /** 建临时产物：files 为 { 相对路径: 内容 }。 */
+  const 造产物 = (name: string, files: Record<string, string>) => {
+    const dir = path.join(根目录, '.tmp-guardtest-' + name);
+    for (const [rel, content] of Object.entries(files)) {
+      const full = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content, 'utf8');
+    }
+    return dir;
+  };
+
+  it('子路径部署（base=/msjh/）不误报：引用前缀应被识别为部署 base 而非缺失文件', () => {
+    // 回归：曾把 /msjh/assets/x.js 直接当路径定位，误报 9 项「文件不存在」。
+    const dir = 造产物('subpath', {
+      'index.html':
+        '<!doctype html><html><head>' +
+        '<script type="module" src="/msjh/assets/index-abc.js"></script>' +
+        '<link rel="stylesheet" href="/msjh/assets/index-abc.css">' +
+        '</head><body><div id="root"></div></body></html>',
+      'assets/index-abc.js': 'console.log(1)',
+      'assets/index-abc.css': 'body{}',
+    });
+    const { code, out } = 跑校验(dir);
+    expect(out).toContain('WEB_DIST_OK');
+    expect(out).toContain('/msjh');
+    expect(code).toBe(0);
+  });
+
+  it('事故坏产物仍被拦（base=/ 与子路径都不能漏放）', () => {
+    const dir = 造产物('bad', {
+      'index.html':
+        '<!doctype html><html><head>' +
+        '<script type="module" src="/workbuddy/resources/vendor/PortableGit/assets/index-x.js"></script>' +
+        '</head><body><div id="root"></div></body></html>',
+    });
+    const { code, out } = 跑校验(dir);
+    expect(out).toContain('WEB_DIST_FAIL');
+    expect(out).toMatch(/非法特征|本机路径/);
+    expect(code).not.toBe(0);
+  });
+
+  it('只有 <link href> 指向 js 时不算入口，必须判主 bundle 缺失', () => {
+    // 回归：曾把 modulepreload 的 link href 也算作入口 JS，
+    // 导致没有任何可执行脚本的产物被误判为「有入口」而放过。
+    const dir = 造产物('noentry', {
+      'index.html':
+        '<!doctype html><html><head>' +
+        '<link rel="modulepreload" href="/assets/preload-abc.js">' +
+        '</head><body><div id="root"></div></body></html>',
+      'assets/preload-abc.js': 'export const a = 1;',
+    });
+    const { code, out } = 跑校验(dir);
+    expect(out).toContain('WEB_DIST_FAIL');
+    expect(out).toContain('没有引用任何本地 JS 入口');
+    expect(code).not.toBe(0);
+  });
+
+  it('嵌套 HTML 的相对引用以该 HTML 所在目录为基准解析', () => {
+    const dir = 造产物('nested', {
+      'index.html':
+        '<!doctype html><html><head>' +
+        '<script type="module" src="/assets/index-abc.js"></script>' +
+        '</head><body><div id="root"></div></body></html>',
+      'assets/index-abc.js': 'console.log(1)',
+      'admin/index.html':
+        '<!doctype html><html><head><script type="module" src="../assets/index-abc.js"></script></head><body></body></html>',
+    });
+    const { code, out } = 跑校验(dir);
+    expect(out).toContain('WEB_DIST_OK');
+    expect(code).toBe(0);
   });
 });

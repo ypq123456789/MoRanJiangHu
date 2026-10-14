@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -519,22 +520,44 @@ export const 断言产物引用合法 = (引用: string, 来源: string): void =
  * 为什么上一道闸门（config 函数体内只查 env.VITE_BASE_PATH）拦不住：
  * `vite build --base=/xxx` 这类 **CLI 参数**是在配置解析完成后才合并进最终 config 的。
  *
- * ⚠️ 两个易踩的坑（都已实测）：
+ * ⚠️ 三个易踩的坑（都已实测，勿改回）：
  *   1) vite 的 configResolved 钩子**只对 plugins 数组里的插件触发**，写在 config 对象上
  *      是死代码 —— 构建照跑、产物照坏、钩子一次都不会被调用。所以这里必须做成 plugin。
- *   2) generateBundle 里对「资源引用」不能套用 base 的多段路径规则，否则合法的
+ *   2) 产物校验**必须用 writeBundle，不能用 generateBundle**：generateBundle 执行时
+ *      vite 尚未生成 index.html，bundle 里没有任何 .html 条目 → 循环体一次都不执行，
+ *      整段校验形同虚设（实测：探针打印 `NO HTML IN BUNDLE`）。writeBundle 时
+ *      index.html 已落盘且在 bundle 中，才能真正读到最终引用。
+ *   3) 校验「资源引用」时不能套用 base 的多段路径规则，否则合法的
  *      `/assets/index.js`、`/app/assets/index.js` 会被误判成非法而中断正常构建。
  */
 const assertSafeAssetBasePlugin = (): Plugin => ({
   name: 'assert-safe-asset-base',
   apply: 'build',
+  // post：确保排在 vite 内置 html 插件之后，拿到的是注入完资源引用的最终 HTML
+  enforce: 'post',
   configResolved(resolved) {
     断言Base合法(resolved.base, 'configResolved 最终 base');
   },
-  generateBundle(_options, bundle) {
-    for (const [文件名, 产物] of Object.entries(bundle)) {
-      if (!文件名.endsWith('.html') || 产物.type !== 'asset') continue;
-      const html = String(产物.source || '');
+  writeBundle(outputOptions, bundle) {
+    const 产物目录 = outputOptions.dir || '';
+    const HTML条目 = Object.keys(bundle).filter((名) => 名.endsWith('.html'));
+
+    // 优先读 bundle 内的产物；bundle 里没有（如 index.html 被单独写出）则回落到磁盘。
+    const 读HTML = (文件名: string): string | null => {
+      const 产物 = bundle[文件名];
+      if (产物 && 产物.type === 'asset') return String(产物.source || '');
+      const 磁盘路径 = path.join(产物目录, 文件名);
+      if (产物目录 && fs.existsSync(磁盘路径)) return fs.readFileSync(磁盘路径, 'utf8');
+      return null;
+    };
+
+    const 待查文件 = new Set<string>(HTML条目);
+    const 入口HTML = path.join(产物目录, 'index.html');
+    if (产物目录 && fs.existsSync(入口HTML)) 待查文件.add('index.html');
+
+    for (const 文件名 of 待查文件) {
+      const html = 读HTML(文件名);
+      if (!html) continue;
       const 引用正则 = /(?:src|href)\s*=\s*["']([^"']+)["']/gi;
       let 匹配: RegExpExecArray | null;
       while ((匹配 = 引用正则.exec(html))) {
