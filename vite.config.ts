@@ -452,6 +452,98 @@ const imageDevProxyPlugin = (): Plugin => ({
   }
 });
 
+/** 本机路径/工具链目录特征：出现即说明路径被本机环境污染（base 与产物引用共用）。 */
+const 本机路径特征正则 = [
+  /^[A-Za-z]:[\\/]/,                        // C:\ 或 C:/
+  /\\/,                                      // 反斜杠
+  /:\d+/,                                   // 盘符/端口混合
+  /PortableGit|msys|mingw|resources[\\/]vendor/i, // Git Bash 工具链目录（v1.0.685 事故特征）
+  /^\/(?:Users|home|mnt|opt|var|tmp)\//,   // POSIX 用户/系统目录（本机路径泄漏）
+];
+
+/** 路径是否命中本机路径特征。 */
+export const 是否本机路径 = (值: string): boolean =>
+  !!值 && 本机路径特征正则.some((re) => re.test(值));
+
+/**
+ * base 合法性判定（用于 env 值与最终合并后的 base，勿删）
+ *
+ * base 只允许「以单个 / 开头的 URL 前缀」（如 `/`、`/app/`），或空串 / `'./'`。
+ * 注意：这里**不能**用「斜杠段数 > 1」当非法条件 —— 合法的子路径部署 base（如 `/app/`）
+ * 就是单段，但产物里的完整引用（`/app/assets/index.js`）是三段，两者是不同量纲，不能共用规则。
+ */
+export const 断言Base合法 = (值: string, 来源: string): void => {
+  if (!值 || 值 === './') return;
+  const 非法 = 是否本机路径(值) || 值.split('/').filter(Boolean).length > 1;
+  if (非法) {
+    throw new Error(
+      `[vite] 检测到非法 base（来源：${来源}）：${JSON.stringify(值)}。\n` +
+        '  这通常是 Git Bash 的 MSYS 路径转换把 `--base=/` 或绝对路径改写成了 Windows 路径，' +
+        '会让产物 index.html 引用 `/workbuddy/resources/vendor/PortableGit/assets/...` 这类' +
+        '线上不存在的路径 → 主 bundle 404 → 整页白屏。\n' +
+        "  修法：构建命令前加 MSYS2_ARG_CONV_EXCL='*'（Git Bash 下），" +
+        '或改用 `npm run build:apk`（走 node 脚本拼参数，不经过 shell 转换）。'
+    );
+  }
+};
+
+/**
+ * 产物资源引用合法性判定（用于 generateBundle 扫出的 HTML 引用，勿删）
+ *
+ * 与 base 判定**刻意分开**：资源引用天然是多段路径（`/assets/index.js`），
+ * 合法与否只看有没有本机路径特征。
+ */
+export const 断言产物引用合法 = (引用: string, 来源: string): void => {
+  if (!引用) return;
+  if (是否本机路径(引用)) {
+    throw new Error(
+      `[vite] 产物 ${来源} 的资源引用被本机路径污染：${JSON.stringify(引用)}。\n` +
+        '  该引用指向构建机上的目录（如 `/workbuddy/resources/vendor/PortableGit/assets/...`），' +
+        '线上/包内都不存在 → 主 bundle 404 → 整页白屏。\n' +
+        "  根因通常是 Git Bash 的 MSYS 参数转换改写了 `--base=/`，" +
+        "修法：构建命令前加 MSYS2_ARG_CONV_EXCL='*'。"
+    );
+  }
+};
+
+/**
+ * 防 MSYS 污染 base 的第二、三道闸门（务必保留，勿删）
+ *
+ * 事故背景（v1.0.685 官网整页白屏）：发布时用
+ * `npx vite build --base=/ --outDir .tmp-web-685` 构建 web 产物，Git Bash 的 MSYS 参数
+ * 转换把 `--base=/` 改写成 `--base=/workbuddy/resources/vendor/PortableGit/`，产出
+ * `index.html` 引用 `/workbuddy/.../assets/index-XXX.js`（线上 404）。
+ * 这个坏包**自身完全自洽**：html 与 assets 在同一目录产出、APK 内又是另一份正常产物，
+ * 所以「比对线上 hash == 本地 hash」全部通过 —— 两边同时是错的，只能靠真实渲染/路径校验抓。
+ *
+ * 为什么上一道闸门（config 函数体内只查 env.VITE_BASE_PATH）拦不住：
+ * `vite build --base=/xxx` 这类 **CLI 参数**是在配置解析完成后才合并进最终 config 的。
+ *
+ * ⚠️ 两个易踩的坑（都已实测）：
+ *   1) vite 的 configResolved 钩子**只对 plugins 数组里的插件触发**，写在 config 对象上
+ *      是死代码 —— 构建照跑、产物照坏、钩子一次都不会被调用。所以这里必须做成 plugin。
+ *   2) generateBundle 里对「资源引用」不能套用 base 的多段路径规则，否则合法的
+ *      `/assets/index.js`、`/app/assets/index.js` 会被误判成非法而中断正常构建。
+ */
+const assertSafeAssetBasePlugin = (): Plugin => ({
+  name: 'assert-safe-asset-base',
+  apply: 'build',
+  configResolved(resolved) {
+    断言Base合法(resolved.base, 'configResolved 最终 base');
+  },
+  generateBundle(_options, bundle) {
+    for (const [文件名, 产物] of Object.entries(bundle)) {
+      if (!文件名.endsWith('.html') || 产物.type !== 'asset') continue;
+      const html = String(产物.source || '');
+      const 引用正则 = /(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+      let 匹配: RegExpExecArray | null;
+      while ((匹配 = 引用正则.exec(html))) {
+        断言产物引用合法(匹配[1], 文件名);
+      }
+    }
+  }
+});
+
 const stripSameOriginAssetCrossoriginPlugin = (): Plugin => ({
   name: 'strip-same-origin-asset-crossorigin',
   apply: 'build',
@@ -515,21 +607,9 @@ export default defineConfig(({ mode }) => {
   // 这里在配置阶段就断言：base 只允许「以单个 / 开头的 URL 前缀」，一旦出现盘符、
   // 反斜杠、冒号或两段以上斜杠，直接抛错让构建失败，而不是产出一个坏包。
   const rawBase = env.VITE_BASE_PATH || '/';
-  const looksLikeMsysPath =
-    /^[A-Za-z]:[\\/]/.test(rawBase) ||              // C:\ 或 C:/
-    rawBase.includes('\\') ||                        // 反斜杠
-    /:\d+/.test(rawBase) ||                          // 端口/盘符混合
-    rawBase.split('/').filter(Boolean).length > 1;   // 多段路径
-  if (looksLikeMsysPath) {
-    throw new Error(
-      `[vite] 检测到非法 base: ${JSON.stringify(rawBase)}。\n` +
-        '  这通常是 Git Bash 的 MSYS 路径转换把绝对路径注入了 VITE_BASE_PATH，' +
-        '会让 APK 产出 100% 黑屏（index.html 资源路径指向不存在的目录）。\n' +
-        '  修法：清掉该环境变量后重新构建（如 `unset VITE_BASE_PATH` 或改用 `npm run build:apk`），' +
-        '或所有构建命令加 MSYS2_ARG_CONV_EXCL=\'*\'。'
-    );
-  }
+  断言Base合法(rawBase, 'VITE_BASE_PATH 环境变量');
   const productionBase = rawBase;
+
   return {
     base: mode === 'production' ? productionBase : '/',
     server: {
@@ -541,6 +621,7 @@ export default defineConfig(({ mode }) => {
       react(),
       imageDevProxyPlugin(),
       stripSameOriginAssetCrossoriginPlugin(),
+      assertSafeAssetBasePlugin(),
       assertSingleReactInstancePlugin()
     ],
     define: {

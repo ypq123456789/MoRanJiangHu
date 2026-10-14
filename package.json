@@ -30,6 +30,8 @@
     "dev": "npm run release:sync && vite",
     "build": "npm run release:sync && vite build",
     "build:apk": "npm run release:sync && vite build --base=/",
+    "verify:web-dist": "node scripts/verify-web-dist.mjs",
+    "verify:web-render": "node scripts/verify-render.mjs dist",
     "verify:render": "node scripts/verify-render.mjs",
     "clean:tmp": "node scripts/clean-tmp.mjs",
     "preview": "vite preview",
