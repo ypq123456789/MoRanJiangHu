@@ -943,20 +943,23 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
             issues.push('当前数据集没有原始正文。');
             suggestions.push('重新导入 TXT / EPUB，或导入带原文的分解分享包。');
         }
-        if (rawLength > 0 && chapterCount === 0) {
-            // 乱码会直接摧毁全部章节标题匹配，必须优先报这个
-            const mojibakeCount = (rawText.match(/\uFFFD/g) || []).length;
-            if (mojibakeCount >= 20 || mojibakeCount / rawLength > 0.002) {
-                issues.push('正文疑似乱码，文件编码与 UTF-8 不匹配，章节标题因此全部匹配不上。');
-                suggestions.push('用记事本「另存为 → UTF-8」重新保存后再导入；若已尝试仍乱码，请把文件发给我们。');
-            }
+        // ⚠️ 只有在**确实有乱码证据**时才提示编码问题。正常 UTF-8 文本只识别出 1 章时，
+        //    归因到编码会把玩家引向错误方向（实测这是本项目真实踩过的坑）。
+        //    注意：U+FFFD 阈值只是编码正确性的**充分信号之一**，不是充分条件——
+        //    某些错误解码不产生替换字符，所以文案必须用「可能」这类条件表述。
+        const mojibakeCount = (rawText.match(/\uFFFD/g) || []).length;
+        const 疑似编码不匹配 = rawLength > 0
+            && (mojibakeCount >= 20 || mojibakeCount / rawLength > 0.002);
+        if (疑似编码不匹配) {
+            issues.push('正文疑似包含乱码，可能影响章节标题匹配。');
+            suggestions.push('请检查文件编码（GBK/GB18030/UTF-8）后重新导入；若仍有乱码，请把文件反馈给我们。');
         }
         if (rawLength > 0 && chapterCount === 0) {
             issues.push('没有识别出任何章节边界，正文被当作一整段。');
             suggestions.push('检查标题是否独立成行，并尽量使用“第1章 标题”或“第一章 标题”格式。');
         } else if (rawLength > 0 && chapterCount === 1) {
             issues.push('全文只识别出 1 章，章节标题基本没被匹配到。');
-            suggestions.push('若原文标题行很多但这里只出 1 章，多半是文件编码不是 UTF-8（GBK/GB18030）导致整篇乱码；请用 UTF-8 另存后重新导入，或直接反馈该文件。');
+            suggestions.push('检查标题是否独立成行，并尽量使用“第1章 标题”或“第一章 标题”格式。');
         }
         if (chapterCount > 1 && shortRatio > 0.35) {
             issues.push('短章节比例偏高，目录、作者的话或分隔符可能被当成章节。');

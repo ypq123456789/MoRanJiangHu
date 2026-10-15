@@ -44,6 +44,40 @@ const 计算可读分 = (text: string): number => {
 };
 
 /**
+ * 中文正文里高频出现、且「误解码后会变成另一批合法汉字」的繁体字。
+ *
+ * 用途：区分 GB 与 Big5。Big5 字节被按 gb18030 解码时**不会产生 U+FFFD**
+ * （所有字节组合都映射到某个汉字），所以「替换字符占比」这个信号对 Big5 完全失效。
+ * 只有靠这些「解码正确才可能出现」的繁体字才能把真 Big5 文本认出来。
+ */
+const 繁体特征字 = /[龍鳳臺灣裏萬學術劍俠雲隱聖靈傳奇滄歸道]/g;
+
+/** 章回小说常见的简体特征字，用于反向排除「把 Big5 误判成 GB」的情况。 */
+const 简体特征字 = /[龙凤台湾里万学剑侠云隐圣灵传奇沧归道]/g;
+
+/**
+ * 编码特征分：解码结果越像「真正的中文小说文本」分越高。
+ *
+ * - 章节标题命中：只有解码正确，`第X章/回` 才会是合法的中文行首。
+ * - 繁体字命中：Big5 文件正确解码时必然出现；误解码成 GB 时几乎不会。
+ */
+const 计算编码特征分 = (text: string): number => {
+    if (!text) return 0;
+    const 标题命中 = (text.match(/第[一二三四五六七八九十百千万兩两0-9]+\s*[章回節节]/g) || []).length;
+    const 繁体命中 = (text.match(繁体特征字) || []).length;
+    const 简体命中 = (text.match(简体特征字) || []).length;
+    // 繁体特征是 Big5 的强信号，权重给足；简体特征用来识别真正的 GB 文本。
+    return 标题命中 * 3 + 繁体命中 * 2 - 简体命中 * 0.5;
+};
+
+/**
+ * 综合择优分。可读分只能排除"明显不是文本"的解码结果，
+ * 但 GB 与 Big5 解出来的字符都是合法汉字、可读分必然打平，
+ * 因此必须叠加编码特征分才能分出胜负。
+ */
+const 计算综合分 = (text: string): number => 计算可读分(text) * 10 + 计算编码特征分(text);
+
+/**
  * 按字节探测并解码文本文件。
  *
  * @param bytes 文件原始字节。传 null/空数组时返回空串。
@@ -74,7 +108,7 @@ export const 解码文本文件字节 = (bytes: ArrayBuffer | Uint8Array | null 
             continue;
         }
         if (!是否像正常文本(decoded)) continue;
-        const score = 计算可读分(decoded);
+        const score = 计算综合分(decoded);
         if (score > bestScore) {
             bestScore = score;
             best = decoded;
