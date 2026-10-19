@@ -420,8 +420,10 @@ const SocialModal: React.FC<Props> = ({
         }
         setStealTargets(prev => ({ ...prev, [npcKey]: target }));
     };
-    const 展示关系驱动面板 = 展示女性扩展;
     const 当前关系网 = currentNPC ? 读取关系网(currentNPC) : [];
+    // 关系驱动面板：女性主要角色按原逻辑展示；任何角色只要带关系网变量数据也展示，
+    // 避免 AI 已写入关系网变量的新角色因未标"主要角色"而整栏不可见。
+    const 展示关系驱动面板 = 展示女性扩展 || 当前关系网.length > 0;
     const 当前子宫档案 = currentNPC ? 读取当前子宫档案(currentNPC) : undefined;
     const 读取失贞档案 = (npc: NPC结构) => {
         const source = (npc as any)?.失贞档案;
@@ -1229,20 +1231,22 @@ const SocialModal: React.FC<Props> = ({
                                                     </h4>
                                                     <span className="text-[10px] text-cyan-500/50 tracking-widest border border-cyan-900/50 px-2 py-0.5 rounded font-mono">DYNAMIC VARIABLES</span>
                                                 </div>
-                                                <div className="grid sm:grid-cols-2 gap-3 relative z-10">
-                                                    <RelationTag label="核心性格特征" value={currentNPC.核心性格特征} accent="text-cyan-200" />
-                                                    <RelationTag label="好感突破条件" value={currentNPC.好感度突破条件} accent="text-emerald-200" />
-                                                    <div className="sm:col-span-2">
-                                                        <RelationTag label="关系突破条件" value={currentNPC.关系突破条件} accent="text-amber-200" />
+                                                {展示女性扩展 && (
+                                                    <div className="grid sm:grid-cols-2 gap-3 relative z-10">
+                                                        <RelationTag label="核心性格特征" value={currentNPC.核心性格特征} accent="text-cyan-200" />
+                                                        <RelationTag label="好感突破条件" value={currentNPC.好感度突破条件} accent="text-emerald-200" />
+                                                        <div className="sm:col-span-2">
+                                                            <RelationTag label="关系突破条件" value={currentNPC.关系突破条件} accent="text-amber-200" />
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
                                                 <div className="mt-4 p-4 border border-pink-900/30 bg-black/40 rounded-lg relative z-10">
                                                     <div className="flex justify-between items-center mb-3">
                                                         <div className="text-[10px] text-pink-400 uppercase tracking-widest flex items-center gap-1.5">
                                                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
                                                                 <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 01-.383-.218 25.18 25.18 0 01-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0112 5.052 5.5 5.5 0 0116.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 01-4.244 3.17 15.247 15.247 0 01-.383.219l-.022.012-.007.004-.003.001a.752.752 0 01-.704 0l-.003-.001z" />
                                                             </svg>
-                                                            重要女性关系网变量
+                                                            关系网变量
                                                         </div>
                                                         <div className="text-[10px] text-gray-500 font-mono">Count: {当前关系网.length}</div>
                                                     </div>

@@ -1499,7 +1499,8 @@ const 净化新增社交命令 = (
     currentSocial: any[],
     responseFactText: string,
     dialogueSenderKeys: Set<string>,
-    playerName?: string
+    playerName?: string,
+    variablePlanText?: string
 ): any | null => {
     const key = normalizeStateCommandKey(typeof cmd?.key === 'string' ? cmd.key : '');
     // 所有整项写入都检查格式和叙事污染，包括整体 set；不能靠档案或正文依据绕过。
@@ -1531,6 +1532,10 @@ const 净化新增社交命令 = (
     ));
     if (existing) return cmd;
     if (dialogueSenderKeys.has(nextKey) || textMentionsNpcName(responseFactText, nextName)) return cmd;
+    // `<变量规划>` 与变量命令同属本回合 AI 响应：NPC 协议允许"正文用代称叙述、变量层落真实姓名"，
+    // 真名落在 `<变量规划>`（开局时它就是前台初始化说明稿）即构成合法新增依据；
+    // 变量模型自行发明、规划里也没有的名字仍然会被拦截。
+    if (variablePlanText && textMentionsNpcName(variablePlanText, nextName)) return cmd;
     return null;
 };
 
@@ -1684,6 +1689,7 @@ export const 执行响应命令处理 = (
     const charKungfuBeforeCommands = Array.isArray(charBuffer?.功法列表) ? charBuffer.功法列表 : [];
 
     const responseFactText = 提取响应事实文本(response);
+    const 变量规划文本 = typeof response?.t_var_plan === 'string' ? response.t_var_plan.trim() : '';
     const dialogueSenderKeys = 提取对白发送者集合(response, charBuffer?.姓名);
     if (Array.isArray(response.tavern_commands)) {
         const deathRiskCommandIndices = 提取NPC死亡风险命令索引(response.tavern_commands, socialBuffer, response);
@@ -1719,7 +1725,7 @@ export const 执行响应命令处理 = (
                 }],
                 ['NPC 姓名修改被保护', value => 净化社交姓名命令(value, socialBuffer)],
                 ['越界社交索引', value => 净化越界社交索引命令(value, socialBuffer)],
-                ['NPC 姓名非法/占位/污染，或缺少正文新增依据', value => 净化新增社交命令(value, socialBuffer, responseFactText, dialogueSenderKeys, charBuffer?.姓名)]
+                ['NPC 姓名非法/占位/污染，或缺少正文新增依据', value => 净化新增社交命令(value, socialBuffer, responseFactText, dialogueSenderKeys, charBuffer?.姓名, 变量规划文本)]
             ];
             for (const [reason, sanitize] of stages) {
                 safeCmd = sanitize(safeCmd);
