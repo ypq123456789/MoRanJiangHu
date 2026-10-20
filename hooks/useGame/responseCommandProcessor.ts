@@ -1516,10 +1516,14 @@ const 生成NPC稳定ID = (name: string): string => {
 const 补稳定NPCID = (cmd: any, name: string): any => {
     const value = cmd?.value;
     if (!value || typeof value !== 'object' || Array.isArray(value) || !name) return cmd;
-    const currentId = 规范化命令姓名(value?.id) || 规范化命令姓名(value?.ID);
-    // 已有稳定 ID 不动；只有缺失或 npc_<下标> 这种不稳定占位 ID 才补。
-    if (currentId && !/^npc_\d+$/.test(currentId)) return cmd;
-    return { ...cmd, value: { ...value, id: 生成NPC稳定ID(name) } };
+    const 现有小写ID = 规范化命令姓名(value?.id);
+    const 现有大写ID = 规范化命令姓名(value?.ID);
+    const 已稳定ID = [现有小写ID, 现有大写ID].find((id) => id && !/^npc_\d+$/.test(id)) || '';
+    // 标准化只读 `id`：已有一个稳定 ID 时必须回填到 `id`，否则会被兜底成 npc_<下标>。
+    // 没有任何稳定 ID 时按姓名派生（同名同 ID），并清掉残留的 npc_<下标>，避免它继续当匹配键。
+    const nextValue: any = { ...value, id: 已稳定ID || 生成NPC稳定ID(name) };
+    if (现有大写ID && /^npc_\d+$/.test(现有大写ID)) delete nextValue.ID;
+    return { ...cmd, value: nextValue };
 };
 
 const 净化新增社交命令 = (

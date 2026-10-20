@@ -162,6 +162,32 @@ describe('缺陷二：新档开局 AI 用代称命名的新角色必须入档', 
     });
 });
 
+describe('稳定 ID 补写：大小写字段与残留占位 ID', () => {
+    const 跑 = (value: Record<string, any>) => 执行响应命令处理({
+        logs: [{ sender: '旁白', text: '青衣女子立在檐下。' }],
+        tavern_commands: [{ action: 'push', key: 'gameState.社交', value: 新NPC值('青衣女子', value) }]
+    } as any, 构建基础状态(), deps, undefined, { applyState: false });
+
+    it('只带不稳定 npc_<下标> id 时补稳定 id', () => {
+        const state = 跑({ id: 'npc_7' });
+        expect(state.社交).toHaveLength(1);
+        expect(state.社交[0].id).not.toMatch(/^npc_\d+$/);
+    });
+
+    it('带稳定大写 ID 时回填到 id，不另造 id', () => {
+        const state = 跑({ ID: 'NPC-STABLE' });
+        expect(state.社交).toHaveLength(1);
+        expect(state.社交[0].id).toBe('NPC-STABLE');
+    });
+
+    it('id 与 ID 都是不稳定占位时不留残留占位键', () => {
+        const state = 跑({ id: 'npc_7', ID: 'npc_9' });
+        expect(state.社交).toHaveLength(1);
+        expect(state.社交[0].id).not.toMatch(/^npc_\d+$/);
+        expect(String(state.社交[0].ID ?? '')).not.toMatch(/^npc_\d+$/);
+    });
+});
+
 describe('代称角色入库后必须能回填真名（否则会另建重复档案）', () => {
     const 建代称角色状态 = () => {
         const state = 构建基础状态();
