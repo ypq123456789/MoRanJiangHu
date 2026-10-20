@@ -162,6 +162,69 @@ describe('缺陷二：新档开局 AI 用代称命名的新角色必须入档', 
     });
 });
 
+describe('代称角色入库后必须能回填真名（否则会另建重复档案）', () => {
+    const 建代称角色状态 = () => {
+        const state = 构建基础状态();
+        state.社交 = [{
+            id: 'npc_auto_demo',
+            姓名: '青衣女子',
+            性别: '女',
+            年龄: 18,
+            境界: '炼气',
+            身份: '青城派弟子',
+            是否主要角色: true,
+            简介: '开局登场人物'
+        }] as any;
+        return state;
+    };
+
+    it('青衣女子 → 沈青娥 允许改名', () => {
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '青衣女子自报家门：沈青娥。' }],
+            tavern_commands: [{ action: 'set', key: 'gameState.社交[0].姓名', value: '沈青娥' }]
+        } as any, 建代称角色状态(), deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['沈青娥']);
+    });
+
+    it.each(['老掌柜', '白衣少女', '蒙面人'])('%s 代称回填真名同样允许', (代称) => {
+        const state = 构建基础状态();
+        state.社交 = [{ id: 'npc_auto_x', 姓名: 代称, 性别: '女', 身份: '江湖人', 简介: '登场' }] as any;
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: `自称柳如烟。` }],
+            tavern_commands: [{ action: 'set', key: 'gameState.社交[0].姓名', value: '柳如烟' }]
+        } as any, state, deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['柳如烟']);
+    });
+
+    it('真名之间互改仍然拦截', () => {
+        const state = 构建基础状态();
+        state.社交 = [{ id: 'npc_real', 姓名: '沈青娥', 性别: '女', 身份: '青城派弟子', 简介: '已有' }] as any;
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '柳如烟走进大厅。' }],
+            tavern_commands: [{ action: 'set', key: 'gameState.社交[0].姓名', value: '柳如烟' }]
+        } as any, state, deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['沈青娥']);
+    });
+
+    it('真名被改成代称仍然拦截', () => {
+        const state = 构建基础状态();
+        state.社交 = [{ id: 'npc_real2', 姓名: '沈青娥', 性别: '女', 身份: '青城派弟子', 简介: '已有' }] as any;
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '青衣女子立在檐下。' }],
+            tavern_commands: [{ action: 'set', key: 'gameState.社交[0].姓名', value: '青衣女子' }]
+        } as any, state, deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['沈青娥']);
+    });
+
+    it('代称之间互改仍然拦截', () => {
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '白衣少女走近。' }],
+            tavern_commands: [{ action: 'set', key: 'gameState.社交[0].姓名', value: '白衣少女' }]
+        } as any, 建代称角色状态(), deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['青衣女子']);
+    });
+});
+
 describe('防幻觉底线不放松', () => {
     it('真名在正文、对白、变量规划里都找不到时仍拒绝', () => {
         const state = 执行响应命令处理({

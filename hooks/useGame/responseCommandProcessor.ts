@@ -3,7 +3,7 @@ import { hasExplicitReviewTimeEvidence, reviewNarratorTimeFacts } from './variab
 import { 校准角色数值范围 } from './variableCalibration';
 import { validateVariableCommandBasics, 校验变量命令角色安全, variableCommandProtectionCode, type VariableCommandRejectionCode } from './variableCommandValidation';
 import type { NpcTemplateNameContext } from '../../utils/npcTemplateNamePolicy';
-import { normalizeNpcNameKey, isMultilingualNpcName, isNpcNameFormatValid, hasNpcNamePollution, textMentionsNpcName } from '../../utils/npcName';
+import { normalizeNpcNameKey, isMultilingualNpcName, isNpcNameFormatValid, hasNpcNamePollution, textMentionsNpcName, 是代称式NPC称呼 } from '../../utils/npcName';
 import { 是否含姓名叙事污染 } from '../../utils/dialogueSpeakerGuard';
 import {
     GameResponse,
@@ -1433,8 +1433,11 @@ const 净化社交姓名命令 = (cmd: any, currentSocial: any[]): any | null =>
     const nextName = 规范化命令姓名(cmd?.value);
     if (!currentName || !nextName) return cmd;
     if (normalizeNpcNameKey(currentName) === normalizeNpcNameKey(nextName)) return { ...cmd, value: currentSocial[index].姓名 };
-    // 占位名（如"角色9"）允许被改成真名：这正是把对话框真名回填进社交档案的通道，不能拦。
-    if (是否占位名(currentName) && !是否占位名(nextName)) return cmd;
+    // 占位名（如"角色9"）与代称式称呼（如"青衣女子"）允许被改成真名：这正是把正文真名回填进
+    // NPC 档案的通道，不能拦。真名之间互改、或把真名改成占位/代称，仍然拦截。
+    const 当前是临时称呼 = 是否占位名(currentName) || 是代称式NPC称呼(currentName);
+    const 目标是真名 = !是否占位名(nextName) && !是代称式NPC称呼(nextName);
+    if (当前是临时称呼 && 目标是真名) return cmd;
     return null;
 };
 

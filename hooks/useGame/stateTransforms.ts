@@ -1,4 +1,11 @@
-import { normalizeNpcNameKey, isMultilingualNpcName, isNpcNameFormatValid, hasNpcNamePollution } from '../../utils/npcName';
+import {
+    normalizeNpcNameKey,
+    isMultilingualNpcName,
+    isNpcNameFormatValid,
+    hasNpcNamePollution,
+    NPC代称身份词列表 as NPC占位身份词列表,
+    NPC代称外观词列表 as NPC占位外观词列表
+} from '../../utils/npcName';
 import { 是否含姓名叙事污染 } from '../../utils/dialogueSpeakerGuard';
 import { 角色数据结构, 环境信息结构, 装备槽位 } from '../../types';
 import type { 背景开局货币 } from '../../types';
@@ -2366,21 +2373,8 @@ const 合并补充文本 = (left?: string, right?: string): string | undefined =
 
 const 归一化键 = normalizeNpcNameKey;
 
-const NPC占位身份词列表 = [
-    '掌事太监', '教引姑姑', '贴身侍卫', '带队侍卫', '随行护卫', '值守护卫', '掌事宫女',
-    '女人', '女子', '姑娘', '少女', '男子', '男人', '少年', '老者', '老人', '孩童',
-    '蒙面人', '黑衣人', '神秘人', '陌生人', '来人', '那人', '此人', '某人',
-    '太监', '内侍', '宫女', '侍卫', '守卫', '护卫', '姑姑', '嬷嬷', '管事',
-    '掌柜', '老板', '摊主', '店小二', '伙计', '车夫', '丫鬟', '仆妇', '小厮',
-    '僧人', '和尚', '道士', '道姑', '杀手', '刺客', '捕快', '官差',
-    '弟子', '门人', '同门', '师兄', '师姐', '师弟', '师妹', '随行者', '队友', '路人'
-];
-const NPC占位外观词列表 = [
-    '黑衣', '白衣', '青衣', '红衣', '灰衣', '紫衣', '锦衣', '素衣', '蓝衣',
-    '蒙面', '遮面', '覆面', '戴斗笠', '斗笠', '面纱', '年轻', '年老', '中年',
-    '高瘦', '矮胖', '清瘦', '魁梧', '冷面', '带刀', '执剑', '持伞', '红裙',
-    '青衫', '白发', '陌生', '神秘', '无名'
-];
+// 身份词 / 外观词表已收敛到 utils/npcName.ts（NPC代称身份词列表 / NPC代称外观词列表），
+// 与改名守卫共用同一份事实源，避免两处白名单漂移。
 const NPC占位身份词集合 = new Set(NPC占位身份词列表);
 const NPC泛性别身份词集合 = new Set(['女人', '女子', '姑娘', '少女', '男子', '男人', '少年', '老者', '老人', '孩童']);
 const NPC弱占位身份词集合 = new Set(['弟子', '门人', '同门', '师兄', '师姐', '师弟', '师妹', '随行者', '队友', '路人']);

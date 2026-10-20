@@ -1,4 +1,4 @@
-import { normalizeNpcNameKey } from './npcName';
+import { normalizeNpcNameKey, 是代称式NPC称呼 } from './npcName';
 import type { TavernCommand } from '../types';
 import { normalizeStateCommandKey } from './stateHelpers';
 
@@ -68,7 +68,13 @@ export const 检测NPC姓名改写风险命令 = (commands: any[], currentSocial
     const compare = (previous: any, nextName: unknown, label: string) => {
         const currentKey = 规范化NPC键(previous?.姓名);
         const nextKey = 规范化NPC键(nextName);
-        if (currentKey && nextKey && currentKey !== nextKey && !是否占位名(previous?.姓名)) {
+        // 占位名与代称式称呼（青衣女子 / 老掌柜）都只是临时称呼，允许被真名替换；
+        // 真名之间互改仍然拦截，避免 AI 改写既有角色。
+        if (
+            currentKey && nextKey && currentKey !== nextKey
+            && !是否占位名(previous?.姓名)
+            && !是代称式NPC称呼(previous?.姓名)
+        ) {
             issues.push(`${label}.姓名：${previous.姓名} -> ${String(nextName)}`);
         }
     };
