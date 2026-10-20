@@ -286,6 +286,26 @@ describe('代称角色入库后必须能回填真名（否则会另建重复档�
         } as any, 建代称角色状态(), deps, undefined, { applyState: false });
         expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['沈青娥']);
     });
+
+    it('代称改真名但本回合没有揭名依据时拦截', () => {
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '青衣女子立在檐下，始终没有开口。' }],
+            tavern_commands: [{ action: 'set', key: 'gameState.社交[0].姓名', value: '沈青娥' }]
+        } as any, 建代称角色状态(), deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['青衣女子']);
+    });
+
+    it('整项写入改真名但无揭名依据时同样拦截', () => {
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '青衣女子立在檐下，始终没有开口。' }],
+            tavern_commands: [{
+                action: 'set',
+                key: 'gameState.社交[0]',
+                value: { id: 'npc_auto_demo', 姓名: '沈青娥', 性别: '女', 身份: '青城派弟子', 简介: '开局登场人物' }
+            }]
+        } as any, 建代称角色状态(), deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['青衣女子']);
+    });
 });
 
 describe('防幻觉底线不放松', () => {
