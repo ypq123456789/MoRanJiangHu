@@ -249,6 +249,16 @@ describe('代称角色入库后必须能回填真名（否则会另建重复档�
         } as any, 建代称角色状态(), deps, undefined, { applyState: false });
         expect(result.社交.map((npc: any) => npc?.姓名)).toEqual(['青衣女子']);
     });
+
+    it.each(['王掌柜', '李师兄', '赵姑娘', '沈管事'])('姓氏+身份的真名式称谓 %s 不能被无条件改名', (姓名) => {
+        const state = 构建基础状态();
+        state.社交 = [{ id: 'npc_named', 姓名, 性别: '女', 身份: '掌柜', 简介: '既有角色' }] as any;
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '有人自称李四。' }],
+            tavern_commands: [{ action: 'set', key: 'gameState.社交[0].姓名', value: '李四' }]
+        } as any, state, deps, undefined, { applyState: false });
+        expect(result.社交.map((npc: any) => npc?.姓名)).toEqual([姓名]);
+    });
 });
 
 describe('防幻觉底线不放松', () => {

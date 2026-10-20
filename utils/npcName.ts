@@ -38,11 +38,15 @@ export const NPC代称外观词列表 = [
 ];
 
 /**
- * 是否为「代称式 NPC 称呼」（青衣女子 / 白衣少女 / 老掌柜 / 蒙面人 / 掌事太监）。
+ * 是否为「纯代称式 NPC 称呼」（青衣女子 / 白衣少女 / 老掌柜 / 蒙面人 / 掌事太监）。
  *
  * 这类称呼可以入库（有档案就保留，见 `是否应丢弃NPC条目`），但它不是真名：
  * 后续正文揭示真名时必须允许原地 `set 社交[i].姓名 = "真名"`，否则角色会长期显示代称，
- * 或模型另 `push 社交` 建出重复档案。判定只认「身份词结尾」，避免误伤「女子学院」这类正式名称。
+ * 或模型另 `push 社交` 建出重复档案。
+ *
+ * ⚠️ 判定必须排除「姓氏/姓名 + 身份词」的真名式称谓（王掌柜 / 李师兄 / 赵姑娘）——
+ * 它们自带个人姓名成分，一旦被当成代称，改名通道就会绕过证据校验覆盖既有 NPC。
+ * 因此只认「身份词前缀为空」或「前缀是外观/年龄修饰词」两种形态。
  */
 export const 是代称式NPC称呼 = (value: unknown): boolean => {
     if (typeof value !== 'string') return false;
@@ -51,8 +55,16 @@ export const 是代称式NPC称呼 = (value: unknown): boolean => {
     const 命中身份词 = NPC代称身份词列表
         .filter((token) => name.includes(token))
         .filter((token) => !NPC代称身份词列表.some((other) => other !== token && other.includes(token)));
-    if (命中身份词.length === 0) return false;
-    return 命中身份词.some((token) => name.endsWith(token));
+    // 取最长的结尾身份词，避免「掌事太监」被「太监」截短前缀。
+    const 结尾身份词 = 命中身份词
+        .filter((token) => name.endsWith(token))
+        .sort((left, right) => right.length - left.length)[0];
+    if (!结尾身份词) return false;
+    const 前缀 = name.slice(0, name.length - 结尾身份词.length);
+    if (!前缀) return true;
+    if (NPC代称外观词列表.includes(前缀)) return true;
+    return /^(?:老|小|大|年迈|年轻|中年|枯瘦|瘦削|肥胖|魁梧|高瘦|矮胖)/u.test(前缀)
+        && Array.from(前缀).length <= 2;
 };
 
 
