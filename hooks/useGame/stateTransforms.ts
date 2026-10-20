@@ -2416,7 +2416,9 @@ const 判断NPC性别线索 = (npc: any): '男' | '女' | '' => {
 const 判断NPC姓名疑似占位 = (raw: unknown): boolean => {
     const name = 规范化文本(raw).replace(/\s+/g, '');
     if (!name) return false;
-    if (/^(?:npc|NPC|角色|人物|路人|队友|随行者|护卫|弟子|同门)\d*$/u.test(name)) return true;
+    // 新NPC<n> 是后台「NPC 管理」手动新增时的默认占位名（NpcManager.handleCreateNpc）。
+    // 它必须被识别为占位名，否则「含数字即格式非法」的判定会把它连同整条手动新增记录一起丢弃。
+    if (/^(?:npc|NPC|新NPC|角色|人物|路人|队友|随行者|护卫|弟子|同门)\d*$/u.test(name)) return true;
     if (/^(?:护院|侍卫)\d+$/u.test(name)) return true;
     if (/^[甲乙丙丁戊己庚辛壬癸]号?(?:护卫|侍卫|弟子|随行者|队友)$/u.test(name)) return true;
     if (NPC占位外观词列表.some((token) => name.startsWith(token)) && 提取NPC角色身份词(name).length > 0) return true;

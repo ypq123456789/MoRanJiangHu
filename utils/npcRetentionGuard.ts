@@ -40,6 +40,7 @@ export const 是否占位名 = (value: unknown): boolean => {
     if (typeof value !== 'string' || !value.trim()) return true;
     const trimmed = value.trim();
     return /^(角色|未命名功法|未命名武功|势力\s*)\d+$/u.test(trimmed)
+        || /^新NPC\d*$/u.test(trimmed)
         || /^npc_\d+$/i.test(trimmed)
         || /^FCT-\d+$/i.test(trimmed);
 };

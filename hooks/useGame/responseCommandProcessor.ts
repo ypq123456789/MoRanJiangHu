@@ -1494,6 +1494,31 @@ const 是否新增社交对象命令 = (cmd: any, currentSocial?: any[]): boolea
     return true;
 };
 
+/** 由姓名派生稳定 NPC ID：同名多次出现得到同一个 ID，避免每次标准化都退化成不稳定的 npc_<下标>。 */
+const 生成NPC稳定ID = (name: string): string => {
+    let hash = 0;
+    for (let index = 0; index < name.length; index += 1) {
+        hash = (Math.imul(hash, 31) + name.charCodeAt(index)) | 0;
+    }
+    return `npc_auto_${(hash >>> 0).toString(36)}`;
+};
+
+/**
+ * 给「已经通过新增依据校验」的新 NPC 补稳定 ID。
+ * 背景：AI 的 push 社交 通常不写 id，标准化时会被填成 npc_<下标>；而姓名规范化对代称式姓名
+ * （青衣女子 / 白衣少女 / 老掌柜 等身份词结尾）要求「有稳定 ID + 有实质档案」才肯保留整条记录，
+ * 于是新档开局大量代称角色会被当成占位空壳整条丢弃。这里补 ID 后，证据链判定仍然是唯一入口：
+ * 真名在本回合正文/对白/变量规划里找不到的新增命令，仍然在上面的校验里被拒绝。
+ */
+const 补稳定NPCID = (cmd: any, name: string): any => {
+    const value = cmd?.value;
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !name) return cmd;
+    const currentId = 规范化命令姓名(value?.id) || 规范化命令姓名(value?.ID);
+    // 已有稳定 ID 不动；只有缺失或 npc_<下标> 这种不稳定占位 ID 才补。
+    if (currentId && !/^npc_\d+$/.test(currentId)) return cmd;
+    return { ...cmd, value: { ...value, id: 生成NPC稳定ID(name) } };
+};
+
 const 净化新增社交命令 = (
     cmd: any,
     currentSocial: any[],
@@ -1531,11 +1556,11 @@ const 净化新增社交命令 = (
             .includes(nextKey)
     ));
     if (existing) return cmd;
-    if (dialogueSenderKeys.has(nextKey) || textMentionsNpcName(responseFactText, nextName)) return cmd;
+    if (dialogueSenderKeys.has(nextKey) || textMentionsNpcName(responseFactText, nextName)) return 补稳定NPCID(cmd, nextName);
     // `<变量规划>` 与变量命令同属本回合 AI 响应：NPC 协议允许"正文用代称叙述、变量层落真实姓名"，
     // 真名落在 `<变量规划>`（开局时它就是前台初始化说明稿）即构成合法新增依据；
     // 变量模型自行发明、规划里也没有的名字仍然会被拦截。
-    if (variablePlanText && textMentionsNpcName(variablePlanText, nextName)) return cmd;
+    if (variablePlanText && textMentionsNpcName(variablePlanText, nextName)) return 补稳定NPCID(cmd, nextName);
     return null;
 };
 

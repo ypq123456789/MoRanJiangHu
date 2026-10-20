@@ -203,8 +203,17 @@ const NpcManager: React.FC<Props> = ({
     };
 
     const handleCreateNpc = () => {
+        // 默认占位名要保证唯一：`list.length + 1` 在删除过条目后会与既有名字撞车，
+        // 撞名会触发 NPC 合并，表现就是「点了新增但列表里没多出人」。
+        const 已用姓名 = new Set(
+            (Array.isArray(list) ? list : [])
+                .map((npc) => (typeof npc?.姓名 === 'string' ? npc.姓名.trim() : ''))
+                .filter(Boolean)
+        );
+        let 序号 = list.length + 1;
+        while (已用姓名.has(`新NPC${序号}`)) 序号 += 1;
         const created = onCreateNpc({
-            姓名: `新NPC${list.length + 1}`,
+            姓名: `新NPC${序号}`,
             身份: '待编辑',
             简介: ''
         });
