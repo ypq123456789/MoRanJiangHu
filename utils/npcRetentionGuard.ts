@@ -68,13 +68,13 @@ export const 检测NPC姓名改写风险命令 = (commands: any[], currentSocial
     const compare = (previous: any, nextName: unknown, label: string) => {
         const currentKey = 规范化NPC键(previous?.姓名);
         const nextKey = 规范化NPC键(nextName);
-        // 占位名与代称式称呼（青衣女子 / 老掌柜）都只是临时称呼，允许被真名替换；
-        // 真名之间互改仍然拦截，避免 AI 改写既有角色。
-        if (
-            currentKey && nextKey && currentKey !== nextKey
-            && !是否占位名(previous?.姓名)
-            && !是代称式NPC称呼(previous?.姓名)
-        ) {
+        if (!currentKey || !nextKey || currentKey === nextKey) return;
+        // 改名只允许「临时称呼 → 真名」：占位名（角色9）与代称式称呼（青衣女子）可以被真名替换；
+        // 真名互改、真名改成临时称呼、代称之间互改都必须拦截。
+        // 整项写入 `set 社交[i] = {...}` 也走这里，所以目标名同样要校验。
+        const 当前是临时称呼 = 是否占位名(previous?.姓名) || 是代称式NPC称呼(previous?.姓名);
+        const 目标是真名 = !是否占位名(nextName) && !是代称式NPC称呼(nextName);
+        if (!(当前是临时称呼 && 目标是真名)) {
             issues.push(`${label}.姓名：${previous.姓名} -> ${String(nextName)}`);
         }
     };
