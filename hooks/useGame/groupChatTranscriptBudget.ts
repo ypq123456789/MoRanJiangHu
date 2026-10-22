@@ -201,17 +201,28 @@ export const 解析摘要输出 = (raw: string): { 事实: string[]; 概述: str
 /**
  * 事实清单只增不减：反复重写摘要最容易丢早期细节，靠程序做并集兜住。
  * 去重后总上限是「最近 20 + 早期 40」，超出的最老条目才会被并进概述（见 渲染摘要条目）。
+ *
+ * 维护者审查提的两条（PR #113 follow-up）：
+ * - 被刷新（新说法更完整）的事实要挪到末尾：它刚被抽到，算「最近」，不能占着原来靠前的位置；
+ * - 一条新事实可能同时包含多条旧事实，要把被包含的旧条目全部删掉再追加，别只替换第一条留冗余。
  */
 export const 合并摘要事实 = (旧事实: string[] = [], 新事实: string[] = []): string[] => {
     const 结果: string[] = [];
     for (const raw of [...旧事实, ...新事实]) {
         const text = String(raw || '').trim();
         if (!text) continue;
+        // 完全相等：已有，跳过。
         if (结果.some(existed => existed === text)) continue;
-        // 新条目包含旧条目且更长：用新的替换旧的，别把细节丢掉（review #2）。
-        const 旧索引 = 结果.findIndex(existed => text.includes(existed));
-        if (旧索引 >= 0) { 结果[旧索引] = text; continue; }
-        // 旧条目已经覆盖新内容：保留旧的。
+        // 新条目包含一条或多条旧条目（更完整）：删掉这些旧条目，把新条目追加到末尾。
+        const 被包含的下标 = 结果
+            .map((existed, index) => (text.includes(existed) ? index : -1))
+            .filter(index => index >= 0);
+        if (被包含的下标.length > 0) {
+            for (let i = 被包含的下标.length - 1; i >= 0; i -= 1) 结果.splice(被包含的下标[i], 1);
+            结果.push(text);
+            continue;
+        }
+        // 旧条目已经覆盖新内容：保留旧的，不降级。
         if (结果.some(existed => existed.includes(text))) continue;
         结果.push(text);
     }
