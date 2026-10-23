@@ -1,14 +1,27 @@
 {
-  "versionCode": 694,
-  "versionName": "1.0.694",
+  "versionCode": 695,
+  "versionName": "1.0.695",
   "releaseChannel": "stable",
   "releaseNotes": [
-    "角色群聊纪要的事实合并更稳：刚被补充细节的事实会排到最新位置；一条新事实同时包含多条旧事实时会把旧的都清掉，不会出现重复或冗余。",
+    "开局装备与随身物品修复：以前开局时模型只登记了装备栏、漏写背包条目，会出现「变量面板里有装备、身上和背包却是空的」。现在开局会自动补齐对应物品，初始装备不会再凭空消失。",
+    "同时加强了开局变量生成要求，模型会主动把装备对应的物品写进背包。",
     "本次更新同时覆盖浏览器端与安卓安装包。",
     "官网：https://msjh.bacon159.pp.ua/",
     "备用站：https://msjh.bacon.de5.net/"
   ],
   "releaseHistory": [
+    {
+      "versionName": "1.0.695",
+      "versionCode": 695,
+      "releasePublishedAt": "2026-10-23T20:43:06+08:00",
+      "releaseNotes": [
+        "开局装备与随身物品修复：以前开局时模型只登记了装备栏、漏写背包条目，会出现「变量面板里有装备、身上和背包却是空的」。现在开局会自动补齐对应物品，初始装备不会再凭空消失。",
+        "同时加强了开局变量生成要求，模型会主动把装备对应的物品写进背包。",
+        "本次更新同时覆盖浏览器端与安卓安装包。",
+        "官网：https://msjh.bacon159.pp.ua/",
+        "备用站：https://msjh.bacon.de5.net/"
+      ]
+    },
     {
       "versionName": "1.0.694",
       "versionCode": 694,
@@ -1290,13 +1303,14 @@
   "multiDeviceSyncGuideUrl": "https://msjh.bacon159.pp.ua/tutorials.html#sync",
   "tutorialsUrl": "https://msjh.bacon159.pp.ua/tutorials.html",
   "changes": [
-    "角色群聊纪要的事实合并更稳：刚被补充细节的事实会排到最新位置；一条新事实同时包含多条旧事实时会把旧的都清掉，不会出现重复或冗余。",
+    "开局装备与随身物品修复：以前开局时模型只登记了装备栏、漏写背包条目，会出现「变量面板里有装备、身上和背包却是空的」。现在开局会自动补齐对应物品，初始装备不会再凭空消失。",
+    "同时加强了开局变量生成要求，模型会主动把装备对应的物品写进背包。",
     "本次更新同时覆盖浏览器端与安卓安装包。",
     "官网：https://msjh.bacon159.pp.ua/",
     "备用站：https://msjh.bacon.de5.net/"
   ],
-  "notes": "角色群聊纪要的事实合并更稳：刚被补充细节的事实会排到最新位置；一条新事实同时包含多条旧事实时会把旧的都清掉，不会出现重复或冗余。\n本次更新同时覆盖浏览器端与安卓安装包。\n官网：https://msjh.bacon159.pp.ua/\n备用站：https://msjh.bacon.de5.net/",
-  "releasePublishedAt": "2026-10-23T07:59:43+08:00",
-  "apkSize": 5994599,
-  "apkSha256": "ac456dfb4f3f2a342a8dbb87d74505764047c756de5271b39dd44d3cd1e5d0c5"
+  "notes": "开局装备与随身物品修复：以前开局时模型只登记了装备栏、漏写背包条目，会出现「变量面板里有装备、身上和背包却是空的」。现在开局会自动补齐对应物品，初始装备不会再凭空消失。\n同时加强了开局变量生成要求，模型会主动把装备对应的物品写进背包。\n本次更新同时覆盖浏览器端与安卓安装包。\n官网：https://msjh.bacon159.pp.ua/\n备用站：https://msjh.bacon.de5.net/",
+  "releasePublishedAt": "2026-10-23T20:43:06+08:00",
+  "apkSize": 5995967,
+  "apkSha256": "bb5f142455fd0b5ecce30b30c730a6fc2dbfcf8ce1d311eca0f63c5600fb7b81"
 }
