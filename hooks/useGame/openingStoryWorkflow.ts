@@ -286,14 +286,14 @@ type 开场剧情生成依赖 = {
             免责声明输出提示词?: string;
         };
     });
-    processResponseCommands: (response: GameResponse, baseState?: 开场命令基态, options?: { applyState?: boolean }) => 开场命令基态;
+    processResponseCommands: (response: GameResponse, baseState?: 开场命令基态, options?: { applyState?: boolean; 补建缺失装备引用?: boolean }) => 开场命令基态;
     规范化环境信息: (envLike?: any) => 环境信息结构;
     规范化剧情状态: (raw?: any, envLike?: any) => 剧情系统结构;
     规范化剧情规划状态: (raw?: any) => 剧情规划结构;
     规范化女主剧情规划状态: (raw?: any) => 女主剧情规划结构;
     规范化同人剧情规划状态: (raw?: any) => 同人剧情规划结构 | undefined;
     规范化同人女主剧情规划状态: (raw?: any) => 同人女主剧情规划结构 | undefined;
-    规范化角色物品容器映射: (raw?: any, options?: { 启用饱腹口渴系统?: boolean; 题材模式?: unknown }) => 角色数据结构;
+    规范化角色物品容器映射: (raw?: any, options?: { 启用饱腹口渴系统?: boolean; 题材模式?: unknown; 补建缺失装备引用?: boolean }) => 角色数据结构;
     规范化社交列表: (raw?: any[], options?: { 合并同名?: boolean }) => any[];
     规范化世界状态: (raw?: any) => 世界数据结构;
     规范化战斗状态: (raw?: any) => 战斗状态结构;

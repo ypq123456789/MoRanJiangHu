@@ -522,6 +522,8 @@ type 玩家BUFF规范化选项 = {
     事件文本?: string;
     启用饱腹口渴系统?: boolean;
     题材模式?: unknown;
+    /** 仅开局首轮初始化使用：装备槽位引用缺失物品时补建一条最小可用物品，而不是清成「无」。 */
+    补建缺失装备引用?: boolean;
 };
 
 const 读取BUFF规范化当前时间 = (value: unknown): string => {
@@ -929,6 +931,20 @@ const 规范化物品重量 = (item: any): number => {
     if (rawWeight <= 0) return estimated;
     return 四舍五入两位(Math.min(rawWeight, Math.max(estimated, maxWeight)));
 };
+
+/**
+ * 由「装备槽位 + 引用名」派生稳定物品 ID。
+ * 引用名相同则每次都得到同一个 ID，避免每次规范化都新建物品导致存档反复抖动。
+ */
+const 生成装备补建物品ID = (引用: string, slot: string): string => {
+    const seed = `${slot}|${引用}`;
+    let hash = 0;
+    for (let index = 0; index < seed.length; index += 1) {
+        hash = (Math.imul(hash, 31) + seed.charCodeAt(index)) | 0;
+    }
+    return `itm_equip_${(hash >>> 0).toString(36)}`;
+};
+
 const 规范化单个物品 = (rawItem: any, idx: number): any | null => {
     if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) return null;
     const item = { ...rawItem } as any;
@@ -1812,7 +1828,30 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
         (role.装备 as any)[slot] = normalizedRef;
         const matched = findItemByRef(normalizedRef);
         if (!matched?.ID) {
-            (role.装备 as any)[slot] = '无';
+            // 默认契约：缺失物品对象的装备引用不补建占位装备（见 __tests__/equipmentFallback.test.ts）。
+            // 仅当调用方显式要求（开局首轮初始化）才补建一条最小可用物品，避免玩家看到
+            // 「变量面板里生成了装备、身上和背包却都空」。
+            if (!options?.补建缺失装备引用) {
+                (role.装备 as any)[slot] = '无';
+                return;
+            }
+            const 补建物品 = 规范化单个物品({
+                ID: 生成装备补建物品ID(normalizedRef, slot),
+                名称: normalizedRef,
+                类型: 槽位类型映射[slot],
+                品质: '凡品',
+                描述: `由「${slot}」装备栏引用自动补建（模型未在物品列表写入该装备）。`,
+                堆叠数量: 1,
+                是否可堆叠: false
+            }, deduped.length);
+            if (!补建物品?.ID) {
+                (role.装备 as any)[slot] = '无';
+                return;
+            }
+            deduped.push(补建物品);
+            itemById.set(补建物品.ID, 补建物品);
+            (role.装备 as any)[slot] = 补建物品.ID;
+            equippedByItemId.set(补建物品.ID, slot);
             return;
         }
         const existedSlot = equippedByItemId.get(matched.ID);

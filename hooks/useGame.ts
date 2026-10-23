@@ -3380,6 +3380,8 @@ export const useGame = () => {
         options?: {
             applyState?: boolean;
             heroinePlanEnabled?: boolean;
+            /** 开局首轮初始化专用：装备引用缺失物品时补建最小可用物品，避免装备凭空消失。 */
+            补建缺失装备引用?: boolean;
         }
     ) => {
         const normalizedRuntimeConfig = 规范化游戏设置(gameConfig);
@@ -3417,7 +3419,8 @@ export const useGame = () => {
                 规范化角色物品容器映射,
                 角色规范化选项: {
                     启用饱腹口渴系统: gameConfig?.启用饱腹口渴系统,
-                    题材模式: 开局配置?.题材模式
+                    题材模式: 开局配置?.题材模式,
+                    补建缺失装备引用: options?.补建缺失装备引用 === true
                 },
                 境界配置: 获取境界配置(开局配置?.题材模式, 开局配置?.modeRuntimeProfile),
                 战斗结束自动清空,
