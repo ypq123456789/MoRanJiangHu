@@ -282,7 +282,7 @@ export type 响应命令处理依赖 = {
     规范化同人剧情规划状态: (raw?: any) => 同人剧情规划结构 | undefined;
     规范化同人女主剧情规划状态: (raw?: any) => 同人女主剧情规划结构 | undefined;
     规范化角色物品容器映射: (raw?: any, options?: { 当前时间?: unknown; 事件文本?: string; 启用饱腹口渴系统?: boolean; 题材模式?: unknown }) => 角色数据结构;
-    角色规范化选项?: { 启用饱腹口渴系统?: boolean; 题材模式?: unknown };
+    角色规范化选项?: { 启用饱腹口渴系统?: boolean; 题材模式?: unknown; 补建缺失装备引用?: boolean };
     境界配置?: 境界配置;
     战斗结束自动清空: (battle: 战斗状态结构, story?: 剧情系统结构) => 战斗状态结构;
     设置角色?: (value: 角色数据结构) => void;

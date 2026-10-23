@@ -3298,9 +3298,12 @@ export const useGame = () => {
 
     const 应用开场基态 = (openingBase: ReturnType<typeof 创建开场基础状态>) => {
         最近开场基态时间Ref.current = Date.now();
+        // 开局基态可能带着建档里的初始装备引用，但物品列表尚未落地；
+        // 这里同样允许补建，避免建档初始装备在任何后续规范化里被清成「无」。
         设置角色(规范化角色物品容器映射(openingBase.角色, {
             启用饱腹口渴系统: gameConfig?.启用饱腹口渴系统,
-            题材模式: 开局配置?.题材模式
+            题材模式: 开局配置?.题材模式,
+            补建缺失装备引用: true
         }));
         设置环境(规范化环境信息(openingBase.环境));
         设置游戏初始时间(openingBase.游戏初始时间 || '');
@@ -3380,6 +3383,8 @@ export const useGame = () => {
         options?: {
             applyState?: boolean;
             heroinePlanEnabled?: boolean;
+            /** 开局首轮初始化专用：装备引用缺失物品时补建最小可用物品，避免装备凭空消失。 */
+            补建缺失装备引用?: boolean;
         }
     ) => {
         const normalizedRuntimeConfig = 规范化游戏设置(gameConfig);
@@ -3417,7 +3422,8 @@ export const useGame = () => {
                 规范化角色物品容器映射,
                 角色规范化选项: {
                     启用饱腹口渴系统: gameConfig?.启用饱腹口渴系统,
-                    题材模式: 开局配置?.题材模式
+                    题材模式: 开局配置?.题材模式,
+                    补建缺失装备引用: options?.补建缺失装备引用 === true
                 },
                 境界配置: 获取境界配置(开局配置?.题材模式, 开局配置?.modeRuntimeProfile),
                 战斗结束自动清空,
@@ -3439,7 +3445,8 @@ export const useGame = () => {
                         ...state,
                         角色: 规范化角色物品容器映射(state.角色 || 角色, {
                             启用饱腹口渴系统: gameConfig?.启用饱腹口渴系统,
-                            题材模式: 开局配置?.题材模式
+                            题材模式: 开局配置?.题材模式,
+                            补建缺失装备引用: true
                         })
                     });
                     const 修复开局伙伴 = (state: typeof nextState): typeof nextState => ({
@@ -3466,7 +3473,8 @@ export const useGame = () => {
                         规范化角色物品容器映射: (raw?: any, calibrationOptions?: any) => 规范化角色物品容器映射(raw, {
                             ...calibrationOptions,
                             启用饱腹口渴系统: gameConfig?.启用饱腹口渴系统,
-                            题材模式: 开局配置?.题材模式
+                            题材模式: 开局配置?.题材模式,
+                            补建缺失装备引用: true
                         })
                     });
                     return {
