@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { 执行响应命令处理, 响应命令处理状态 } from '../hooks/useGame/responseCommandProcessor';
-import { 规范化社交列表, 规范化角色物品容器映射 } from '../hooks/useGame/stateTransforms';
+import { 规范化社交列表, 规范化角色物品容器映射, 设置默认技艺运行时配置 } from '../hooks/useGame/stateTransforms';
+
+afterEach(() => {
+    // 主题运行时配置是模块级状态，测试结束必须恢复，避免污染其他用例。
+    设置默认技艺运行时配置('武侠');
+});
 
 /**
  * 开局装备引用兜底回归。
@@ -128,5 +133,33 @@ describe('开局装备引用兜底补建', () => {
         expect(result.角色.装备.主武器).not.toBe('无');
         expect(Number(result.角色.金钱.银子)).toBe(100);
         expect(Number(result.角色.金钱.中层货币)).toBe(100);
+    });
+
+    it('建档基态只带装备引用时，开局规范化同样补建（对应「应用开场基态」路径）', () => {
+        const role = 规范化角色物品容器映射({
+            姓名: '杨培强',
+            装备: { 主武器: '青锋剑', 胸部: '粗布衣衫' },
+            物品列表: []
+        } as any, { 补建缺失装备引用: true });
+
+        expect((role.装备 as any).主武器).not.toBe('无');
+        expect((role.装备 as any).胸部).not.toBe('无');
+        expect(role.物品列表.map((item: any) => item.名称)).toEqual(
+            expect.arrayContaining(['青锋剑', '粗布衣衫'])
+        );
+    });
+
+    it('非武侠题材（仙侠）同样能补建，槽位类型推断不因题材而失效', () => {
+        设置默认技艺运行时配置('仙侠');
+        const role = 规范化角色物品容器映射({
+            姓名: '李青云',
+            装备: { 主武器: '飞剑', 背部: '斗篷' },
+            物品列表: []
+        } as any, { 补建缺失装备引用: true });
+
+        expect((role.装备 as any).主武器).not.toBe('无');
+        expect((role.装备 as any).背部).not.toBe('无');
+        const 飞剑 = role.物品列表.find((item: any) => item.名称 === '飞剑');
+        expect(飞剑?.类型).toBe('武器');
     });
 });
