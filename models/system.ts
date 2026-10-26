@@ -227,6 +227,11 @@ export interface 单接口配置结构 {
     baseUrl: string;
     apiKey: string;
     model: string;
+    /**
+     * 追加到每次请求上的自定义请求头，一行一个 `Key: Value`。
+     * 用于校验厂商私有头的网关（例如 OpenCode 的 x-opencode-session）。
+     */
+    自定义请求头?: string;
     maxTokens?: number;
     temperature?: number;
     topP?: number;

@@ -17,6 +17,7 @@ import {
     规范化接口设置
 } from '../../../utils/apiConfig';
 import type { 当前可用接口结构 } from '../../../utils/apiConfig';
+import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 import { 协议请求错误, 请求模型文本, type 通用消息 } from '../../../services/ai/chatCompletionClient';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
@@ -522,6 +523,7 @@ const WorkflowGraphSettings: React.FC<{
             baseUrl: '',
             apiKey: '',
             model: '',
+            自定义请求头: '',
             maxTokens: undefined,
             temperature: undefined
         };
@@ -542,6 +544,7 @@ const WorkflowGraphSettings: React.FC<{
             baseUrl,
             apiKey,
             model,
+            自定义请求头: selectedConfig.自定义请求头,
             maxTokens: selectedConfig.maxTokens,
             temperature: selectedConfig.temperature
         };
@@ -560,7 +563,13 @@ const WorkflowGraphSettings: React.FC<{
         try {
             const candidateUrls = 构建OpenAI兼容模型列表候选地址(api.baseUrl);
             for (const url of candidateUrls) {
-                const res = await fetch(url, { headers: { Authorization: `Bearer ${api.apiKey}` } });
+                const res = await fetch(url, {
+                    headers: 构建模型列表请求头({
+                        baseUrl: api.baseUrl,
+                        apiKey: api.apiKey,
+                        自定义请求头: 读取可复用自定义请求头(api.baseUrl, api)
+                    })
+                });
                 if (!res.ok) continue;
                 const data = await res.json();
                 if (Array.isArray(data?.data)) {

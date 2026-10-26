@@ -23,6 +23,64 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 // 漏传这些头会让中转变成 401，前端的中转兜底对这类供应商形同失效。
 const FORWARDED_AUTH_HEADERS = ['Authorization', 'api-key', 'x-api-key', 'x-goog-api-key'];
 
+// 玩家在接口配置里手写的自定义请求头也要透传：部分网关强制校验厂商私有头
+// （例如 OpenCode 的 x-opencode-session），只转发白名单会让「直连被 CORS 拦 → 中转」
+// 的玩家在中转路径上继续 400。
+// 用排除法而不是白名单：自定义头的名字由玩家决定，白名单永远补不全。
+// 排除的是传输层/边缘层头（转发过去只会让上游请求非法或泄漏边缘信息）。
+const BLOCKED_FORWARD_HEADERS = new Set([
+    'host',
+    'content-length',
+    'connection',
+    'transfer-encoding',
+    'upgrade',
+    'expect',
+    'te',
+    'trailer',
+    'keep-alive',
+    'proxy-authorization',
+    'proxy-connection',
+    'content-type',
+    'accept',
+    'accept-encoding',
+    'accept-language',
+    'cookie',
+    'origin',
+    'referer',
+    'user-agent',
+    'x-forwarded-for',
+    'x-forwarded-proto',
+    'x-real-ip',
+    'cdn-loop',
+    'cf-connecting-ip',
+    'cf-ipcountry',
+    'cf-ray',
+    'cf-visitor',
+    'cf-worker',
+    'cf-ew-via',
+    'true-client-ip',
+    // 代理链元数据：转过去会让上游看到虚假的客户端 IP 来源
+    'forwarded',
+    'via',
+    'x-forwarded-host',
+    // Cloudflare 地理位置等边缘信息（cf-* 不做整段屏蔽，保留 CF-Access-Client-Id 这类网关头）
+    'cf-connecting-ipv6',
+    'cf-pseudo-ipv4',
+    'cf-ipcity',
+    'cf-ipcontinent',
+    'cf-iplatitude',
+    'cf-iplongitude',
+    'cf-region',
+    'cf-region-code',
+    'cf-postal-code',
+    'cf-metro-code',
+    'cf-timezone'
+]);
+
+// 前缀级排除：`sec-*` 是浏览器安全元数据，`x-forwarded-*` 是代理链信息，
+// `access-control-request-*` 只属于预检请求，都不该出现在上游调用里。
+const BLOCKED_FORWARD_HEADER_PREFIXES = ['sec-', 'x-forwarded-', 'access-control-request-'];
+
 const jsonError = (message: string, status: number): Response => (
     new Response(JSON.stringify({ error: message }), {
         status,
@@ -95,6 +153,16 @@ const buildForwardHeaders = (request: Request): Headers => {
         const value = request.headers.get(name)?.trim() || '';
         if (value) headers.set(name, value);
     }
+    // 再补齐玩家自定义的其余请求头（见 BLOCKED_FORWARD_HEADERS 说明）。
+    request.headers.forEach((value, name) => {
+        const lower = name.toLowerCase();
+        if (BLOCKED_FORWARD_HEADERS.has(lower)) return;
+        if (BLOCKED_FORWARD_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix))) return;
+        if (FORWARDED_AUTH_HEADERS.some((item) => item.toLowerCase() === lower)) return;
+        const trimmed = (value || '').trim();
+        if (!trimmed) return;
+        headers.set(name, trimmed);
+    });
     const contentType = request.headers.get('Content-Type')?.trim() || 'application/json';
     const accept = request.headers.get('Accept')?.trim() || '';
     headers.set('Content-Type', contentType);
@@ -240,8 +308,27 @@ const relay = async (
     return 透传上游响应(先到者);
 };
 
-export function onRequestOptions(): Response {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+// 预检回显：自定义请求头的名字由玩家决定，固定的 Allow-Headers 白名单会让
+// 跨域调用方（APK WebView 等非同源壳）在预检阶段就被拦下。
+const 构建预检响应头 = (request?: Request): Record<string, string> => {
+    const 默认允许 = CORS_HEADERS['Access-Control-Allow-Headers']
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    const 允许列表 = new Set(默认允许);
+    const 请求头清单 = request?.headers?.get('Access-Control-Request-Headers') || '';
+    请求头清单.split(',').forEach((raw) => {
+        const name = raw.trim();
+        if (name && /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name)) 允许列表.add(name);
+    });
+    return {
+        ...CORS_HEADERS,
+        'Access-Control-Allow-Headers': Array.from(允许列表).join(', ')
+    };
+};
+
+export function onRequestOptions({ request }: any = {}): Response {
+    return new Response(null, { status: 204, headers: 构建预检响应头(request) });
 }
 
 export async function onRequestGet({ request, waitUntil }: any): Promise<Response> {

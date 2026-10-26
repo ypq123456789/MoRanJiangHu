@@ -285,7 +285,8 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
         获取OpenAI兼容模型列表({
             baseUrl: config.baseUrl,
             apiKey: config.apiKey,
-            供应商: config.供应商
+            供应商: config.供应商,
+            自定义请求头: config.自定义请求头
         })
     );
 
@@ -300,6 +301,7 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
         && request.baseUrl === current?.baseUrl
         && request.apiKey === current?.apiKey
         && request.供应商 === current?.供应商
+        && (request.自定义请求头 || '') === (current?.自定义请求头 || '')
     );
 
     const handleFetchMainModels = async () => {
@@ -506,6 +508,7 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                 `最大输出Token: ${typeof configForTest.maxTokens === 'number' ? configForTest.maxTokens : '未设置'}`,
                 `温度: ${typeof configForTest.temperature === 'number' ? configForTest.temperature : '按场景默认'}`,
                 `Top P: ${typeof configForTest.topP === 'number' ? configForTest.topP : '按模型默认'}`,
+                `自定义请求头: ${(configForTest.自定义请求头 || '').trim() ? '已配置' : '未配置'}`,
                 `Base URL: ${configForTest.baseUrl}`,
                 '',
                 '---',
@@ -663,6 +666,25 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                                     placeholder={activeConfig.供应商 === 'mimo_token_plan' ? 'tp-...' : 'sk-...'}
                                     className="w-full rounded-md border-2 border-transparent bg-black/50 p-3 text-white outline-none transition-all focus:border-wuxia-gold"
                                 />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-wuxia-cyan">自定义请求头（可选）</label>
+                                <textarea
+                                    aria-label="自定义请求头"
+                                    value={activeConfig.自定义请求头 || ''}
+                                    onChange={(e) => updateActiveConfig({ 自定义请求头: e.target.value })}
+                                    placeholder={'一行一个，例如：\nx-opencode-session: 你的会话ID\nHTTP-Referer: https://example.com'}
+                                    rows={3}
+                                    spellCheck={false}
+                                    className="w-full resize-y rounded-md border-2 border-transparent bg-black/50 p-3 font-mono text-xs text-white outline-none transition-all focus:border-wuxia-gold"
+                                />
+                                <div className="text-[11px] text-gray-400">
+                                    每行一条 <span className="text-gray-300">Key: Value</span>，会附加到该配置的所有请求（含模型列表）上。
+                                </div>
+                                <div className="text-[11px] text-gray-400">
+                                    OpenCode（opencode.ai）的 x-opencode-session 已自动补齐，无需手填；其余网关的私有头在此追加即可。
+                                </div>
                             </div>
 
                             <div className="space-y-2">

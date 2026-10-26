@@ -8,6 +8,7 @@ import {
     规范化Gemini模型资源ID,
     规范化接口设置
 } from '../../../utils/apiConfig';
+import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 import {
     解析小说拆分连接测试草稿,
     测试小说拆分接口连接,
@@ -60,6 +61,14 @@ const NovelDecompositionApiSettings: React.FC<Props> = ({ settings, onSave }) =>
     const 独立API地址 = (form.功能模型占位.小说拆分API地址 || '').trim();
     const 独立API密钥 = (form.功能模型占位.小说拆分API密钥 || '').trim();
 
+    // 小说拆分可以单独指定渠道；请求头必须跟「所选渠道」走，
+    // 否则活动渠道（主接口）的私有头会被发到拆分别家的网关上。
+    const 小说拆分渠道配置 = useMemo<单接口配置结构 | null>(() => {
+        const channelId = (form.功能模型占位.小说拆分渠道ID || '').trim() || form.activeConfigId || '';
+        const matched = channelId ? form.configs.find((cfg) => cfg.id === channelId) : null;
+        return matched || activeConfig;
+    }, [form.configs, form.功能模型占位.小说拆分渠道ID, form.activeConfigId, activeConfig]);
+
     const fetchModelsFromCurrentConfig = async (): Promise<string[] | null> => {
         const resolvedBaseUrl = 独立模型开启 && 独立API地址 ? 独立API地址 : (activeConfig?.baseUrl || '');
         const resolvedApiKey = 独立模型开启 && 独立API密钥 ? 独立API密钥 : (activeConfig?.apiKey || '');
@@ -71,7 +80,11 @@ const NovelDecompositionApiSettings: React.FC<Props> = ({ settings, onSave }) =>
             const candidateUrls = 构建OpenAI兼容模型列表候选地址(resolvedBaseUrl);
             for (const url of candidateUrls) {
                 const res = await fetch(url, {
-                    headers: { Authorization: `Bearer ${resolvedApiKey}` }
+                    headers: 构建模型列表请求头({
+                        baseUrl: resolvedBaseUrl,
+                        apiKey: resolvedApiKey,
+                        自定义请求头: 读取可复用自定义请求头(resolvedBaseUrl, 小说拆分渠道配置)
+                    })
                 });
                 if (!res.ok) continue;
                 const data = await res.json();

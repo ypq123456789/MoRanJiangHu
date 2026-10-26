@@ -6,6 +6,7 @@ import { 小米MiMo稳定输出预设 } from '../../prompts/providers/xiaomiMiMo
 import { GLM稳定输出预设 } from '../../prompts/providers/glmStablePreset';
 import { fetchWithCorsRelay, 疑似浏览器跨域失败, 中转可用, 构建AI中转地址, 翻译跨域中转拒绝 } from './corsRelay';
 import { supportsVariableReviewTopP } from '../../utils/variableReviewSampling';
+import { 合并请求头, 构建内置补充请求头, 解析自定义请求头 } from '../../utils/customRequestHeaders';
 
 export type 通用消息角色 = 'system' | 'user' | 'assistant';
 
@@ -250,6 +251,20 @@ const 读取小米MiMo推荐超参 = (modelRaw: string): { temperature: number; 
     return { temperature: 1.0, topP: 0.95, maxTemperature: 1.5, minTopP: 0.01, maxTopP: 1 };
 };
 
+/**
+ * 在基础请求头上叠加「内置补头 + 玩家自定义头」。
+ * 优先级：玩家自定义 > 内置补头 > 基础鉴权头（同名时后者被覆盖）。
+ * 内置补头目前只有 OpenCode 的 x-opencode-session：缺了它平台直接 400，
+ * 而绝大多数玩家不会想到要手写这个头。
+ */
+export const 应用自定义请求头 = (
+    基础头: Record<string, string>,
+    apiConfig: Pick<当前可用接口结构, 'baseUrl' | '自定义请求头'>
+): Record<string, string> => 合并请求头(
+    合并请求头(基础头, 构建内置补充请求头(apiConfig?.baseUrl)),
+    解析自定义请求头(apiConfig?.自定义请求头)
+);
+
 export const 构建OpenAI家族请求头 = (apiConfig: 当前可用接口结构): Record<string, string> => {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json'
@@ -259,7 +274,7 @@ export const 构建OpenAI家族请求头 = (apiConfig: 当前可用接口结构)
     } else {
         headers.Authorization = `Bearer ${apiConfig.apiKey}`;
     }
-    return headers;
+    return 应用自定义请求头(headers, apiConfig);
 };
 
 const 错误疑似不支持Prefix = (error: unknown): boolean => {
@@ -1833,11 +1848,11 @@ const 请求GeminiInteractions文本 = async (
     if (!agent) throw new Error('Missing Gemini Deep Research agent model');
     if (!input) throw new Error('Gemini Deep Research input is empty');
 
-    const headers: Record<string, string> = {
+    const headers: Record<string, string> = 应用自定义请求头({
         'Content-Type': 'application/json',
         'x-goog-api-key': apiConfig.apiKey,
         'Api-Revision': '2026-05-20'
-    };
+    }, apiConfig);
     const requestBody = JSON.stringify({
         agent,
         input,
@@ -1883,10 +1898,10 @@ const 请求GeminiInteractions文本 = async (
         await 等待可中断(attempt === 0 ? 1500 : 5000, signal);
         const pollResponse = await fetch(pollEndpoint, {
             method: 'GET',
-            headers: {
+            headers: 应用自定义请求头({
                 'x-goog-api-key': apiConfig.apiKey,
                 'Api-Revision': '2026-05-20'
-            },
+            }, apiConfig),
             signal
         });
         if (!pollResponse.ok) {
