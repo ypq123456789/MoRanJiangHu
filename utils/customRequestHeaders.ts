@@ -12,9 +12,6 @@
 //
 // 手工头的优先级最高，方便玩家自行纠正或覆盖内置补头。
 
-/** 接口配置中自定义请求头的字段名（持久化在单条接口配置里）。 */
-export const 自定义请求头字段名 = '自定义请求头';
-
 const 请求头名称规则 = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 // 由运行时/传输层决定，玩家覆盖只会让请求非法或引发难以排查的行为。
@@ -195,7 +192,6 @@ export const 构建内置补充请求头 = (baseUrl: unknown): Record<string, st
 export const 构建模型列表请求头 = (params: {
     baseUrl: unknown;
     apiKey: unknown;
-    baseUrlForHeaders?: unknown;
     供应商?: unknown;
     自定义请求头?: unknown;
 }): Record<string, string> => {
@@ -209,12 +205,8 @@ export const 构建模型列表请求头 = (params: {
     const base: Record<string, string> = isMimo
         ? { 'api-key': apiKey }
         : { Authorization: `Bearer ${apiKey}` };
-    // 独立模型可能填了另一个地址，自动补头按实际请求地址判断更准确。
-    const 补头地址 = typeof params.baseUrlForHeaders === 'string' && params.baseUrlForHeaders.trim()
-        ? params.baseUrlForHeaders
-        : baseUrl;
     return 合并请求头(
-        合并请求头(base, 构建内置补充请求头(补头地址)),
+        合并请求头(base, 构建内置补充请求头(baseUrl)),
         解析自定义请求头(params.自定义请求头)
     );
 };
