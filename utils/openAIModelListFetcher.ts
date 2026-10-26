@@ -1,5 +1,6 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { 构建OpenAI兼容模型列表候选地址 } from './apiConfig';
+import { 构建模型列表请求头 } from './customRequestHeaders';
 import { 是否原生Capacitor环境 } from './nativeRuntime';
 import { readReviewModelCapacity, type ReviewModelCapacity } from './variableReviewBudget';
 
@@ -7,6 +8,8 @@ export interface 模型列表获取配置 {
     baseUrl: string;
     apiKey: string;
     供应商?: string;
+    /** 玩家自定义请求头（一行一个 Key: Value），与对话请求保持一致。 */
+    自定义请求头?: string;
 }
 
 export interface 模型列表元数据 extends ReviewModelCapacity { id: string; label: string }
@@ -19,12 +22,14 @@ export const 获取OpenAI兼容模型元数据 = async (config: 模型列表获�
     }
 
     const candidateUrls = 构建OpenAI兼容模型列表候选地址(baseUrl);
-    const isMimo = config.供应商 === 'mimo_api'
-        || config.供应商 === 'mimo_token_plan'
-        || baseUrl.toLowerCase().includes('xiaomimimo.com');
-    const headers = isMimo
-        ? { 'api-key': apiKey }
-        : { Authorization: `Bearer ${apiKey}` };
+    // 与对话请求共用同一套补头逻辑：否则会出现「模型列表能拉、一生成就 400」的怪现象
+    // （OpenCode 等网关按请求头做校验，缺 x-opencode-session 直接拒绝）。
+    const headers = 构建模型列表请求头({
+        baseUrl,
+        apiKey,
+        供应商: config.供应商,
+        自定义请求头: config.自定义请求头
+    });
 
     let lastError: Error | null = null;
     for (const url of candidateUrls) {

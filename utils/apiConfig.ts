@@ -1422,6 +1422,7 @@ const 标准化单配置 = (raw: any, index: number): 单接口配置结构 => {
     const temperature = 读取温度值(raw?.temperature);
     const topP = 读取TopP值(raw?.topP ?? raw?.top_p);
     const 协议覆盖 = 标准化协议覆盖(raw?.协议覆盖 ?? raw?.protocolOverride);
+    const 自定义请求头 = 读取字符串(raw?.自定义请求头 ?? raw?.customHeaders).trim();
 
     const createdAt = typeof raw?.createdAt === 'number' && Number.isFinite(raw.createdAt) ? raw.createdAt : now;
     const updatedAt = typeof raw?.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : now;
@@ -1435,6 +1436,7 @@ const 标准化单配置 = (raw: any, index: number): 单接口配置结构 => {
         baseUrl,
         apiKey,
         model,
+        自定义请求头,
         maxTokens,
         temperature,
         topP,
@@ -1819,6 +1821,7 @@ export const 创建接口配置模板 = (
             : preset.baseUrl,
         apiKey: '',
         model: preset.model,
+        自定义请求头: '',
         maxTokens: undefined,
         temperature: undefined,
         topP: undefined,
@@ -1882,7 +1885,7 @@ export const 写入接口设置本地镜像 = (settings: 接口设置结构): vo
     }
 };
 
-export type 当前可用接口结构 = Pick<单接口配置结构, 'id' | '名称' | '供应商' | '协议覆盖' | 'baseUrl' | 'apiKey' | 'model' | 'maxTokens' | 'temperature' | 'topP'> & {
+export type 当前可用接口结构 = Pick<单接口配置结构, 'id' | '名称' | '供应商' | '协议覆盖' | 'baseUrl' | 'apiKey' | 'model' | '自定义请求头' | 'maxTokens' | 'temperature' | 'topP'> & {
     图片后端类型?: 功能模型占位配置结构['文生图后端类型'];
     图片接口路径?: string;
     图片需要代理?: boolean;
@@ -2104,6 +2107,7 @@ export const 获取当前接口配置 = (settings: 接口设置结构): 当前�
         baseUrl: active.baseUrl,
         apiKey: active.apiKey,
         model: active.model,
+        自定义请求头: active.自定义请求头,
         maxTokens: active.maxTokens,
         temperature: active.temperature,
         topP: active.topP

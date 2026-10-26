@@ -8,6 +8,7 @@ import {
     规范化Gemini模型资源ID,
     规范化接口设置
 } from '../../../utils/apiConfig';
+import { 构建模型列表请求头 } from '../../../utils/customRequestHeaders';
 import {
     解析小说拆分连接测试草稿,
     测试小说拆分接口连接,
@@ -71,7 +72,11 @@ const NovelDecompositionApiSettings: React.FC<Props> = ({ settings, onSave }) =>
             const candidateUrls = 构建OpenAI兼容模型列表候选地址(resolvedBaseUrl);
             for (const url of candidateUrls) {
                 const res = await fetch(url, {
-                    headers: { Authorization: `Bearer ${resolvedApiKey}` }
+                    headers: 构建模型列表请求头({
+                        baseUrl: resolvedBaseUrl,
+                        apiKey: resolvedApiKey,
+                        自定义请求头: activeConfig?.自定义请求头
+                    })
                 });
                 if (!res.ok) continue;
                 const data = await res.json();

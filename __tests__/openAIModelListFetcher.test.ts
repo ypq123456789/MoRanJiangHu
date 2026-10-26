@@ -51,10 +51,14 @@ describe('OpenAI 兼容模型列表获取', () => {
         });
 
         expect(models).toEqual(['gpt-4', 'gpt-3.5']);
-        expect(fetch).toHaveBeenCalledWith(
-            'https://opencode.ai/zen/go/v1/models',
-            { headers: { Authorization: 'Bearer sk-test' } }
-        );
+        expect(fetch).toHaveBeenCalledTimes(1);
+        const [calledUrl, calledInit] = (fetch as any).mock.calls[0];
+        expect(calledUrl).toBe('https://opencode.ai/zen/go/v1/models');
+        const headers = (calledInit as { headers: Record<string, string> }).headers;
+        expect(headers.Authorization).toBe('Bearer sk-test');
+        // OpenCode 网关强制要求会话头，模型列表请求也要带（会话 ID 每次运行随机）
+        expect(typeof headers['x-opencode-session']).toBe('string');
+        expect(headers['x-opencode-session'].length).toBeGreaterThanOrEqual(8);
         expect(mockHttpRequest).not.toHaveBeenCalled();
     });
 
@@ -71,12 +75,13 @@ describe('OpenAI 兼容模型列表获取', () => {
         });
 
         expect(models).toEqual(['opencode-model-a']);
-        expect(mockHttpRequest).toHaveBeenCalledWith({
-            url: 'https://opencode.ai/zen/go/v1/models',
-            method: 'GET',
-            headers: { Authorization: 'Bearer sk-test' },
-            responseType: 'json'
-        });
+        expect(mockHttpRequest).toHaveBeenCalledTimes(1);
+        const nativeOptions = mockHttpRequest.mock.calls[0][0];
+        expect(nativeOptions.url).toBe('https://opencode.ai/zen/go/v1/models');
+        expect(nativeOptions.method).toBe('GET');
+        expect(nativeOptions.responseType).toBe('json');
+        expect(nativeOptions.headers.Authorization).toBe('Bearer sk-test');
+        expect(typeof nativeOptions.headers['x-opencode-session']).toBe('string');
         expect(fetch).not.toHaveBeenCalled();
     });
 
