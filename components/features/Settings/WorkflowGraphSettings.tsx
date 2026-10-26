@@ -17,7 +17,7 @@ import {
     规范化接口设置
 } from '../../../utils/apiConfig';
 import type { 当前可用接口结构 } from '../../../utils/apiConfig';
-import { 构建模型列表请求头 } from '../../../utils/customRequestHeaders';
+import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 import { 协议请求错误, 请求模型文本, type 通用消息 } from '../../../services/ai/chatCompletionClient';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
@@ -567,7 +567,7 @@ const WorkflowGraphSettings: React.FC<{
                     headers: 构建模型列表请求头({
                         baseUrl: api.baseUrl,
                         apiKey: api.apiKey,
-                        自定义请求头: api.自定义请求头
+                        自定义请求头: 读取可复用自定义请求头(api.baseUrl, api)
                     })
                 });
                 if (!res.ok) continue;

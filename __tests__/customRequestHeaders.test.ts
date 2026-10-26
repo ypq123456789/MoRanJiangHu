@@ -3,6 +3,7 @@ import {
     合并请求头,
     构建内置补充请求头,
     构建模型列表请求头,
+    读取可复用自定义请求头,
     解析自定义请求头,
     是否OpenCode接口地址,
     读取OpenCode会话标识
@@ -133,8 +134,24 @@ describe('OpenCode 会话头自动补齐', () => {
     });
 });
 
-describe('模型列表请求头', () => {
-    it('OpenCode 地址同样补会话头', () => {
+describe('自定义头复用范围', () => {
+    const 渠道 = { baseUrl: 'https://opencode.ai/zen/go/v1', 自定义请求头: 'X-Gw: 1' };
+
+    it('请求地址与渠道同源时复用渠道自定义头', () => {
+        expect(读取可复用自定义请求头('https://opencode.ai/zen/go/v1/models', 渠道)).toBe('X-Gw: 1');
+    });
+
+    it('独立模型指向另一家网关时不复用（避免把 A 的私有头发给 B）', () => {
+        expect(读取可复用自定义请求头('https://api.example.com/v1', 渠道)).toBe('');
+    });
+
+    it('渠道没有配置自定义头时返回空串', () => {
+        expect(读取可复用自定义请求头('https://opencode.ai/v1', { baseUrl: 'https://opencode.ai/v1' })).toBe('');
+        expect(读取可复用自定义请求头('https://opencode.ai/v1', null)).toBe('');
+    });
+});
+
+describe('模型列表请求头', () => {    it('OpenCode 地址同样补会话头', () => {
         const headers = 构建模型列表请求头({
             baseUrl: 'https://opencode.ai/zen/go/v1',
             apiKey: 'sk-test'
@@ -176,12 +193,16 @@ describe('同域中转透传自定义请求头', () => {
             headers: { 'Content-Type': 'application/json' }
         }));
         vi.stubGlobal('fetch', fetchMock);
-        const res = await onRequestPost({
+            const res = await onRequestPost({
             request: 中转请求({
                 'Content-Type': 'application/json',
                 Authorization: 'Bearer sk-test',
                 'x-opencode-session': 'session-123',
-                'X-Custom-Trace': 'trace-1'
+                'X-Custom-Trace': 'trace-1',
+                'Sec-Fetch-Site': 'cross-site',
+                'X-Forwarded-For': '1.2.3.4',
+                Forwarded: 'for=1.2.3.4',
+                'CF-Access-Client-Id': 'access-id'
             })
         });
         expect(res.status).toBe(200);
@@ -192,6 +213,11 @@ describe('同域中转透传自定义请求头', () => {
         // 边缘层/传输层头不得外泄
         expect(forwarded.get('cookie')).toBeNull();
         expect(forwarded.get('content-length')).toBeNull();
+        expect(forwarded.get('sec-fetch-site')).toBeNull();
+        expect(forwarded.get('x-forwarded-for')).toBeNull();
+        expect(forwarded.get('forwarded')).toBeNull();
+        // cf-* 不做整段屏蔽，零信任网关头要保留
+        expect(forwarded.get('cf-access-client-id')).toBe('access-id');
     });
 
     it('预检回显调用方申请的请求头，避免自定义头在预检被拦', () => {

@@ -3,7 +3,7 @@ import { 接口设置结构, 单接口配置结构, 功能模型占位配置结�
 import GameButton from '../../ui/GameButton';
 import ToggleSwitch from '../../ui/ToggleSwitch';
 import { 构建OpenAI兼容模型列表候选地址, 规范化接口设置 } from '../../../utils/apiConfig';
-import { 构建模型列表请求头 } from '../../../utils/customRequestHeaders';
+import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 import { 默认角色对话提示词 } from '../../../prompts/runtime/defaults';
 import StageApiModelSelector from './StageApiModelSelector';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
@@ -70,7 +70,7 @@ const RoleChatModelSettings: React.FC<Props> = ({ settings, onSave }) => {
                     headers: 构建模型列表请求头({
                         baseUrl: resolvedBaseUrl,
                         apiKey: resolvedApiKey,
-                        自定义请求头: activeConfig?.自定义请求头
+                        自定义请求头: 读取可复用自定义请求头(resolvedBaseUrl, activeConfig)
                     })
                 });
                 if (!res.ok) continue;

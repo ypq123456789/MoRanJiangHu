@@ -3,7 +3,7 @@ import { 接口设置结构, 单接口配置结构, 功能模型占位配置结�
 import GameButton from '../../ui/GameButton';
 import InlineSelect from '../../ui/InlineSelect';
 import { 构建OpenAI兼容模型列表候选地址 } from '../../../utils/apiConfig';
-import { 构建模型列表请求头 } from '../../../utils/customRequestHeaders';
+import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 
 type PlaceholderKey = keyof 功能模型占位配置结构;
 
@@ -79,7 +79,7 @@ const StageApiModelSelector: React.FC<Props> = ({
                     headers: 构建模型列表请求头({
                         baseUrl: resolvedBaseUrl,
                         apiKey: resolvedApiKey,
-                        自定义请求头: selectedConfig?.自定义请求头
+                        自定义请求头: 读取可复用自定义请求头(resolvedBaseUrl, selectedConfig)
                     })
                 });
                 if (!res.ok) continue;

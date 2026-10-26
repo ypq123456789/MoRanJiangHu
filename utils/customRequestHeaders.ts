@@ -175,6 +175,24 @@ export const 是否OpenCode接口地址 = (baseUrl: unknown): boolean => {
 };
 
 /**
+ * 判断能否把某条渠道配置的自定义头用到实际请求地址上。
+ *
+ * 独立模型允许「渠道」与「独立 API 地址」分开填：此时代理头属于渠道那家网关，
+ * 发给另一家只会被当成可疑请求（甚至 401）。主机不同就不复用，宁可少发。
+ */
+export const 读取可复用自定义请求头 = (
+    实际请求地址: unknown,
+    渠道配置?: { baseUrl?: string; 自定义请求头?: string } | null
+): string => {
+    const configured = (渠道配置?.自定义请求头 || '').trim();
+    if (!configured) return '';
+    const 请求主机 = 提取主机名(实际请求地址);
+    const 渠道主机 = 提取主机名(渠道配置?.baseUrl);
+    if (请求主机 && 渠道主机 && 请求主机 !== 渠道主机) return '';
+    return configured;
+};
+
+/**
  * 内置供应商补充头：目前只有 OpenCode 强制要求会话头。
  * 后续若遇到同类网关，在这里加一条即可（不要写进玩家配置默认值）。
  */

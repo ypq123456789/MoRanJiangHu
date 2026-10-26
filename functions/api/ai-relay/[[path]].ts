@@ -58,8 +58,28 @@ const BLOCKED_FORWARD_HEADERS = new Set([
     'cf-visitor',
     'cf-worker',
     'cf-ew-via',
-    'true-client-ip'
+    'true-client-ip',
+    // 代理链元数据：转过去会让上游看到虚假的客户端 IP 来源
+    'forwarded',
+    'via',
+    'x-forwarded-host',
+    // Cloudflare 地理位置等边缘信息（cf-* 不做整段屏蔽，保留 CF-Access-Client-Id 这类网关头）
+    'cf-connecting-ipv6',
+    'cf-pseudo-ipv4',
+    'cf-ipcity',
+    'cf-ipcontinent',
+    'cf-iplatitude',
+    'cf-iplongitude',
+    'cf-region',
+    'cf-region-code',
+    'cf-postal-code',
+    'cf-metro-code',
+    'cf-timezone'
 ]);
+
+// 前缀级排除：`sec-*` 是浏览器安全元数据，`x-forwarded-*` 是代理链信息，
+// `access-control-request-*` 只属于预检请求，都不该出现在上游调用里。
+const BLOCKED_FORWARD_HEADER_PREFIXES = ['sec-', 'x-forwarded-', 'access-control-request-'];
 
 const jsonError = (message: string, status: number): Response => (
     new Response(JSON.stringify({ error: message }), {
@@ -137,6 +157,7 @@ const buildForwardHeaders = (request: Request): Headers => {
     request.headers.forEach((value, name) => {
         const lower = name.toLowerCase();
         if (BLOCKED_FORWARD_HEADERS.has(lower)) return;
+        if (BLOCKED_FORWARD_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix))) return;
         if (FORWARDED_AUTH_HEADERS.some((item) => item.toLowerCase() === lower)) return;
         const trimmed = (value || '').trim();
         if (!trimmed) return;

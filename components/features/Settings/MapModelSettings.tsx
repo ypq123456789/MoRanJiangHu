@@ -4,7 +4,7 @@ import GameButton from '../../ui/GameButton';
 import InlineSelect from '../../ui/InlineSelect';
 import ToggleSwitch from '../../ui/ToggleSwitch';
 import { 构建OpenAI兼容模型列表候选地址, 规范化接口设置 } from '../../../utils/apiConfig';
-import { 构建模型列表请求头 } from '../../../utils/customRequestHeaders';
+import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 import StageApiModelSelector from './StageApiModelSelector';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
@@ -74,7 +74,7 @@ const MapModelSettings: React.FC<Props> = ({ settings, onSave, onRegenerateMapFr
                     headers: 构建模型列表请求头({
                         baseUrl: resolvedBaseUrl,
                         apiKey: resolvedApiKey,
-                        自定义请求头: activeConfig?.自定义请求头
+                        自定义请求头: 读取可复用自定义请求头(resolvedBaseUrl, activeConfig)
                     })
                 });
                 if (!res.ok) continue;
