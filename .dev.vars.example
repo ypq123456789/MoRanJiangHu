@@ -20,9 +20,15 @@ MORAN_B2_DISTRIBUTION_RELEASE_PREFIX=moranjianghu
 MORAN_OPENLIST_API_BASE_URL=http://159.138.7.126:5244
 MORAN_OPENLIST_DIRECT_BASE_URL=http://159.138.7.126:5244
 
-# 发版通知：Discord 频道 Webhook（频道设置 → 整合 → Webhook → 复制网址）
+# 发版通知方式一：频道 Webhook（需要频道里的「管理 Webhook」权限）
+# 频道设置 → 整合 → Webhook → 新 Webhook → 复制 Webhook 网址
 DISCORD_WEBHOOK_URL=
-# 可选：正文提醒的身份组/用户，例如 <@&1234567890>
+
+# 发版通知方式二：机器人（频道不是自己的时，请管理员邀请机器人并授予「查看频道 + 发送消息」）
+# DISCORD_BOT_TOKEN=
+# DISCORD_CHANNEL_ID=
+
+# 可选：正文里 @ 的身份组/用户，例如 <@&1234567890>
 DISCORD_MENTION=
-# 可选：访问 Discord 走的代理，例如 http://127.0.0.1:7890
+# 可选：访问 Discord 走的代理，例如 http://127.0.0.1:7890（仅直连失败时使用）
 DISCORD_PROXY=

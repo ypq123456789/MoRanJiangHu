@@ -13,10 +13,14 @@
  *   node scripts/notify-discord.mjs --webhook https://discord.com/api/webhooks/... 
  *
  * 配置（.dev.vars 或环境变量，两者都支持）：
- *   DISCORD_WEBHOOK_URL   频道 Webhook 地址（必填）
+ *   DISCORD_WEBHOOK_URL   频道 Webhook 地址（推荐；需要在频道里有「管理 Webhook」权限）
+ *   DISCORD_BOT_TOKEN     可选，机器人令牌（频道不是自己的、只拿到「邀请机器人」这条路时用）
+ *   DISCORD_CHANNEL_ID    可选，目标频道 ID，多个用逗号分隔；与 BOT_TOKEN 配套
  *   DISCORD_MENTION       可选，正文里的提醒，例如 <@&1234567890>（@某身份组）
- *   DISCORD_PROXY         可选，HTTP 代理，例如 http://127.0.0.1:7890
- *                         （不填时若环境里有 HTTPS_PROXY/HTTP_PROXY 也会用）
+ *   DISCORD_PROXY         可选，HTTP 代理，例如 http://127.0.0.1:7890（仅直连失败时使用）
+ *
+ * 权限说明：Webhook 需要「管理 Webhook」；Bot 需要「查看频道 + 发送消息」。
+ * 两者都必须由频道管理员/所有者授予——没有权限时任何方案都无法往别人的频道发消息。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -135,30 +139,73 @@ export const 构建发布消息 = (releaseConfig, options = {}) => {
     return 消息;
 };
 
-const 读取已发送版本 = () => {
+/**
+ * 解析发送目标。两种方式二选一：
+ * - webhook：频道里建一个 Webhook（需要「管理 Webhook」权限），把网址填 DISCORD_WEBHOOK_URL；
+ * - bot：机器人被邀请进频道（需要「发送消息」权限），填 DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID。
+ * 频道不是自己建的、拿不到 Webhook 时，通常只能走 bot（要频道管理员邀请）。
+ */
+export const 解析发送目标 = ({ webhookUrl, botToken, channelIds, webhookOverride } = {}) => {
+    const 网址 = String(webhookOverride || '').trim() || String(webhookUrl || '').trim();
+    if (网址) {
+        const 列表 = 网址.split(',').map((项) => 项.trim()).filter(Boolean);
+        return {
+            目标: 列表.map((url, 索引) => ({ kind: 'webhook', key: `webhook#${索引}`, url })),
+            缺少配置: false,
+            原因: ''
+        };
+    }
+    const 令牌 = String(botToken || '').trim();
+    const 频道 = String(channelIds || '')
+        .split(',')
+        .map((项) => 项.trim())
+        .filter(Boolean);
+    if (令牌 && 频道.length > 0) {
+        return {
+            目标: 频道.map((channelId) => ({ kind: 'channel', key: `channel#${channelId}`, channelId, token: 令牌 })),
+            缺少配置: false,
+            原因: ''
+        };
+    }
+    return {
+        目标: [],
+        缺少配置: true,
+        原因: '未配置 DISCORD_WEBHOOK_URL，也未配置 DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID'
+    };
+};
+
+/** 已发过哪些目标（同一版本内），用于重复执行时跳过。 */
+export const 筛出待发送目标 = (目标列表, 状态, 版本号) => {
+    const 已完成 = 状态 && 状态.version === 版本号 && Array.isArray(状态.sent)
+        ? new Set(状态.sent.map((项) => String(项)))
+        : new Set();
+    return (Array.isArray(目标列表) ? 目标列表 : []).filter((目标) => !已完成.has(目标.key));
+};
+
+const 读取状态 = () => {
     try {
-        const 内容 = JSON.parse(fs.readFileSync(状态文件路径, 'utf8'));
-        return String(内容?.lastVersionName || '');
+        return JSON.parse(fs.readFileSync(状态文件路径, 'utf8'));
     } catch {
-        return '';
+        return null;
     }
 };
 
-const 写入已发送版本 = (版本号) => {
+const 写入状态 = (状态) => {
     try {
-        fs.writeFileSync(状态文件路径, `${JSON.stringify({ lastVersionName: 版本号, sentAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+        fs.writeFileSync(状态文件路径, `${JSON.stringify(状态, null, 2)}\n`, 'utf8');
     } catch {
         // 状态写不进去只会导致下次重复发，不影响本次通知
     }
 };
 
-const 发送 = ({ 地址, 消息文本, 代理 }) => {
-    const 临时文件 = path.join(项目根目录, `.tmp-discord-payload-${Date.now()}.json`);
+const 发送 = ({ 地址, 消息文本, 代理, 额外头 = [] }) => {
+    const 临时文件 = path.join(项目根目录, `.tmp-discord-payload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`);
     fs.writeFileSync(临时文件, 消息文本, 'utf8');
     const 参数 = [
         '-sS', '-o', '-', '-w', '\n%{http_code}',
         '-X', 'POST', 地址,
         '-H', 'Content-Type: application/json; charset=utf-8',
+        ...额外头.flatMap((头) => ['-H', 头]),
         '--data-binary', `@${临时文件}`
     ];
     if (代理) 参数.unshift('-x', 代理);
@@ -174,6 +221,39 @@ const 发送 = ({ 地址, 消息文本, 代理 }) => {
     const 状态码 = Number(输出.slice(换行位置 + 1).trim());
     const 响应体 = 输出.slice(0, 换行位置).trim();
     return { 状态码, 响应体, 退出码: 结果.status === null ? -1 : 结果.status };
+};
+
+/** 单个目标的发送（含直连→代理兜底、429 重试一次）。 */
+const 发送到目标 = ({ 目标, 消息文本, 代理 }) => {
+    const 请求 = (使用代理) => (目标.kind === 'channel'
+        ? 发送({
+            地址: `https://discord.com/api/v10/channels/${encodeURIComponent(目标.channelId)}/messages`,
+            消息文本,
+            代理: 使用代理,
+            额外头: [`Authorization: Bot ${目标.token}`]
+        })
+        : 发送({ 地址: 目标.url, 消息文本, 代理: 使用代理 }));
+
+    let 当前代理 = '';
+    let 结果 = 请求(当前代理);
+    if (结果.退出码 !== 0 && 代理) {
+        console.log(`[discord] ${目标.key} 直连失败，改用 DISCORD_PROXY 重试一次`);
+        当前代理 = 代理;
+        结果 = 请求(当前代理);
+    }
+    if (结果.状态码 === 429) {
+        // Discord 限流：按 retry_after 等一次再发（最多一次）
+        let 等待秒 = 2;
+        try {
+            等待秒 = Math.min(10, Number(JSON.parse(结果.响应体).retry_after) || 2);
+        } catch {
+            // 响应不是 JSON 就按默认等待
+        }
+        console.log(`[discord] ${目标.key} 触发限流，${等待秒}s 后重试一次`);
+        同步等待(Math.round(等待秒 * 1000));
+        结果 = 请求(当前代理);
+    }
+    return 结果;
 };
 
 const 主流程 = () => {
@@ -197,18 +277,32 @@ const 主流程 = () => {
     if (预演) {
         console.log(`[discord] 预演：v${版本号} 的消息体如下（未发送）`);
         console.log(消息文本);
+        const 预演目标 = 解析发送目标({
+            webhookUrl: 读取配置项('DISCORD_WEBHOOK_URL', 本地配置),
+            botToken: 读取配置项('DISCORD_BOT_TOKEN', 本地配置),
+            channelIds: 读取配置项('DISCORD_CHANNEL_ID', 本地配置),
+            webhookOverride: 地址覆盖
+        });
+        console.log(`[discord] 目标：${预演目标.目标.map((项) => 项.key).join(', ') || '（未配置，不会发送）'}`);
         return;
     }
 
-    const 地址 = 地址覆盖 || 读取配置项('DISCORD_WEBHOOK_URL', 本地配置);
-    if (!地址) {
-        console.error('[discord] 未配置 DISCORD_WEBHOOK_URL（写在 .dev.vars 或环境变量里）。');
-        console.error('[discord] 获取方式：Discord 频道设置 → 整合 → Webhook → 新 Webhook → 复制 Webhook 网址。');
+    const { 目标, 缺少配置, 原因 } = 解析发送目标({
+        webhookUrl: 读取配置项('DISCORD_WEBHOOK_URL', 本地配置),
+        botToken: 读取配置项('DISCORD_BOT_TOKEN', 本地配置),
+        channelIds: 读取配置项('DISCORD_CHANNEL_ID', 本地配置),
+        webhookOverride: 地址覆盖
+    });
+    if (缺少配置) {
+        console.error(`[discord] ${原因}。`);
+        console.error('[discord] 方式一（推荐给频道管理员）：频道设置 → 整合 → Webhook → 新 Webhook → 复制网址 → DISCORD_WEBHOOK_URL');
+        console.error('[discord] 方式二（频道不是自己的）：请管理员把你的机器人邀请进该频道并授予「发送消息」，然后填 DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID');
         process.exit(2);
     }
 
-    const 已发送版本 = 读取已发送版本();
-    if (!强制发送 && 已发送版本 === 版本号) {
+    const 已有状态 = 读取状态();
+    const 待发送 = 强制发送 ? 目标 : 筛出待发送目标(目标, 已有状态, 版本号);
+    if (待发送.length === 0) {
         console.log(`[discord] v${版本号} 已发送过，跳过（需要重发请加 --force）。`);
         return;
     }
@@ -217,33 +311,31 @@ const 主流程 = () => {
     // （本机实测 discord.com 直连可达，而系统默认代理反而连不上，所以不能无脑套用环境代理。）
     const 代理 = 读取配置项('DISCORD_PROXY', 本地配置);
 
-    const 发送一次 = (代理地址) => 发送({ 地址, 消息文本, 代理: 代理地址 });
-    let 当前代理 = '';
-    let 结果 = 发送一次(当前代理);
-    if (结果.退出码 !== 0 && 代理) {
-        console.log('[discord] 直连失败，改用 DISCORD_PROXY 重试一次');
-        当前代理 = 代理;
-        结果 = 发送一次(当前代理);
-    }
-    if (结果.状态码 === 429) {
-        // Discord 限流：按 retry_after 等一次再发（最多一次）
-        let 等待秒 = 2;
-        try {
-            等待秒 = Math.min(10, Number(JSON.parse(结果.响应体).retry_after) || 2);
-        } catch {
-            // 响应不是 JSON 就按默认等待
+    const 已发送键 = new Set(
+        已有状态 && 已有状态.version === 版本号 && Array.isArray(已有状态.sent) ? 已有状态.sent : []
+    );
+    const 失败 = [];
+    for (const 目标项 of 待发送) {
+        const 结果 = 发送到目标({ 目标: 目标项, 消息文本, 代理 });
+        if (结果.状态码 >= 200 && 结果.状态码 < 300) {
+            已发送键.add(目标项.key);
+            console.log(`[discord] ${目标项.key} 发送成功`);
+        } else {
+            失败.push(`${目标项.key} -> ${结果.状态码} ${String(结果.响应体).slice(0, 200)}`);
+            console.error(`[discord] ${目标项.key} 发送失败：${结果.状态码}`);
         }
-        console.log(`[discord] 触发限流，${等待秒}s 后重试一次`);
-        同步等待(Math.round(等待秒 * 1000));
-        结果 = 发送一次(当前代理);
     }
 
-    if (结果.状态码 < 200 || 结果.状态码 >= 300) {
-        throw new Error(`Discord 返回 ${结果.状态码}：${结果.响应体.slice(0, 300)}`);
-    }
+    写入状态({
+        version: 版本号,
+        sent: Array.from(已发送键),
+        sentAt: new Date().toISOString()
+    });
 
-    写入已发送版本(版本号);
-    console.log(`[discord] v${版本号} 已发布到 Discord 频道。`);
+    if (失败.length > 0) {
+        throw new Error(`部分目标发送失败：${失败.join('；')}`);
+    }
+    console.log(`[discord] v${版本号} 已发布到 Discord。`);
 };
 
 const 是被直接执行 = (() => {

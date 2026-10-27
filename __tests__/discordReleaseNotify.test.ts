@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { 构建发布消息 } from '../scripts/notify-discord.mjs';
+import { 构建发布消息, 解析发送目标, 筛出待发送目标 } from '../scripts/notify-discord.mjs';
 
 const 基础配置 = (patch = {}) => ({
     versionName: '1.0.698',
@@ -66,5 +66,64 @@ describe('Discord 发布消息构建', () => {
         const embed = 构建发布消息({}).embeds[0];
         expect(embed.title).toBe('LATEST v未知版本');
         expect(embed.footer.text).toContain('APK —');
+    });
+});
+
+describe('Discord 发送目标解析', () => {
+    it('配了 Webhook 时按 Webhook 发送，支持多个（逗号分隔）', () => {
+        const 结果 = 解析发送目标({
+            webhookUrl: 'https://discord.com/api/webhooks/1/a, https://discord.com/api/webhooks/2/b'
+        });
+        expect(结果.缺少配置).toBe(false);
+        expect(结果.目标.map((项: any) => 项.key)).toEqual(['webhook#0', 'webhook#1']);
+        expect(结果.目标[0].kind).toBe('webhook');
+    });
+
+    it('频道不是自己的：用机器人令牌 + 频道 ID 发送', () => {
+        const 结果 = 解析发送目标({ botToken: 'bot-token', channelIds: '1507996890304872630, 1500000000000000000' });
+        expect(结果.缺少配置).toBe(false);
+        expect(结果.目标.map((项: any) => 项.key)).toEqual([
+            'channel#1507996890304872630',
+            'channel#1500000000000000000'
+        ]);
+        expect(结果.目标[0]).toMatchObject({ kind: 'channel', token: 'bot-token' });
+    });
+
+    it('命令行 --webhook 覆盖配置文件里的地址', () => {
+        const 结果 = 解析发送目标({ webhookUrl: 'https://discord.com/api/webhooks/1/a', webhookOverride: 'https://discord.com/api/webhooks/9/z' });
+        expect(结果.目标).toHaveLength(1);
+        expect((结果.目标[0] as { url?: string }).url).toContain('/webhooks/9/z');
+    });
+
+    it('什么都没配时明确报告缺少配置', () => {
+        const 结果 = 解析发送目标({});
+        expect(结果.缺少配置).toBe(true);
+        expect(结果.目标).toEqual([]);
+        expect(结果.原因).toContain('DISCORD_WEBHOOK_URL');
+    });
+
+    it('只有令牌没有频道 ID 视为未配置', () => {
+        expect(解析发送目标({ botToken: 'bot-token' }).缺少配置).toBe(true);
+    });
+});
+
+describe('Discord 重复发送去重', () => {
+    const 目标 = [
+        { kind: 'webhook', key: 'webhook#0', url: 'https://discord.com/api/webhooks/1/a' },
+        { kind: 'channel', key: 'channel#1507996890304872630', channelId: '1507996890304872630', token: 't' }
+    ];
+
+    it('同一版本已发过的目标跳过', () => {
+        const 待发 = 筛出待发送目标(目标, { version: '1.0.698', sent: ['webhook#0'] }, '1.0.698');
+        expect(待发.map((项: any) => 项.key)).toEqual(['channel#1507996890304872630']);
+    });
+
+    it('版本变化后全部重发', () => {
+        const 待发 = 筛出待发送目标(目标, { version: '1.0.697', sent: ['webhook#0', 'channel#1507996890304872630'] }, '1.0.698');
+        expect(待发).toHaveLength(2);
+    });
+
+    it('没有历史状态时全部发送', () => {
+        expect(筛出待发送目标(目标, null, '1.0.698')).toHaveLength(2);
     });
 });

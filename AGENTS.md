@@ -28,6 +28,8 @@
 - Message content is generated from `release.config.json` (version, publish time, release notes, primary/backup site, APK size). `官网：…` / `备用站：…` lines are moved into embed fields instead of being repeated in the body.
 - Preview the payload with `npm run notify:discord -- --dry-run`. Each version is posted once by default; use `--force` to re-send.
 - If `DISCORD_WEBHOOK_URL` is missing, the script skips with a hint — do not block the release, but state in the final report that the Discord notice was not sent.
+- **When the channel is not yours**: creating a Webhook needs the "Manage Webhooks" permission, which only the channel owner/admin can grant. In that case use the bot path instead: ask the owner to invite your bot with "View Channels" + "Send Messages" into that channel, then set `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID` (comma-separated for several channels). The same script handles both; the Webhook wins when both are configured.
+- Never try to work around channel permissions: without either grant, no client can post into someone else's channel. Ask the admin, or post in a channel you own.
 
 ## Admin/Internal Changelog Rule
 
