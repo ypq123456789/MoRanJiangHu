@@ -1,15 +1,27 @@
 {
-  "versionCode": 696,
-  "versionName": "1.0.696",
+  "versionCode": 697,
+  "versionName": "1.0.697",
   "releaseChannel": "stable",
   "releaseNotes": [
-    "OpenCode / OpenCode Go 订阅现在可以直接使用：以前填好接口地址和密钥也会被平台拒绝（HTTP 400），现在已自动适配平台要求的会话标识。",
-    "接口设置新增「自定义请求头」：其它需要私有请求头的第三方接口，可以自己逐行填写，不用再等版本更新。",
+    "修复网页版使用 OpenCode / OpenCode Go 订阅时仍提示「缺少会话参数」的问题：网页版跨域中转通道现在会把自定义请求头原样转发给接口，订阅填好地址和密钥即可正常生成。",
+    "接口设置里的「自定义请求头」在中转通道同样生效，其它需要私有请求头的第三方接口也能直接用。",
     "本次更新同时覆盖浏览器端与安卓安装包。",
     "官网：https://msjh.bacon159.pp.ua/",
     "备用站：https://msjh.bacon.de5.net/"
   ],
   "releaseHistory": [
+    {
+      "versionName": "1.0.697",
+      "versionCode": 697,
+      "releasePublishedAt": "2026-10-27T18:23:01+08:00",
+      "releaseNotes": [
+        "修复网页版使用 OpenCode / OpenCode Go 订阅时仍提示「缺少会话参数」的问题：网页版跨域中转通道现在会把自定义请求头原样转发给接口，订阅填好地址和密钥即可正常生成。",
+        "接口设置里的「自定义请求头」在中转通道同样生效，其它需要私有请求头的第三方接口也能直接用。",
+        "本次更新同时覆盖浏览器端与安卓安装包。",
+        "官网：https://msjh.bacon159.pp.ua/",
+        "备用站：https://msjh.bacon.de5.net/"
+      ]
+    },
     {
       "versionName": "1.0.696",
       "versionCode": 696,
@@ -1315,14 +1327,14 @@
   "multiDeviceSyncGuideUrl": "https://msjh.bacon159.pp.ua/tutorials.html#sync",
   "tutorialsUrl": "https://msjh.bacon159.pp.ua/tutorials.html",
   "changes": [
-    "OpenCode / OpenCode Go 订阅现在可以直接使用：以前填好接口地址和密钥也会被平台拒绝（HTTP 400），现在已自动适配平台要求的会话标识。",
-    "接口设置新增「自定义请求头」：其它需要私有请求头的第三方接口，可以自己逐行填写，不用再等版本更新。",
+    "修复网页版使用 OpenCode / OpenCode Go 订阅时仍提示「缺少会话参数」的问题：网页版跨域中转通道现在会把自定义请求头原样转发给接口，订阅填好地址和密钥即可正常生成。",
+    "接口设置里的「自定义请求头」在中转通道同样生效，其它需要私有请求头的第三方接口也能直接用。",
     "本次更新同时覆盖浏览器端与安卓安装包。",
     "官网：https://msjh.bacon159.pp.ua/",
     "备用站：https://msjh.bacon.de5.net/"
   ],
-  "notes": "OpenCode / OpenCode Go 订阅现在可以直接使用：以前填好接口地址和密钥也会被平台拒绝（HTTP 400），现在已自动适配平台要求的会话标识。\n接口设置新增「自定义请求头」：其它需要私有请求头的第三方接口，可以自己逐行填写，不用再等版本更新。\n本次更新同时覆盖浏览器端与安卓安装包。\n官网：https://msjh.bacon159.pp.ua/\n备用站：https://msjh.bacon.de5.net/",
-  "releasePublishedAt": "2026-10-26T22:34:36+08:00",
-  "apkSize": 5997744,
-  "apkSha256": "47d5c4d03804629484ce28a025494a94ca6dcef4111528a48dcbb612c5d29218"
+  "notes": "修复网页版使用 OpenCode / OpenCode Go 订阅时仍提示「缺少会话参数」的问题：网页版跨域中转通道现在会把自定义请求头原样转发给接口，订阅填好地址和密钥即可正常生成。\n接口设置里的「自定义请求头」在中转通道同样生效，其它需要私有请求头的第三方接口也能直接用。\n本次更新同时覆盖浏览器端与安卓安装包。\n官网：https://msjh.bacon159.pp.ua/\n备用站：https://msjh.bacon.de5.net/",
+  "releasePublishedAt": "2026-10-27T18:23:01+08:00",
+  "apkSize": 5998060,
+  "apkSha256": "ae222c7f0246ed8fed5a9967f4f73eea1048cf9d1e487adc1c1974bdc1605498"
 }

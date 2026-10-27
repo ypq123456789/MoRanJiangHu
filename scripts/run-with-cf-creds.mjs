@@ -17,6 +17,11 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    检查Worker打包产物,
+    解析Wrangler配置路径,
+    读取Wrangler入口路径
+} from './lib/workerBundleGuard.mjs';
 
 const 需要注入的键前缀 = ['CLOUDFLARE_', 'CF_MIGRATE_TARGET_'];
 const 脚本目录 = path.dirname(fileURLToPath(import.meta.url));
@@ -60,6 +65,20 @@ const 凭据 = 解析凭据();
 Object.entries(凭据).forEach(([键, 值]) => {
     if (!process.env[键]) process.env[键] = 值;
 });
+
+// 部署闸门：wrangler.152.jsonc 的 main 是 `npm run worker:functions` 生成的产物，
+// 忘了重新打包就会把旧 bundle 发上线（v1.0.696 的 `/api/ai-relay` 旧代码事故）。
+if (参数列表.includes('deploy')) {
+    const 配置路径 = 解析Wrangler配置路径(参数列表);
+    if (配置路径) {
+        const 入口路径 = 读取Wrangler入口路径(path.resolve(项目根目录, 配置路径));
+        const 检查结果 = 检查Worker打包产物({ 项目根目录, 打包入口路径: 入口路径 });
+        if (!检查结果.ok) {
+            console.error(`[cf-creds] 部署已中止：${检查结果.原因}`);
+            process.exit(3);
+        }
+    }
+}
 
 console.log(`[cf-creds] account=${凭据.CLOUDFLARE_ACCOUNT_ID || '(未设置)'} email=${凭据.CLOUDFLARE_EMAIL}`);
 console.log(`[cf-creds] proxy=${process.env.HTTPS_PROXY || process.env.https_proxy || '(直连)'}`);
