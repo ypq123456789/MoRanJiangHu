@@ -5,7 +5,8 @@ const 基础配置 = (patch = {}) => ({
     versionName: '1.0.698',
     versionCode: 698,
     apkSize: 5998060,
-    releasePublishedAt: '2026-10-27T18:23:01+08:00',
+    // 故意不带时区偏移：按本地时间解析，断言才不受 CI（UTC）与本地（+08:00）时差影响。
+    releasePublishedAt: '2026-10-27T18:23:01',
     websiteUrl: 'https://msjh.bacon159.pp.ua',
     backupWebsiteUrl: 'https://msjh.bacon.de5.net',
     releaseNotes: [
@@ -26,7 +27,7 @@ describe('Discord 发布消息构建', () => {
         expect(embed.description).toContain('**发布时间**：2026/10/27 18:23');
         expect(embed.description).toContain('• 修复网页版使用 OpenCode 订阅时提示缺少会话参数的问题。');
         expect(embed.url).toBe('https://msjh.bacon159.pp.ua');
-        expect(embed.timestamp).toBe('2026-10-27T10:23:01.000Z');
+        expect(embed.timestamp).toBe(new Date('2026-10-27T18:23:01').toISOString());
     });
 
     it('官网/备用站链接行不重复进正文，改为独立字段', () => {
