@@ -19,3 +19,10 @@ MORAN_B2_DISTRIBUTION_BASE_URL=https://f004.backblazeb2.com/file/bacon111
 MORAN_B2_DISTRIBUTION_RELEASE_PREFIX=moranjianghu
 MORAN_OPENLIST_API_BASE_URL=http://159.138.7.126:5244
 MORAN_OPENLIST_DIRECT_BASE_URL=http://159.138.7.126:5244
+
+# 发版通知：Discord 频道 Webhook（频道设置 → 整合 → Webhook → 复制网址）
+DISCORD_WEBHOOK_URL=
+# 可选：正文提醒的身份组/用户，例如 <@&1234567890>
+DISCORD_MENTION=
+# 可选：访问 Discord 走的代理，例如 http://127.0.0.1:7890
+DISCORD_PROXY=

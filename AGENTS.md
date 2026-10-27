@@ -20,6 +20,15 @@
 - Prefer plain-language benefit statements over internal implementation detail.
 - After publishing a new version, customer-facing changelog text must include the primary website domain: `https://msjh.bacon159.pp.ua/`.
 
+## Discord Release Notification Rule
+
+- After publishing a new version, post the release notes to the Discord announcement channel with `npm run notify:discord`.
+- Do not post through an MCP / bot chat session: releases run as unattended local scripts, so a Discord Webhook is the only path that works without a human in the loop.
+- Configuration lives in `.dev.vars` (or the environment): `DISCORD_WEBHOOK_URL` (required), `DISCORD_MENTION` (optional role/user ping such as `<@&1234567890>`), `DISCORD_PROXY` (optional, only used when a direct connection fails). Get the URL from Channel Settings → Integrations → Webhooks.
+- Message content is generated from `release.config.json` (version, publish time, release notes, primary/backup site, APK size). `官网：…` / `备用站：…` lines are moved into embed fields instead of being repeated in the body.
+- Preview the payload with `npm run notify:discord -- --dry-run`. Each version is posted once by default; use `--force` to re-send.
+- If `DISCORD_WEBHOOK_URL` is missing, the script skips with a hint — do not block the release, but state in the final report that the Discord notice was not sent.
+
 ## Admin/Internal Changelog Rule
 
 - Do not include admin-only, monitoring-only, internal operations, or management console changes in customer-facing release notes or public changelogs unless the user explicitly asks.
@@ -86,6 +95,8 @@
   1. After `npm run worker:functions`, confirm `.tmp-worker-build/index.js` file timestamp is newer than your code edit.
   2. `grep` for a symbol/identifier you just added (e.g. a new variable or function name) inside `.tmp-worker-build/index.js` to prove it is actually in the compiled bundle.
   3. If the timestamp is stale or the identifier is missing, `rm -rf .tmp-worker-build` and rebuild, then deploy.
+- **v1.0.696 incident (same trap, no rebuild at all)**: the release ran `wrangler deploy` directly without `npm run worker:functions`, so the live `/api/ai-relay` stayed on a 2026-10-09 bundle. The front end looked fixed (it sent the new header), but the relay silently dropped it, so players kept getting upstream 400s. Proof: `curl -i -X OPTIONS /api/ai-relay -H 'Access-Control-Request-Headers: x-...'` still returned the OLD fixed allow-list, and a request through the relay failed exactly like one without the header.
+- **Automated guard**: `scripts/lib/workerBundleGuard.mjs` (wired into `scripts/run-with-cf-creds.mjs`) aborts `wrangler deploy` with exit code 3 when `.tmp-worker-build` is missing or older than the newest file under `functions/`. If it aborts, run `npm run worker:functions` and deploy again — do not bypass the guard.
 - **Mandatory after every deploy — test the LIVE behavior over HTTPS, not the deploy log**:
   - Website front-end change: verify per the Static Assets rule above (release-info.json + hashed bundle name match).
   - Worker/API logic change: directly hit the affected endpoint (with a cache-buster or after confirming `cache-control: no-store`) and confirm the returned data / ordering / redirect target matches the NEW logic.

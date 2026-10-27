@@ -49,7 +49,8 @@
     "preset:thumbs:audit": "node scripts/audit-preset-thumbnails.mjs",
     "apk:verify-assets": "node scripts/verify-apk-asset-paths.mjs",
     "apk:blackscan": "node scripts/check-apk-blackscan.mjs",
-    "apk:build:release": "node scripts/build-apk-release.mjs"
+    "apk:build:release": "node scripts/build-apk-release.mjs",
+    "notify:discord": "node scripts/notify-discord.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",

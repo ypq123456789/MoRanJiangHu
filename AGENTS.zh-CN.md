@@ -20,6 +20,15 @@
 - 优先说明客户能感知到的收益，少写内部实现细节。
 - 每次发布新版本后，给客户的更新日志必须附带主域名：`https://msjh.bacon159.pp.ua/`。
 
+## Discord 发版通知规则
+
+- 每次发布新版本后，用 `npm run notify:discord` 把更新说明发到 Discord 公告频道。
+- 不要用 MCP / 机器人会话手动贴：发版是本机无人值守脚本流水线，只有 Discord Webhook 能在没人盯着的情况下自动发出去。
+- 配置写在 `.dev.vars`（或环境变量）里：`DISCORD_WEBHOOK_URL`（必填）、`DISCORD_MENTION`（可选，提醒身份组/用户，例如 `<@&1234567890>`）、`DISCORD_PROXY`（可选，只在直连失败时才用）。Webhook 地址获取方式：频道设置 → 整合 → Webhook。
+- 消息内容由 `release.config.json` 生成（版本号、发布时间、更新要点、官网/备用站、APK 体积）。`官网：…` / `备用站：…` 这类行会转成独立字段，不在正文里重复。
+- 预览消息用 `npm run notify:discord -- --dry-run`。同一版本默认只发一次，需要重发加 `--force`。
+- 如果没配 `DISCORD_WEBHOOK_URL`，脚本会跳过并提示——不要因此卡住发布，但要在最终报告里说明 Discord 通知未发送。
+
 ## 管理端/内部更新日志规则
 
 - 管理端、监控页、内部运维、后台管理控制台相关变更，默认不要写入面向客户的 release notes 或公开更新日志，除非用户明确要求。
@@ -84,6 +93,9 @@
 - **Worker functions 重编译陷阱**：改了 `functions/` 下的代码后，`npm run worker:functions`（`wrangler pages functions build`）有时不会真正重新编译，`.tmp-worker-build/index.js` 仍是旧时间戳、旧内容。此时部署上去的是旧代码，线上行为不变。
   - 复现过的事故：修复 `functions/api/apk/latest.json.ts` 的 `apkUrls` 排序后，第一次部署线上顺序完全没变，排查发现 `.tmp-worker-build/index.js` 时间戳早于改动。
   - **强制做法**：编译前先 `rm -rf .tmp-worker-build` 清理旧产物再 `npm run worker:functions`；编译后确认 `.tmp-worker-build/index.js` 时间戳是刚生成的，并 `grep` 新逻辑的标识符（如新函数名/变量名）确认真的进了产物，然后才 `wrangler deploy`。
+- **v1.0.696 事故（同一陷阱，但根因是根本没重编译）**：发布时直接跑了 `wrangler deploy`，没有执行 `npm run worker:functions`，线上的 `/api/ai-relay` 仍是 2026-10-09 的旧 bundle。前端看起来已修好（确实发了新请求头），但中转把请求头丢掉，玩家继续收到上游 400。
+  - 取证方式：`curl -i -X OPTIONS /api/ai-relay -H 'Access-Control-Request-Headers: x-...'` 返回的仍是旧的固定 Allow-Headers 列表；且带该请求头走中转与不带时结果一模一样。
+- **自动闸门**：`scripts/lib/workerBundleGuard.mjs`（已接入 `scripts/run-with-cf-creds.mjs`）会在 `.tmp-worker-build` 缺失或比 `functions/` 最新文件更旧时中止 `wrangler deploy`（退出码 3）。被拦下就执行 `npm run worker:functions` 再部署，不要绕过闸门。
 - **部署后必须从 HTTPS 实测线上真实行为**，而不是只看 deploy 日志：
   - 网站前端：核对线上 `index.html` 引用的 hashed bundle 名与本地 `dist/` 一致（见静态资源部署验证规则）。
   - Worker/functions：直接请求受影响的接口，核对返回内容/顺序/重定向落点符合预期（例如 `/api/apk/latest.json` 的 `apkUrls` 顺序、`/api/apk/latest.apk` 的 302 落点）。

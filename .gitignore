@@ -150,3 +150,6 @@ Desktop.ini
 /.release-repo-*/
 /dist-prev-*/
 playwright.config.tmp-*.mjs
+
+# Discord 发版通知去重状态（本地生成）
+.discord-notify-state.json
