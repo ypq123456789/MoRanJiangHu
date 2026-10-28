@@ -321,7 +321,10 @@ export const 创建手动NPC工作流 = (deps: 手动NPC工作流依赖) => {
             }
             const record = {
                 ...commonRecord,
-                构图: slot === '头像' ? '头像' as const : '立绘' as const
+                构图: slot === '头像' ? '头像' as const : '立绘' as const,
+                // 背景图沿用「立绘」构图以兼容既有读取路径，但显式标记用途，
+                // 避免被按构图取立绘的展示逻辑误当成立绘（见 CodeRabbit PR #117）。
+                图片用途: slot as '头像' | '立绘' | '背景'
             };
             const nextHistory = [record, ...(Array.isArray(archive.生图历史) ? archive.生图历史 : []).filter((item: any) => item?.id !== record.id)]
                 .sort((a: any, b: any) => (b?.生成时间 || 0) - (a?.生成时间 || 0));

@@ -1295,7 +1295,7 @@ const LibraryTabContent: React.FC<TabProps> = ({
                                                         {isAvatar ? '取消设为头像' : '设为头像'}
                                                     </button>
                                                 )}
-                                                {onSelectPortraitImage && imageId && (img.构图 === '半身' || img.构图 === '立绘') && (
+                                                {onSelectPortraitImage && imageId && (img.构图 === '半身' || img.构图 === '立绘') && img.图片用途 !== '背景' && (
                                                     <button
                                                         onClick={() => withBusyAction(`select_portrait_${imageId}`, () => (
                                                             isPortrait ? onClearPortraitImage?.(group.npc.id) : onSelectPortraitImage(group.npc.id, imageId)

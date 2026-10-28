@@ -28,11 +28,19 @@ interface Props {
     onRecruitToSect?: (npc: NPC结构) => void;
     onStealFromNpc?: (npc: NPC结构, target?: string) => void;
     onRetryImage?: (npcId: string, options?: { 构图?: NPC重绘构图 }) => void;
+    onUploadNpcImage?: (npcId: string, slot: NPC图片上传槽位, payload: { dataUrl: string; fileName?: string }) => Promise<unknown> | unknown;
     playerSect?: any;
     openingConfig?: OpeningConfig;
 }
 
 type NPC重绘构图 = '头像' | '半身' | '立绘';
+type NPC图片上传槽位 = '头像' | '立绘' | '背景';
+
+const NPC图片上传槽位选项: Array<{ value: NPC图片上传槽位; label: string; description: string }> = [
+    { value: '头像', label: '头像', description: '用于名册头像与社交小图。' },
+    { value: '立绘', label: '立绘', description: '用于角色详情与图册的完整立绘。' },
+    { value: '背景', label: '背景', description: '用于社交详情的背景卷轴。' }
+];
 
 const NPC重绘构图选项: Array<{ value: NPC重绘构图; label: string; description: string }> = [
     { value: '头像', label: '头像', description: '用于名册头像和社交小图。' },
@@ -78,6 +86,7 @@ const SocialModal: React.FC<Props> = ({
     onRecruitToSect,
     onStealFromNpc,
     onRetryImage,
+    onUploadNpcImage,
     playerSect,
     openingConfig
 }) => {
@@ -100,6 +109,11 @@ const SocialModal: React.FC<Props> = ({
     const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null);
     const [imageViewerZoom, setImageViewerZoom] = useState(1);
     const [imageRetryTarget, setImageRetryTarget] = useState<NPC结构 | null>(null);
+    const [imageUploadTarget, setImageUploadTarget] = useState<NPC结构 | null>(null);
+    const [uploadingNpcImage, setUploadingNpcImage] = useState(false);
+    const [uploadNotice, setUploadNotice] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
+    const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
+    const pendingUploadRef = React.useRef<{ npcId: string; slot: NPC图片上传槽位 } | null>(null);
     const [stealTargets, setStealTargets] = useState<Record<string, string>>({});
     const 资源文案 = 获取题材资源文案(openingConfig?.题材模式, openingConfig?.modeRuntimeProfile);
     const 界面文案 = 获取题材界面文案(openingConfig?.题材模式, openingConfig?.modeRuntimeProfile);
@@ -530,7 +544,7 @@ const SocialModal: React.FC<Props> = ({
     const 提取立绘图片地址 = (npc: any) => {
         const fromArchive = 获取图片展示地址(提取符合条件图片记录(
             npc,
-            (item) => item?.构图 === '立绘' || item?.构图 === '半身',
+            (item) => (item?.构图 === '立绘' || item?.构图 === '半身') && item?.图片用途 !== '背景',
             npc?.图片档案?.已选立绘图片ID
         ));
         return fromArchive || 获取图片资源文本地址(npc?.立绘图片URL);
@@ -564,9 +578,60 @@ const SocialModal: React.FC<Props> = ({
         onRetryImage(imageRetryTarget.id, { 构图 });
         setImageRetryTarget(null);
     };
+    const 打开上传选择 = (npc?: NPC结构 | null) => {
+        if (!npc || !onUploadNpcImage) return;
+        setUploadNotice(null);
+        setImageUploadTarget(npc);
+    };
+    const 提交上传槽位 = (slot: NPC图片上传槽位) => {
+        if (!imageUploadTarget?.id) return;
+        pendingUploadRef.current = { npcId: imageUploadTarget.id, slot };
+        setImageUploadTarget(null);
+        uploadInputRef.current?.click();
+    };
+    const 处理上传文件 = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        const pending = pendingUploadRef.current;
+        pendingUploadRef.current = null;
+        if (!file || !pending || !onUploadNpcImage) return;
+        if (!file.type.startsWith('image/')) {
+            setUploadNotice({ type: 'error', text: '请选择图片文件。' });
+            return;
+        }
+        setUploadingNpcImage(true);
+        const reader = new FileReader();
+        reader.onload = async () => {
+            const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+            if (!dataUrl) {
+                setUploadingNpcImage(false);
+                setUploadNotice({ type: 'error', text: '读取图片失败，请重试。' });
+                return;
+            }
+            try {
+                await onUploadNpcImage(pending.npcId, pending.slot, { dataUrl, fileName: file.name });
+                setUploadNotice({ type: 'ok', text: `已上传${pending.slot}图片。` });
+            } catch (uploadError: any) {
+                setUploadNotice({ type: 'error', text: uploadError?.message || '上传失败，请重试。' });
+            } finally {
+                setUploadingNpcImage(false);
+            }
+        };
+        reader.onerror = () => {
+            setUploadingNpcImage(false);
+            setUploadNotice({ type: 'error', text: '读取图片失败，请重试。' });
+        };
+        reader.readAsDataURL(file);
+    };
     const 调整图片缩放 = (delta: number) => {
         setImageViewerZoom((prev) => Math.min(3, Math.max(0.5, Number((prev + delta).toFixed(2)))));
     };
+
+    useEffect(() => {
+        if (!uploadNotice) return;
+        const timer = window.setTimeout(() => setUploadNotice(null), 3500);
+        return () => window.clearTimeout(timer);
+    }, [uploadNotice]);
 
     useEffect(() => {
         if (!imageViewer) return;
@@ -915,14 +980,29 @@ const SocialModal: React.FC<Props> = ({
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center font-serif text-3xl text-wuxia-gold/30">{currentNPC.姓名[0]}</div>
                                             )}
-                                            {onRetryImage && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => { e.stopPropagation(); 打开重绘选择(currentNPC); }}
-                                                    className="absolute bottom-1 right-1 text-[10px] px-2 py-0.5 rounded border border-wuxia-gold/40 bg-wuxia-gold/10 text-wuxia-gold hover:bg-wuxia-gold/20 transition-all"
-                                                >
-                                                    重绘
-                                                </button>
+                                            {(onRetryImage || onUploadNpcImage) && (
+                                                <div className="absolute bottom-1 right-1 flex items-center gap-1">
+                                                    {onUploadNpcImage && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); 打开上传选择(currentNPC); }}
+                                                            disabled={uploadingNpcImage}
+                                                            title="上传本地图片作为该 NPC 的头像 / 立绘 / 背景"
+                                                            className="text-[10px] px-2 py-0.5 rounded border border-wuxia-gold/40 bg-black/60 text-wuxia-gold hover:bg-wuxia-gold/20 transition-all disabled:opacity-50"
+                                                        >
+                                                            {uploadingNpcImage ? '上传中' : '上传'}
+                                                        </button>
+                                                    )}
+                                                    {onRetryImage && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); 打开重绘选择(currentNPC); }}
+                                                            className="text-[10px] px-2 py-0.5 rounded border border-wuxia-gold/40 bg-wuxia-gold/10 text-wuxia-gold hover:bg-wuxia-gold/20 transition-all"
+                                                        >
+                                                            重绘
+                                                        </button>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
 
@@ -1656,6 +1736,44 @@ const SocialModal: React.FC<Props> = ({
                             className="max-w-[85vw] max-h-[calc(100vh-2rem)] object-contain rounded-lg transition-transform duration-150 origin-center"
                             style={{ transform: `scale(${imageViewerZoom})` }}
                         />
+                    </div>
+                </div>
+            ), document.body)}
+            <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={处理上传文件} />
+            {uploadNotice && typeof document !== 'undefined' && createPortal((
+                <div className="fixed left-1/2 top-6 z-[100001] -translate-x-1/2 rounded-xl border px-4 py-2 text-sm shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur"
+                    style={{
+                        borderColor: uploadNotice.type === 'ok' ? 'rgba(212,175,55,0.45)' : 'rgba(248,113,113,0.45)',
+                        backgroundColor: uploadNotice.type === 'ok' ? 'rgba(28,20,12,0.95)' : 'rgba(45,16,16,0.95)',
+                        color: uploadNotice.type === 'ok' ? '#e8cf86' : '#fca5a5'
+                    }}
+                >
+                    {uploadNotice.text}
+                </div>
+            ), document.body)}
+            {imageUploadTarget && typeof document !== 'undefined' && createPortal((
+                <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onClick={() => setImageUploadTarget(null)}>
+                    <div className="w-full max-w-md rounded-2xl border border-wuxia-gold/30 bg-[#120d09] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.65)]" onClick={(event) => event.stopPropagation()}>
+                        <div className="mb-4 flex items-start justify-between gap-3">
+                            <div>
+                                <div className="text-lg font-bold text-wuxia-gold">上传本地图片</div>
+                                <div className="mt-1 text-xs text-gray-400">为 {imageUploadTarget.姓名 || '该角色'} 选择要替换的图片槽位，上传后立即生效。</div>
+                            </div>
+                            <button type="button" className="rounded-full border border-white/10 px-2 py-1 text-xs text-gray-300 hover:border-red-400/50 hover:text-red-200" onClick={() => setImageUploadTarget(null)}>关闭</button>
+                        </div>
+                        <div className="grid gap-2">
+                            {NPC图片上传槽位选项.map((option) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left transition-all hover:border-wuxia-gold/50 hover:bg-wuxia-gold/10"
+                                    onClick={() => 提交上传槽位(option.value)}
+                                >
+                                    <div className="text-sm font-bold text-gray-100">{option.label}</div>
+                                    <div className="mt-1 text-xs text-gray-400">{option.description}</div>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             ), document.body)}

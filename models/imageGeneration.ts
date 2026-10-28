@@ -49,6 +49,7 @@ export interface NPC生图结果 {
     上传文件名?: string;
     上传时间?: number;
     调试链路?: 生图调试事件[];
+    图片用途?: '头像' | '立绘' | '背景';
 }
 
 export interface NPC香闺秘档生图结果 {

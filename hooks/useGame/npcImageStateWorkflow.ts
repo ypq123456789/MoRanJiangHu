@@ -173,6 +173,9 @@ const 是否可作头像图片 = (record: any): boolean => (
 
 const 是否可作立绘图片 = (record: any): boolean => (
     (record?.构图 === '半身' || record?.构图 === '立绘')
+    // 背景上传的记录沿用「立绘」构图以兼容旧读取路径，必须按用途排除，
+    // 否则会被当作立绘展示（CodeRabbit PR #117）。
+    && record?.图片用途 !== '背景'
     && record?.状态 === 'success'
     && !是否私密图片记录(record)
     && Boolean(record?.id)
@@ -180,7 +183,7 @@ const 是否可作立绘图片 = (record: any): boolean => (
 );
 
 const 是否可作背景图片 = (record: any): boolean => (
-    record?.构图 === '背景'
+    (record?.构图 === '背景' || record?.图片用途 === '背景')
     && record?.状态 === 'success'
     && !是否私密图片记录(record)
     && Boolean(record?.id)
