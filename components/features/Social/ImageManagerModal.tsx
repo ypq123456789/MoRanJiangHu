@@ -3008,7 +3008,7 @@ const ImageManagerModal: React.FC<Props> = ({
                                     const isSelectedPortrait = Boolean(imageId) && imageId === selectedPortraitId;
                                     const isSelectedBackground = Boolean(imageId) && imageId === selectedBackgroundId;
                                     const canSelectAvatar = Boolean((isPlayerRecord ? onSelectPlayerAvatarImage : onSelectAvatarImage) && imageId && status === 'success' && imageSrc && result.构图 === '头像');
-                                    const canSelectPortrait = Boolean((isPlayerRecord ? onSelectPlayerPortraitImage : onSelectPortraitImage) && imageId && status === 'success' && imageSrc && (result.构图 === '半身' || result.构图 === '立绘'));
+                                    const canSelectPortrait = Boolean((isPlayerRecord ? onSelectPlayerPortraitImage : onSelectPortraitImage) && imageId && status === 'success' && imageSrc && (result.构图 === '半身' || result.构图 === '立绘') && result.图片用途 !== '背景');
                                     const canSelectBackground = Boolean(!isPlayerRecord && onSelectBackgroundImage && imageId && status === 'success' && imageSrc);
                                     const hasLocalCopy = 是否存在本地图片副本(result);
                                     const normalizedPersistentWallpaper = typeof currentPersistentWallpaper === 'string' ? currentPersistentWallpaper.trim() : '';

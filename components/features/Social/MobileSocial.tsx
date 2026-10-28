@@ -555,7 +555,7 @@ const MobileSocial: React.FC<Props> = ({
     const 提取立绘图片地址 = (npc: any) => {
         const fromArchive = 获取图片展示地址(提取符合条件图片记录(
             npc,
-            (item) => item?.构图 === '立绘' || item?.构图 === '半身',
+            (item) => (item?.构图 === '立绘' || item?.构图 === '半身') && item?.图片用途 !== '背景',
             npc?.图片档案?.已选立绘图片ID
         ));
         return fromArchive || 获取图片资源文本地址(npc?.立绘图片URL);

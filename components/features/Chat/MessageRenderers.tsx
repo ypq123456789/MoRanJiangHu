@@ -704,7 +704,7 @@ const 获取NPC头像地址 = (sender: string, socialList?: NPC结构[]): string
         if (获取图片展示地址(selectedPortraitRecord)) {
             return 获取图片展示地址(selectedPortraitRecord);
         }
-        const portraitRecord = history.find((item) => item?.状态 === 'success' && (item?.构图 === '半身' || item?.构图 === '立绘') && 获取图片展示地址(item));
+        const portraitRecord = history.find((item) => item?.状态 === 'success' && (item?.构图 === '半身' || item?.构图 === '立绘') && item?.图片用途 !== '背景' && 获取图片展示地址(item));
         if (获取图片展示地址(portraitRecord)) {
             return 获取图片展示地址(portraitRecord);
         }

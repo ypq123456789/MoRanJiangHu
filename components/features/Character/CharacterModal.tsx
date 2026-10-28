@@ -714,7 +714,7 @@ const CharacterModal: React.FC<Props> = ({
                                             const isAvatar = Boolean(imageId) && imageId === selectedAvatarId;
                                             const isPortrait = Boolean(imageId) && imageId === selectedPortraitId;
                                             const canUseAsAvatar = item?.构图 === '头像' && item?.状态 === 'success' && Boolean(imageUrl);
-                                            const canUseAsPortrait = (item?.构图 === '半身' || item?.构图 === '立绘') && item?.状态 === 'success' && Boolean(imageUrl);
+                                            const canUseAsPortrait = (item?.构图 === '半身' || item?.构图 === '立绘') && item?.图片用途 !== '背景' && item?.状态 === 'success' && Boolean(imageUrl);
 
                                             return (
                                                 <div key={imageId || `${item?.构图 || 'image'}_${item?.生成时间 || 0}`} className="overflow-hidden rounded-xl border border-gray-800 bg-black/35">

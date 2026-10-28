@@ -525,7 +525,7 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
         return String(
             partner?.立绘图片URL ||
             history.find((item: any) => item?.id === partner.图片档案?.已选立绘图片ID)?.图片URL ||
-            history.find((item: any) => item?.构图 === '立绘')?.图片URL ||
+            history.find((item: any) => item?.构图 === '立绘' && item?.图片用途 !== '背景')?.图片URL ||
             ''
         );
     };

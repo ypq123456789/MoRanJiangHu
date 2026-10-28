@@ -121,4 +121,28 @@ describe('手动 NPC 工作流', () => {
         expect(social[0].图片档案.生图历史.length).toBe(2);
         expect(autoSave).toHaveBeenCalledTimes(2);
     });
+
+    it('上传背景会标记用途，避免被按构图取立绘的逻辑当成立绘', async () => {
+        let social: any[] = [{ id: 'npc_upload_bg', 姓名: '苏映雪' }];
+        const workflow = 创建手动NPC工作流({
+            获取环境: () => ({}),
+            环境时间转标准串: () => '',
+            规范化社交列表: (list) => list,
+            设置社交: (updater: any) => {
+                social = typeof updater === 'function' ? updater(social) : updater;
+            },
+            执行社交自动存档: () => {},
+            保存图片资源: async (dataUrl: string) => `asset:${dataUrl}`
+        });
+
+        await workflow.uploadNpcImageToSlot('npc_upload_bg', '背景', {
+            dataUrl: 'data:image/png;base64,BG'
+        });
+
+        const 背景记录 = social[0].图片档案.生图历史[0];
+        expect(背景记录.图片用途).toBe('背景');
+        expect(背景记录.构图).toBe('立绘');
+        expect(social[0].图片档案.已选背景图片ID).toBe(背景记录.id);
+        expect(social[0].图片档案.已选立绘图片ID).toBeUndefined();
+    });
 });

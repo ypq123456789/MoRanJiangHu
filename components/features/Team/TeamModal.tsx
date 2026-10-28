@@ -75,7 +75,7 @@ const TeamModal: React.FC<Props> = ({ character, teammates, openingConfig, onClo
         const selectedAvatarId = typeof archive?.已选头像图片ID === 'string' ? archive.已选头像图片ID.trim() : '';
         const selected = selectedAvatarId ? history.find((item) => item?.id === selectedAvatarId) : null;
         const avatarRecord = selected || history.find((item) => item?.构图 === '头像' && item?.状态 === 'success' && 获取图片展示地址(item));
-        const portraitRecord = history.find((item) => item?.构图 === '立绘' && item?.状态 === 'success' && 获取图片展示地址(item));
+        const portraitRecord = history.find((item) => item?.构图 === '立绘' && item?.图片用途 !== '背景' && item?.状态 === 'success' && 获取图片展示地址(item));
         return 获取图片展示地址(avatarRecord) || 获取图片展示地址(portraitRecord) || 获取图片资源文本地址(person?.头像图片URL) || 获取图片资源文本地址(person?.立绘图片URL);
     };
     const AvatarBox: React.FC<{ person: any; title: string; className?: string; fallbackClassName?: string }> = ({ person, title, className = 'h-20 w-20 rounded-2xl', fallbackClassName = 'text-3xl' }) => {
