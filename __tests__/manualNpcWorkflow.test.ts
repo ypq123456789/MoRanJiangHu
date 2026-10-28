@@ -84,4 +84,41 @@ describe('手动 NPC 工作流', () => {
         expect(social[0].天赋列表).toEqual([{ 名称: '月影灵姿', 描述: '身法轻盈。', 效果: '潜行更稳。' }]);
         expect(autoSave).toHaveBeenCalledTimes(1);
     });
+
+    it('手动上传 NPC 图片会写入图片档案并绑定对应槽位', async () => {
+        let social: any[] = [{ id: 'npc_upload_1', 姓名: '柳如烟' }];
+        const autoSave = vi.fn();
+        const workflow = 创建手动NPC工作流({
+            获取环境: () => ({}),
+            环境时间转标准串: () => '',
+            规范化社交列表: (list) => list,
+            设置社交: (updater: any) => {
+                social = typeof updater === 'function' ? updater(social) : updater;
+            },
+            执行社交自动存档: autoSave,
+            保存图片资源: async (dataUrl: string) => `asset:${dataUrl}`
+        });
+
+        await workflow.uploadNpcImageToSlot('npc_upload_1', '头像', {
+            dataUrl: 'data:image/png;base64,AVATAR',
+            fileName: 'avatar.png'
+        });
+
+        expect(social[0].图片档案.已选头像图片ID).toBeTruthy();
+        const 头像记录 = social[0].图片档案.生图历史[0];
+        expect(头像记录.构图).toBe('头像');
+        expect(头像记录.来源).toBe('upload');
+        expect(头像记录.上传文件名).toBe('avatar.png');
+        expect(头像记录.图片URL).toBe('asset:data:image/png;base64,AVATAR');
+        expect(social[0].最近生图结果).toMatchObject({ id: 头像记录.id });
+
+        await workflow.uploadNpcImageToSlot('npc_upload_1', '立绘', {
+            dataUrl: 'data:image/png;base64,PORTRAIT'
+        });
+
+        expect(social[0].图片档案.已选立绘图片ID).toBeTruthy();
+        expect(social[0].图片档案.已选头像图片ID).toBe(头像记录.id);
+        expect(social[0].图片档案.生图历史.length).toBe(2);
+        expect(autoSave).toHaveBeenCalledTimes(2);
+    });
 });

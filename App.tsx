@@ -4426,6 +4426,7 @@ const App: React.FC = () => {
                                      onRecruitToSect={handleRecruitNpcToSect}
                                     onStealFromNpc={handleStealFromNpc}
                                      onRetryImage={actions.retryNpcImageGeneration}
+                                     onUploadNpcImage={actions.uploadNpcImageToSlot}
                                      playerSect={state.玩家门派}
                                   />
                             ) : (
@@ -4446,6 +4447,7 @@ const App: React.FC = () => {
                                      onRecruitToSect={handleRecruitNpcToSect}
                                       onStealFromNpc={handleStealFromNpc}
                                       onRetryImage={actions.retryNpcImageGeneration}
+                                      onUploadNpcImage={actions.uploadNpcImageToSlot}
                                       playerSect={state.玩家门派}
                                   />
                             )}
