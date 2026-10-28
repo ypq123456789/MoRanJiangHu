@@ -628,6 +628,12 @@ const SocialModal: React.FC<Props> = ({
     };
 
     useEffect(() => {
+        if (!uploadNotice) return;
+        const timer = window.setTimeout(() => setUploadNotice(null), 3500);
+        return () => window.clearTimeout(timer);
+    }, [uploadNotice]);
+
+    useEffect(() => {
         if (!imageViewer) return;
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {

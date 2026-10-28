@@ -639,6 +639,12 @@ const MobileSocial: React.FC<Props> = ({
     };
 
     useEffect(() => {
+        if (!uploadNotice) return;
+        const timer = window.setTimeout(() => setUploadNotice(null), 3500);
+        return () => window.clearTimeout(timer);
+    }, [uploadNotice]);
+
+    useEffect(() => {
         if (!imageViewer) return;
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
@@ -1140,32 +1146,32 @@ const MobileSocial: React.FC<Props> = ({
                                                                 已故
                                                             </div>
                                                         )}
-                                                        {(onUploadNpcImage || onRetryImage) && (
-                                                            <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
-                                                                {onUploadNpcImage && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => { e.stopPropagation(); 打开上传选择(currentNPC); }}
-                                                                        disabled={uploadingNpcImage}
-                                                                        className="text-[9px] px-1.5 py-0.5 rounded border border-wuxia-gold/30 bg-black/60 text-wuxia-gold/80 hover:bg-wuxia-gold/20 hover:text-wuxia-gold transition-all disabled:opacity-50"
-                                                                    >
-                                                                        上传
-                                                                    </button>
-                                                                )}
-                                                                {onRetryImage && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => { e.stopPropagation(); 打开重绘选择(currentNPC); }}
-                                                                        className="text-[9px] px-1.5 py-0.5 rounded border border-wuxia-gold/30 bg-black/60 text-wuxia-gold/80 hover:bg-wuxia-gold/20 hover:text-wuxia-gold transition-all"
-                                                                    >
-                                                                        重绘
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        )}
                                                     </>
                                                 ) : (
                                                     <div className="flex h-full w-full items-center justify-center font-serif text-5xl text-wuxia-gold/30">{currentNPC.姓名[0]}</div>
+                                                )}
+                                                {(onUploadNpcImage || onRetryImage) && (
+                                                    <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+                                                        {onUploadNpcImage && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); 打开上传选择(currentNPC); }}
+                                                                disabled={uploadingNpcImage}
+                                                                className="text-[9px] px-1.5 py-0.5 rounded border border-wuxia-gold/30 bg-black/60 text-wuxia-gold/80 hover:bg-wuxia-gold/20 hover:text-wuxia-gold transition-all disabled:opacity-50"
+                                                            >
+                                                                上传
+                                                            </button>
+                                                        )}
+                                                        {onRetryImage && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); 打开重绘选择(currentNPC); }}
+                                                                className="text-[9px] px-1.5 py-0.5 rounded border border-wuxia-gold/30 bg-black/60 text-wuxia-gold/80 hover:bg-wuxia-gold/20 hover:text-wuxia-gold transition-all"
+                                                            >
+                                                                重绘
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
                                             {/* 左侧立绘下方的三颗操作按钮：
