@@ -19,6 +19,7 @@ import {
 import type { 当前可用接口结构 } from '../../../utils/apiConfig';
 import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 import { 协议请求错误, 请求模型文本, type 通用消息 } from '../../../services/ai/chatCompletionClient';
+import { 套用主剧情模型到生成阶段 } from '../../../utils/workflowModelFollow';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
 type StageStatus = 'enabled' | 'disabled' | 'fallback' | 'blocked';
@@ -178,6 +179,7 @@ const WorkflowGraphSettings: React.FC<{
     const [loadingStageId, setLoadingStageId] = useState('');
     const [testingStageId, setTestingStageId] = useState('');
     const [stageMessages, setStageMessages] = useState<Record<string, string>>({});
+    const [followMessage, setFollowMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
     useEffect(() => {
         setForm(规范化接口设置(settings));
@@ -507,6 +509,28 @@ const WorkflowGraphSettings: React.FC<{
             configs: prev.configs.map((cfg) => cfg.id === activeId ? { ...cfg, model, updatedAt: Date.now() } : cfg),
             功能模型占位: { ...prev.功能模型占位, 主剧情使用模型: model }
         }));
+    };
+
+    const mainChannel = useMemo(() => {
+        const activeId = normalized.activeConfigId || normalized.configs[0]?.id || '';
+        return normalized.configs.find((cfg) => cfg.id === activeId) || normalized.configs[0] || null;
+    }, [normalized]);
+    const mainModel = trim(mainApi?.model);
+
+    // 换 API 时逐个阶段手改渠道 + 模型非常容易漏配，这里一次性对齐到当前主剧情。
+    const applyMainModelToStages = () => {
+        if (!onSave) return;
+        const result = 套用主剧情模型到生成阶段(form);
+        if (!result.ok) {
+            setFollowMessage({ ok: false, text: result.原因 || '套用失败。' });
+            return;
+        }
+        setForm(result.设置);
+        onSave(result.设置);
+        setFollowMessage({
+            ok: true,
+            text: `已把 ${result.阶段.length} 个阶段改为「${result.渠道名称} · ${result.模型}」：${result.阶段.join('、')}。只改了模型与渠道，阶段开关和独立接口地址已按主剧情重置。`
+        });
     };
 
     const resolveStageApi = (stage: FlowStage): 当前可用接口结构 | null => {
@@ -861,6 +885,37 @@ const WorkflowGraphSettings: React.FC<{
                     想真正并行，请给同排阶段配置不同渠道；同渠道会被视为排队链路。
                 </div>
             </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-wuxia-gold/25 bg-black/20 px-3 py-2.5">
+                <div className="min-w-0 text-[11px] leading-5">
+                    <div className="text-gray-300 [html[data-theme='day']_&]:text-gray-700">
+                        主剧情当前：<span className="font-bold text-wuxia-cyan">{mainChannel?.名称 || '未配置渠道'}</span>
+                        <span className="mx-1 text-gray-500">·</span>
+                        <span className="font-bold text-wuxia-gold">{mainModel || '未选择模型'}</span>
+                    </div>
+                    <div className="text-gray-500 [html[data-theme='day']_&]:text-gray-600">
+                        API 不稳定需要常换时，不用逐个阶段手改：一键把下面所有生成阶段的渠道与模型对齐到主剧情（只改模型，不动阶段开关）。
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={applyMainModelToStages}
+                    className="h-8 shrink-0 rounded-sm border border-wuxia-gold/50 bg-wuxia-gold/15 px-3 text-[11px] font-bold text-wuxia-gold transition hover:border-wuxia-gold hover:bg-wuxia-gold/25 disabled:cursor-not-allowed disabled:opacity-50 [html[data-theme='day']_&]:border-amber-700/50 [html[data-theme='day']_&]:bg-amber-100 [html[data-theme='day']_&]:text-amber-900"
+                    disabled={!onSave}
+                >
+                    一键套用主剧情模型
+                </button>
+            </div>
+
+            {followMessage && (
+                <div className={`rounded-md border px-3 py-2 text-[11px] leading-5 ${
+                    followMessage.ok
+                        ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200 [html[data-theme="day"]_&]:border-emerald-600/40 [html[data-theme="day"]_&]:bg-emerald-50 [html[data-theme="day"]_&]:text-emerald-800'
+                        : 'border-amber-400/40 bg-amber-500/10 text-amber-200 [html[data-theme="day"]_&]:border-amber-600/40 [html[data-theme="day"]_&]:bg-amber-50 [html[data-theme="day"]_&]:text-amber-800'
+                }`}>
+                    {followMessage.text}
+                </div>
+            )}
 
             <div className="overflow-x-auto rounded-md border border-wuxia-gold/20 bg-black/25 p-3 custom-scrollbar">
                 <div className="min-w-[760px] space-y-2">
