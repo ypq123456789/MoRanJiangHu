@@ -13,8 +13,8 @@ android {
         applicationId "com.moranjianghu.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 699
-        versionName "1.0.699"
+        versionCode 700
+        versionName "1.0.700"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
