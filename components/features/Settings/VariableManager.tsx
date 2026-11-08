@@ -232,8 +232,11 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
     // 只跟随「底层姓名」变化重置输入框，避免玩家正在输入时被其他字段编辑打断。
     React.useEffect(() => {
         setNameDraft(当前主角姓名);
-        setNameMessage('');
     }, [当前主角姓名]);
+    // 切换分区时清掉上一条提示，避免把别的分区的结果误读成当前结果。
+    React.useEffect(() => {
+        setNameMessage('');
+    }, [activeSection]);
 
     // 保留地图系统草稿，防止被 runtimeState 更新覆盖
     const mapDraftRef = React.useRef<any>(null);
