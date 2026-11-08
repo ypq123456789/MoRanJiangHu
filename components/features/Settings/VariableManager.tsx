@@ -312,9 +312,11 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
             setNameMessage('原始 JSON 草稿还有未保存的修改，请先点「保存本分区」再改主角姓名。');
             return;
         }
-        const runtimeRole = runtimeState['角色'] && typeof runtimeState['角色'] === 'object'
-            ? runtimeState['角色'] as Record<string, any>
-            : {};
+        if (!runtimeState['角色'] || typeof runtimeState['角色'] !== 'object') {
+            setNameMessage('当前还没有角色数据，暂时不能修改主角姓名。');
+            return;
+        }
+        const runtimeRole = runtimeState['角色'] as Record<string, any>;
         const draftRoleForCheck = activeValue && typeof activeValue === 'object'
             ? activeValue as Record<string, any>
             : {};
