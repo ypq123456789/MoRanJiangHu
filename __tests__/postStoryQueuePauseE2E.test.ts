@@ -273,4 +273,41 @@ describe('正文后暂停后续步骤（省额度模式）', () => {
         expect(夹具.deps.执行正文润色).toHaveBeenCalledTimes(1);
         expect(地图更新桩).toHaveBeenCalledTimes(1);
     });
+
+    it('文章优化被玩家中止时保留已生成正文，不回滚整回合', async () => {
+        const 夹具 = 构建夹具({ 启用暂停: true, 文章优化: true });
+        夹具.deps.执行正文润色 = vi.fn(async () => {
+            const error: any = new Error('aborted');
+            error.name = 'AbortError';
+            throw error;
+        });
+
+        const result = await 执行主剧情发送工作流('继续。', false, 夹具.state, 夹具.deps);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect(result.cancelled).not.toBe(true);
+        expect(result.pausedAfterStory).toBe(true);
+        expect(夹具.注册待继续后续步骤).toHaveBeenCalledTimes(1);
+        expect(夹具.deps.回档到快照).not.toHaveBeenCalled();
+        expect(夹具.取历史().some((item: any) => item?.role === 'assistant' && item?.structuredResponse)).toBe(true);
+    });
+
+    it('续跑时用暂停期间的最新状态重建命令基态，不覆盖玩家改动', async () => {
+        const 夹具 = 构建夹具({ 启用暂停: true });
+        await 执行主剧情发送工作流('继续。', false, 夹具.state, 夹具.deps);
+        const payload = 夹具.注册待继续后续步骤.mock.calls[0][0];
+
+        // 模拟暂停期间玩家手动改过角色（背包/装备/手动修改变量都会落到同一批状态）
+        夹具.deps.获取续跑状态快照 = () => ({
+            命令基线: { 角色: { ...夹具.state.角色, 姓名: '改名后少侠' } },
+            历史: 夹具.取历史(),
+            场外对话: []
+        });
+
+        await payload.执行();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        const 基线列表 = 夹具.deps.processResponseCommands.mock.calls.map((call: any[]) => call[1]);
+        expect(基线列表.some((base: any) => base?.角色?.姓名 === '改名后少侠')).toBe(true);
+    });
 });

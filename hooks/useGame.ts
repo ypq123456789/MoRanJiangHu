@@ -3864,6 +3864,34 @@ export const useGame = () => {
     // 玩家确认正文质量后再手动点「继续执行后续步骤」，避免不满意重ROLL 时连锁消耗变量/世界/规划/地图的额度。
     const [待继续后续步骤, set待继续后续步骤] = useState<{ 阶段摘要: string[]; 回合标识: number; 注册时间: number } | null>(null);
     const 待继续后续步骤执行Ref = useRef<null | (() => Promise<void>)>(null);
+    // 暂停续跑要读「玩家点击继续那一刻」的最新状态，而不是发送回合时的闭包快照。
+    // 每次渲染同步一次引用（不深拷贝），续跑时再拷贝，避免暂停期间的改动被旧快照覆盖。
+    const 最新回合基线Ref = useRef<null | {
+        角色: 角色数据结构;
+        环境: any;
+        社交: any[];
+        世界: any;
+        战斗: any;
+        玩家门派: any;
+        任务列表: any[];
+        约定列表: any[];
+        剧情: 剧情系统结构;
+        女主剧情规划?: 女主剧情规划结构;
+        历史记录: 聊天记录结构[];
+    }>(null);
+    最新回合基线Ref.current = {
+        角色,
+        环境,
+        社交,
+        世界,
+        战斗,
+        玩家门派,
+        任务列表,
+        约定列表,
+        剧情,
+        女主剧情规划,
+        历史记录
+    };
 
     const 放弃待继续后续步骤 = () => {
         待继续后续步骤执行Ref.current = null;
@@ -3897,7 +3925,9 @@ export const useGame = () => {
         const 注册回合标识 = Number(待继续后续步骤?.回合标识) || 0;
         待继续后续步骤执行Ref.current = null;
         set待继续后续步骤(null);
-        if (注册回合标识 && 当前回合标识 && 注册回合标识 !== 当前回合标识) {
+        // 只要注册时的回合标识对不上（包括历史被清空导致当前标识为 0），就丢弃续跑：
+        // 旧闭包里的状态快照已经和新局面对不上，执行只会把上一局的命令叠到当前状态上。
+        if (!注册回合标识 || 注册回合标识 !== 当前回合标识) {
             推送右下角提示({
                 title: '后续步骤已取消',
                 message: '上一回合已被回档或读档，本次未执行的后续步骤已失效。',
@@ -3968,6 +3998,26 @@ export const useGame = () => {
                 setLoading,
                 set后台队列处理中,
                 注册待继续后续步骤,
+                获取续跑状态快照: () => {
+                    const latest = 最新回合基线Ref.current;
+                    if (!latest) return null;
+                    return {
+                        命令基线: {
+                            角色: 深拷贝(latest.角色),
+                            环境: 深拷贝(latest.环境),
+                            社交: 深拷贝(latest.社交),
+                            世界: 深拷贝(latest.世界),
+                            战斗: 深拷贝(latest.战斗),
+                            玩家门派: 深拷贝(latest.玩家门派),
+                            任务列表: 深拷贝(latest.任务列表),
+                            约定列表: 深拷贝(latest.约定列表),
+                            剧情: 深拷贝(latest.剧情),
+                            女主剧情规划: 深拷贝(latest.女主剧情规划)
+                        },
+                        历史: 深拷贝(latest.历史记录),
+                        场外对话: 深拷贝(场外对话Ref.current || [])
+                    };
+                },
                 setShowSettings,
                 设置剧情,
                 设置历史记录,
@@ -4245,6 +4295,7 @@ export const useGame = () => {
         loading,
         最近开局配置,
         abortControllerRef,
+        放弃待继续后续步骤,
         ensurePromptsLoaded,
         setView,
         setPrompts,

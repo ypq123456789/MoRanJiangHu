@@ -1214,6 +1214,23 @@ type 主剧情发送依赖 = {
     abortControllerRef: { current: AbortController | null };
     /** 注册「正文后暂停」的续跑入口；未提供时退回自动执行全部后续阶段 */
     注册待继续后续步骤?: (payload: { 阶段摘要: string[]; 回合标识?: number; 执行: () => Promise<void> }) => void;
+    /** 暂停续跑前读取最新状态：玩家可能在暂停期间改过背包/装备/功法/社交，也可能追加过系统消息或场外对话 */
+    获取续跑状态快照?: () => {
+        命令基线?: Partial<{
+            角色: any;
+            环境: any;
+            社交: any[];
+            世界: any;
+            战斗: any;
+            玩家门派: any;
+            任务列表: any[];
+            约定列表: any[];
+            剧情: any;
+            女主剧情规划: any;
+        }>;
+        历史?: 聊天记录结构[];
+        场外对话?: 场外对话消息结构[];
+    } | null;
     recallAbortControllerRef: { current: AbortController | null };
     前台发送序号Ref?: { current: number };
     setLoading: (value: boolean) => void;
@@ -2091,7 +2108,8 @@ export const 执行主剧情发送工作流 = async (
         const worldEvolutionSplitEnabled = worldEvolutionFeatureEnabled && 接口配置是否可用(获取世界演变接口配置(currentState.apiConfig));
         // 让出主线程，避免连续深拷贝 + processResponseCommands 阻塞 UI 导致"未响应"
         await 让出主线程();
-        const mainCommandBaseState = {
+        // let：暂停续跑时要用玩家在暂停期间改动过的最新状态重建基态，避免旧快照把改动写回去。
+        let mainCommandBaseState = {
             角色: deps.深拷贝(currentState.角色),
             环境: deps.深拷贝(currentState.环境),
             社交: deps.深拷贝(currentState.社交),
@@ -2488,6 +2506,9 @@ export const 执行主剧情发送工作流 = async (
             && 获取队列阶段渠道键(文章优化配置, activeApi) !== 获取队列阶段渠道键(变量生成配置, activeApi);
         // 暂停模式下文章优化已经在「正文写完」时跑过，继续时不能再跑一次，否则等于白花一次调用。
         let 文章优化已由暂停前执行 = false;
+        // 暂停期间玩家可能追加系统消息 / 新开侧聊，续跑时抓一份最新快照，存档以它为准。
+        let 续跑存档历史: 聊天记录结构[] | null = null;
+        let 续跑场外对话: 场外对话消息结构[] | null = null;
 
         const 执行文章优化阶段 = async (启用并行文案: boolean = 文章优化变量可并行) => {
             if (!文章优化开启) return null;
@@ -3197,9 +3218,22 @@ export const 执行主剧情发送工作流 = async (
                 deps.检查主角每回合生图(finalState.角色);
 
                 if (回合结束自动存档已开启) {
+                    // 优先用暂停续跑时抓到的最新历史（其中可能包含暂停期间追加的系统消息），
+                    // 并把本回合 assistant 消息替换为合并了变量/规划结果的最终版本，避免重复或丢失。
+                    const 构建续跑存档历史 = (): 聊天记录结构[] => {
+                        const base = Array.isArray(续跑存档历史) ? [...续跑存档历史] : [...updatedDisplayHistory];
+                        const targetIndex = base.findIndex((item) => (
+                            item?.role === 'assistant' && Number(item?.timestamp) === Number(queuedAiMsg.timestamp)
+                        ));
+                        if (targetIndex >= 0) {
+                            base[targetIndex] = queuedAiMsg;
+                            return base;
+                        }
+                        return [...base, queuedAiMsg];
+                    };
                     try {
                         const saved = await deps.performAutoSave({
-                            history: [...updatedDisplayHistory, queuedAiMsg],
+                            history: 构建续跑存档历史(),
                             role: finalState.角色,
                             env: finalState.环境,
                             social: finalState.社交,
@@ -3217,7 +3251,8 @@ export const 执行主剧情发送工作流 = async (
                             叙事平静值: 本回合更新后的叙事平静值 || undefined,
                             // 本回合已把暂存的场外对话吸收进正文/记忆，自动存档必须落盘“已清空”的状态，
                             // 否则存档会写回旧的暂存（currentState 仍是发起回合时的闭包快照），读档后重复注入一次。
-                            场外对话: [],
+                            // 暂停模式例外：暂停期间新开的场外对话属于下一轮，不能被本回合存档清掉。
+                            场外对话: 续跑场外对话 ?? [],
                             force: true
                         });
                         const autoSaveId = Number(saved?.id);
@@ -3293,20 +3328,37 @@ export const 执行主剧情发送工作流 = async (
         if (启用正文后暂停后续步骤 && 需要展示后续步骤入口(暂停阶段摘要) && deps.注册待继续后续步骤) {
             // 文章优化改写的仍是正文本身，属于「确认正文质量」的一环，放在暂停点之前跑，
             // 让玩家看到并确认的就是最终正文；变量/世界/规划/地图留到一键继续时再执行。
-            const 暂停前优化阶段 = await 执行文章优化阶段(false);
-            应用文章优化结果(暂停前优化阶段);
+            try {
+                const 暂停前优化阶段 = await 执行文章优化阶段(false);
+                应用文章优化结果(暂停前优化阶段);
+            } catch (暂停前优化错误: any) {
+                if (暂停前优化错误?.name !== 'AbortError') throw 暂停前优化错误;
+                // 玩家在文章优化期间点了停止：正文已经生成并计费，不能因为优化被取消就把整回合回滚，
+                // 否则等于把玩家已经花掉的那次调用丢掉。这里只标记优化已取消，正文照常保留。
+                options?.onPolishProgress?.({
+                    phase: "cancelled",
+                    text: "文章优化已取消，当前正文保留；后续步骤仍可在确认正文后继续。"
+                });
+            }
             文章优化已由暂停前执行 = true;
             // 继续时文章优化已经跑完，变量生成不再有并行对象，阶段文案也要跟着改。
             文章优化变量可并行 = false;
-            if (controller.signal.aborted) {
-                throw controller.signal.reason || new DOMException('Aborted', 'AbortError');
-            }
             deps.注册待继续后续步骤({
                 阶段摘要: 暂停阶段摘要,
                 回合标识: aiTurnTimestamp,
                 执行: async () => {
-                    // 注册后玩家可能已经重ROLL或开了新回合：signal 已 abort 时直接放弃，避免把旧回合命令叠到新状态上。
-                    if (controller.signal.aborted) return;
+                    // 暂停期间玩家可能改过背包/装备/功法/社交，也可能追加过系统消息或场外对话。
+                    // 续跑前用最新状态重建命令基态与存档快照，避免旧回合快照把暂停期间的改动写回去。
+                    const 续跑快照 = deps.获取续跑状态快照?.() || null;
+                    if (续跑快照?.命令基线) {
+                        mainCommandBaseState = { ...mainCommandBaseState, ...续跑快照.命令基线 };
+                    }
+                    续跑存档历史 = Array.isArray(续跑快照?.历史) && 续跑快照!.历史!.length > 0
+                        ? 续跑快照!.历史!
+                        : null;
+                    续跑场外对话 = Array.isArray(续跑快照?.场外对话) ? 续跑快照!.场外对话! : null;
+                    // 不检查旧 signal：暂停前它只在「文章优化被玩家中止」时才会 abort，
+                    // 那种场景正文仍然保留、也应该允许继续；真正的过期回合已由发送/重ROLL/读档主动清空 + 回合标识校验拦掉。
                     controller = new AbortController();
                     deps.abortControllerRef.current = controller;
                     deps.set后台队列处理中(true);
