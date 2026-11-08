@@ -240,6 +240,8 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
 
     // 保留地图系统草稿，防止被 runtimeState 更新覆盖
     const mapDraftRef = React.useRef<any>(null);
+    // 玩家正在编辑「原始 JSON 草稿」时，不让 activeValue 的被动刷新覆盖未保存输入。
+    const jsonDraftDirtyRef = React.useRef(false);
     const pendingSavedDraftsRef = React.useRef<Record<string, { value: any; previousFingerprint: string }>>({});
     const 读取运行时分区 = React.useCallback((section: 变量根键, source: Record<变量根键, unknown> = runtimeState) => {
         if (section === '地图系统') return 提取地图数据(source['世界']);
@@ -267,7 +269,7 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
     }, [runtimeState, 读取运行时分区]);
 
     React.useEffect(() => {
-        setJsonDraft(格式化JSON(activeValue));
+        if (!jsonDraftDirtyRef.current) setJsonDraft(格式化JSON(activeValue));
     }, [activeValue]);
 
     const updateActiveDraft = (value: any) => {
@@ -295,7 +297,7 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
         };
     };
 
-    // 玩家手动修回主角姓名：直接替换 角色 分区，保存后由运行时流程写状态 + 自动存档。
+    // 玩家手动修回主角姓名：只把姓名写入运行时状态，不碰其他尚未保存的草稿。
     const 保存主角姓名 = () => {
         const nextName = nameDraft.trim();
         if (!nextName) {
@@ -306,17 +308,36 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
             setNameMessage('姓名未变化。');
             return;
         }
-        const role = activeValue && typeof activeValue === 'object' ? activeValue as Record<string, any> : {};
-        const nextRole = { ...role, 姓名: nextName };
-        markPendingSavedDraft('角色', nextRole);
-        setDrafts((prev) => ({ ...prev, 角色: nextRole }));
-        onReplaceSection('角色', nextRole);
+        if (jsonDraftDirtyRef.current) {
+            setNameMessage('原始 JSON 草稿还有未保存的修改，请先点「保存本分区」再改主角姓名。');
+            return;
+        }
+        const runtimeRole = runtimeState['角色'] && typeof runtimeState['角色'] === 'object'
+            ? runtimeState['角色'] as Record<string, any>
+            : {};
+        const draftRoleForCheck = activeValue && typeof activeValue === 'object'
+            ? activeValue as Record<string, any>
+            : {};
+        // 结构树里若还有未保存的编辑，先提醒保存，避免被本次姓名写入覆盖。
+        // 姓名本身由上方输入框决定，不参与比较（双击保存时草稿姓名可能已领先运行时一拍）。
+        const { 姓名: _草稿姓名, ...草稿其余字段 } = draftRoleForCheck;
+        const { 姓名: _运行时姓名, ...运行时其余字段 } = runtimeRole;
+        if (安全指纹(草稿其余字段) !== 安全指纹(运行时其余字段)) {
+            setNameMessage('角色分区还有未保存的修改，请先点「保存本分区」再改主角姓名。');
+            return;
+        }
+        // 提交只用「运行时角色 + 新姓名」，确保不会把草稿里的其他字段一起持久化。
+        const submittedRole = { ...runtimeRole, 姓名: nextName };
+        markPendingSavedDraft('角色', submittedRole);
+        setDrafts((prev) => ({ ...prev, 角色: submittedRole }));
+        onReplaceSection('角色', submittedRole);
         setNameMessage(`已保存：${nextName}`);
     };
 
     const handleSaveSection = () => {
         try {
             const parsed = JSON.parse(jsonDraft);
+            jsonDraftDirtyRef.current = false;
             if (activeSection === '地图系统') {
                 const currentMapData = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
                 const worldData = 深拷贝(runtimeState['世界'] || {});
@@ -384,7 +405,10 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                             <button
                                 key={section.key}
                                 type="button"
-                                onClick={() => setActiveSection(section.key)}
+                                onClick={() => {
+                                    jsonDraftDirtyRef.current = false;
+                                    setActiveSection(section.key);
+                                }}
                                 className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
                                     activeSection === section.key
                                         ? 'border-wuxia-gold/60 bg-wuxia-gold/10'
@@ -406,6 +430,7 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                                 <div className="mt-1 text-xs text-gray-500">{分区列表.find((item) => item.key === activeSection)?.description}</div>
                             </div>
                             <button type="button" onClick={() => {
+                                jsonDraftDirtyRef.current = false;
                                 if (activeSection === '地图系统') {
                                     updateActiveDraft(提取地图数据(runtimeState['世界']));
                                 } else {
@@ -497,7 +522,10 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                         </div>
                         <textarea
                             value={jsonDraft}
-                            onChange={(e) => setJsonDraft(e.target.value)}
+                            onChange={(e) => {
+                                jsonDraftDirtyRef.current = true;
+                                setJsonDraft(e.target.value);
+                            }}
                             rows={16}
                             className={`${输入框样式} font-mono text-[12px] leading-6`}
                         />
