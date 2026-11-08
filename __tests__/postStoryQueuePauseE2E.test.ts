@@ -55,12 +55,12 @@ const 构建系统上下文 = () => ({
     }
 });
 
-const 构建响应 = (text: string, rawText = text) => ({
+const 构建响应 = (text: string, rawText = text, commands: any[] = []) => ({
     rawText,
     response: {
         logs: [{ sender: '旁白', text }],
         shortTerm: '本回合继续推进。',
-        tavern_commands: [],
+        tavern_commands: commands,
         action_options: []
     }
 });
@@ -309,5 +309,30 @@ describe('正文后暂停后续步骤（省额度模式）', () => {
 
         const 基线列表 = 夹具.deps.processResponseCommands.mock.calls.map((call: any[]) => call[1]);
         expect(基线列表.some((base: any) => base?.角色?.姓名 === '改名后少侠')).toBe(true);
+    });
+
+    it('续跑只重放正文之后的增量命令，避免正文命令重复生效', async () => {
+        vi.mocked(textAIService.generateStoryResponse).mockResolvedValue(
+            构建响应('我推门进屋，把湿透的外袍搭在椅背上。', '<正文>我推门进屋。</正文>', [
+                { action: 'add', key: '角色.金钱', value: 100 }
+            ]) as any
+        );
+        const 夹具 = 构建夹具({ 启用暂停: true });
+        await 执行主剧情发送工作流('继续。', false, 夹具.state, 夹具.deps);
+
+        const payload = 夹具.注册待继续后续步骤.mock.calls[0][0];
+        const 续跑前调用数 = 夹具.deps.processResponseCommands.mock.calls.length;
+        await payload.执行();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        const 续跑调用 = 夹具.deps.processResponseCommands.mock.calls.slice(续跑前调用数);
+        expect(续跑调用.length).toBeGreaterThan(0);
+        for (const call of 续跑调用) {
+            const commands = call[0]?.tavern_commands || [];
+            expect(commands.some((cmd: any) => cmd?.key === '角色.金钱')).toBe(false);
+        }
+        // 展示层仍要保留完整命令，方便玩家在回合面板核对
+        const 最新AI回合 = [...夹具.取历史()].reverse().find((item: any) => item?.role === 'assistant' && item?.structuredResponse);
+        expect(最新AI回合?.structuredResponse?.tavern_commands?.length).toBe(1);
     });
 });

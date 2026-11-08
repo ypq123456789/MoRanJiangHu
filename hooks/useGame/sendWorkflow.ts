@@ -2259,6 +2259,18 @@ export const 执行主剧情发送工作流 = async (
         };
 
         let finalParsedResponse: GameResponse = responseForExecution;
+        // 暂停续跑时，正文命令已经在暂停前由 main.applyImmediateResponseCommands 应用过一次，当前状态里已包含结果。
+        // 续跑若整体重放：add/sub 会重复生效，set 会覆盖玩家在暂停期间对同一字段的手动改动。
+        // 因此这里只把「正文之后的增量命令」（变量/世界/规划/地图）合到最新状态上。
+        let 续跑跳过命令数 = 0;
+        const 截取续跑增量命令 = (response: GameResponse): GameResponse => {
+            if (续跑跳过命令数 <= 0) return response;
+            const commands = Array.isArray(response?.tavern_commands) ? response.tavern_commands : [];
+            return {
+                ...response,
+                tavern_commands: commands.length > 续跑跳过命令数 ? commands.slice(续跑跳过命令数) : []
+            };
+        };
         let finalDisplayResponse: GameResponse = {
             ...displayAiData,
             tavern_commands: Array.isArray(responseForExecution.tavern_commands) ? [...responseForExecution.tavern_commands] : []
@@ -2271,7 +2283,7 @@ export const 执行主剧情发送工作流 = async (
         const 立即并入变量生成状态 = (nextResponse: GameResponse) => {
             simulatedState = 计时同步队列步骤(
                 "variable.applyImmediateResponseCommands",
-                () => deps.processResponseCommands(nextResponse, mainCommandBaseState),
+                () => deps.processResponseCommands(截取续跑增量命令(nextResponse), mainCommandBaseState),
                 { commandCount: 获取响应命令数量(nextResponse) }
             );
             return simulatedState;
@@ -2697,7 +2709,7 @@ export const 执行主剧情发送工作流 = async (
                     await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "variable.simulateMergedResponseCommands",
-                        () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                        () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                         { commandCount: 获取响应命令数量(responseForExecution) }
                     );
                     if (Array.isArray(responseForExecution.tavern_commands) && responseForExecution.tavern_commands.length > 0) {
@@ -3017,7 +3029,7 @@ export const 执行主剧情发送工作流 = async (
                         await 让出主线程();
                         simulatedState = 计时同步队列步骤(
                             "world.simulateMergedResponseCommands",
-                            () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                            () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                             { commandCount: 获取响应命令数量(responseForExecution), worldCommandCount: worldEvolutionResult.commands.length }
                         );
                     }
@@ -3043,7 +3055,7 @@ export const 执行主剧情发送工作流 = async (
                         await 让出主线程();
                         simulatedState = 计时同步队列步骤(
                             "planning.simulateMergedResponseCommands",
-                            () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                            () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                             { commandCount: 获取响应命令数量(responseForExecution), planningCommandCount: planningResult.commands.length }
                         );
                     }
@@ -3134,7 +3146,7 @@ export const 执行主剧情发送工作流 = async (
                     await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "parallelPost.simulateMergedResponseCommands",
-                        () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                        () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                         {
                             commandCount: 获取响应命令数量(responseForExecution),
                             worldCommandCount: worldEvolutionResult?.commands.length || 0,
@@ -3146,7 +3158,7 @@ export const 执行主剧情发送工作流 = async (
                     await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "map.simulateMergedResponseCommands",
-                        () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                        () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                         { commandCount: 获取响应命令数量(responseForExecution), mapCommandCount: mapUpdateResult.commands.length }
                     );
                 }
@@ -3163,7 +3175,7 @@ export const 执行主剧情发送工作流 = async (
                 }
                 finalState = 计时同步队列步骤(
                     "queue.finalApplyResponseCommands",
-                    () => deps.processResponseCommands(finalParsedResponse, mainCommandBaseState),
+                    () => deps.processResponseCommands(截取续跑增量命令(finalParsedResponse), mainCommandBaseState),
                     { commandCount: 获取响应命令数量(finalParsedResponse) }
                 );
                 const calibratedFinalStory = await 同步剧情小说分解时间校准({
@@ -3343,6 +3355,10 @@ export const 执行主剧情发送工作流 = async (
             文章优化已由暂停前执行 = true;
             // 继续时文章优化已经跑完，变量生成不再有并行对象，阶段文案也要跟着改。
             文章优化变量可并行 = false;
+            // 正文命已经由 main.applyImmediateResponseCommands 应用到状态里，续跑只追加后续阶段的增量命令。
+            续跑跳过命令数 = Array.isArray(responseForExecution.tavern_commands)
+                ? responseForExecution.tavern_commands.length
+                : 0;
             deps.注册待继续后续步骤({
                 阶段摘要: 暂停阶段摘要,
                 回合标识: aiTurnTimestamp,
