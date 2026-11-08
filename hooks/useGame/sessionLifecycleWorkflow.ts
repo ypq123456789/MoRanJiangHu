@@ -92,6 +92,8 @@ type 会话生命周期依赖 = {
     loading: boolean;
     最近开局配置: 最近开局配置结构 | null;
     abortControllerRef: { current: AbortController | null };
+    /** 会话层面重置（新游戏/快速重开/返回首页）时清掉「正文后暂停」挂起的后续步骤 */
+    放弃待继续后续步骤?: () => void;
     ensurePromptsLoaded: () => Promise<提示词结构[]>;
     setView: (value: 'home' | 'game' | 'new_game') => void;
     setPrompts: (value: 提示词结构[]) => void;
@@ -196,6 +198,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
     };
 
     const handleStartNewGameWizard = () => {
+        deps.放弃待继续后续步骤?.();
         deps.清空重Roll快照();
         deps.重置自动存档状态();
         清空当前存档生图隔离态();
@@ -462,6 +465,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
     };
 
     const handleReturnToHome = () => {
+        deps.放弃待继续后续步骤?.();
         deps.重置自动存档状态();
         deps.设置最近开局配置(null);
         void deps.清除开局提示词基线();
@@ -473,6 +477,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
 
     const handleQuickRestart = async (mode: 快速重开模式 = 'all') => {
         if (deps.loading || !deps.最近开局配置) return;
+        deps.放弃待继续后续步骤?.();
         deps.清空重Roll快照();
         deps.重置自动存档状态();
         const worldConfig = deps.深拷贝(deps.最近开局配置.worldConfig);

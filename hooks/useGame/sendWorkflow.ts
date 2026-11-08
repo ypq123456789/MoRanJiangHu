@@ -38,6 +38,7 @@ import { 检测NPC境界回退风险命令 } from '../../utils/npcRealmRegressio
 import { 获取境界配置, type 境界配置 } from '../../utils/realmConfig';
 import { 构建标签缺失补充提示 } from '../../utils/parseErrorHints';
 import { resetScriptedMoneyDelta } from '../../utils/scriptedMoneyReconciler';
+import { 构建待执行阶段摘要, 需要展示后续步骤入口 } from '../../utils/postStoryQueue';
 import { 对AI输出执行酒馆正则 } from '../../utils/tavernRegexEngine';
 import { 提取酒馆选项 } from '../../utils/tavernOptionRenderer';
 import { 获取预设已分类正则脚本 } from '../../utils/tavernPreset';
@@ -1162,6 +1163,8 @@ export type 发送选项 = {
 
 export type 发送结果 = {
     cancelled?: boolean;
+    /** 正文（含文章优化）已完成，但变量/世界/规划/地图等待玩家确认后再执行 */
+    pausedAfterStory?: boolean;
     attachedRecallPreview?: string;
     preparedRecallTag?: string;
     needRecallConfirm?: boolean;
@@ -1209,6 +1212,25 @@ type 主剧情发送当前状态 = {
 
 type 主剧情发送依赖 = {
     abortControllerRef: { current: AbortController | null };
+    /** 注册「正文后暂停」的续跑入口；未提供时退回自动执行全部后续阶段 */
+    注册待继续后续步骤?: (payload: { 阶段摘要: string[]; 回合标识?: number; 执行: () => Promise<void> }) => void;
+    /** 暂停续跑前读取最新状态：玩家可能在暂停期间改过背包/装备/功法/社交，也可能追加过系统消息或场外对话 */
+    获取续跑状态快照?: () => {
+        命令基线?: Partial<{
+            角色: any;
+            环境: any;
+            社交: any[];
+            世界: any;
+            战斗: any;
+            玩家门派: any;
+            任务列表: any[];
+            约定列表: any[];
+            剧情: any;
+            女主剧情规划: any;
+        }>;
+        历史?: 聊天记录结构[];
+        场外对话?: 场外对话消息结构[];
+    } | null;
     recallAbortControllerRef: { current: AbortController | null };
     前台发送序号Ref?: { current: number };
     setLoading: (value: boolean) => void;
@@ -1460,7 +1482,9 @@ export const 执行主剧情发送工作流 = async (
     }
 
     const mainRequestStartedAt = Date.now();
-    const controller = new AbortController();
+    // let：「正文后暂停后续步骤」恢复时需要换一个新的 AbortController，
+    // 否则暂停期间 ref 已被上游 finally 清空，玩家无法再停止后续队列。
+    let controller = new AbortController();
     deps.abortControllerRef.current = controller;
     const recallConfig = currentState.apiConfig?.功能模型占位 || ({} as any);
     const recallFeatureEnabled = Boolean(recallConfig.剧情回忆独立模型开关);
@@ -2084,7 +2108,8 @@ export const 执行主剧情发送工作流 = async (
         const worldEvolutionSplitEnabled = worldEvolutionFeatureEnabled && 接口配置是否可用(获取世界演变接口配置(currentState.apiConfig));
         // 让出主线程，避免连续深拷贝 + processResponseCommands 阻塞 UI 导致"未响应"
         await 让出主线程();
-        const mainCommandBaseState = {
+        // let：暂停续跑时要用玩家在暂停期间改动过的最新状态重建基态，避免旧快照把改动写回去。
+        let mainCommandBaseState = {
             角色: deps.深拷贝(currentState.角色),
             环境: deps.深拷贝(currentState.环境),
             社交: deps.深拷贝(currentState.社交),
@@ -2234,6 +2259,18 @@ export const 执行主剧情发送工作流 = async (
         };
 
         let finalParsedResponse: GameResponse = responseForExecution;
+        // 暂停续跑时，正文命令已经在暂停前由 main.applyImmediateResponseCommands 应用过一次，当前状态里已包含结果。
+        // 续跑若整体重放：add/sub 会重复生效，set 会覆盖玩家在暂停期间对同一字段的手动改动。
+        // 因此这里只把「正文之后的增量命令」（变量/世界/规划/地图）合到最新状态上。
+        let 续跑跳过命令数 = 0;
+        const 截取续跑增量命令 = (response: GameResponse): GameResponse => {
+            if (续跑跳过命令数 <= 0) return response;
+            const commands = Array.isArray(response?.tavern_commands) ? response.tavern_commands : [];
+            return {
+                ...response,
+                tavern_commands: commands.length > 续跑跳过命令数 ? commands.slice(续跑跳过命令数) : []
+            };
+        };
         let finalDisplayResponse: GameResponse = {
             ...displayAiData,
             tavern_commands: Array.isArray(responseForExecution.tavern_commands) ? [...responseForExecution.tavern_commands] : []
@@ -2246,7 +2283,7 @@ export const 执行主剧情发送工作流 = async (
         const 立即并入变量生成状态 = (nextResponse: GameResponse) => {
             simulatedState = 计时同步队列步骤(
                 "variable.applyImmediateResponseCommands",
-                () => deps.processResponseCommands(nextResponse, mainCommandBaseState),
+                () => deps.processResponseCommands(截取续跑增量命令(nextResponse), mainCommandBaseState),
                 { commandCount: 获取响应命令数量(nextResponse) }
             );
             return simulatedState;
@@ -2466,117 +2503,129 @@ export const 执行主剧情发送工作流 = async (
             });
         }
 
-        const 回合结束自动存档已开启 = 规范化游戏设置(immediateState.gameConfig || currentState.gameConfig).启用回合结束自动存档 !== false;
+        const 回合结束自动存档已开启 = runtimeGameConfig.启用回合结束自动存档 !== false;
+        // [省额度模式] 正文（含文章优化）完成后先不跑变量/世界/规划/地图，
+        // 等玩家确认正文质量后一键继续。玩家反馈 CLI 每日额度有限，正文不满意重ROLL 时不该连带消耗后续阶段。
+        const 启用正文后暂停后续步骤 = runtimeGameConfig.启用正文后暂停后续步骤 === true;
+        const 文章优化开启 = deps.文章优化功能已开启();
+        const 变量生成配置 = 获取变量计算接口配置(currentState.apiConfig);
+        const 变量生成总开关开启 = 变量生成功能已启用(currentState.apiConfig);
+        const 变量生成开启 = 变量生成总开关开启 && 接口配置是否可用(变量生成配置);
+        const 文章优化配置 = 获取文章优化接口配置(currentState.apiConfig);
+        let 文章优化变量可并行 = 文章优化开启
+            && 变量生成开启
+            && 接口配置是否可用(文章优化配置)
+            && 获取队列阶段渠道键(文章优化配置, activeApi) !== 获取队列阶段渠道键(变量生成配置, activeApi);
+        // 暂停模式下文章优化已经在「正文写完」时跑过，继续时不能再跑一次，否则等于白花一次调用。
+        let 文章优化已由暂停前执行 = false;
+        // 暂停期间玩家可能追加系统消息 / 新开侧聊，续跑时抓一份最新快照，存档以它为准。
+        let 续跑存档历史: 聊天记录结构[] | null = null;
+        let 续跑场外对话: 场外对话消息结构[] | null = null;
 
-        deps.set后台队列处理中(true);
-        后台队列已启动 = true;
-        void (async () => {
-            try {
-                const 文章优化开启 = deps.文章优化功能已开启();
-                const 变量生成配置 = 获取变量计算接口配置(currentState.apiConfig);
-                const 变量生成总开关开启 = 变量生成功能已启用(currentState.apiConfig);
-                const 变量生成开启 = 变量生成总开关开启 && 接口配置是否可用(变量生成配置);
-                const 文章优化配置 = 获取文章优化接口配置(currentState.apiConfig);
-                const 文章优化变量可并行 = 文章优化开启
-                    && 变量生成开启
-                    && 接口配置是否可用(文章优化配置)
-                    && 获取队列阶段渠道键(文章优化配置, activeApi) !== 获取队列阶段渠道键(变量生成配置, activeApi);
-
-                const 执行文章优化阶段 = async () => {
-                    if (!文章优化开启) return null;
-                    const polishStage = await 执行可重试独立阶段({
-                        stageId: "polish",
-                        stageLabel: "文章优化",
-                        beforeAttempt: (attempt) => {
-                            options?.onPolishProgress?.({
-                                phase: "start",
-                                text: attempt > 1
-                                    ? `正在重新提取并润色<正文>内容...（第 ${attempt} 次手动重试）`
-                                    : (文章优化变量可并行 ? "正在并行提取并润色<正文>内容..." : "正在后台提取并润色<正文>内容...")
-                            });
-                        },
-                        onAutoRetry: (attempt, maxAttempts, reason) => {
-                            options?.onPolishProgress?.({
-                                phase: "start",
-                                text: `正文优化请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ""}`
-                            });
-                        },
-                        run: () => deps.执行正文润色(
-                            aiData,
-                            rawAiText,
-                            {
-                                playerInput: sendInput,
-                                signal: controller.signal,
-                                allowExpansionForLength: allowShortDraftForPolish,
-                                minLength: runtimeGameConfig.字数要求
-                            }
-                        ),
-                        onError: (errorText) => {
-                            options?.onPolishProgress?.({
-                                phase: "error",
-                                text: `${errorText || "正文优化失败，已保留原文。"}\n等待选择：重试当前阶段，或跳过继续。`
-                            });
-                        },
-                        onSkip: (errorText) => {
-                            options?.onPolishProgress?.({
-                                phase: "skipped",
-                                text: `正文优化失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ""}`
-                            });
-                        }
+        const 执行文章优化阶段 = async (启用并行文案: boolean = 文章优化变量可并行) => {
+            if (!文章优化开启) return null;
+            const polishStage = await 执行可重试独立阶段({
+                stageId: "polish",
+                stageLabel: "文章优化",
+                beforeAttempt: (attempt) => {
+                    options?.onPolishProgress?.({
+                        phase: "start",
+                        text: attempt > 1
+                            ? `正在重新提取并润色<正文>内容...（第 ${attempt} 次手动重试）`
+                            : (启用并行文案 ? "正在并行提取并润色<正文>内容..." : "正在后台提取并润色<正文>内容...")
                     });
-                    return polishStage;
-                };
-
-                const 应用文章优化结果 = (polishStage: Awaited<ReturnType<typeof 执行文章优化阶段>>) => {
-                    const polished = polishStage?.result;
-                    if (polishStage?.completed && polished) {
-                        if (polished.applied) {
-                            displayAiData = polished.response;
-                            finalDisplayResponse = {
-                                ...displayAiData,
-                                tavern_commands: Array.isArray(responseForExecution.tavern_commands) ? [...responseForExecution.tavern_commands] : []
-                            };
-                            options?.onPolishProgress?.({
-                                phase: "done",
-                                text: `已应用优化结果（模型：${polished.response.body_optimized_model || "未知"}）`,
-                                rawText: polished.rawText
-                            });
-                            const polishedAiMsg: 聊天记录结构 = {
-                                ...newAiMsg,
-                                structuredResponse: finalDisplayResponse
-                            };
-                            deps.设置历史记录(prev => {
-                                const targetIndex = prev.findIndex(item => item.timestamp === aiTurnTimestamp && item.role === "assistant");
-                                const fallbackIndex = targetIndex >= 0
-                                    ? targetIndex
-                                    : (() => {
-                                        for (let index = prev.length - 1; index >= 0; index -= 1) {
-                                            const item = prev[index];
-                                            if (item?.role === "assistant" && !item.structuredResponse) return index;
-                                        }
-                                        return -1;
-                                    })();
-                                if (fallbackIndex < 0) return [...prev, { ...polishedAiMsg, autoScrollToTurnIcon: false, autoScrollToTurnStart: true }];
-                                return prev.map((item, index) => {
-                                    if (index !== fallbackIndex) return item;
-                                    return {
-                                        ...item,
-                                        ...polishedAiMsg,
-                                        autoScrollToTurnIcon: false,
-                                        autoScrollToTurnStart: item.autoScrollToTurnStart === true || polishedAiMsg.autoScrollToTurnStart === true
-                                    };
-                                });
-                            });
-                        } else {
-                            options?.onPolishProgress?.({
-                                phase: "done",
-                                text: polished.error || "优化未生效，已保留原文。",
-                                rawText: polished.rawText
-                            });
-                        }
+                },
+                onAutoRetry: (attempt, maxAttempts, reason) => {
+                    options?.onPolishProgress?.({
+                        phase: "start",
+                        text: `正文优化请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ""}`
+                    });
+                },
+                run: () => deps.执行正文润色(
+                    aiData,
+                    rawAiText,
+                    {
+                        playerInput: sendInput,
+                        signal: controller.signal,
+                        allowExpansionForLength: allowShortDraftForPolish,
+                        minLength: runtimeGameConfig.字数要求
                     }
-                };
+                ),
+                onError: (errorText) => {
+                    options?.onPolishProgress?.({
+                        phase: "error",
+                        text: `${errorText || "正文优化失败，已保留原文。"}\n等待选择：重试当前阶段，或跳过继续。`
+                    });
+                },
+                onSkip: (errorText) => {
+                    options?.onPolishProgress?.({
+                        phase: "skipped",
+                        text: `正文优化失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ""}`
+                    });
+                }
+            });
+            return polishStage;
+        };
 
+        const 应用文章优化结果 = (polishStage: Awaited<ReturnType<typeof 执行文章优化阶段>>) => {
+            const polished = polishStage?.result;
+            if (polishStage?.completed && polished) {
+                if (polished.applied) {
+                    displayAiData = polished.response;
+                    finalDisplayResponse = {
+                        ...displayAiData,
+                        tavern_commands: Array.isArray(responseForExecution.tavern_commands) ? [...responseForExecution.tavern_commands] : []
+                    };
+                    options?.onPolishProgress?.({
+                        phase: "done",
+                        text: `已应用优化结果（模型：${polished.response.body_optimized_model || "未知"}）`,
+                        rawText: polished.rawText
+                    });
+                    const polishedAiMsg: 聊天记录结构 = {
+                        ...newAiMsg,
+                        structuredResponse: finalDisplayResponse
+                    };
+                    deps.设置历史记录(prev => {
+                        const targetIndex = prev.findIndex(item => item.timestamp === aiTurnTimestamp && item.role === "assistant");
+                        const fallbackIndex = targetIndex >= 0
+                            ? targetIndex
+                            : (() => {
+                                for (let index = prev.length - 1; index >= 0; index -= 1) {
+                                    const item = prev[index];
+                                    if (item?.role === "assistant" && !item.structuredResponse) return index;
+                                }
+                                return -1;
+                            })();
+                        if (fallbackIndex < 0) return [...prev, { ...polishedAiMsg, autoScrollToTurnIcon: false, autoScrollToTurnStart: true }];
+                        return prev.map((item, index) => {
+                            if (index !== fallbackIndex) return item;
+                            return {
+                                ...item,
+                                ...polishedAiMsg,
+                                autoScrollToTurnIcon: false,
+                                autoScrollToTurnStart: item.autoScrollToTurnStart === true || polishedAiMsg.autoScrollToTurnStart === true
+                            };
+                        });
+                    });
+                } else {
+                    options?.onPolishProgress?.({
+                        phase: "done",
+                        text: polished.error || "优化未生效，已保留原文。",
+                        rawText: polished.rawText
+                    });
+                }
+            }
+        };
+
+        // 队列内统一走这里：暂停前已经跑过文章优化时直接跳过，避免重复消耗一次调用来回改写同一段正文。
+        const 运行队列内文章优化阶段 = async () => {
+            if (文章优化已由暂停前执行) return null;
+            文章优化已由暂停前执行 = true;
+            return 执行文章优化阶段();
+        };
+
+        const 后台队列任务 = async () => {
+            try {
                 let variableGenerationResult: Awaited<ReturnType<typeof deps.执行变量生成并合并响应>> = null;
                 const 变量生成前命令数 = Array.isArray(responseForExecution.tavern_commands) ? responseForExecution.tavern_commands.length : 0;
                 const 执行变量生成阶段 = async (baseDisplayResponse: GameResponse) => 执行可重试独立阶段({
@@ -2634,19 +2683,19 @@ export const 执行主剧情发送工作流 = async (
                             ? "变量生成接口未配置，已跳过。"
                             : "变量生成功能已关闭，已跳过。"
                     });
-                    const polishStage = await 执行文章优化阶段();
+                    const polishStage = await 运行队列内文章优化阶段();
                     应用文章优化结果(polishStage);
                 } else {
                     if (文章优化变量可并行) {
                         const baseDisplayResponse = finalDisplayResponse;
                         const [polishStage, parallelVariableStage] = await Promise.all([
-                            执行文章优化阶段(),
+                            运行队列内文章优化阶段(),
                             执行变量生成阶段(baseDisplayResponse)
                         ]);
                         应用文章优化结果(polishStage);
                         variableStage = parallelVariableStage;
                     } else {
-                        const polishStage = await 执行文章优化阶段();
+                        const polishStage = await 运行队列内文章优化阶段();
                         应用文章优化结果(polishStage);
                         variableStage = await 执行变量生成阶段(finalDisplayResponse);
                     }
@@ -2660,7 +2709,7 @@ export const 执行主剧情发送工作流 = async (
                     await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "variable.simulateMergedResponseCommands",
-                        () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                        () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                         { commandCount: 获取响应命令数量(responseForExecution) }
                     );
                     if (Array.isArray(responseForExecution.tavern_commands) && responseForExecution.tavern_commands.length > 0) {
@@ -2980,7 +3029,7 @@ export const 执行主剧情发送工作流 = async (
                         await 让出主线程();
                         simulatedState = 计时同步队列步骤(
                             "world.simulateMergedResponseCommands",
-                            () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                            () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                             { commandCount: 获取响应命令数量(responseForExecution), worldCommandCount: worldEvolutionResult.commands.length }
                         );
                     }
@@ -3006,7 +3055,7 @@ export const 执行主剧情发送工作流 = async (
                         await 让出主线程();
                         simulatedState = 计时同步队列步骤(
                             "planning.simulateMergedResponseCommands",
-                            () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                            () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                             { commandCount: 获取响应命令数量(responseForExecution), planningCommandCount: planningResult.commands.length }
                         );
                     }
@@ -3097,7 +3146,7 @@ export const 执行主剧情发送工作流 = async (
                     await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "parallelPost.simulateMergedResponseCommands",
-                        () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                        () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                         {
                             commandCount: 获取响应命令数量(responseForExecution),
                             worldCommandCount: worldEvolutionResult?.commands.length || 0,
@@ -3109,7 +3158,7 @@ export const 执行主剧情发送工作流 = async (
                     await 让出主线程();
                     simulatedState = 计时同步队列步骤(
                         "map.simulateMergedResponseCommands",
-                        () => deps.processResponseCommands(responseForExecution, mainCommandBaseState, { applyState: false }),
+                        () => deps.processResponseCommands(截取续跑增量命令(responseForExecution), mainCommandBaseState, { applyState: false }),
                         { commandCount: 获取响应命令数量(responseForExecution), mapCommandCount: mapUpdateResult.commands.length }
                     );
                 }
@@ -3126,7 +3175,7 @@ export const 执行主剧情发送工作流 = async (
                 }
                 finalState = 计时同步队列步骤(
                     "queue.finalApplyResponseCommands",
-                    () => deps.processResponseCommands(finalParsedResponse, mainCommandBaseState),
+                    () => deps.processResponseCommands(截取续跑增量命令(finalParsedResponse), mainCommandBaseState),
                     { commandCount: 获取响应命令数量(finalParsedResponse) }
                 );
                 const calibratedFinalStory = await 同步剧情小说分解时间校准({
@@ -3181,9 +3230,22 @@ export const 执行主剧情发送工作流 = async (
                 deps.检查主角每回合生图(finalState.角色);
 
                 if (回合结束自动存档已开启) {
+                    // 优先用暂停续跑时抓到的最新历史（其中可能包含暂停期间追加的系统消息），
+                    // 并把本回合 assistant 消息替换为合并了变量/规划结果的最终版本，避免重复或丢失。
+                    const 构建续跑存档历史 = (): 聊天记录结构[] => {
+                        const base = Array.isArray(续跑存档历史) ? [...续跑存档历史] : [...updatedDisplayHistory];
+                        const targetIndex = base.findIndex((item) => (
+                            item?.role === 'assistant' && Number(item?.timestamp) === Number(queuedAiMsg.timestamp)
+                        ));
+                        if (targetIndex >= 0) {
+                            base[targetIndex] = queuedAiMsg;
+                            return base;
+                        }
+                        return [...base, queuedAiMsg];
+                    };
                     try {
                         const saved = await deps.performAutoSave({
-                            history: [...updatedDisplayHistory, queuedAiMsg],
+                            history: 构建续跑存档历史(),
                             role: finalState.角色,
                             env: finalState.环境,
                             social: finalState.社交,
@@ -3201,7 +3263,8 @@ export const 执行主剧情发送工作流 = async (
                             叙事平静值: 本回合更新后的叙事平静值 || undefined,
                             // 本回合已把暂存的场外对话吸收进正文/记忆，自动存档必须落盘“已清空”的状态，
                             // 否则存档会写回旧的暂存（currentState 仍是发起回合时的闭包快照），读档后重复注入一次。
-                            场外对话: [],
+                            // 暂停模式例外：暂停期间新开的场外对话属于下一轮，不能被本回合存档清掉。
+                            场外对话: 续跑场外对话 ?? [],
                             force: true
                         });
                         const autoSaveId = Number(saved?.id);
@@ -3266,7 +3329,64 @@ export const 执行主剧情发送工作流 = async (
                     deps.abortControllerRef.current = null;
                 }
             }
-        })();
+        };
+
+        const 暂停阶段摘要 = 构建待执行阶段摘要({
+            变量生成: 变量生成功能已启用(currentState.apiConfig) && 接口配置是否可用(获取变量计算接口配置(currentState.apiConfig)),
+            动态世界: worldEvolutionSplitEnabled,
+            规划分析: planningFeatureEnabled,
+            地图更新: currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false
+        });
+        if (启用正文后暂停后续步骤 && 需要展示后续步骤入口(暂停阶段摘要) && deps.注册待继续后续步骤) {
+            // 文章优化改写的仍是正文本身，属于「确认正文质量」的一环，放在暂停点之前跑，
+            // 让玩家看到并确认的就是最终正文；变量/世界/规划/地图留到一键继续时再执行。
+            try {
+                const 暂停前优化阶段 = await 执行文章优化阶段(false);
+                应用文章优化结果(暂停前优化阶段);
+            } catch (暂停前优化错误: any) {
+                if (暂停前优化错误?.name !== 'AbortError') throw 暂停前优化错误;
+                // 玩家在文章优化期间点了停止：正文已经生成并计费，不能因为优化被取消就把整回合回滚，
+                // 否则等于把玩家已经花掉的那次调用丢掉。这里只标记优化已取消，正文照常保留。
+                options?.onPolishProgress?.({
+                    phase: "cancelled",
+                    text: "文章优化已取消，当前正文保留；后续步骤仍可在确认正文后继续。"
+                });
+            }
+            文章优化已由暂停前执行 = true;
+            // 继续时文章优化已经跑完，变量生成不再有并行对象，阶段文案也要跟着改。
+            文章优化变量可并行 = false;
+            // 正文命已经由 main.applyImmediateResponseCommands 应用到状态里，续跑只追加后续阶段的增量命令。
+            续跑跳过命令数 = Array.isArray(responseForExecution.tavern_commands)
+                ? responseForExecution.tavern_commands.length
+                : 0;
+            deps.注册待继续后续步骤({
+                阶段摘要: 暂停阶段摘要,
+                回合标识: aiTurnTimestamp,
+                执行: async () => {
+                    // 暂停期间玩家可能改过背包/装备/功法/社交，也可能追加过系统消息或场外对话。
+                    // 续跑前用最新状态重建命令基态与存档快照，避免旧回合快照把暂停期间的改动写回去。
+                    const 续跑快照 = deps.获取续跑状态快照?.() || null;
+                    if (续跑快照?.命令基线) {
+                        mainCommandBaseState = { ...mainCommandBaseState, ...续跑快照.命令基线 };
+                    }
+                    续跑存档历史 = Array.isArray(续跑快照?.历史) && 续跑快照!.历史!.length > 0
+                        ? 续跑快照!.历史!
+                        : null;
+                    续跑场外对话 = Array.isArray(续跑快照?.场外对话) ? 续跑快照!.场外对话! : null;
+                    // 不检查旧 signal：暂停前它只在「文章优化被玩家中止」时才会 abort，
+                    // 那种场景正文仍然保留、也应该允许继续；真正的过期回合已由发送/重ROLL/读档主动清空 + 回合标识校验拦掉。
+                    controller = new AbortController();
+                    deps.abortControllerRef.current = controller;
+                    deps.set后台队列处理中(true);
+                    await 后台队列任务();
+                }
+            });
+            return { attachedRecallPreview, pausedAfterStory: true };
+        }
+
+        deps.set后台队列处理中(true);
+        后台队列已启动 = true;
+        void 后台队列任务();
         return { attachedRecallPreview };
     } catch (error: any) {
         收束自动存档完成(null);
