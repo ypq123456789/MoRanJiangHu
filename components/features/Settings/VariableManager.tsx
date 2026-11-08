@@ -200,6 +200,8 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
     const [commandKey, setCommandKey] = React.useState('剧情.关键剧情变量组');
     const [commandValue, setCommandValue] = React.useState('[]');
     const [commandError, setCommandError] = React.useState('');
+    const [nameDraft, setNameDraft] = React.useState('');
+    const [nameMessage, setNameMessage] = React.useState('');
     const variableRegistry = React.useMemo(() => 构建变量路径登记表(runtimeState, { maxDepth: 5, maxLines: 320 }), [runtimeState]);
 
     const activeValue = React.useMemo(() => {
@@ -221,6 +223,17 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
         const role = activeValue && typeof activeValue === 'object' ? activeValue as any : {};
         return 构建变量管理动态钱包视图(role?.金钱, openingConfig, role);
     }, [activeSection, activeValue, openingConfig]);
+    const 当前主角姓名 = React.useMemo(() => {
+        if (activeSection !== '角色') return '';
+        const role = activeValue && typeof activeValue === 'object' ? activeValue as any : {};
+        return typeof role?.姓名 === 'string' ? role.姓名 : '';
+    }, [activeSection, activeValue]);
+
+    // 只跟随「底层姓名」变化重置输入框，避免玩家正在输入时被其他字段编辑打断。
+    React.useEffect(() => {
+        setNameDraft(当前主角姓名);
+        setNameMessage('');
+    }, [当前主角姓名]);
 
     // 保留地图系统草稿，防止被 runtimeState 更新覆盖
     const mapDraftRef = React.useRef<any>(null);
@@ -277,6 +290,25 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
             value: 深拷贝(value),
             previousFingerprint: 安全指纹(读取运行时分区(section))
         };
+    };
+
+    // 玩家手动修回主角姓名：直接替换 角色 分区，保存后由运行时流程写状态 + 自动存档。
+    const 保存主角姓名 = () => {
+        const nextName = nameDraft.trim();
+        if (!nextName) {
+            setNameMessage('主角姓名不能为空。');
+            return;
+        }
+        if (nextName === 当前主角姓名) {
+            setNameMessage('姓名未变化。');
+            return;
+        }
+        const role = activeValue && typeof activeValue === 'object' ? activeValue as Record<string, any> : {};
+        const nextRole = { ...role, 姓名: nextName };
+        markPendingSavedDraft('角色', nextRole);
+        setDrafts((prev) => ({ ...prev, 角色: nextRole }));
+        onReplaceSection('角色', nextRole);
+        setNameMessage(`已保存：${nextName}`);
     };
 
     const handleSaveSection = () => {
@@ -380,6 +412,27 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                                 重置本分区
                             </button>
                         </div>
+                        {activeSection === '角色' && (
+                            <div className="mb-3 rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 p-3">
+                                <div className="text-xs font-bold tracking-[0.16em] text-wuxia-gold">主角姓名</div>
+                                <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center">
+                                    <input
+                                        value={nameDraft}
+                                        onChange={(e) => setNameDraft(e.target.value)}
+                                        maxLength={24}
+                                        placeholder="输入主角姓名"
+                                        className={输入框样式}
+                                    />
+                                    <button type="button" onClick={保存主角姓名} className={`${按钮样式} shrink-0`}>
+                                        保存姓名
+                                    </button>
+                                </div>
+                                <div className="mt-2 text-xs leading-5 text-gray-400">
+                                    群像剧情里 AI 偶尔会给主角乱起名字。这里改回正确姓名并保存，会立即写入当前状态与自动存档，后续回合都按新姓名继续。
+                                </div>
+                                {nameMessage && <div className="mt-1 text-xs text-wuxia-gold">{nameMessage}</div>}
+                            </div>
+                        )}
                         {动态钱包视图 ? (
                             <div className="mb-3 rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 p-3">
                                 <div className="text-xs font-bold tracking-[0.16em] text-wuxia-gold">新版货币余额</div>

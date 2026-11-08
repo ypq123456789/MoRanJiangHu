@@ -128,9 +128,9 @@ describe('opening 主角姓名修补与角色写回（tavern_commands 路径）'
 
         // —— 第一步：与工作流 2142 行一致，applyState 默认开启地执行 tavern_commands ——
         const openingAfterCommands = 执行命令并得到开局状态(responseWithNameOverwrite, base, store, setters);
-        // 命令处理确实把占位姓名写进了前端 store（这正是需要后续矫正的缺口前提）
-        expect(store.角色?.姓名).toBe('未命名');
-        expect(openingAfterCommands.角色?.姓名).toBe('未命名');
+        // 主角姓名保护在命令层就丢弃了这条占位改写：工作流状态与界面都不会出现「未命名」
+        expect(openingAfterCommands.角色?.姓名).toBe('陆凡');
+        expect(store.角色?.姓名).not.toBe('未命名');
 
         // —— 第二步：模拟 AI 把门派清空（无门派标识），触发真实的开局门派保护重建角色 ——
         const sectClearedState = {
@@ -144,7 +144,7 @@ describe('opening 主角姓名修补与角色写回（tavern_commands 路径）'
         );
         // 角色对象被重建（引用断裂）：原地修补无法再传导给已写入 store 的旧对象
         expect(protectedState.角色).not.toBe(store.角色);
-        expect(protectedState.角色?.姓名).toBe('未命名');
+        expect(protectedState.角色?.姓名).toBe('陆凡');
 
         // —— 第三步：工作流现在执行的 seam：修补姓名 + 无条件写回前端角色状态 ——
         const depsForSeam = {
@@ -170,7 +170,7 @@ describe('opening 主角姓名修补与角色写回（tavern_commands 路径）'
         expect(stateForAutoSave.角色?.姓名).toBe('陆凡');
     });
 
-    it('有 tavern_commands 但 AI 姓名具体时绝不覆盖（兜底而非抹平）', () => {
+    it('AI 给出的具体姓名也不能覆盖已有主角姓名（姓名只由玩家决定）', () => {
         const { store, setters } = 构建前端store();
         const base = {
             角色: 玩家角色(),
@@ -191,8 +191,7 @@ describe('opening 主角姓名修补与角色写回（tavern_commands 路径）'
             ]
         };
         const openingAfterCommands = 执行命令并得到开局状态(response, base, store, setters);
-        expect(openingAfterCommands.角色?.姓名).toBe('墨衣客');
-        expect(store.角色?.姓名).toBe('墨衣客');
+        expect(openingAfterCommands.角色?.姓名).toBe('陆凡');
 
         const patched = 修补并回写开局主角角色(
             openingAfterCommands,
@@ -200,8 +199,33 @@ describe('opening 主角姓名修补与角色写回（tavern_commands 路径）'
             { 设置角色: setters.设置角色, 规范化角色物品容器映射 } as any,
             { 启用饱腹口渴系统: false }
         );
-        expect(patched.角色?.姓名).toBe('墨衣客');
-        expect(store.角色?.姓名).toBe('墨衣客');
+        expect(patched.角色?.姓名).toBe('陆凡');
+        expect(store.角色?.姓名).toBe('陆凡');
+    });
+
+    it('当前姓名仍是占位符时，允许 AI 补一个具体姓名（开局补齐）', () => {
+        const { store, setters } = 构建前端store();
+        const baseRole = { ...玩家角色(), 姓名: '未命名' };
+        const base = {
+            角色: baseRole,
+            环境: 规范化环境信息({ 时间: '1:01:01:08:00', 大地点: '青云州' }),
+            社交: [],
+            世界: { 地图层级: [] } as any,
+            战斗: {} as any,
+            玩家门派: { ID: '青云宗', 名称: '青云宗', 玩家职位: '掌门' },
+            任务列表: [],
+            约定列表: [],
+            剧情: {} as any,
+            剧情规划: {} as any
+        };
+        const openingAfterCommands = 执行命令并得到开局状态({
+            logs: [],
+            tavern_commands: [
+                { action: 'set' as const, key: '角色.姓名', value: '墨衣客' }
+            ]
+        }, base, store, setters);
+
+        expect(openingAfterCommands.角色?.姓名).toBe('墨衣客');
     });
 
     it('修补辅助函数：仅占位符会被替换，具体姓名原样保留', () => {

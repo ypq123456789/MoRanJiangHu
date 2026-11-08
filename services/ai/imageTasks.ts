@@ -28,6 +28,11 @@ import * as dbService from '../dbService';
 import { 压缩图片资源字段, 是否图片资源引用, 注册远程图片兜底引用, 创建图片资源引用 } from '../../utils/imageAssets';
 import { parseJsonWithRepair } from '../../utils/jsonRepair';
 import { RELEASE_INFO } from '../../data/releaseInfo';
+import {
+    是否NovelAI结构化提示模型,
+    是否NovelAIV5中等强度模型,
+    获取NovelAI默认引导系数
+} from '../../utils/novelAiModels';
 import { buildSyncApiUrl, isNativeCapacitorEnvironment, requiresRemoteSyncApi } from '../../utils/nativeRuntime';
 import { recordDiagnosticLog } from '../diagnosticLog';
 import { 解析视觉年龄 } from '../../utils/visualAge';
@@ -2869,7 +2874,7 @@ const 构建NovelAI请求体 = (
 ): Record<string, unknown> => {
     const model = (apiConfig.model || '').trim();
     if (!model) {
-        throw new Error('NovelAI 缺少模型名称，请先填写例如 nai-diffusion-4-5-full');
+        throw new Error('NovelAI 缺少模型名称，请先填写例如 nai-diffusion-5-full');
     }
     const [width, height] = size.split('x').map((value) => Number(value));
     const useCustomParams = apiConfig.NovelAI启用自定义参数 === true;
@@ -2892,11 +2897,16 @@ const 构建NovelAI请求体 = (
     const pngEulerBugCompat = options?.PNG参数?.Euler祖先采样Bug兼容;
     const pngExplikeFineDetail = options?.PNG参数?.精细细节增强;
     const pngMinimizeSigmaInf = options?.PNG参数?.最小化Sigma无穷;
-    const sampler = pngSampler || (useCustomParams ? (apiConfig.NovelAI采样器 || 'k_euler_ancestral') : 'k_euler_ancestral');
+    const isNovelAI结构化提示模型 = 是否NovelAI结构化提示模型(model);
+    const isNovelAIV5中等强度模型 = 是否NovelAIV5中等强度模型(model);
+    const 基础采样器 = pngSampler || (useCustomParams ? (apiConfig.NovelAI采样器 || 'k_euler_ancestral') : 'k_euler_ancestral');
+    // V5 Full Medium 是蒸馏版：采样器锁定 Euler Ancestral，步数锁定 14。
+    const sampler = isNovelAIV5中等强度模型 ? 'k_euler_ancestral' : 基础采样器;
     const noiseSchedule = pngNoiseSchedule || (useCustomParams ? (apiConfig.NovelAI噪点表 || 'karras') : 'karras');
-    const steps = Number.isFinite(pngSteps)
+    const 基础步数 = Number.isFinite(pngSteps)
         ? Math.max(1, Math.min(50, Number(pngSteps)))
         : (useCustomParams ? Math.max(1, Math.min(50, Number(apiConfig.NovelAI步数) || 28)) : 28);
+    const steps = isNovelAIV5中等强度模型 ? 14 : 基础步数;
     const baseNegativePrompt = useCustomParams
         ? ((apiConfig.NovelAI负面提示词 || '').trim() || 默认NovelAI负面提示词)
         : 默认NovelAI负面提示词;
@@ -2906,12 +2916,11 @@ const 构建NovelAI请求体 = (
         ? (mergedNegativePrompt || '')
         : (mergedNegativePrompt || negativePrompt || baseNegativePrompt);
     const naiV4Prompt = 拆分NAIV4提示结构(prompt);
-    const isNovelAIV4Model = /^nai-diffusion-4(?:-|$)/i.test(model);
     const parameters: Record<string, unknown> = {
         params_version: 3,
         width: Number.isFinite(width) ? width : 1024,
         height: Number.isFinite(height) ? height : 1024,
-        scale: Number.isFinite(Number(pngScale)) ? Number(pngScale) : 5,
+        scale: Number.isFinite(Number(pngScale)) ? Number(pngScale) : 获取NovelAI默认引导系数(model),
         sampler,
         steps,
         n_samples: 1,
@@ -2927,10 +2936,11 @@ const 构建NovelAI请求体 = (
         prompt,
         noise_schedule: noiseSchedule
     };
-    if (!isNovelAIV4Model && finalNegativePrompt) {
+    if (!isNovelAI结构化提示模型 && finalNegativePrompt) {
         parameters.negative_prompt = finalNegativePrompt;
     }
-    if (Number.isFinite(Number(pngCfgRescale))) {
+    // V5 Full Medium 不支持 Prompt Guidance Rescale（官方明确该参数无效）。
+    if (!isNovelAIV5中等强度模型 && Number.isFinite(Number(pngCfgRescale))) {
         parameters.cfg_rescale = Number(pngCfgRescale);
     }
     if (Number.isFinite(Number(pngSeed))) {
@@ -2961,7 +2971,7 @@ const 构建NovelAI请求体 = (
         parameters.minimize_sigma_inf = pngMinimizeSigmaInf === true;
     }
 
-    if (isNovelAIV4Model) {
+    if (isNovelAI结构化提示模型) {
         parameters.v4_prompt = {
             use_coords: pngV4Prompt?.useCoords === true,
             use_order: pngV4Prompt?.useOrder === true,
@@ -2994,6 +3004,9 @@ const 构建NovelAI请求体 = (
         parameters
     };
 };
+
+/** 仅供单元测试：校验不同 NovelAI 模型族的请求体结构。 */
+export const __测试__构建NovelAI请求体 = 构建NovelAI请求体;
 
 const 解析NovelAI图片响应 = async (response: Response): Promise<图片生成结果> => {
     const blob = await response.blob();
