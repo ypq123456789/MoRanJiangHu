@@ -2981,6 +2981,8 @@ const 构建NovelAI请求体 = (
             },
             legacy_uc: pngV4Prompt?.legacyUc === true
         };
+        // v4_negative_prompt 是 V4/V5 的必填字段。V5 Full Medium 不支持自定义 UC，
+        // 服务端会忽略这里的负面词；设置页会提示玩家改用正向提示词的负向强调。
         parameters.v4_negative_prompt = {
             use_coords: pngV4NegativePrompt?.useCoords === true,
             use_order: pngV4NegativePrompt?.useOrder === true,
