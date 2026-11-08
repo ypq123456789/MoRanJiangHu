@@ -178,6 +178,10 @@ interface Props {
     loading: boolean;
     variableGenerationRunning?: boolean;
     postStoryQueueRunning?: boolean;
+    /** 正文后暂停：待玩家确认正文后再执行的后续阶段摘要 */
+    pendingPostStoryQueue?: { 阶段摘要: string[]; 注册时间?: number } | null;
+    onContinuePostStoryQueue?: () => void | Promise<void>;
+    onAbandonPostStoryQueue?: () => void;
     canReroll?: boolean;
     reRollCount?: number;
     canRetryLatestVariableGeneration?: boolean;
@@ -209,6 +213,9 @@ const InputArea: React.FC<Props> = ({
     loading,
     variableGenerationRunning = false,
     postStoryQueueRunning = false,
+    pendingPostStoryQueue = null,
+    onContinuePostStoryQueue,
+    onAbandonPostStoryQueue,
     canReroll = true,
     reRollCount = 0,
     canRetryLatestVariableGeneration = false,
@@ -1335,6 +1342,47 @@ const InputArea: React.FC<Props> = ({
                 </div>
             )}
             
+            {pendingPostStoryQueue && pendingPostStoryQueue.阶段摘要.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-wuxia-gold/50 bg-wuxia-gold/10 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-bold tracking-wider text-wuxia-gold">
+                            正文已生成 · 后续步骤待确认
+                        </div>
+                        <span className="shrink-0 rounded border border-wuxia-gold/30 bg-black/40 px-1.5 py-0.5 text-[10px] text-wuxia-gold/80">
+                            省额度模式
+                        </span>
+                    </div>
+                    <div className="text-[11px] leading-relaxed text-gray-300">
+                        还没有执行：
+                        <span className="text-wuxia-cyan">{pendingPostStoryQueue.阶段摘要.join(' / ')}</span>
+                        。本回合尚未自动存档。
+                    </div>
+                    <div className="text-[11px] leading-relaxed text-gray-400">
+                        对正文满意就点「继续执行后续步骤」；不满意可以直接重ROLL，不会消耗这些阶段的额度。
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-0.5">
+                        {onContinuePostStoryQueue && (
+                            <button
+                                type="button"
+                                onClick={() => { void Promise.resolve(onContinuePostStoryQueue()); }}
+                                className="rounded border border-wuxia-gold/60 bg-wuxia-gold/20 px-3 py-1.5 text-[11px] font-bold text-wuxia-gold transition-colors hover:bg-wuxia-gold hover:text-ink-black"
+                            >
+                                继续执行后续步骤
+                            </button>
+                        )}
+                        {onAbandonPostStoryQueue && (
+                            <button
+                                type="button"
+                                onClick={() => onAbandonPostStoryQueue()}
+                                className="rounded border border-gray-700 px-3 py-1.5 text-[11px] text-gray-300 transition-colors hover:border-gray-500 hover:text-gray-100"
+                            >
+                                放弃后续步骤
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {!rerollHintDismissed && canReroll && !busy && (
                 <div className="flex items-start gap-2 rounded-lg border border-wuxia-gold/30 bg-wuxia-gold/5 px-3 py-2">
                     <span className="flex-1 text-[11px] leading-relaxed text-wuxia-gold/90">

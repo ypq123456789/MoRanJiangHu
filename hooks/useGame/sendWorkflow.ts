@@ -38,6 +38,7 @@ import { 检测NPC境界回退风险命令 } from '../../utils/npcRealmRegressio
 import { 获取境界配置, type 境界配置 } from '../../utils/realmConfig';
 import { 构建标签缺失补充提示 } from '../../utils/parseErrorHints';
 import { resetScriptedMoneyDelta } from '../../utils/scriptedMoneyReconciler';
+import { 构建待执行阶段摘要, 需要展示后续步骤入口 } from '../../utils/postStoryQueue';
 import { 对AI输出执行酒馆正则 } from '../../utils/tavernRegexEngine';
 import { 提取酒馆选项 } from '../../utils/tavernOptionRenderer';
 import { 获取预设已分类正则脚本 } from '../../utils/tavernPreset';
@@ -1162,6 +1163,8 @@ export type 发送选项 = {
 
 export type 发送结果 = {
     cancelled?: boolean;
+    /** 正文（含文章优化）已完成，但变量/世界/规划/地图等待玩家确认后再执行 */
+    pausedAfterStory?: boolean;
     attachedRecallPreview?: string;
     preparedRecallTag?: string;
     needRecallConfirm?: boolean;
@@ -1209,6 +1212,8 @@ type 主剧情发送当前状态 = {
 
 type 主剧情发送依赖 = {
     abortControllerRef: { current: AbortController | null };
+    /** 注册「正文后暂停」的续跑入口；未提供时退回自动执行全部后续阶段 */
+    注册待继续后续步骤?: (payload: { 阶段摘要: string[]; 回合标识?: number; 执行: () => Promise<void> }) => void;
     recallAbortControllerRef: { current: AbortController | null };
     前台发送序号Ref?: { current: number };
     setLoading: (value: boolean) => void;
@@ -1460,7 +1465,9 @@ export const 执行主剧情发送工作流 = async (
     }
 
     const mainRequestStartedAt = Date.now();
-    const controller = new AbortController();
+    // let：「正文后暂停后续步骤」恢复时需要换一个新的 AbortController，
+    // 否则暂停期间 ref 已被上游 finally 清空，玩家无法再停止后续队列。
+    let controller = new AbortController();
     deps.abortControllerRef.current = controller;
     const recallConfig = currentState.apiConfig?.功能模型占位 || ({} as any);
     const recallFeatureEnabled = Boolean(recallConfig.剧情回忆独立模型开关);
@@ -2466,117 +2473,126 @@ export const 执行主剧情发送工作流 = async (
             });
         }
 
-        const 回合结束自动存档已开启 = 规范化游戏设置(immediateState.gameConfig || currentState.gameConfig).启用回合结束自动存档 !== false;
+        const 回合结束自动存档已开启 = runtimeGameConfig.启用回合结束自动存档 !== false;
+        // [省额度模式] 正文（含文章优化）完成后先不跑变量/世界/规划/地图，
+        // 等玩家确认正文质量后一键继续。玩家反馈 CLI 每日额度有限，正文不满意重ROLL 时不该连带消耗后续阶段。
+        const 启用正文后暂停后续步骤 = runtimeGameConfig.启用正文后暂停后续步骤 === true;
+        const 文章优化开启 = deps.文章优化功能已开启();
+        const 变量生成配置 = 获取变量计算接口配置(currentState.apiConfig);
+        const 变量生成总开关开启 = 变量生成功能已启用(currentState.apiConfig);
+        const 变量生成开启 = 变量生成总开关开启 && 接口配置是否可用(变量生成配置);
+        const 文章优化配置 = 获取文章优化接口配置(currentState.apiConfig);
+        let 文章优化变量可并行 = 文章优化开启
+            && 变量生成开启
+            && 接口配置是否可用(文章优化配置)
+            && 获取队列阶段渠道键(文章优化配置, activeApi) !== 获取队列阶段渠道键(变量生成配置, activeApi);
+        // 暂停模式下文章优化已经在「正文写完」时跑过，继续时不能再跑一次，否则等于白花一次调用。
+        let 文章优化已由暂停前执行 = false;
 
-        deps.set后台队列处理中(true);
-        后台队列已启动 = true;
-        void (async () => {
-            try {
-                const 文章优化开启 = deps.文章优化功能已开启();
-                const 变量生成配置 = 获取变量计算接口配置(currentState.apiConfig);
-                const 变量生成总开关开启 = 变量生成功能已启用(currentState.apiConfig);
-                const 变量生成开启 = 变量生成总开关开启 && 接口配置是否可用(变量生成配置);
-                const 文章优化配置 = 获取文章优化接口配置(currentState.apiConfig);
-                const 文章优化变量可并行 = 文章优化开启
-                    && 变量生成开启
-                    && 接口配置是否可用(文章优化配置)
-                    && 获取队列阶段渠道键(文章优化配置, activeApi) !== 获取队列阶段渠道键(变量生成配置, activeApi);
-
-                const 执行文章优化阶段 = async () => {
-                    if (!文章优化开启) return null;
-                    const polishStage = await 执行可重试独立阶段({
-                        stageId: "polish",
-                        stageLabel: "文章优化",
-                        beforeAttempt: (attempt) => {
-                            options?.onPolishProgress?.({
-                                phase: "start",
-                                text: attempt > 1
-                                    ? `正在重新提取并润色<正文>内容...（第 ${attempt} 次手动重试）`
-                                    : (文章优化变量可并行 ? "正在并行提取并润色<正文>内容..." : "正在后台提取并润色<正文>内容...")
-                            });
-                        },
-                        onAutoRetry: (attempt, maxAttempts, reason) => {
-                            options?.onPolishProgress?.({
-                                phase: "start",
-                                text: `正文优化请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ""}`
-                            });
-                        },
-                        run: () => deps.执行正文润色(
-                            aiData,
-                            rawAiText,
-                            {
-                                playerInput: sendInput,
-                                signal: controller.signal,
-                                allowExpansionForLength: allowShortDraftForPolish,
-                                minLength: runtimeGameConfig.字数要求
-                            }
-                        ),
-                        onError: (errorText) => {
-                            options?.onPolishProgress?.({
-                                phase: "error",
-                                text: `${errorText || "正文优化失败，已保留原文。"}\n等待选择：重试当前阶段，或跳过继续。`
-                            });
-                        },
-                        onSkip: (errorText) => {
-                            options?.onPolishProgress?.({
-                                phase: "skipped",
-                                text: `正文优化失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ""}`
-                            });
-                        }
+        const 执行文章优化阶段 = async (启用并行文案: boolean = 文章优化变量可并行) => {
+            if (!文章优化开启) return null;
+            const polishStage = await 执行可重试独立阶段({
+                stageId: "polish",
+                stageLabel: "文章优化",
+                beforeAttempt: (attempt) => {
+                    options?.onPolishProgress?.({
+                        phase: "start",
+                        text: attempt > 1
+                            ? `正在重新提取并润色<正文>内容...（第 ${attempt} 次手动重试）`
+                            : (启用并行文案 ? "正在并行提取并润色<正文>内容..." : "正在后台提取并润色<正文>内容...")
                     });
-                    return polishStage;
-                };
-
-                const 应用文章优化结果 = (polishStage: Awaited<ReturnType<typeof 执行文章优化阶段>>) => {
-                    const polished = polishStage?.result;
-                    if (polishStage?.completed && polished) {
-                        if (polished.applied) {
-                            displayAiData = polished.response;
-                            finalDisplayResponse = {
-                                ...displayAiData,
-                                tavern_commands: Array.isArray(responseForExecution.tavern_commands) ? [...responseForExecution.tavern_commands] : []
-                            };
-                            options?.onPolishProgress?.({
-                                phase: "done",
-                                text: `已应用优化结果（模型：${polished.response.body_optimized_model || "未知"}）`,
-                                rawText: polished.rawText
-                            });
-                            const polishedAiMsg: 聊天记录结构 = {
-                                ...newAiMsg,
-                                structuredResponse: finalDisplayResponse
-                            };
-                            deps.设置历史记录(prev => {
-                                const targetIndex = prev.findIndex(item => item.timestamp === aiTurnTimestamp && item.role === "assistant");
-                                const fallbackIndex = targetIndex >= 0
-                                    ? targetIndex
-                                    : (() => {
-                                        for (let index = prev.length - 1; index >= 0; index -= 1) {
-                                            const item = prev[index];
-                                            if (item?.role === "assistant" && !item.structuredResponse) return index;
-                                        }
-                                        return -1;
-                                    })();
-                                if (fallbackIndex < 0) return [...prev, { ...polishedAiMsg, autoScrollToTurnIcon: false, autoScrollToTurnStart: true }];
-                                return prev.map((item, index) => {
-                                    if (index !== fallbackIndex) return item;
-                                    return {
-                                        ...item,
-                                        ...polishedAiMsg,
-                                        autoScrollToTurnIcon: false,
-                                        autoScrollToTurnStart: item.autoScrollToTurnStart === true || polishedAiMsg.autoScrollToTurnStart === true
-                                    };
-                                });
-                            });
-                        } else {
-                            options?.onPolishProgress?.({
-                                phase: "done",
-                                text: polished.error || "优化未生效，已保留原文。",
-                                rawText: polished.rawText
-                            });
-                        }
+                },
+                onAutoRetry: (attempt, maxAttempts, reason) => {
+                    options?.onPolishProgress?.({
+                        phase: "start",
+                        text: `正文优化请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ""}`
+                    });
+                },
+                run: () => deps.执行正文润色(
+                    aiData,
+                    rawAiText,
+                    {
+                        playerInput: sendInput,
+                        signal: controller.signal,
+                        allowExpansionForLength: allowShortDraftForPolish,
+                        minLength: runtimeGameConfig.字数要求
                     }
-                };
+                ),
+                onError: (errorText) => {
+                    options?.onPolishProgress?.({
+                        phase: "error",
+                        text: `${errorText || "正文优化失败，已保留原文。"}\n等待选择：重试当前阶段，或跳过继续。`
+                    });
+                },
+                onSkip: (errorText) => {
+                    options?.onPolishProgress?.({
+                        phase: "skipped",
+                        text: `正文优化失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ""}`
+                    });
+                }
+            });
+            return polishStage;
+        };
 
+        const 应用文章优化结果 = (polishStage: Awaited<ReturnType<typeof 执行文章优化阶段>>) => {
+            const polished = polishStage?.result;
+            if (polishStage?.completed && polished) {
+                if (polished.applied) {
+                    displayAiData = polished.response;
+                    finalDisplayResponse = {
+                        ...displayAiData,
+                        tavern_commands: Array.isArray(responseForExecution.tavern_commands) ? [...responseForExecution.tavern_commands] : []
+                    };
+                    options?.onPolishProgress?.({
+                        phase: "done",
+                        text: `已应用优化结果（模型：${polished.response.body_optimized_model || "未知"}）`,
+                        rawText: polished.rawText
+                    });
+                    const polishedAiMsg: 聊天记录结构 = {
+                        ...newAiMsg,
+                        structuredResponse: finalDisplayResponse
+                    };
+                    deps.设置历史记录(prev => {
+                        const targetIndex = prev.findIndex(item => item.timestamp === aiTurnTimestamp && item.role === "assistant");
+                        const fallbackIndex = targetIndex >= 0
+                            ? targetIndex
+                            : (() => {
+                                for (let index = prev.length - 1; index >= 0; index -= 1) {
+                                    const item = prev[index];
+                                    if (item?.role === "assistant" && !item.structuredResponse) return index;
+                                }
+                                return -1;
+                            })();
+                        if (fallbackIndex < 0) return [...prev, { ...polishedAiMsg, autoScrollToTurnIcon: false, autoScrollToTurnStart: true }];
+                        return prev.map((item, index) => {
+                            if (index !== fallbackIndex) return item;
+                            return {
+                                ...item,
+                                ...polishedAiMsg,
+                                autoScrollToTurnIcon: false,
+                                autoScrollToTurnStart: item.autoScrollToTurnStart === true || polishedAiMsg.autoScrollToTurnStart === true
+                            };
+                        });
+                    });
+                } else {
+                    options?.onPolishProgress?.({
+                        phase: "done",
+                        text: polished.error || "优化未生效，已保留原文。",
+                        rawText: polished.rawText
+                    });
+                }
+            }
+        };
+
+        // 队列内统一走这里：暂停前已经跑过文章优化时直接跳过，避免重复消耗一次调用来回改写同一段正文。
+        const 运行队列内文章优化阶段 = async () => {
+            if (文章优化已由暂停前执行) return null;
+            文章优化已由暂停前执行 = true;
+            return 执行文章优化阶段();
+        };
+
+        const 后台队列任务 = async () => {
+            try {
                 let variableGenerationResult: Awaited<ReturnType<typeof deps.执行变量生成并合并响应>> = null;
                 const 变量生成前命令数 = Array.isArray(responseForExecution.tavern_commands) ? responseForExecution.tavern_commands.length : 0;
                 const 执行变量生成阶段 = async (baseDisplayResponse: GameResponse) => 执行可重试独立阶段({
@@ -2634,19 +2650,19 @@ export const 执行主剧情发送工作流 = async (
                             ? "变量生成接口未配置，已跳过。"
                             : "变量生成功能已关闭，已跳过。"
                     });
-                    const polishStage = await 执行文章优化阶段();
+                    const polishStage = await 运行队列内文章优化阶段();
                     应用文章优化结果(polishStage);
                 } else {
                     if (文章优化变量可并行) {
                         const baseDisplayResponse = finalDisplayResponse;
                         const [polishStage, parallelVariableStage] = await Promise.all([
-                            执行文章优化阶段(),
+                            运行队列内文章优化阶段(),
                             执行变量生成阶段(baseDisplayResponse)
                         ]);
                         应用文章优化结果(polishStage);
                         variableStage = parallelVariableStage;
                     } else {
-                        const polishStage = await 执行文章优化阶段();
+                        const polishStage = await 运行队列内文章优化阶段();
                         应用文章优化结果(polishStage);
                         variableStage = await 执行变量生成阶段(finalDisplayResponse);
                     }
@@ -3266,7 +3282,43 @@ export const 执行主剧情发送工作流 = async (
                     deps.abortControllerRef.current = null;
                 }
             }
-        })();
+        };
+
+        const 暂停阶段摘要 = 构建待执行阶段摘要({
+            变量生成: 变量生成功能已启用(currentState.apiConfig) && 接口配置是否可用(获取变量计算接口配置(currentState.apiConfig)),
+            动态世界: worldEvolutionSplitEnabled,
+            规划分析: planningFeatureEnabled,
+            地图更新: currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false
+        });
+        if (启用正文后暂停后续步骤 && 需要展示后续步骤入口(暂停阶段摘要) && deps.注册待继续后续步骤) {
+            // 文章优化改写的仍是正文本身，属于「确认正文质量」的一环，放在暂停点之前跑，
+            // 让玩家看到并确认的就是最终正文；变量/世界/规划/地图留到一键继续时再执行。
+            const 暂停前优化阶段 = await 执行文章优化阶段(false);
+            应用文章优化结果(暂停前优化阶段);
+            文章优化已由暂停前执行 = true;
+            // 继续时文章优化已经跑完，变量生成不再有并行对象，阶段文案也要跟着改。
+            文章优化变量可并行 = false;
+            if (controller.signal.aborted) {
+                throw controller.signal.reason || new DOMException('Aborted', 'AbortError');
+            }
+            deps.注册待继续后续步骤({
+                阶段摘要: 暂停阶段摘要,
+                回合标识: aiTurnTimestamp,
+                执行: async () => {
+                    // 注册后玩家可能已经重ROLL或开了新回合：signal 已 abort 时直接放弃，避免把旧回合命令叠到新状态上。
+                    if (controller.signal.aborted) return;
+                    controller = new AbortController();
+                    deps.abortControllerRef.current = controller;
+                    deps.set后台队列处理中(true);
+                    await 后台队列任务();
+                }
+            });
+            return { attachedRecallPreview, pausedAfterStory: true };
+        }
+
+        deps.set后台队列处理中(true);
+        后台队列已启动 = true;
+        void 后台队列任务();
         return { attachedRecallPreview };
     } catch (error: any) {
         收束自动存档完成(null);

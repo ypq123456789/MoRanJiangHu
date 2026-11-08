@@ -965,6 +965,17 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
                 </div>
                 <div className="flex items-center justify-between gap-4">
                     <div>
+                        <div className="text-sm text-wuxia-cyan font-bold">正文后暂停后续步骤</div>
+                        <div className="text-xs text-gray-400 mt-1">默认关闭。开启后，正文（含文章优化）写完就停：变量生成、动态世界、规划分析、地图更新不会自动执行，等你在输入栏上方点「继续执行后续步骤」再跑。适合按次计费或额度有限的模型——正文不满意可以直接重ROLL，不会连带消耗后面几个阶段的调用。</div>
+                    </div>
+                    <ToggleSwitch
+                        checked={form.启用正文后暂停后续步骤 === true}
+                        onChange={(next) => 实时应用更新({ 启用正文后暂停后续步骤: next })}
+                        ariaLabel="切换正文后暂停后续步骤"
+                    />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                    <div>
                         <div className="text-sm text-wuxia-cyan font-bold">回合提示音</div>
                         <div className="text-xs text-gray-400 mt-1">开启后，每回合生成结束时播放短促提示音。网页和 APK 均支持。</div>
                     </div>

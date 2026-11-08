@@ -3769,6 +3769,7 @@ export const useGame = () => {
     执行重解析变量生成委托 = 执行重解析变量生成;
 
     const handleStop = () => {
+        放弃待继续后续步骤();
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
@@ -3859,12 +3860,61 @@ export const useGame = () => {
         return nextSnapshot;
     };
 
+    // --- 正文后暂停后续步骤（省额度模式）---
+    // 玩家确认正文质量后再手动点「继续执行后续步骤」，避免不满意重ROLL 时连锁消耗变量/世界/规划/地图的额度。
+    const [待继续后续步骤, set待继续后续步骤] = useState<{ 阶段摘要: string[]; 回合标识: number; 注册时间: number } | null>(null);
+    const 待继续后续步骤执行Ref = useRef<null | (() => Promise<void>)>(null);
+
+    const 放弃待继续后续步骤 = () => {
+        待继续后续步骤执行Ref.current = null;
+        set待继续后续步骤(null);
+    };
+
+    const 注册待继续后续步骤 = (payload: { 阶段摘要: string[]; 回合标识?: number; 执行: () => Promise<void> }) => {
+        待继续后续步骤执行Ref.current = payload.执行;
+        set待继续后续步骤({
+            阶段摘要: Array.isArray(payload.阶段摘要) ? [...payload.阶段摘要] : [],
+            回合标识: Number(payload.回合标识) || 0,
+            注册时间: Date.now()
+        });
+    };
+
+    const 继续执行后续步骤 = async () => {
+        const 执行 = 待继续后续步骤执行Ref.current;
+        if (!执行) {
+            set待继续后续步骤(null);
+            return;
+        }
+        // 兜底：暂停期间若发生过回档/读档/快速重开，历史记录的最后一轮已经不是注册时那一回合，
+        // 此时旧闭包里的状态快照已经和新状态对不上，直接丢弃比把旧命令叠上去安全。
+        const 当前回合标识 = (() => {
+            for (let i = 历史记录.length - 1; i >= 0; i -= 1) {
+                const item = 历史记录[i];
+                if (item?.role === 'assistant') return Number(item.timestamp) || 0;
+            }
+            return 0;
+        })();
+        const 注册回合标识 = Number(待继续后续步骤?.回合标识) || 0;
+        待继续后续步骤执行Ref.current = null;
+        set待继续后续步骤(null);
+        if (注册回合标识 && 当前回合标识 && 注册回合标识 !== 当前回合标识) {
+            推送右下角提示({
+                title: '后续步骤已取消',
+                message: '上一回合已被回档或读档，本次未执行的后续步骤已失效。',
+                tone: 'info'
+            });
+            return;
+        }
+        await 执行();
+    };
+
     // --- Core Send Logic ---
     const handleSend = async (
         content: string,
         isStreaming: boolean = true,
         options?: 发送选项
     ): Promise<发送结果> => {
+        放弃待继续后续步骤();
         // 主行动优先：先使正在进行的侧聊结果失效，避免迟到回复落入本次主回合快照。
         终止当前角色对话(true);
         set开局主剧情进度(null);
@@ -3917,6 +3967,7 @@ export const useGame = () => {
                 前台发送序号Ref,
                 setLoading,
                 set后台队列处理中,
+                注册待继续后续步骤,
                 setShowSettings,
                 设置剧情,
                 设置历史记录,
@@ -4019,6 +4070,7 @@ export const useGame = () => {
     const 存档格式版本 = 3;
     const 自动存档最小间隔毫秒 = 30000;
     const 重置读档瞬态状态 = () => {
+        放弃待继续后续步骤();
         自动记忆总结暂停Ref.current = true;
         清空变量生成上下文缓存();
         世界演变进行中Ref.current = false;
@@ -4590,6 +4642,7 @@ export const useGame = () => {
             variableGenerationRunning: 变量生成中,
             variableReviewRevision,
             postStoryQueueRunning: 后台队列处理中,
+            pendingPostStoryQueue: 待继续后续步骤,
             openingMainStoryProgress: 开局主剧情进度,
             openingPolishProgress: 开局文章优化进度,
             openingWorldEvolutionProgress: 开局世界演变进度,
@@ -4616,7 +4669,13 @@ export const useGame = () => {
             handleSend,
             handleStop,
             handleCancelVariableGeneration,
-            handleRegenerate,
+            handleContinuePostStoryQueue: 继续执行后续步骤,
+            handleAbandonPostStoryQueue: 放弃待继续后续步骤,
+            // 重ROLL 会回档到本回合之前，挂起的后续步骤必须一起丢弃，否则旧命令会叠到回档后的状态上。
+            handleRegenerate: async () => {
+                放弃待继续后续步骤();
+                return handleRegenerate();
+            },
             handleRetryLatestVariableGeneration,
             handleRetryLatestStage,
             handlePolishTurn,

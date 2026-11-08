@@ -3446,6 +3446,9 @@ const App: React.FC = () => {
                                     loading={state.loading} 
                                     variableGenerationRunning={meta.variableGenerationRunning}
                                     postStoryQueueRunning={meta.postStoryQueueRunning}
+                                    pendingPostStoryQueue={meta.pendingPostStoryQueue}
+                                    onContinuePostStoryQueue={actions.handleContinuePostStoryQueue}
+                                    onAbandonPostStoryQueue={actions.handleAbandonPostStoryQueue}
                                     canReroll={meta.canRerollLatest}
                                     reRollCount={meta.reRollCount}
                                     canRetryLatestVariableGeneration={meta.canRetryLatestVariableGeneration}
