@@ -47,6 +47,7 @@ import {
     酒馆预设模式可用,
 } from './promptRuntime';
 import { 构建AI角色声明提示词 } from '../../prompts/runtime/roleIdentity';
+import { 提取可保护的主角姓名 } from '../../utils/protagonistNameGuard';
 import {
     构建字数要求提示词,
     构建免责声明输出要求提示词,
@@ -648,7 +649,23 @@ export const 构建系统提示词 = ({
             突破条件: 突破条件列表
         };
 
-        return 包装树状上下文('用户角色数据', 裁剪修炼体系上下文数据(orderedRole, normalizedGameConfig));
+        const 主角姓名 = 提取可保护的主角姓名(role);
+        // 群像场景最容易出现「AI 给主角乱起名」：把姓名锚点贴在角色数据最前面，
+        // 让模型在最靠近输出的位置再确认一次主角是谁。
+        const 主角身份锚点 = 主角姓名
+            ? [
+                '【主角身份锚点】',
+                `- 本局主角（玩家角色）唯一姓名：${主角姓名}。`,
+                '- 群像、多角色同场、对白密集的场景中，主角仍然只叫这个名字：不得给主角另起名字、化名、绰号，也不得替换成任何 NPC 的名字。',
+                '- NPC 称呼主角时使用这个名字或对应身份称呼（如“师兄”“掌柜”），不得凭空新造姓名。',
+                '- 主角不在社交列表中：不要为主角新建 NPC 档案，也不要把主角的言行写到别的角色名下。'
+            ].join('\n')
+            : '';
+
+        return [
+            主角身份锚点,
+            包装树状上下文('用户角色数据', 裁剪修炼体系上下文数据(orderedRole, normalizedGameConfig))
+        ].filter(Boolean).join('\n\n');
     };
     const 归一化文本 = (value: any) => (
         typeof value === 'string'

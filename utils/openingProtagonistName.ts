@@ -18,12 +18,19 @@ const AI_NAME_PLACEHOLDERS = new Set([
     'unknown'
 ]);
 
-const matchesPlaceholder = (aiName: string): boolean => {
-    if (!aiName) return true;
-    if (AI_NAME_PLACEHOLDERS.has(aiName)) return true;
+/**
+ * 判断一个姓名是否是 AI 常用的占位名（空 / 未命名 / 未知角色 / 无名 / unnamed / unknown）。
+ * 该判断同样用于「主角姓名保护」：占位名不算正式姓名，可以被真实姓名覆盖。
+ */
+export const 是否主角姓名占位 = (aiName: unknown): boolean => {
+    const text = typeof aiName === 'string' ? aiName.trim() : '';
+    if (!text) return true;
+    if (AI_NAME_PLACEHOLDERS.has(text)) return true;
     // 大小写不敏感处理：'Unnamed' / 'UNKNOWN' 也算占位
-    return AI_NAME_PLACEHOLDERS.has(aiName.toLowerCase());
+    return AI_NAME_PLACEHOLDERS.has(text.toLowerCase());
 };
+
+const matchesPlaceholder = (aiName: string): boolean => 是否主角姓名占位(aiName);
 
 export const 修补开局角色姓名占位 = (
     role: any,

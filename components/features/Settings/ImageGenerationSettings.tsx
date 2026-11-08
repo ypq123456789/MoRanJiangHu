@@ -17,6 +17,7 @@ import { RELEASE_INFO } from '../../../data/releaseInfo';
 import { 默认ComfyUI工作流JSON, 默认NSFWComfyUI工作流JSON } from '../../../data/defaultComfyWorkflow';
 import { openExternalUrl } from '../../../services/appUpdate';
 import { 规范化接口设置, 获取文生图接口配置, 获取NSFW文生图接口配置, 接口配置是否可用, type 当前可用接口结构 } from '../../../utils/apiConfig';
+import { NovelAI模型建议, 是否NovelAIV5中等强度模型 } from '../../../utils/novelAiModels';
 import { 自动场景横屏尺寸选项, 自动场景竖屏尺寸选项 } from '../../../utils/imageSizeOptions';
 import {
     buildDiscoveredBackendLabel,
@@ -134,7 +135,6 @@ const 读取文生图接口路径 = (
 };
 
 const OpenAI图片模型建议 = ['gpt-image-2', 'gpt-image-1'];
-const NovelAI模型建议 = ['nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-full'];
 const NovelAI采样器选项: Array<{ value: 功能模型占位配置结构['NovelAI采样器']; label: string }> = [
     { value: 'k_euler_ancestral', label: 'Euler Ancestral' },
     { value: 'k_euler', label: 'Euler' },
@@ -360,6 +360,9 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
     const 当前NSFW后端 = form.功能模型占位.NSFW生图独立接口启用
         ? form.功能模型占位.NSFW生图后端类型
         : 当前后端;
+    // V5 Full Medium 是蒸馏版：官方不支持自定义 UC / 负面提示词，设置里的负面词不会生效。
+    const NovelAI负面提示词受限 = [form.功能模型占位.文生图模型使用模型, form.功能模型占位.NSFW生图模型使用模型]
+        .some(是否NovelAIV5中等强度模型);
     const 普通使用默认ComfyUI工作流 = form.功能模型占位.使用默认ComfyUI工作流 !== false;
     const 场景使用默认ComfyUI工作流 = form.功能模型占位.使用默认场景ComfyUI工作流 !== false;
     const NSFW使用默认ComfyUI工作流 = form.功能模型占位.使用默认NSFWComfyUI工作流 !== false;
@@ -1729,7 +1732,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                         type="text"
                         value={form.功能模型占位.NSFW生图模型使用模型}
                         onChange={(e) => updatePlaceholder('NSFW生图模型使用模型', e.target.value)}
-                        placeholder={当前NSFW后端 === 'novelai' ? '例如：nai-diffusion-4-5-full' : '请选择支持成人向的专用模型'}
+                        placeholder={当前NSFW后端 === 'novelai' ? '例如：nai-diffusion-5-full' : '请选择支持成人向的专用模型'}
                         disabled={!form.功能模型占位.NSFW生图独立接口启用}
                         className="w-full rounded-md border-2 border-transparent bg-black/50 p-3 text-white outline-none transition-all focus:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
                     />
@@ -2020,7 +2023,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                             type="text"
                             value={form.功能模型占位.文生图模型使用模型}
                             onChange={(e) => updatePlaceholder('文生图模型使用模型', e.target.value)}
-                            placeholder="例如：gpt-image-2 / nai-diffusion-4-5-full"
+                            placeholder="例如：gpt-image-2 / nai-diffusion-5-full"
                             className="w-full rounded-md border-2 border-transparent bg-black/50 p-3 text-white outline-none transition-all focus:border-fuchsia-400"
                         />
                     </>
@@ -2159,6 +2162,11 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                             placeholder="例如：lowres, bad anatomy, text, watermark"
                             className="w-full rounded-md border-2 border-transparent bg-black/50 p-3 text-white outline-none transition-all focus:border-emerald-400 resize-y disabled:cursor-not-allowed disabled:opacity-50"
                         />
+                        {NovelAI负面提示词受限 && (
+                            <div className="text-xs leading-5 text-emerald-200/80">
+                                当前模型为 V5 Full Medium：官方不支持自定义负面提示词（UC），这里的负面词不会生效。需要排除某个元素时，请在正向提示词里使用负向强调，例如 <code className="rounded bg-black/40 px-1">-3::hat::</code>。
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -2840,7 +2848,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
                                             type="text"
                                             value={form.功能模型占位.场景生图模型使用模型}
                                             onChange={(e) => updatePlaceholder('场景生图模型使用模型', e.target.value)}
-                                            placeholder="例如：nai-diffusion-4-5-full / gpt-image-2"
+                                            placeholder="例如：nai-diffusion-5-full / gpt-image-2"
                                             className="w-full rounded-md border-2 border-transparent bg-black/50 p-3 text-white outline-none transition-all focus:border-sky-400"
                                         />
                                     </>

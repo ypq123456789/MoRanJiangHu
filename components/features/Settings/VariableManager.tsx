@@ -200,6 +200,8 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
     const [commandKey, setCommandKey] = React.useState('剧情.关键剧情变量组');
     const [commandValue, setCommandValue] = React.useState('[]');
     const [commandError, setCommandError] = React.useState('');
+    const [nameDraft, setNameDraft] = React.useState('');
+    const [nameMessage, setNameMessage] = React.useState('');
     const variableRegistry = React.useMemo(() => 构建变量路径登记表(runtimeState, { maxDepth: 5, maxLines: 320 }), [runtimeState]);
 
     const activeValue = React.useMemo(() => {
@@ -221,9 +223,25 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
         const role = activeValue && typeof activeValue === 'object' ? activeValue as any : {};
         return 构建变量管理动态钱包视图(role?.金钱, openingConfig, role);
     }, [activeSection, activeValue, openingConfig]);
+    const 当前主角姓名 = React.useMemo(() => {
+        if (activeSection !== '角色') return '';
+        const role = activeValue && typeof activeValue === 'object' ? activeValue as any : {};
+        return typeof role?.姓名 === 'string' ? role.姓名 : '';
+    }, [activeSection, activeValue]);
+
+    // 只跟随「底层姓名」变化重置输入框，避免玩家正在输入时被其他字段编辑打断。
+    React.useEffect(() => {
+        setNameDraft(当前主角姓名);
+    }, [当前主角姓名]);
+    // 切换分区时清掉上一条提示，避免把别的分区的结果误读成当前结果。
+    React.useEffect(() => {
+        setNameMessage('');
+    }, [activeSection]);
 
     // 保留地图系统草稿，防止被 runtimeState 更新覆盖
     const mapDraftRef = React.useRef<any>(null);
+    // 玩家正在编辑「原始 JSON 草稿」时，不让 activeValue 的被动刷新覆盖未保存输入。
+    const jsonDraftDirtyRef = React.useRef(false);
     const pendingSavedDraftsRef = React.useRef<Record<string, { value: any; previousFingerprint: string }>>({});
     const 读取运行时分区 = React.useCallback((section: 变量根键, source: Record<变量根键, unknown> = runtimeState) => {
         if (section === '地图系统') return 提取地图数据(source['世界']);
@@ -251,7 +269,7 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
     }, [runtimeState, 读取运行时分区]);
 
     React.useEffect(() => {
-        setJsonDraft(格式化JSON(activeValue));
+        if (!jsonDraftDirtyRef.current) setJsonDraft(格式化JSON(activeValue));
     }, [activeValue]);
 
     const updateActiveDraft = (value: any) => {
@@ -279,9 +297,49 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
         };
     };
 
+    // 玩家手动修回主角姓名：只把姓名写入运行时状态，不碰其他尚未保存的草稿。
+    const 保存主角姓名 = () => {
+        const nextName = nameDraft.trim();
+        if (!nextName) {
+            setNameMessage('主角姓名不能为空。');
+            return;
+        }
+        if (nextName === 当前主角姓名) {
+            setNameMessage('姓名未变化。');
+            return;
+        }
+        if (jsonDraftDirtyRef.current) {
+            setNameMessage('原始 JSON 草稿还有未保存的修改，请先点「保存本分区」再改主角姓名。');
+            return;
+        }
+        if (!runtimeState['角色'] || typeof runtimeState['角色'] !== 'object') {
+            setNameMessage('当前还没有角色数据，暂时不能修改主角姓名。');
+            return;
+        }
+        const runtimeRole = runtimeState['角色'] as Record<string, any>;
+        const draftRoleForCheck = activeValue && typeof activeValue === 'object'
+            ? activeValue as Record<string, any>
+            : {};
+        // 结构树里若还有未保存的编辑，先提醒保存，避免被本次姓名写入覆盖。
+        // 姓名本身由上方输入框决定，不参与比较（双击保存时草稿姓名可能已领先运行时一拍）。
+        const { 姓名: _草稿姓名, ...草稿其余字段 } = draftRoleForCheck;
+        const { 姓名: _运行时姓名, ...运行时其余字段 } = runtimeRole;
+        if (安全指纹(草稿其余字段) !== 安全指纹(运行时其余字段)) {
+            setNameMessage('角色分区还有未保存的修改，请先点「保存本分区」再改主角姓名。');
+            return;
+        }
+        // 提交只用「运行时角色 + 新姓名」，确保不会把草稿里的其他字段一起持久化。
+        const submittedRole = { ...runtimeRole, 姓名: nextName };
+        markPendingSavedDraft('角色', submittedRole);
+        setDrafts((prev) => ({ ...prev, 角色: submittedRole }));
+        onReplaceSection('角色', submittedRole);
+        setNameMessage(`已保存：${nextName}`);
+    };
+
     const handleSaveSection = () => {
         try {
             const parsed = JSON.parse(jsonDraft);
+            jsonDraftDirtyRef.current = false;
             if (activeSection === '地图系统') {
                 const currentMapData = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
                 const worldData = 深拷贝(runtimeState['世界'] || {});
@@ -349,7 +407,10 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                             <button
                                 key={section.key}
                                 type="button"
-                                onClick={() => setActiveSection(section.key)}
+                                onClick={() => {
+                                    jsonDraftDirtyRef.current = false;
+                                    setActiveSection(section.key);
+                                }}
                                 className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
                                     activeSection === section.key
                                         ? 'border-wuxia-gold/60 bg-wuxia-gold/10'
@@ -371,6 +432,7 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                                 <div className="mt-1 text-xs text-gray-500">{分区列表.find((item) => item.key === activeSection)?.description}</div>
                             </div>
                             <button type="button" onClick={() => {
+                                jsonDraftDirtyRef.current = false;
                                 if (activeSection === '地图系统') {
                                     updateActiveDraft(提取地图数据(runtimeState['世界']));
                                 } else {
@@ -380,6 +442,27 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                                 重置本分区
                             </button>
                         </div>
+                        {activeSection === '角色' && (
+                            <div className="mb-3 rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 p-3">
+                                <div className="text-xs font-bold tracking-[0.16em] text-wuxia-gold">主角姓名</div>
+                                <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center">
+                                    <input
+                                        value={nameDraft}
+                                        onChange={(e) => setNameDraft(e.target.value)}
+                                        maxLength={24}
+                                        placeholder="输入主角姓名"
+                                        className={输入框样式}
+                                    />
+                                    <button type="button" onClick={保存主角姓名} className={`${按钮样式} shrink-0`}>
+                                        保存姓名
+                                    </button>
+                                </div>
+                                <div className="mt-2 text-xs leading-5 text-gray-400">
+                                    群像剧情里 AI 偶尔会给主角乱起名字。这里改回正确姓名并保存，会立即写入当前状态与自动存档，后续回合都按新姓名继续。
+                                </div>
+                                {nameMessage && <div className="mt-1 text-xs text-wuxia-gold">{nameMessage}</div>}
+                            </div>
+                        )}
                         {动态钱包视图 ? (
                             <div className="mb-3 rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 p-3">
                                 <div className="text-xs font-bold tracking-[0.16em] text-wuxia-gold">新版货币余额</div>
@@ -441,7 +524,10 @@ const VariableManager: React.FC<Props> = ({ runtimeState, openingConfig, onRepla
                         </div>
                         <textarea
                             value={jsonDraft}
-                            onChange={(e) => setJsonDraft(e.target.value)}
+                            onChange={(e) => {
+                                jsonDraftDirtyRef.current = true;
+                                setJsonDraft(e.target.value);
+                            }}
                             rows={16}
                             className={`${输入框样式} font-mono text-[12px] leading-6`}
                         />
