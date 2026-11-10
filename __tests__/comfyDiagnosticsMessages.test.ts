@@ -122,4 +122,25 @@ describe('ComfyUI 诊断提示：自建后端不得被 Cloud Studio 文案误导
 
         expect(message).toContain('混合内容');
     });
+
+    it('省略协议的地址也能解析出填写的端口并补全协议', async () => {
+        设置运行环境();
+        模拟探测响应({ ok: false, reason: 'invalid_url' });
+
+        const message = await 构建ComfyUI精确连接失败提示(
+            'my-comfy.example.com:8886',
+            new TypeError('Failed to fetch')
+        );
+
+        // new URL('my-comfy.example.com:8886') 会把主机名当成自定义协议，导致端口丢失
+        expect(message).toContain('http://my-comfy.example.com:8886/system_stats');
+        expect(message).toContain('--port 8886');
+        expect(message).not.toContain('--port 80');
+    });
+
+    it('省略协议的本机地址按 loopback 处理', () => {
+        expect(识别ComfyUI地址类型('localhost:8188')).toBe('loopback');
+        expect(识别ComfyUI地址类型('127.0.0.1:8188')).toBe('loopback');
+        expect(识别ComfyUI地址类型('my-comfy.example.com:8886')).toBe('public');
+    });
 });

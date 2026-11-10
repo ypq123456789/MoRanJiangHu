@@ -98,35 +98,51 @@ const 规范化可解析地址 = (baseUrlRaw: string): string => {
     return raw;
 };
 
-export const 识别ComfyUI地址类型 = (baseUrlRaw: string): ComfyUI地址类型 => {
-    try {
-        const url = new URL((baseUrlRaw || '').trim());
-        const host = url.hostname.toLowerCase();
-        if (/(^|\.)cnb\.run$/i.test(host) || /(^|\.)cnb\.space$/i.test(host)
-            || /(^|\.)cloudstudio\.net$/i.test(host) || /(^|\.)cloudstudio\.com$/i.test(host) || /(^|\.)cloudstudio\.club$/i.test(host) || /(^|\.)coding\.net$/i.test(host)) return 'cnb';
-        if (host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127\./.test(host)) return 'loopback';
-        if (判断局域网主机(host)) return 'lan';
-        return /^https?:$/i.test(url.protocol) ? 'public' : 'unknown';
-    } catch {
-        return 'unknown';
+// 把用户填写的地址解析成 URL：兼容省略协议的情况（example.com:8886 / localhost:8188）。
+// 直接交给 new URL 会把 host 部分当成自定义协议，端口信息随之丢失。
+const 解析地址URL = (baseUrlRaw: string): URL | null => {
+    const raw = (baseUrlRaw || '').trim();
+    if (!raw) return null;
+    const candidates = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? [raw] : [raw, `http://${raw}`];
+    for (const candidate of candidates) {
+        try {
+            const url = new URL(candidate);
+            if (!/^https?:$/i.test(url.protocol)) continue;
+            return url;
+        } catch {
+            // 当前候选解析失败，继续尝试下一个
+        }
     }
+    return null;
+};
+
+export const 识别ComfyUI地址类型 = (baseUrlRaw: string): ComfyUI地址类型 => {
+    const url = 解析地址URL(baseUrlRaw);
+    if (!url) return 'unknown';
+    const host = url.hostname.toLowerCase();
+    if (/(^|\.)cnb\.run$/i.test(host) || /(^|\.)cnb\.space$/i.test(host)
+        || /(^|\.)cloudstudio\.net$/i.test(host) || /(^|\.)cloudstudio\.com$/i.test(host) || /(^|\.)cloudstudio\.club$/i.test(host) || /(^|\.)coding\.net$/i.test(host)) return 'cnb';
+    if (host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127\./.test(host)) return 'loopback';
+    if (判断局域网主机(host)) return 'lan';
+    return 'public';
 };
 
 // 读取地址里实际填写的端口，用于给玩家可照抄的启动参数，避免一律写 8188 造成误导
 const 读取地址端口 = (baseUrlRaw: string): string => {
-    try {
-        const url = new URL((baseUrlRaw || '').trim());
-        if (url.port) return url.port;
-        return /^https:$/i.test(url.protocol) ? '443' : '80';
-    } catch {
-        return '8188';
-    }
+    const url = 解析地址URL(baseUrlRaw);
+    if (!url) return '8188';
+    if (url.port) return url.port;
+    return url.protocol === 'https:' ? '443' : '80';
 };
 
 // 自建后端（自有域名/公网服务器）的自查清单：不依赖我们的服务端探测，玩家自己就能定位
 const 构建自建后端自查说明 = (baseUrlRaw: string): string[] => {
-    const baseUrl = 清理末尾斜杠((baseUrlRaw || '').trim());
-    const port = 读取地址端口(baseUrl);
+    const parsed = 解析地址URL(baseUrlRaw);
+    // 补全协议，保证清单里的地址能直接粘进浏览器地址栏
+    const baseUrl = parsed
+        ? `${parsed.origin}${清理末尾斜杠(parsed.pathname)}`
+        : 清理末尾斜杠((baseUrlRaw || '').trim());
+    const port = 读取地址端口(baseUrlRaw);
     const statsUrl = baseUrl ? `${baseUrl}/system_stats` : '/system_stats';
     const 明文说明 = /^http:\/\//i.test(baseUrl)
         ? '注意：这是 http 明文地址，安卓 APK 可以访问，但浏览器网页版（https 站点）会被混合内容策略拦截；要在网页版使用，请给后端配上 HTTPS。'
