@@ -1245,7 +1245,9 @@ const ImageGenerationSettings: React.FC<Props> = ({ settings, onSave }) => {
         try {
             const base = rawBaseUrl.replace(/\/+$/, '');
             if (backend === 'comfyui') {
-                const response = await fetch(`${base}/system_stats`, { method: 'GET' });
+                // 与实际生图保持一致：云端工作区地址必须走运行时代理，否则测试连接会因跨域假失败，
+                // 出现「测试连接报错、但真正生图能出图」的矛盾现象。
+                const response = await fetch(构建ComfyUI运行时代理端点(base, '/system_stats'), { method: 'GET' });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status} ${await response.text().catch(() => '')}`.trim());
                 }

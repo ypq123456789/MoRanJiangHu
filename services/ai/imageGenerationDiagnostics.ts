@@ -98,7 +98,7 @@ const 规范化可解析地址 = (baseUrlRaw: string): string => {
     return raw;
 };
 
-const 识别ComfyUI地址类型 = (baseUrlRaw: string): ComfyUI地址类型 => {
+export const 识别ComfyUI地址类型 = (baseUrlRaw: string): ComfyUI地址类型 => {
     try {
         const url = new URL((baseUrlRaw || '').trim());
         const host = url.hostname.toLowerCase();
@@ -110,6 +110,33 @@ const 识别ComfyUI地址类型 = (baseUrlRaw: string): ComfyUI地址类型 => {
     } catch {
         return 'unknown';
     }
+};
+
+// 读取地址里实际填写的端口，用于给玩家可照抄的启动参数，避免一律写 8188 造成误导
+const 读取地址端口 = (baseUrlRaw: string): string => {
+    try {
+        const url = new URL((baseUrlRaw || '').trim());
+        if (url.port) return url.port;
+        return /^https:$/i.test(url.protocol) ? '443' : '80';
+    } catch {
+        return '8188';
+    }
+};
+
+// 自建后端（自有域名/公网服务器）的自查清单：不依赖我们的服务端探测，玩家自己就能定位
+const 构建自建后端自查说明 = (baseUrlRaw: string): string[] => {
+    const baseUrl = 清理末尾斜杠((baseUrlRaw || '').trim());
+    const port = 读取地址端口(baseUrl);
+    const statsUrl = baseUrl ? `${baseUrl}/system_stats` : '/system_stats';
+    const 明文说明 = /^http:\/\//i.test(baseUrl)
+        ? '注意：这是 http 明文地址，安卓 APK 可以访问，但浏览器网页版（https 站点）会被混合内容策略拦截；要在网页版使用，请给后端配上 HTTPS。'
+        : '';
+    return [
+        `请先用手机或电脑浏览器直接打开 ${statsUrl}：`,
+        `· 打不开或一直转圈：后端没有对外开放。确认 ComfyUI 启动参数包含 --listen 0.0.0.0 --port ${port}，服务器安全组/防火墙已放行 ${port} 端口，域名已解析到这台服务器的公网 IP。`,
+        '· 能显示一段 JSON：后端本身正常，问题出在 App 到后端这一段（端口转发、反向代理、协议限制）。请把该页面截图发给开发者。',
+        明文说明
+    ].filter(Boolean);
 };
 
 const 构建ComfyUI连接失败排查说明 = (baseUrl: string): string[] => {
@@ -134,8 +161,8 @@ const 构建ComfyUI连接失败排查说明 = (baseUrl: string): string[] => {
         ];
     }
     return [
-        '可能原因：服务器没有启动、地址或端口填错、网络不可达、浏览器跨域 CORS 被拦截，或远程后端已经休眠。',
-        '请确认：1. 先在浏览器直接打开该 ComfyUI 地址；2. ComfyUI 启动参数包含 --listen 0.0.0.0 --port 8188 --enable-cors-header "*"；3. 如果是远程服务器，请确认安全组/防火墙已放行 8188。'
+        '可能原因：服务器没有启动、地址或端口填错、网络不可达、域名没有解析到这台服务器，或后端只监听在本机/内网而没有对外开放。',
+        ...构建自建后端自查说明(baseUrl)
     ];
 };
 
@@ -406,6 +433,28 @@ export const 构建ComfyUI精确连接失败提示 = async (baseUrlRaw: string, 
     const baseUrl = (baseUrlRaw || '').replace(/\/+$/, '') || '未填写';
     const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : '';
     const probe = await 远程探测ComfyUI连接(baseUrl);
+    const addressType = 识别ComfyUI地址类型(baseUrl);
+
+    // 服务端探测只覆盖云端工作区地址：自建域名/公网 IP 会被回 400 invalid_url。
+    // 这种情况必须走自查清单，不能继续往下掉进「Cloud Studio 休眠」的兜底文案。
+    if (probe?.reason === 'invalid_url') {
+        return [
+            `ComfyUI 连接失败，当前地址：${baseUrl}。`,
+            '这个地址不在远程诊断的服务端探测范围内（我们只代为检查云端工作区地址），所以这次无法替你判断后端状态。',
+            ...构建自建后端自查说明(baseUrl),
+            rawMessage ? `原始错误：${rawMessage}` : ''
+        ].filter(Boolean).join('\n');
+    }
+
+    // 探测请求本身没拿到结果（离线或诊断接口异常）——不能据此断定后端有问题
+    if (!probe) {
+        return [
+            `ComfyUI 连接失败，当前地址：${baseUrl}。`,
+            '远程诊断服务这次没有返回结果，无法判断后端状态。',
+            ...(addressType === 'cnb' ? 构建ComfyUI连接失败排查说明(baseUrl) : 构建自建后端自查说明(baseUrl)),
+            rawMessage ? `原始错误：${rawMessage}` : ''
+        ].filter(Boolean).join('\n');
+    }
 
     if (probe?.reachable === true && probe.ok === true) {
         const corsHeader = probe.headers?.['access-control-allow-origin'] || '';
@@ -431,7 +480,6 @@ export const 构建ComfyUI精确连接失败提示 = async (baseUrlRaw: string, 
     }
 
     if (probe?.reachable === false) {
-        const addressType = 识别ComfyUI地址类型(baseUrl);
         if (addressType === 'loopback' || addressType === 'lan') {
             return [
                 `ComfyUI 服务器不可达，当前地址：${baseUrl}。`,
@@ -446,7 +494,18 @@ export const 构建ComfyUI精确连接失败提示 = async (baseUrlRaw: string, 
                 ? '域名解析失败，地址可能已失效或复制错了。'
                 : probe.reason === 'tls_error'
                     ? 'HTTPS/TLS 证书异常，浏览器和服务器无法建立安全连接。'
-                : '远程探测也无法连到该地址，后端大概率未启动、Cloud Studio 工作区已关闭/休眠，或地址已失效。';
+                : addressType === 'cnb'
+                    ? '远程探测也无法连到该地址，后端大概率未启动、Cloud Studio 工作区已关闭/休眠，或地址已失效。'
+                    : '远程探测也无法连到该地址，后端大概率未启动、端口未对外开放，或地址已失效。';
+        if (addressType !== 'cnb') {
+            return [
+                `ComfyUI 服务器不可达，当前地址：${baseUrl}。`,
+                `最可能原因：${reasonText}`,
+                ...构建自建后端自查说明(baseUrl),
+                probe.error ? `远程探测错误：${probe.error}` : '',
+                rawMessage ? `浏览器原始错误：${rawMessage}` : ''
+            ].filter(Boolean).join('\n');
+        }
         return [
             `ComfyUI 服务器不可达，当前地址：${baseUrl}。`,
             `最可能原因：${reasonText}`,
@@ -458,7 +517,6 @@ export const 构建ComfyUI精确连接失败提示 = async (baseUrlRaw: string, 
     }
 
     if (isNativeCapacitorEnvironment()) {
-        const addressType = 识别ComfyUI地址类型(baseUrl);
         if (addressType === 'loopback' || addressType === 'lan') {
             return [
                 `ComfyUI 连接失败，当前地址：${baseUrl}。`,
@@ -466,10 +524,18 @@ export const 构建ComfyUI精确连接失败提示 = async (baseUrlRaw: string, 
                 rawMessage ? `原始错误：${rawMessage}` : ''
             ].filter(Boolean).join('\n');
         }
+        if (addressType === 'cnb') {
+            return [
+                `ComfyUI 连接失败，当前地址：${baseUrl}。`,
+                '当前在 APK 内，已尝试远程诊断但没有拿到明确结果。最常见原因仍是 Cloud Studio 工作区页面关闭导致后端休眠，或地址已经变化。',
+                '请打开 Cloud Studio 工作区页面保活，刷新自动发现列表后重新选择地址。',
+                rawMessage ? `原始错误：${rawMessage}` : ''
+            ].filter(Boolean).join('\n');
+        }
         return [
             `ComfyUI 连接失败，当前地址：${baseUrl}。`,
-            '当前在 APK 内，已尝试远程诊断但没有拿到明确结果。最常见原因仍是 Cloud Studio 工作区页面关闭导致后端休眠，或地址已经变化。',
-            '请打开 Cloud Studio 工作区页面保活，刷新自动发现列表后重新选择地址。',
+            '当前在 APK 内，远程诊断没有拿到明确结果，无法确认后端是否在线。',
+            ...构建自建后端自查说明(baseUrl),
             rawMessage ? `原始错误：${rawMessage}` : ''
         ].filter(Boolean).join('\n');
     }
