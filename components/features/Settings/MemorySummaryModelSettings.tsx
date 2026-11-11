@@ -42,10 +42,15 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
     // 未开独立模型时实际走的是剧情回忆配置，只改主渠道对这里毫无影响。
     const 生效接口 = useMemo(() => 获取记忆总结接口配置(form), [form]);
     const 生效接口来源 = useMemo(() => {
-        if (独立模型开启) return '「记忆总结」独立配置';
+        if (独立模型开启) {
+            return { 说明: '「记忆总结」独立配置', 受主渠道影响: false };
+        }
         const recall = 获取剧情回忆接口配置(form);
-        if (接口配置是否可用(recall)) return '「剧情回忆」配置（记忆总结未开独立模型时跟随其后）';
-        return '当前启用接口（主配置）';
+        if (接口配置是否可用(recall)) {
+            return { 说明: '「剧情回忆」配置（记忆总结未开独立模型时跟随其后）', 受主渠道影响: false };
+        }
+        // 两条回退都不成立时直接用当前启用接口，此时切主渠道确实会改到这里。
+        return { 说明: '当前启用接口（主配置）', 受主渠道影响: true };
     }, [form, 独立模型开启]);
 
     const updatePlaceholder = <K extends keyof 功能模型占位配置结构>(key: K, value: 功能模型占位配置结构[K]) => {
@@ -97,14 +102,17 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
                     <div className="text-[11px] text-gray-300">
                         当前实际生效：
                         <span className="text-wuxia-cyan font-bold">
-                            {生效接口
+                            {接口配置是否可用(生效接口)
                                 ? `${生效接口.名称 || '未命名渠道'} · ${生效接口.model}${生效接口.baseUrl ? ` @ ${取地址标识(生效接口.baseUrl)}` : ''}`
-                                : '未配置完成（缺少可用模型或密钥）'}
+                                : '未配置完成（缺少地址、密钥或模型）'}
                         </span>
                     </div>
-                    <div className="text-[11px] text-gray-500">来源：{生效接口来源}</div>
+                    <div className="text-[11px] text-gray-500">来源：{生效接口来源.说明}</div>
                     <div className="text-[11px] text-gray-500">
-                        本页改动需点下方「保存设置」才会用于后续总结；在「接口连接」里切换主渠道不会自动改变这里。
+                        本页改动需点下方「保存设置」才会用于后续总结；
+                        {生效接口来源.受主渠道影响
+                            ? '当前回退到主配置，在「接口连接」切换启用渠道会同时改变这里。'
+                            : '在「接口连接」里切换主渠道不会改变这里，请在本页选择渠道，或先去「剧情回忆」页调整。'}
                     </div>
                 </div>
 
