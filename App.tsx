@@ -2718,6 +2718,14 @@ const App: React.FC = () => {
         setShowCloudPlay(true);
     }, []);
     const closeSettings = React.useCallback(() => setters.setShowSettings(false), [setters]);
+    // NPC 记忆总结报错时直达接口配置页：不关闭任务，只把设置叠在上面，
+    // 玩家改完接口回来点「重新生成」即可继续，不必重新等阈值触发。
+    // 必须先收掉其他面板（如社交面板）：它们与设置同层级且后渲染，会盖住设置。
+    const openMemorySummarySettings = React.useCallback(() => {
+        closeAllPanels();
+        setters.setActiveTab('memory_summary_model');
+        setters.setShowSettings(true);
+    }, [closeAllPanels, setters]);
     const closeNovelDecompositionWorkbench = React.useCallback(() => setShowNovelDecompositionWorkbench(false), []);
     const closeNovelExport = React.useCallback(() => setShowNovelExport(false), []);
     const handleAllocateAttributePoint = React.useCallback((key: 可分配六维属性键) => {
@@ -3832,6 +3840,8 @@ const App: React.FC = () => {
                             onDeleteNpc={actions.deleteNpcManually}
                             onRestoreNpcBackup={actions.restoreNpcVariableBackup}
                             onStartNpcMemorySummary={actions.handleQueueManualNpcMemorySummary}
+                            npcMemorySummaryQueueLength={meta.npcMemorySummaryQueueLength || 0}
+                            npcMemorySummaryError={meta.npcMemorySummaryError || ''}
                             onUploadNpcImage={actions.uploadNpcImageToSlot}
                             onReplaceVariableSection={actions.updateRuntimeVariableSection}
                             onApplyVariableCommand={actions.applyRuntimeVariableCommand}
@@ -3881,6 +3891,8 @@ const App: React.FC = () => {
                             onDeleteNpc={actions.deleteNpcManually}
                             onRestoreNpcBackup={actions.restoreNpcVariableBackup}
                             onStartNpcMemorySummary={actions.handleQueueManualNpcMemorySummary}
+                            npcMemorySummaryQueueLength={meta.npcMemorySummaryQueueLength || 0}
+                            npcMemorySummaryError={meta.npcMemorySummaryError || ''}
                             onUploadNpcImage={actions.uploadNpcImageToSlot}
                             onReplaceVariableSection={actions.updateRuntimeVariableSection}
                             onApplyVariableCommand={actions.applyRuntimeVariableCommand}
@@ -4041,7 +4053,7 @@ const App: React.FC = () => {
                 </懒加载边界>
             )}
 
-            {state.view === 'game' && !meta.memorySummaryOpen && meta.npcMemorySummaryOpen && (
+            {state.view === 'game' && !state.showSettings && !meta.memorySummaryOpen && meta.npcMemorySummaryOpen && (
                 <懒加载边界
                     onDismiss={actions.handleCancelNpcMemorySummary}
                 >
@@ -4058,6 +4070,7 @@ const App: React.FC = () => {
                             onBack={actions.handleBackToNpcMemorySummaryRemind}
                             onDraftChange={actions.handleUpdateNpcMemorySummaryDraft}
                             onApply={actions.handleApplyNpcMemorySummary}
+                            onOpenApiSettings={openMemorySummarySettings}
                         />
                     ) : (
                         <NpcMemorySummaryFlowModal
@@ -4072,6 +4085,7 @@ const App: React.FC = () => {
                             onBack={actions.handleBackToNpcMemorySummaryRemind}
                             onDraftChange={actions.handleUpdateNpcMemorySummaryDraft}
                             onApply={actions.handleApplyNpcMemorySummary}
+                            onOpenApiSettings={openMemorySummarySettings}
                         />
                     )}
                 </懒加载边界>

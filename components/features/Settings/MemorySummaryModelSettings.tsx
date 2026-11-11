@@ -1,12 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { 接口设置结构, 单接口配置结构, 功能模型占位配置结构 } from '../../../types';
+import { 接口设置结构, 功能模型占位配置结构 } from '../../../types';
 import GameButton from '../../ui/GameButton';
 import ToggleSwitch from '../../ui/ToggleSwitch';
-import InlineSelect from '../../ui/InlineSelect';
-import { 构建OpenAI兼容模型列表候选地址, 规范化接口设置 } from '../../../utils/apiConfig';
-import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
+import { 获取剧情回忆接口配置, 获取记忆总结接口配置, 规范化接口设置, 接口配置是否可用 } from '../../../utils/apiConfig';
 import StageApiModelSelector from './StageApiModelSelector';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
+
+/** 只取主机名，避免把整条 Base URL（可能带密钥参数）展示出来。 */
+const 取地址标识 = (url?: string): string => {
+    const raw = (url || '').trim();
+    if (!raw) return '';
+    try {
+        return new URL(raw).host;
+    } catch {
+        return raw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+    }
+};
 
 interface Props {
     settings: 接口设置结构;
@@ -15,30 +24,34 @@ interface Props {
 
 const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
     const [form, setForm] = useState<接口设置结构>(() => 规范化接口设置(settings));
-    const [modelOptions, setModelOptions] = useState<string[]>([]);
-    const [loadingModels, setLoadingModels] = useState(false);
     const [message, setMessage] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
 
     useEffect(() => {
         const normalized = 规范化接口设置(settings);
         setForm(normalized);
-        setModelOptions([]);
     }, [settings]);
-
-    const activeConfig = useMemo<单接口配置结构 | null>(() => {
-        if (!form.configs.length) return null;
-        const selected = form.configs.find((cfg) => cfg.id === form.activeConfigId);
-        return selected || form.configs[0] || null;
-    }, [form.activeConfigId, form.configs]);
 
     const 主剧情解析模型 = useMemo(() => (
         (form.功能模型占位.主剧情使用模型 || '').trim()
     ), [form.功能模型占位.主剧情使用模型]);
 
     const 独立模型开启 = Boolean(form.功能模型占位.记忆总结独立模型开关);
-    const 独立API地址 = (form.功能模型占位.记忆总结API地址 || '').trim();
-    const 独立API密钥 = (form.功能模型占位.记忆总结API密钥 || '').trim();
+
+    // 面板顶部必须展示「真正会发请求的那个接口」，而不是主配置：
+    // 未开独立模型时实际走的是剧情回忆配置，只改主渠道对这里毫无影响。
+    const 生效接口 = useMemo(() => 获取记忆总结接口配置(form), [form]);
+    const 生效接口来源 = useMemo(() => {
+        if (独立模型开启) {
+            return { 说明: '「记忆总结」独立配置', 受主渠道影响: false };
+        }
+        const recall = 获取剧情回忆接口配置(form);
+        if (接口配置是否可用(recall)) {
+            return { 说明: '「剧情回忆」配置（记忆总结未开独立模型时跟随其后）', 受主渠道影响: false };
+        }
+        // 两条回退都不成立时直接用当前启用接口，此时切主渠道确实会改到这里。
+        return { 说明: '当前启用接口（主配置）', 受主渠道影响: true };
+    }, [form, 独立模型开启]);
 
     const updatePlaceholder = <K extends keyof 功能模型占位配置结构>(key: K, value: 功能模型占位配置结构[K]) => {
         setForm((prev) => ({
@@ -48,52 +61,6 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
                 [key]: value
             }
         }));
-    };
-
-    const fetchModelsFromCurrentConfig = async (): Promise<string[] | null> => {
-        const resolvedBaseUrl = 独立模型开启 && 独立API地址
-            ? 独立API地址
-            : (activeConfig?.baseUrl || '');
-        const resolvedApiKey = 独立模型开启 && 独立API密钥
-            ? 独立API密钥
-            : (activeConfig?.apiKey || '');
-        if (!resolvedApiKey || !resolvedBaseUrl) {
-            setMessage('请先填写可用的 API Key 与 Base URL（支持独立密钥）。');
-            return null;
-        }
-        try {
-            const candidateUrls = 构建OpenAI兼容模型列表候选地址(resolvedBaseUrl);
-            for (const url of candidateUrls) {
-                const res = await fetch(url, {
-                    headers: 构建模型列表请求头({
-                        baseUrl: resolvedBaseUrl,
-                        apiKey: resolvedApiKey,
-                        自定义请求头: 读取可复用自定义请求头(resolvedBaseUrl, activeConfig)
-                    })
-                });
-                if (!res.ok) continue;
-                const data = await res.json();
-                if (data && Array.isArray(data.data)) {
-                    return data.data.map((m: any) => m?.id).filter(Boolean);
-                }
-            }
-            setMessage('获取失败：返回格式错误。');
-            return null;
-        } catch (error: any) {
-            setMessage(`获取失败：${error.message}`);
-            return null;
-        }
-    };
-
-    const handleFetchModels = async () => {
-        setLoadingModels(true);
-        setMessage('');
-        const models = await fetchModelsFromCurrentConfig();
-        if (models) {
-            setModelOptions(models);
-            setMessage('记忆总结模型列表获取成功。');
-        }
-        setLoadingModels(false);
     };
 
     const handleToggleIndependent = (checked: boolean) => {
@@ -112,7 +79,7 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
 
     const handleSave = () => {
         if (独立模型开启 && !(form.功能模型占位.记忆总结使用模型 || '').trim()) {
-            setMessage('已开启记忆总结独立模型，请先获取列表并选择模型。');
+            setMessage('已开启记忆总结独立模型，请先选择或填写模型名（也可点「刷新模型」拉列表）。');
             return;
         }
         const normalized = 规范化接口设置(form);
@@ -121,14 +88,6 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
         setShowSuccess(true);
         setTimeout(() => setShowSuccess(false), 2000);
     };
-
-    const summaryModelValue = (form.功能模型占位.记忆总结使用模型 || '').trim();
-    const summaryModelDisplay = 独立模型开启 ? summaryModelValue : 主剧情解析模型;
-    const selectOptions = Array.from(new Set(
-        [...modelOptions, summaryModelValue, 主剧情解析模型]
-            .map((item) => (item || '').trim())
-            .filter(Boolean)
-    ));
 
     return (
         <div className="space-y-6 text-sm animate-fadeIn">
@@ -139,8 +98,26 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
             </div>
 
             <div className="rounded-md border border-wuxia-gold/20 bg-black/25 p-4 space-y-4">
+                <div className="rounded-md border border-wuxia-cyan/25 bg-wuxia-cyan/5 p-3 space-y-1">
+                    <div className="text-[11px] text-gray-300">
+                        当前实际生效：
+                        <span className="text-wuxia-cyan font-bold">
+                            {接口配置是否可用(生效接口)
+                                ? `${生效接口.名称 || '未命名渠道'} · ${生效接口.model}${生效接口.baseUrl ? ` @ ${取地址标识(生效接口.baseUrl)}` : ''}`
+                                : '未配置完成（缺少地址、密钥或模型）'}
+                        </span>
+                    </div>
+                    <div className="text-[11px] text-gray-500">来源：{生效接口来源.说明}</div>
+                    <div className="text-[11px] text-gray-500">
+                        本页改动需点下方「保存设置」才会用于后续总结；
+                        {生效接口来源.受主渠道影响
+                            ? '当前回退到主配置，在「接口连接」切换启用渠道会同时改变这里。'
+                            : '在「接口连接」里切换主渠道不会改变这里，请在本页选择渠道，或先去「剧情回忆」页调整。'}
+                    </div>
+                </div>
+
                 <div className="text-[11px] text-gray-400">
-                    当前启用接口配置：{activeConfig?.名称 || '未配置'}。该设置同时作用于“短期转中期”“中期转长期”以及 NPC 记忆总结流程；留空时复用主配置。
+                    该设置同时作用于“短期转中期”“中期转长期”以及 NPC 记忆总结流程。开启独立模型后使用本页渠道/模型，关闭时按上方「来源」逐级回退。
                 </div>
 
                 <label className="flex items-center justify-between gap-3 text-xs text-gray-300">
@@ -170,7 +147,7 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
                         type="text"
                         value={form.功能模型占位.记忆总结API地址 || ''}
                         onChange={(e) => updatePlaceholder('记忆总结API地址', e.target.value)}
-                        placeholder={activeConfig?.baseUrl || '留空则复用主剧情 Base URL'}
+                        placeholder={生效接口?.baseUrl || '留空则复用所选渠道的 Base URL'}
                         disabled={!独立模型开启}
                         className={`w-full border p-2 text-white rounded-md outline-none ${
                             独立模型开启
@@ -178,7 +155,7 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
                                 : 'bg-black/30 border-gray-800 text-gray-400'
                         }`}
                     />
-                    <div className="text-[11px] text-gray-500">留空则复用主剧情 Base URL；填写后仅总结请求改用此地址。</div>
+                    <div className="text-[11px] text-gray-500">留空则复用所选渠道的 Base URL；填写后仅总结请求改用此地址。</div>
                 </div>
 
                 <div className="space-y-1">
@@ -187,7 +164,7 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
                         type="password"
                         value={form.功能模型占位.记忆总结API密钥 || ''}
                         onChange={(e) => updatePlaceholder('记忆总结API密钥', e.target.value)}
-                        placeholder={activeConfig?.apiKey ? '留空则复用主剧情 API Key' : 'sk-...'}
+                        placeholder={生效接口?.apiKey ? '留空则复用所选渠道的 API Key' : 'sk-...'}
                         disabled={!独立模型开启}
                         className={`w-full border p-2 text-white rounded-md outline-none ${
                             独立模型开启
@@ -195,12 +172,15 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
                                 : 'bg-black/30 border-gray-800 text-gray-400'
                         }`}
                     />
-                    <div className="text-[11px] text-gray-500">留空则复用主剧情 API Key；填写后总结请求优先使用该密钥。</div>
+                    <div className="text-[11px] text-gray-500">留空则复用所选渠道的 API Key；填写后总结请求优先使用该密钥。</div>
                 </div>
 
                 {!独立模型开启 && (
                     <div className="text-[11px] text-gray-400">
                         当前状态：跟随剧情回忆接口，若剧情回忆未启用则回退主剧情接口。
+                        <span className="mt-1 block text-gray-500">
+                            上面的渠道、模型、地址、密钥要能编辑，请先打开「开启记忆总结独立模型」。
+                        </span>
                     </div>
                 )}
             </div>

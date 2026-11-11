@@ -1505,7 +1505,10 @@ export const useGame = () => {
     };
 
     const handleCancelNpcMemorySummary = () => {
-        清空NPC记忆总结流程({ 保留队列: true });
+        // 关闭报错弹窗不等于问题已解决：队列和「上次失败原因」都要保留，
+        // 否则玩家在「设置 → NPC管理」里看不到任何线索，也找不到再次触发的入口。
+        setNPC记忆总结阶段('idle');
+        setNPC记忆总结草稿('');
     };
 
     const handleBackToNpcMemorySummaryRemind = () => {

@@ -26,6 +26,8 @@ interface Props {
     onBack: () => void;
     onDraftChange: (next: string) => void;
     onApply: () => void;
+    /** 报错时直达「记忆总结」接口配置页；未传入则不显示按钮。 */
+    onOpenApiSettings?: () => void;
 }
 
 const NpcMemorySummaryFlowMobileModal: React.FC<Props> = ({
@@ -39,7 +41,8 @@ const NpcMemorySummaryFlowMobileModal: React.FC<Props> = ({
     onCancel,
     onBack,
     onDraftChange,
-    onApply
+    onApply,
+    onOpenApiSettings
 }) => {
     if (!open || !task) return null;
 
@@ -85,6 +88,18 @@ const NpcMemorySummaryFlowMobileModal: React.FC<Props> = ({
                             {error && (
                                 <div className="rounded border border-red-500/30 bg-red-950/20 p-3 text-[11px] text-red-200 whitespace-pre-wrap">
                                     {error}
+                                    <div className="mt-2 text-[11px] text-red-300/80">
+                                        多半是当前记忆总结所用的接口地址、密钥或模型已失效。
+                                    </div>
+                                    {onOpenApiSettings && (
+                                        <button
+                                            type="button"
+                                            onClick={onOpenApiSettings}
+                                            className="mt-3 w-full rounded border border-wuxia-cyan/50 px-3 py-2 text-[11px] text-wuxia-cyan"
+                                        >
+                                            检查接口设置
+                                        </button>
+                                    )}
                                 </div>
                             )}
                             <textarea
