@@ -104,6 +104,8 @@ interface Props {
     onDeleteNpc: (npcId: string) => void;
     onRestoreNpcBackup?: (socialList: NPC结构[]) => void;
     onStartNpcMemorySummary?: (npcId: string) => void;
+    npcMemorySummaryQueueLength?: number;
+    npcMemorySummaryError?: string;
     onUploadNpcImage: (npcId: string, slot: '头像' | '立绘' | '背景' | '胸部' | '小穴' | '屁穴' | '肉棒', payload: { dataUrl: string; fileName?: string }) => Promise<unknown> | unknown;
     onReplaceVariableSection: (section: keyof RuntimeStateSections, value: unknown) => void;
     onApplyVariableCommand: (command: TavernCommand) => void;
@@ -125,7 +127,7 @@ const SettingsModal: React.FC<Props> = ({
     activeTab, onTabChange, onClose,
     variableReviewActions, variableReviewRevision,
     apiConfig, visualConfig, gameConfig, memoryConfig, prompts, festivals, currentTheme, history, memorySystem, socialList, runtimeState, gameInitialTime, currentGameTime, journeyDayCount, currentStory, openingConfig, contextSnapshot, 当前叙事平静值 = null,
-    onSaveApi, onSaveVisual, onSaveGame, onSaveMemory, onDeleteMemory, onRefineMemories, onRegenerateMapFromMemory, onCreateNpc, onSaveNpc, onDeleteNpc, onRestoreNpcBackup, onStartNpcMemorySummary, onUploadNpcImage, onReplaceVariableSection, onApplyVariableCommand, onRepairGameInitialTime, onUpdatePrompts, onUpdateFestivals, onThemeChange,
+    onSaveApi, onSaveVisual, onSaveGame, onSaveMemory, onDeleteMemory, onRefineMemories, onRegenerateMapFromMemory, onCreateNpc, onSaveNpc, onDeleteNpc, onRestoreNpcBackup, onStartNpcMemorySummary, npcMemorySummaryQueueLength = 0, npcMemorySummaryError = '', onUploadNpcImage, onReplaceVariableSection, onApplyVariableCommand, onRepairGameInitialTime, onUpdatePrompts, onUpdateFestivals, onThemeChange,
     onReturnToHome, isHome, returnHomeSaving = false, requestConfirm
 }) => {
     const tabItems = [
@@ -211,6 +213,8 @@ const SettingsModal: React.FC<Props> = ({
                     socialList={socialList}
                     memoryConfig={memoryConfig}
                     onStartNpcMemorySummary={onStartNpcMemorySummary}
+                    npcMemorySummaryQueueLength={npcMemorySummaryQueueLength}
+                    npcMemorySummaryError={npcMemorySummaryError}
                     onCreateNpc={onCreateNpc}
                     onSaveNpc={onSaveNpc}
                     onDeleteNpc={onDeleteNpc}

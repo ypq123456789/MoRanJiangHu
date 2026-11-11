@@ -17,6 +17,9 @@ interface Props {
     socialList: NPC结构[];
     memoryConfig?: 记忆配置结构;
     onStartNpcMemorySummary?: (npcId: string) => void;
+    /** 待处理的自动总结队列长度与上次失败原因：报错弹窗关掉后仍能在这里看到状态。 */
+    npcMemorySummaryQueueLength?: number;
+    npcMemorySummaryError?: string;
     onCreateNpc: (seed?: Partial<NPC结构>) => NPC结构 | void;
     onSaveNpc: (npcId: string, npc: NPC结构) => void;
     onDeleteNpc: (npcId: string) => void;
@@ -52,6 +55,8 @@ const NpcManager: React.FC<Props> = ({
     socialList,
     memoryConfig,
     onStartNpcMemorySummary,
+    npcMemorySummaryQueueLength = 0,
+    npcMemorySummaryError = '',
     onCreateNpc,
     onSaveNpc,
     onDeleteNpc,
@@ -481,6 +486,23 @@ const NpcManager: React.FC<Props> = ({
                             <div>
                                 <div className="text-sm font-bold text-paper-white">总结记忆预览</div>
                                 <div className="mt-1 text-xs text-gray-500">总结记忆由应用层维护，用于上下文压缩、社交展示和存档延续。</div>
+                                {(npcMemorySummaryQueueLength > 0 || npcMemorySummaryError) && (
+                                    <div className="mt-2 space-y-1">
+                                        {npcMemorySummaryQueueLength > 0 && (
+                                            <div className="text-[11px] text-wuxia-cyan">
+                                                待自动总结：{npcMemorySummaryQueueLength} 个 NPC。
+                                            </div>
+                                        )}
+                                        {npcMemorySummaryError && (
+                                            <div className="rounded-lg border border-red-900/50 bg-red-950/20 px-2 py-1.5 text-[11px] text-red-300 whitespace-pre-wrap">
+                                                上次总结失败：{npcMemorySummaryError}
+                                                <span className="block mt-1 text-red-400/80">
+                                                    请到「记忆总结」页核对“当前实际生效”的接口与模型后再试。
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <div className="text-xs text-gray-500">
