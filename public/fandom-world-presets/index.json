@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-11T19:58:40.363Z",
+  "presets": [
+    {
+      "id": "x",
+      "title": "x",
+      "worldName": "x",
+      "sourceType": "小说",
+      "path": "/fandom-world-presets/x.json",
+      "contributedBy": "community",
+      "reviewStatus": "pending"
+    }
+  ]
+}
