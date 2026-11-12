@@ -1,4 +1,7 @@
 import type { 小说拆分分段结构 } from '../models/novelDecomposition';
+import { 分段字段补全单段原文最大字符数 } from '../prompts/runtime/novelSegmentFieldCompletion';
+
+export { 分段字段补全单段原文最大字符数 };
 
 const 标准化文本 = (value: unknown): string => (
     typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
@@ -27,13 +30,32 @@ export const 小说分段字段补全输出硬约束 = [
     '【输出硬约束】必须返回合法 JSON 对象。即使只有少量可确认内容，也至少返回“章节节奏”数组；没有把握的其他字段可以省略，但禁止空响应。'
 ].join('\n');
 
-export const 构建小说分段字段补全原文输入 = (segment: Pick<小说拆分分段结构, '原文内容'>): string => (
-    [
-        segment.原文内容 || '',
-        '',
-        小说分段字段补全输出硬约束
-    ].join('\n').trim()
-);
+export interface 小说分段字段补全输入统计 {
+    原文总字符数: number;
+    实际输入字符数: number;
+    是否完整输入: boolean;
+}
+
+export const 构建小说分段字段补全原文输入 = (segment: Pick<小说拆分分段结构, '原文内容'>): {
+    text: string;
+    inputStats: 小说分段字段补全输入统计;
+} => {
+    const 原文 = segment.原文内容 || '';
+    const 原文总字符数 = 原文.length;
+    const 实际输入字符数 = Math.min(原文总字符数, 分段字段补全单段原文最大字符数);
+    const 是否完整输入 = 实际输入字符数 === 原文总字符数;
+    const 正文 = 是否完整输入
+        ? 原文
+        : `${原文.slice(0, 分段字段补全单段原文最大字符数)}\n...(原文超过单次上限 ${分段字段补全单段原文最大字符数} 字，后续内容未送入模型)`;
+    return {
+        text: [正文, '', 小说分段字段补全输出硬约束].join('\n').trim(),
+        inputStats: {
+            原文总字符数,
+            实际输入字符数,
+            是否完整输入
+        }
+    };
+};
 
 export const 构建小说分段字段补全备用上下文 = (segment: 小说拆分分段结构): string => {
     const lines: string[] = [

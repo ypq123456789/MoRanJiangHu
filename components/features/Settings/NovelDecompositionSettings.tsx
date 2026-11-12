@@ -70,7 +70,8 @@ import { 题材模式顺序 } from '../../../utils/topicModeProfiles';
 import { generateNovelSegmentFieldCompletion } from '../../../services/ai/storyTasks';
 import {
     构建小说分段字段补全原文输入,
-    构建小说分段字段补全备用上下文
+    构建小说分段字段补全备用上下文,
+    分段字段补全单段原文最大字符数
 } from '../../../services/novelSegmentFieldCompletionContext';
 import type { 分段字段AI补全结果 } from '../../../prompts/runtime/novelSegmentFieldCompletion';
 import { 读取云端游玩会话 } from '../../../services/cloudPlayService';
@@ -2217,10 +2218,16 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
             );
 
             let result: Awaited<ReturnType<typeof generateNovelSegmentFieldCompletion>>;
-            const 原文输入 = 构建小说分段字段补全原文输入(selectedSegment);
+            const { text: 原文输入, inputStats } = 构建小说分段字段补全原文输入(selectedSegment);
+            const 截断提示 = inputStats.是否完整输入
+                ? ''
+                : `本段原文共 ${inputStats.原文总字符数} 字，超过单次上限，已截断为前 ${inputStats.实际输入字符数} 字送入模型，其余 ${inputStats.原文总字符数 - inputStats.实际输入字符数} 字本次未参与补全。`;
+            if (截断提示) {
+                setSegmentFieldCompletionLog(`[提示] ${截断提示}\n`);
+            }
             if ((selectedSegment.原文内容 || '').trim()) {
                 try {
-                    result = await 运行补全(原文输入);
+                    result = await 运行补全(原文输入, 截断提示 ? `[提示] ${截断提示}` : '');
                 } catch (firstError: any) {
                     const retryPrefix = [
                         '原文补全未返回可解析结果，正在改用已分解结构化上下文重试。',
@@ -2256,10 +2263,10 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
             }));
 
             const filledKeys = Object.keys(patch).filter(k => Array.isArray((patch as any)[k]) && (patch as any)[k].length > 0);
-            设置状态消息(`AI 分段字段补全完成，已填充 ${filledKeys.length} 类字段（${filledKeys.join('、')}）。点击保存写入分段数据。`);
+            设置状态消息(`AI 分段字段补全完成，已填充 ${filledKeys.length} 类字段（${filledKeys.join('、')}）。点击保存写入分段数据。${截断提示 ? `注意：${截断提示}` : ''}`);
             onNotify?.({
                 title: '分段 AI 补全完成',
-                message: `已补全 ${filledKeys.length} 类字段，可检查后保存。`,
+                message: `已补全 ${filledKeys.length} 类字段，可检查后保存。${截断提示 ? '\n原文超长，本次只用了前段内容。' : ''}`,
                 tone: 'success'
             });
         } catch (error: any) {
@@ -3587,6 +3594,17 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                                                 <span className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">分段字数</span>
                                                 <span className="text-sm font-bold text-gray-200">{selectedSegment.字数 || 0}</span>
                                             </div>
+                                            {(selectedSegment.原文内容 || '').length > 分段字段补全单段原文最大字符数 && (
+                                                <>
+                                                    <div className="w-px h-8 bg-white/10"></div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[10px] text-amber-500/80 uppercase tracking-wider mb-1">超出单次上限</span>
+                                                        <span className="text-xs font-medium text-amber-300 leading-tight">
+                                                            AI 补全只送前 {分段字段补全单段原文最大字符数.toLocaleString('en-US')} 字
+                                                        </span>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <button
