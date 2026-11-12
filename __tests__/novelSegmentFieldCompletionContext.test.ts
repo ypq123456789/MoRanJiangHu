@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
     构建小说分段字段补全原文输入,
-    构建小说分段字段补全备用上下文
+    构建小说分段字段补全备用上下文,
+    分段字段补全单段原文最大字符数
 } from '../services/novelSegmentFieldCompletionContext';
 import type { 小说拆分分段结构 } from '../models/novelDecomposition';
 
@@ -56,11 +57,31 @@ describe('小说分段字段补全上下文', () => {
             本组概括: '概括不应替代原文'
         });
 
-        const input = 构建小说分段字段补全原文输入(segment);
+        const { text: input, inputStats } = 构建小说分段字段补全原文输入(segment);
 
         expect(input).toContain('原始剧情文本');
         expect(input).toContain('合法 JSON 对象');
         expect(input).toContain('章节节奏');
+        expect(input).toContain('禁止空响应');
+        expect(inputStats).toEqual({
+            原文总字符数: 6,
+            实际输入字符数: 6,
+            是否完整输入: true
+        });
+    });
+
+    it('超过单次上限时截断原文并保留输出硬约束', () => {
+        const 原文内容 = '甲'.repeat(分段字段补全单段原文最大字符数 + 5_000);
+        const segment = 创建分段({ 原文内容 });
+
+        const { text: input, inputStats } = 构建小说分段字段补全原文输入(segment);
+
+        expect(inputStats.原文总字符数).toBe(原文内容.length);
+        expect(inputStats.实际输入字符数).toBe(分段字段补全单段原文最大字符数);
+        expect(inputStats.是否完整输入).toBe(false);
+        expect(input).toContain(`原文超过单次上限 ${分段字段补全单段原文最大字符数} 字`);
+        // 截断不能让排在原文之后的硬约束一起被切掉
+        expect(input).toContain('合法 JSON 对象');
         expect(input).toContain('禁止空响应');
     });
 
@@ -105,5 +126,18 @@ describe('小说分段字段补全上下文', () => {
         expect(input).toContain('推动追查线');
         expect(input).toContain('合法 JSON 对象');
         expect(input).not.toContain('这段原文不应该进入备用上下文');
+    });
+
+    it('备用上下文过长时截断正文但保留补全要求和输出硬约束', () => {
+        const segment = 创建分段({
+            本组概括: '丙'.repeat(分段字段补全单段原文最大字符数 + 2_000)
+        });
+
+        const input = 构建小说分段字段补全备用上下文(segment);
+
+        expect(input).toContain(`结构化上下文超过单次上限 ${分段字段补全单段原文最大字符数} 字`);
+        expect(input).toContain('【补全要求】');
+        expect(input).toContain('合法 JSON 对象');
+        expect(input).toContain('禁止空响应');
     });
 });

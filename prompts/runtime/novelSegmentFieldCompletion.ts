@@ -102,6 +102,18 @@ export const 分段字段补全系统提示词 = `
 const 限长 = (value: unknown, max: number): string =>
     typeof value === 'string' ? value.trim().slice(0, max) : '';
 
+/**
+ * 单段「AI 补全本分段字段」可送入模型的原文最大字符数。
+ *
+ * 与模式包逐段完善保持同一口径（24000），避免同一个分段在两个功能里
+ * 一个是「读了全文」、一个是「只读了前 1/3」，导致结论互相矛盾。
+ *
+ * 注意：实际截断在 `services/novelSegmentFieldCompletionContext.ts` 完成，
+ * 因为那里还要在原文之后拼接输出硬约束——若在提示词层再截一次，
+ * 会把硬约束一起切掉，模型就丢掉「必须返回合法 JSON」这类要求。
+ */
+export const 分段字段补全单段原文最大字符数 = 24_000;
+
 export const 构建分段字段补全用户提示词 = (params: {
     segmentOriginalText: string;
     segmentTitle: string;
@@ -122,13 +134,11 @@ export const 构建分段字段补全用户提示词 = (params: {
     segments.push(`【当前分段标题】${限长(params.segmentTitle, 100)}`);
     segments.push('');
 
-    // 原文内容（限制长度避免 token 过多）
+    // 原文长度上限由 `构建小说分段字段补全原文输入` 统一控制并记录统计信息，
+    // 这里不再二次截断：该字段后面还拼着输出硬约束，二次截断会把约束切掉。
     const rawText = params.segmentOriginalText || '';
-    const truncatedText = rawText.length > 8000
-        ? rawText.slice(0, 8000) + '\n...(原文过长已截断)'
-        : rawText;
     segments.push(`【当前分段原文】`);
-    segments.push(truncatedText);
+    segments.push(rawText);
     segments.push('');
 
     // 已有字段作为参考（让 AI 知道哪些已有、哪些需要补全）
