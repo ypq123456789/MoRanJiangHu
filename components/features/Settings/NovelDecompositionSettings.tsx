@@ -2222,6 +2222,9 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
             const 截断提示 = inputStats.是否完整输入
                 ? ''
                 : `本段原文共 ${inputStats.原文总字符数} 字，超过单次上限，已截断为前 ${inputStats.实际输入字符数} 字送入模型，其余 ${inputStats.原文总字符数 - inputStats.实际输入字符数} 字本次未参与补全。`;
+            // 记录最终成功的输入来源：原文请求失败改走备用上下文后，
+            // 不能再用原文截断统计去描述本次结果的覆盖范围。
+            let 实际输入来源: '原文' | '备用上下文' = '原文';
             if (截断提示) {
                 setSegmentFieldCompletionLog(`[提示] ${截断提示}\n`);
             }
@@ -2235,12 +2238,14 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                     ].join('\n');
                     setSegmentFieldCompletionLog(`${retryPrefix}\n`);
                     try {
+                        实际输入来源 = '备用上下文';
                         result = await 运行补全(构建小说分段字段补全备用上下文(selectedSegment), retryPrefix);
                     } catch (fallbackError: any) {
                         throw new Error(`原文补全失败，备用上下文补全也失败：${fallbackError?.message || firstError?.message || '未知错误'}`);
                     }
                 }
             } else {
+                实际输入来源 = '备用上下文';
                 setSegmentFieldCompletionLog('当前分段没有原文内容，正在改用已分解结构化上下文补全。\n');
                 result = await 运行补全(构建小说分段字段补全备用上下文(selectedSegment), '当前分段没有原文内容，正在改用已分解结构化上下文补全。');
             }
@@ -2263,10 +2268,15 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
             }));
 
             const filledKeys = Object.keys(patch).filter(k => Array.isArray((patch as any)[k]) && (patch as any)[k].length > 0);
-            设置状态消息(`AI 分段字段补全完成，已填充 ${filledKeys.length} 类字段（${filledKeys.join('、')}）。点击保存写入分段数据。${截断提示 ? `注意：${截断提示}` : ''}`);
+            const 输入说明 = 实际输入来源 === '原文'
+                ? (截断提示 ? `注意：${截断提示}` : '')
+                : '本次结果基于已分解的结构化上下文生成（原文请求未成功，不涉及原文截断）。';
+            设置状态消息(`AI 分段字段补全完成，已填充 ${filledKeys.length} 类字段（${filledKeys.join('、')}）。点击保存写入分段数据。${输入说明 ? ` ${输入说明}` : ''}`);
             onNotify?.({
                 title: '分段 AI 补全完成',
-                message: `已补全 ${filledKeys.length} 类字段，可检查后保存。${截断提示 ? '\n原文超长，本次只用了前段内容。' : ''}`,
+                message: `已补全 ${filledKeys.length} 类字段，可检查后保存。${实际输入来源 === '原文'
+                    ? (截断提示 ? '\n原文超长，本次只用了前段内容。' : '')
+                    : '\n本次基于已分解的结构化上下文生成。'}`,
                 tone: 'success'
             });
         } catch (error: any) {

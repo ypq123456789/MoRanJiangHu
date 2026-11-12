@@ -127,4 +127,17 @@ describe('小说分段字段补全上下文', () => {
         expect(input).toContain('合法 JSON 对象');
         expect(input).not.toContain('这段原文不应该进入备用上下文');
     });
+
+    it('备用上下文过长时截断正文但保留补全要求和输出硬约束', () => {
+        const segment = 创建分段({
+            本组概括: '丙'.repeat(分段字段补全单段原文最大字符数 + 2_000)
+        });
+
+        const input = 构建小说分段字段补全备用上下文(segment);
+
+        expect(input).toContain(`结构化上下文超过单次上限 ${分段字段补全单段原文最大字符数} 字`);
+        expect(input).toContain('【补全要求】');
+        expect(input).toContain('合法 JSON 对象');
+        expect(input).toContain('禁止空响应');
+    });
 });
