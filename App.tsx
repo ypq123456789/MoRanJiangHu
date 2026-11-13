@@ -2733,6 +2733,12 @@ const App: React.FC = () => {
         setters.setActiveTab(记忆总结生效解析.设置页);
         setters.setShowSettings(true);
     }, [closeAllPanels, setters, 记忆总结生效解析.设置页]);
+    // 混合配置下（独立模型 + 地址沿用主配置）同时给一个改地址的入口。
+    const openMemorySummaryPrimaryApiSettings = React.useCallback(() => {
+        closeAllPanels();
+        setters.setActiveTab('api');
+        setters.setShowSettings(true);
+    }, [closeAllPanels, setters]);
     const 记忆总结接口提示 = React.useMemo(() => {
         const config = 记忆总结生效解析.配置;
         return {
@@ -2740,9 +2746,11 @@ const App: React.FC = () => {
                 ? `${config.名称 || '未命名渠道'} · ${config.model}`
                 : '配置不完整（缺少地址、密钥或模型）',
             来源说明: 记忆总结生效解析.来源说明,
-            按钮文案: 记忆总结生效解析.跳转文案
+            按钮文案: 记忆总结生效解析.跳转文案,
+            次要按钮文案: 记忆总结生效解析.次要跳转文案,
+            onOpenSecondarySettings: 记忆总结生效解析.次要设置页 ? openMemorySummaryPrimaryApiSettings : undefined
         };
-    }, [记忆总结生效解析]);
+    }, [记忆总结生效解析, openMemorySummaryPrimaryApiSettings]);
     const closeNovelDecompositionWorkbench = React.useCallback(() => setShowNovelDecompositionWorkbench(false), []);
     const closeNovelExport = React.useCallback(() => setShowNovelExport(false), []);
     const handleAllocateAttributePoint = React.useCallback((key: 可分配六维属性键) => {

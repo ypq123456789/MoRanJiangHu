@@ -29,7 +29,13 @@ interface Props {
     /** 报错时直达接口配置页；未传入则不显示按钮。 */
     onOpenApiSettings?: () => void;
     /** 当前真正生效的接口与来源，用于告诉玩家该去哪一页改。 */
-    apiNotice?: { 生效描述: string; 来源说明: string; 按钮文案: string };
+    apiNotice?: {
+        生效描述: string;
+        来源说明: string;
+        按钮文案: string;
+        次要按钮文案?: string;
+        onOpenSecondarySettings?: () => void;
+    };
 }
 
 const NpcMemorySummaryFlowModal: React.FC<Props> = ({
@@ -143,6 +149,15 @@ const NpcMemorySummaryFlowModal: React.FC<Props> = ({
                                         className="mr-auto px-3 py-2 text-xs rounded border border-wuxia-cyan/50 text-wuxia-cyan hover:bg-wuxia-cyan/10"
                                     >
                                         {apiNotice?.按钮文案 || '检查接口设置'}
+                                    </button>
+                                )}
+                                {error && apiNotice?.onOpenSecondarySettings && apiNotice.次要按钮文案 && (
+                                    <button
+                                        type="button"
+                                        onClick={apiNotice.onOpenSecondarySettings}
+                                        className="px-3 py-2 text-xs rounded border border-wuxia-gold/40 text-wuxia-gold hover:bg-wuxia-gold/10"
+                                    >
+                                        {apiNotice.次要按钮文案}
                                     </button>
                                 )}
                                 <button

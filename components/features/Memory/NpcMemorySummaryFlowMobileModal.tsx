@@ -29,7 +29,13 @@ interface Props {
     /** 报错时直达接口配置页；未传入则不显示按钮。 */
     onOpenApiSettings?: () => void;
     /** 当前真正生效的接口与来源，用于告诉玩家该去哪一页改。 */
-    apiNotice?: { 生效描述: string; 来源说明: string; 按钮文案: string };
+    apiNotice?: {
+        生效描述: string;
+        来源说明: string;
+        按钮文案: string;
+        次要按钮文案?: string;
+        onOpenSecondarySettings?: () => void;
+    };
 }
 
 const NpcMemorySummaryFlowMobileModal: React.FC<Props> = ({
@@ -104,14 +110,27 @@ const NpcMemorySummaryFlowMobileModal: React.FC<Props> = ({
                                             '多半是当前记忆总结所用的接口地址、密钥或模型已失效。'
                                         )}
                                     </div>
-                                    {onOpenApiSettings && (
-                                        <button
-                                            type="button"
-                                            onClick={onOpenApiSettings}
-                                            className="mt-3 w-full rounded border border-wuxia-cyan/50 px-3 py-2 text-[11px] text-wuxia-cyan"
-                                        >
-                                            {apiNotice?.按钮文案 || '检查接口设置'}
-                                        </button>
+                                    {(onOpenApiSettings || apiNotice?.onOpenSecondarySettings) && (
+                                        <div className="mt-3 grid grid-cols-1 gap-2">
+                                            {onOpenApiSettings && (
+                                                <button
+                                                    type="button"
+                                                    onClick={onOpenApiSettings}
+                                                    className="w-full rounded border border-wuxia-cyan/50 px-3 py-2 text-[11px] text-wuxia-cyan"
+                                                >
+                                                    {apiNotice?.按钮文案 || '检查接口设置'}
+                                                </button>
+                                            )}
+                                            {apiNotice?.onOpenSecondarySettings && apiNotice.次要按钮文案 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={apiNotice.onOpenSecondarySettings}
+                                                    className="w-full rounded border border-wuxia-gold/40 px-3 py-2 text-[11px] text-wuxia-gold"
+                                                >
+                                                    {apiNotice.次要按钮文案}
+                                                </button>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                             )}

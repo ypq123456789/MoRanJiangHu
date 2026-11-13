@@ -2208,38 +2208,47 @@ export const 获取记忆总结接口配置 = (settings: 接口设置结构): �
     });
 };
 
-export type 记忆总结生效来源 = 'independent' | 'recall' | 'primary';
+export type 记忆总结生效来源 = 'independent' | 'independent-mixed' | 'recall' | 'primary';
 
 export interface 记忆总结生效接口解析结果 {
-    /** 真正会发请求的接口；独立模型开关打开但配置不完整时为 null。 */
+    /** 真正会发请求的接口（始终与 获取记忆总结接口配置 完全一致，含模型/密钥覆盖值）。 */
     配置: 当前可用接口结构 | null;
     来源: 记忆总结生效来源;
     来源说明: string;
     设置页: 'memory_summary_model' | 'recall' | 'api';
     设置页名称: string;
     跳转文案: string;
+    /** 混合配置（地址来自主配置、模型/密钥用独立覆盖值）时，额外给一个改地址的入口。 */
+    次要设置页?: 'api';
+    次要跳转文案?: string;
 }
 
 /**
  * 解析「NPC 记忆总结」实际生效的接口与来源。
  *
- * 报错时不能一律把玩家送去「记忆总结」页：未开独立模型时它跟随「剧情回忆」，
- * 剧情回忆也没启用才回退主配置。只有把来源判断对，跳转才能一次落到能改的那一页。
+ * 关键原则：`配置` 永远取自 `获取记忆总结接口配置`，与真实请求逐字段一致；
+ * `来源` 只负责回答「该去哪一页改」，不能反过来影响 `配置`。
+ *
+ * 记忆总结的真实链路：
+ * 1. 独立开关关闭 → 剧情回忆可用则跟随它，否则回退主配置；
+ * 2. 独立开关开启 → 只用独立配置，**不会**再读剧情回忆；
+ *    其中渠道被删且没填独立地址时，地址沿用主配置，但模型/密钥仍用独立覆盖值。
+ *    这种混合配置下，换主渠道未必能修好（可能是独立模型名失效），所以两个入口都要给。
  */
 export const 解析记忆总结生效接口 = (settings: 接口设置结构): 记忆总结生效接口解析结果 => {
     const feature = (settings as any)?.功能模型占位;
+    const 配置 = 获取记忆总结接口配置(settings);
+
     if (Boolean(feature?.记忆总结独立模型开关)) {
-        // 与 `构建独立文本接口配置` 的真实行为对齐：渠道被删且没填独立地址时，
-        // 它会静默拿主配置的 baseUrl/apiKey 再套上独立模型名。
-        // 这种情况不能标成「独立配置」，否则又把玩家指去改不生效的那一页。
         const 渠道ID = typeof feature?.记忆总结渠道ID === 'string' ? feature.记忆总结渠道ID.trim() : '';
         const 独立地址 = typeof feature?.记忆总结API地址 === 'string' ? feature.记忆总结API地址.trim() : '';
         const 渠道存在 = Boolean(渠道ID)
             && Array.isArray(settings?.configs)
             && settings.configs.some((item) => item?.id === 渠道ID);
+
         if (渠道存在 || 独立地址) {
             return {
-                配置: 获取记忆总结接口配置(settings),
+                配置,
                 来源: 'independent',
                 来源说明: '「记忆总结」独立配置',
                 设置页: 'memory_summary_model',
@@ -2247,11 +2256,26 @@ export const 解析记忆总结生效接口 = (settings: 接口设置结构): �
                 跳转文案: '检查记忆总结设置'
             };
         }
+
+        // 渠道已删除、又没填独立地址：请求地址来自主配置，但模型/密钥仍是独立覆盖值。
+        // 只跳「接口连接」会让玩家改不动失效的模型名，因此主入口仍给「记忆总结」，
+        // 同时补一个改地址的次要入口。
+        return {
+            配置,
+            来源: 'independent-mixed',
+            来源说明: '「记忆总结」独立模型（地址沿用主配置，模型/密钥仍用独立设置）',
+            设置页: 'memory_summary_model',
+            设置页名称: '记忆总结',
+            跳转文案: '检查记忆总结设置',
+            次要设置页: 'api',
+            次要跳转文案: '检查主接口地址'
+        };
     }
+
     const recallConfig = 获取剧情回忆接口配置(settings);
     if (接口配置是否可用(recallConfig)) {
         return {
-            配置: recallConfig,
+            配置,
             来源: 'recall',
             来源说明: '「剧情回忆」配置（记忆总结未开独立模型时跟随其后）',
             设置页: 'recall',
@@ -2260,7 +2284,7 @@ export const 解析记忆总结生效接口 = (settings: 接口设置结构): �
         };
     }
     return {
-        配置: 获取当前接口配置(settings),
+        配置,
         来源: 'primary',
         来源说明: '当前启用接口（主配置）',
         设置页: 'api',

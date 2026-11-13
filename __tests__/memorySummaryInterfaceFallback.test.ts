@@ -154,17 +154,61 @@ describe('记忆总结报错跳转目标', () => {
         expect(resolved.配置?.名称).toBe('主剧情渠道');
     });
 
-    it('独立开关开着但渠道被删且没填独立地址时，实际回退主配置，跳接口连接页', () => {
+    it('独立开关开着但渠道被删且没填独立地址时，按混合配置处理：主入口仍是记忆总结，另给主接口入口', () => {
         const resolved = 解析记忆总结生效接口(构造设置({
             记忆总结独立模型开关: true,
             记忆总结渠道ID: 'deleted-channel',
             记忆总结使用模型: 'summary-model'
         }));
 
-        expect(resolved.来源).toBe('primary');
-        expect(resolved.设置页).toBe('api');
-        // 请求实际打在主渠道地址上，只是模型名沿用了独立配置
+        expect(resolved.来源).toBe('independent-mixed');
+        expect(resolved.设置页).toBe('memory_summary_model');
+        expect(resolved.次要设置页).toBe('api');
+        // 配置必须与真实请求一致：地址来自主配置，模型仍是被独立覆盖的那个
         expect(resolved.配置?.baseUrl).toBe('https://main.example.test/v1');
+        expect(resolved.配置?.model).toBe('summary-model');
+    });
+
+    it('独立开关与剧情回忆同时开启且独立渠道被删时，不误跳到剧情回忆页', () => {
+        const resolved = 解析记忆总结生效接口(构造设置({
+            记忆总结独立模型开关: true,
+            记忆总结渠道ID: 'deleted-channel',
+            记忆总结使用模型: 'summary-model',
+            剧情回忆独立模型开关: true,
+            剧情回忆渠道ID: 'recall-channel',
+            剧情回忆使用模型: 'recall-model'
+        }));
+
+        // 独立开关开启时 getter 不会读剧情回忆，跳过去改也不生效
+        expect(resolved.来源).toBe('independent-mixed');
+        expect(resolved.设置页).toBe('memory_summary_model');
+        expect(resolved.配置?.model).toBe('summary-model');
+        expect(resolved.配置?.baseUrl).toBe('https://main.example.test/v1');
+    });
+
+    it('主模型为空但独立模型有效时，混合配置仍应判定为可用', () => {
+        const resolved = 解析记忆总结生效接口(规范化接口设置({
+            activeConfigId: 'empty-model-channel',
+            configs: [
+                {
+                    ...创建接口配置模板('openai_compatible'),
+                    id: 'empty-model-channel',
+                    名称: '空模型主渠道',
+                    baseUrl: 'https://empty-model.example.test/v1',
+                    apiKey: 'empty-model-key',
+                    model: ''
+                }
+            ],
+            功能模型占位: {
+                记忆总结独立模型开关: true,
+                记忆总结渠道ID: 'deleted-channel',
+                记忆总结使用模型: 'summary-model'
+            }
+        }));
+
+        expect(resolved.来源).toBe('independent-mixed');
+        expect(resolved.配置?.model).toBe('summary-model');
+        expect(resolved.配置?.baseUrl).toBe('https://empty-model.example.test/v1');
     });
 
     it('独立渠道被删但填了独立地址时，仍按独立配置处理', () => {
