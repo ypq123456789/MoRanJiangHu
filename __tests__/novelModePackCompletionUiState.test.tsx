@@ -81,4 +81,38 @@ describe('小说模式包完善界面状态', () => {
         expect(completed.statusText).toContain('已完成');
         expect(计算小说模式包完善界面状态(record({ 状态: 'completed' }), false, false).canUseDraft).toBe(false);
     });
+
+    it('失败暂停时提供跳过分段，运行中不提供', () => {
+        const paused = 计算小说模式包完善界面状态(record({
+            状态: 'paused',
+            最近失败分段索引: 2
+        }), false, true);
+        expect(paused.canSkipSegment).toBe(true);
+
+        const running = 计算小说模式包完善界面状态(record({
+            状态: 'running',
+            最近失败分段索引: 2
+        }), true, true);
+        expect(running.canSkipSegment).toBe(false);
+    });
+
+    it('没有失败分段时不提供跳过，避免误跳正常进度', () => {
+        const state = 计算小说模式包完善界面状态(record({ 状态: 'paused' }), false, true);
+        expect(state.canSkipSegment).toBe(false);
+    });
+
+    it('展示已跳过段数，完成文案区分是否含跳过', () => {
+        const withSkipped = 计算小说模式包完善界面状态(record({
+            状态: 'completed',
+            当前阶段: 'finalize',
+            跳过分段ID列表: ['seg-2', 'seg-4']
+        }), false, true);
+        expect(withSkipped.skippedCount).toBe(2);
+        expect(withSkipped.statusText).toContain('2 段为手动跳过');
+        expect(withSkipped.canUseDraft).toBe(true);
+
+        const clean = 计算小说模式包完善界面状态(record({ 状态: 'completed', 当前阶段: 'finalize' }), false, true);
+        expect(clean.skippedCount).toBe(0);
+        expect(clean.statusText).not.toContain('手动跳过');
+    });
 });
