@@ -14,7 +14,7 @@ import SuspenseTimeoutBoundary from './components/ui/SuspenseTimeoutBoundary';
 import { useGame } from './hooks/useGame';
 import { use图片资源回源预取 } from './hooks/useImageAssetPrefetch';
 import { normalizeCanonicalGameTime, 环境时间转标准串 } from './hooks/useGame/timeUtils';
-import { 获取主剧情接口配置, 获取文生图接口配置, 获取生图词组转化器接口配置, 获取记忆精炼接口配置, 获取角色对话接口配置, 接口配置是否可用, 获取变量计算接口配置, 变量校准功能已启用 as 变量生成功能已启用 } from './utils/apiConfig';
+import { 获取主剧情接口配置, 获取文生图接口配置, 获取生图词组转化器接口配置, 获取记忆精炼接口配置, 获取角色对话接口配置, 解析记忆总结生效接口, 接口配置是否可用, 获取变量计算接口配置, 变量校准功能已启用 as 变量生成功能已启用 } from './utils/apiConfig';
 import { 请求模型文本 } from './services/ai/chatCompletionClient';
 import { 记忆精炼系统提示词 } from './prompts/runtime/memoryRefine';
 import { 获取内置世界书槽位内容 } from './utils/worldbook';
@@ -2721,11 +2721,36 @@ const App: React.FC = () => {
     // NPC 记忆总结报错时直达接口配置页：不关闭任务，只把设置叠在上面，
     // 玩家改完接口回来点「重新生成」即可继续，不必重新等阈值触发。
     // 必须先收掉其他面板（如社交面板）：它们与设置同层级且后渲染，会盖住设置。
+    //
+    // 跳转目标必须跟着「实际生效来源」走：记忆总结未开独立模型时先跟随剧情回忆、
+    // 再回退主配置，一律跳到「记忆总结」页会让玩家对着灰色输入框无从下手。
+    const 记忆总结生效解析 = React.useMemo(
+        () => 解析记忆总结生效接口(state.apiConfig),
+        [state.apiConfig]
+    );
     const openMemorySummarySettings = React.useCallback(() => {
         closeAllPanels();
-        setters.setActiveTab('memory_summary_model');
+        setters.setActiveTab(记忆总结生效解析.设置页);
+        setters.setShowSettings(true);
+    }, [closeAllPanels, setters, 记忆总结生效解析.设置页]);
+    // 混合配置下（独立模型 + 地址沿用主配置）同时给一个改地址的入口。
+    const openMemorySummaryPrimaryApiSettings = React.useCallback(() => {
+        closeAllPanels();
+        setters.setActiveTab('api');
         setters.setShowSettings(true);
     }, [closeAllPanels, setters]);
+    const 记忆总结接口提示 = React.useMemo(() => {
+        const config = 记忆总结生效解析.配置;
+        return {
+            生效描述: 接口配置是否可用(config)
+                ? `${config.名称 || '未命名渠道'} · ${config.model}`
+                : '配置不完整（缺少地址、密钥或模型）',
+            来源说明: 记忆总结生效解析.来源说明,
+            按钮文案: 记忆总结生效解析.跳转文案,
+            次要按钮文案: 记忆总结生效解析.次要跳转文案,
+            onOpenSecondarySettings: 记忆总结生效解析.次要设置页 ? openMemorySummaryPrimaryApiSettings : undefined
+        };
+    }, [记忆总结生效解析, openMemorySummaryPrimaryApiSettings]);
     const closeNovelDecompositionWorkbench = React.useCallback(() => setShowNovelDecompositionWorkbench(false), []);
     const closeNovelExport = React.useCallback(() => setShowNovelExport(false), []);
     const handleAllocateAttributePoint = React.useCallback((key: 可分配六维属性键) => {
@@ -4071,6 +4096,7 @@ const App: React.FC = () => {
                             onDraftChange={actions.handleUpdateNpcMemorySummaryDraft}
                             onApply={actions.handleApplyNpcMemorySummary}
                             onOpenApiSettings={openMemorySummarySettings}
+                            apiNotice={记忆总结接口提示}
                         />
                     ) : (
                         <NpcMemorySummaryFlowModal
@@ -4086,6 +4112,7 @@ const App: React.FC = () => {
                             onDraftChange={actions.handleUpdateNpcMemorySummaryDraft}
                             onApply={actions.handleApplyNpcMemorySummary}
                             onOpenApiSettings={openMemorySummarySettings}
+                            apiNotice={记忆总结接口提示}
                         />
                     )}
                 </懒加载边界>
