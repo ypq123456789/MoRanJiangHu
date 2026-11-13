@@ -128,6 +128,17 @@ export const 执行小说模式包逐段完善 = async (
 
     for (let index = record.下一个分段索引; index < dataset.分段列表.length; index += 1) {
         const segment = dataset.分段列表[index];
+        // 玩家主动跳过的分段：不再发起请求（避免同一段反复消耗额度），直接记为已处理。
+        if (record.跳过分段ID列表.includes(segment.id)) {
+            record = {
+                ...record,
+                已完成分段数: index + 1,
+                下一个分段索引: index + 1,
+                最近失败分段索引: undefined,
+                updatedAt: Date.now()
+            };
+            continue;
+        }
         const inputRecord = {
             分段ID: segment.id,
             原文总字符数: segment.原文内容?.length || 0,

@@ -144,6 +144,41 @@ describe('小说模式包逐段完善工作流', () => {
         expect(result.当前草稿).not.toHaveProperty('economy');
     });
 
+    it('跳过的分段不再发请求，进度继续并最终完成', async () => {
+        const dataset = 创建数据集();
+        const record = 标准化小说模式包完善记录({
+            id: `${dataset.id}::武侠`,
+            数据集ID: dataset.id,
+            题材: '武侠',
+            数据集指纹: 'fingerprint',
+            状态: 'paused',
+            当前阶段: 'segment',
+            总分段数: 3,
+            已完成分段数: 1,
+            下一个分段索引: 1,
+            最近失败分段索引: 1,
+            跳过分段ID列表: ['seg-2'],
+            当前草稿: { economy: { primaryCurrency: '铜钱' } }
+        });
+        const completeSegment = vi.fn().mockResolvedValue(aiResult({ economy: { primaryCurrency: '银票' } }, 'third'));
+        const result = await 执行小说模式包逐段完善({
+            dataset,
+            baseMode: '武侠',
+            initialRecord: record,
+            signal: new AbortController().signal,
+            completeSegment,
+            finalize: async ({ currentDraft }) => aiResult(currentDraft, 'final'),
+            sanitize: (_dataset, _mode, draft) => draft,
+            save: async () => undefined,
+            wait: async () => undefined
+        });
+        // 被跳过的第 2 段不应再触发任何 AI 请求
+        expect(completeSegment.mock.calls.map((call) => call[0].segmentIndex)).toEqual([2]);
+        expect(result.状态).toBe('completed');
+        expect(result.已完成分段数).toBe(3);
+        expect(result.跳过分段ID列表).toEqual(['seg-2']);
+    });
+
     it('最终整理失败时只重试最终整理阶段', async () => {
         const dataset = 创建数据集();
         const finalizing = 标准化小说模式包完善记录({

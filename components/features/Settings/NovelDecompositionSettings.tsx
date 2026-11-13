@@ -2021,6 +2021,15 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
         }
     };
 
+    /** 跳过反复失败的分段：不再为它发请求，继续后面的分段，避免同一段反复烧额度。 */
+    const handleSkipFailedModePackSegment = async () => {
+        try {
+            await modePackCompletion.skipCurrentSegment();
+        } catch (error: any) {
+            推送错误提示(error?.message || '跳过失败分段失败。');
+        }
+    };
+
     /** 模式包补全：分区中文名映射 */
     const 模式包分区名称: Record<string, string> = {
         economy: '货币经济',
@@ -2999,6 +3008,19 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                                         <div className="h-full bg-cyan-400 transition-all" style={{ width: `${modePackCompletion.uiState.progressPercent}%` }} />
                                     </div>
                                     {modePackCompletion.uiState.truncationText && <div className="text-amber-300">{modePackCompletion.uiState.truncationText}</div>}
+                                    {modePackCompletion.uiState.skippedCount > 0 && (
+                                        <div className="text-amber-300">
+                                            已跳过 {modePackCompletion.uiState.skippedCount} 段，这些段对应的原著设定不会进入模式包。
+                                        </div>
+                                    )}
+                                    {modePackCompletion.uiState.canSkipSegment && (
+                                        <button
+                                            onClick={() => void handleSkipFailedModePackSegment()}
+                                            className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200 hover:bg-amber-500/20 transition-colors"
+                                        >
+                                            跳过此段并继续
+                                        </button>
+                                    )}
                                     {!modePackCompletion.uiState.canUseDraft && <div className="text-amber-200">仍有分段未参与完善，暂不能生成或贡献模式包。</div>}
                                     {!modePackCompletion.fingerprintMatches && <div className="text-red-300">小说分段内容或顺序已变化，请从头重建。</div>}
                                 </div>
@@ -3165,6 +3187,19 @@ const NovelDecompositionSettings: React.FC<Props> = ({ settings, onSave, request
                                 <div className="h-full bg-cyan-400 transition-all" style={{ width: `${modePackCompletion.uiState.progressPercent}%` }} />
                             </div>
                             {modePackCompletion.uiState.truncationText && <div className="text-amber-300">{modePackCompletion.uiState.truncationText}</div>}
+                            {modePackCompletion.uiState.skippedCount > 0 && (
+                                <div className="text-amber-300">
+                                    已跳过 {modePackCompletion.uiState.skippedCount} 段，这些段对应的原著设定不会进入模式包。
+                                </div>
+                            )}
+                            {modePackCompletion.uiState.canSkipSegment && (
+                                <button
+                                    onClick={() => void handleSkipFailedModePackSegment()}
+                                    className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200 hover:bg-amber-500/20 transition-colors"
+                                >
+                                    跳过此段并继续
+                                </button>
+                            )}
                             {!modePackCompletion.uiState.canUseDraft && <div className="text-amber-200">仍有分段未参与完善，暂不能生成或贡献模式包。</div>}
                             {!modePackCompletion.fingerprintMatches && <div className="text-red-300">小说分段内容或顺序已变化，请从头重建。</div>}
                         </div>

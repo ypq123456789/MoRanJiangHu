@@ -61,6 +61,7 @@ export const 标准化小说模式包完善记录 = (raw: any): 小说模式包�
         当前分段ID: typeof raw?.当前分段ID === 'string' ? raw.当前分段ID : undefined,
         当前分段标题: typeof raw?.当前分段标题 === 'string' ? raw.当前分段标题 : undefined,
         分段输入记录: 读取分段输入记录(raw?.分段输入记录),
+        跳过分段ID列表: 读取字符串列表(raw?.跳过分段ID列表),
         待整理冲突提示: 读取字符串列表(raw?.待整理冲突提示),
         当前草稿: raw?.当前草稿 && typeof raw.当前草稿 === 'object' ? raw.当前草稿 : {},
         用户确认字段路径: 读取字符串列表(raw?.用户确认字段路径),

@@ -25,6 +25,8 @@ export interface 小说模式包完善记录 {
     当前分段ID?: string;
     当前分段标题?: string;
     分段输入记录: 小说模式包分段输入记录[];
+    /** 玩家主动跳过的分段 ID：这些段不再重试，也不参与逐段完善，但仍算进进度。 */
+    跳过分段ID列表: string[];
     待整理冲突提示: string[];
     当前草稿: Partial<ModeRuntimeProfile>;
     用户确认字段路径: string[];
