@@ -1,0 +1,22 @@
+{
+  "schema": "moranjianghu-fandom-world-preset",
+  "version": 1,
+  "id": "x",
+  "title": "x",
+  "worldName": "x",
+  "sourceType": "小说",
+  "fusionStrength": "",
+  "createdAt": "2026-11-11T19:58:39.151Z",
+  "contributedBy": "community",
+  "reviewStatus": "pending",
+  "worldConfig": {
+    "worldName": "x",
+    "worldType": "fan_fiction",
+    "manualWorldPrompt": "y",
+    "worldExtraRequirement": "",
+    "manualRealmPrompt": ""
+  },
+  "openingConfig": null,
+  "datasetSummary": null,
+  "submitterNote": ""
+}
