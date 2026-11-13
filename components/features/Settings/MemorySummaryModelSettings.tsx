@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { 接口设置结构, 功能模型占位配置结构 } from '../../../types';
 import GameButton from '../../ui/GameButton';
 import ToggleSwitch from '../../ui/ToggleSwitch';
-import { 获取剧情回忆接口配置, 获取记忆总结接口配置, 规范化接口设置, 接口配置是否可用 } from '../../../utils/apiConfig';
+import { 解析记忆总结生效接口, 规范化接口设置, 接口配置是否可用 } from '../../../utils/apiConfig';
 import StageApiModelSelector from './StageApiModelSelector';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
 
@@ -40,18 +40,13 @@ const MemorySummaryModelSettings: React.FC<Props> = ({ settings, onSave }) => {
 
     // 面板顶部必须展示「真正会发请求的那个接口」，而不是主配置：
     // 未开独立模型时实际走的是剧情回忆配置，只改主渠道对这里毫无影响。
-    const 生效接口 = useMemo(() => 获取记忆总结接口配置(form), [form]);
-    const 生效接口来源 = useMemo(() => {
-        if (独立模型开启) {
-            return { 说明: '「记忆总结」独立配置', 受主渠道影响: false };
-        }
-        const recall = 获取剧情回忆接口配置(form);
-        if (接口配置是否可用(recall)) {
-            return { 说明: '「剧情回忆」配置（记忆总结未开独立模型时跟随其后）', 受主渠道影响: false };
-        }
-        // 两条回退都不成立时直接用当前启用接口，此时切主渠道确实会改到这里。
-        return { 说明: '当前启用接口（主配置）', 受主渠道影响: true };
-    }, [form, 独立模型开启]);
+    // 来源判断与报错弹窗的跳转目标共用同一份解析，避免两处说法不一致。
+    const 生效接口解析 = useMemo(() => 解析记忆总结生效接口(form), [form]);
+    const 生效接口 = 生效接口解析.配置;
+    const 生效接口来源 = useMemo(() => ({
+        说明: 生效接口解析.来源说明,
+        受主渠道影响: 生效接口解析.来源 === 'primary'
+    }), [生效接口解析]);
 
     const updatePlaceholder = <K extends keyof 功能模型占位配置结构>(key: K, value: 功能模型占位配置结构[K]) => {
         setForm((prev) => ({

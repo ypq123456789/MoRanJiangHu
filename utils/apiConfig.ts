@@ -2208,6 +2208,67 @@ export const 获取记忆总结接口配置 = (settings: 接口设置结构): �
     });
 };
 
+export type 记忆总结生效来源 = 'independent' | 'recall' | 'primary';
+
+export interface 记忆总结生效接口解析结果 {
+    /** 真正会发请求的接口；独立模型开关打开但配置不完整时为 null。 */
+    配置: 当前可用接口结构 | null;
+    来源: 记忆总结生效来源;
+    来源说明: string;
+    设置页: 'memory_summary_model' | 'recall' | 'api';
+    设置页名称: string;
+    跳转文案: string;
+}
+
+/**
+ * 解析「NPC 记忆总结」实际生效的接口与来源。
+ *
+ * 报错时不能一律把玩家送去「记忆总结」页：未开独立模型时它跟随「剧情回忆」，
+ * 剧情回忆也没启用才回退主配置。只有把来源判断对，跳转才能一次落到能改的那一页。
+ */
+export const 解析记忆总结生效接口 = (settings: 接口设置结构): 记忆总结生效接口解析结果 => {
+    const feature = (settings as any)?.功能模型占位;
+    if (Boolean(feature?.记忆总结独立模型开关)) {
+        // 与 `构建独立文本接口配置` 的真实行为对齐：渠道被删且没填独立地址时，
+        // 它会静默拿主配置的 baseUrl/apiKey 再套上独立模型名。
+        // 这种情况不能标成「独立配置」，否则又把玩家指去改不生效的那一页。
+        const 渠道ID = typeof feature?.记忆总结渠道ID === 'string' ? feature.记忆总结渠道ID.trim() : '';
+        const 独立地址 = typeof feature?.记忆总结API地址 === 'string' ? feature.记忆总结API地址.trim() : '';
+        const 渠道存在 = Boolean(渠道ID)
+            && Array.isArray(settings?.configs)
+            && settings.configs.some((item) => item?.id === 渠道ID);
+        if (渠道存在 || 独立地址) {
+            return {
+                配置: 获取记忆总结接口配置(settings),
+                来源: 'independent',
+                来源说明: '「记忆总结」独立配置',
+                设置页: 'memory_summary_model',
+                设置页名称: '记忆总结',
+                跳转文案: '检查记忆总结设置'
+            };
+        }
+    }
+    const recallConfig = 获取剧情回忆接口配置(settings);
+    if (接口配置是否可用(recallConfig)) {
+        return {
+            配置: recallConfig,
+            来源: 'recall',
+            来源说明: '「剧情回忆」配置（记忆总结未开独立模型时跟随其后）',
+            设置页: 'recall',
+            设置页名称: '剧情回忆',
+            跳转文案: '检查剧情回忆接口'
+        };
+    }
+    return {
+        配置: 获取当前接口配置(settings),
+        来源: 'primary',
+        来源说明: '当前启用接口（主配置）',
+        设置页: 'api',
+        设置页名称: '接口连接',
+        跳转文案: '检查主接口配置'
+    };
+};
+
 export const 获取记忆精炼接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {
     const feature = (settings as any)?.功能模型占位;
     const independent = Boolean(feature?.记忆精炼独立模型开关);

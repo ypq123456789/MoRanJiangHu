@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     创建接口配置模板,
     获取记忆总结接口配置,
+    解析记忆总结生效接口,
     规范化接口设置
 } from '../utils/apiConfig';
 
@@ -113,5 +114,69 @@ describe('记忆总结接口回退顺序', () => {
         }));
 
         expect(config?.model?.trim()).toBeTruthy();
+    });
+});
+
+/**
+ * 报错弹窗的「检查接口设置」必须落到真正能改的那一页。
+ * v1.0.703 一律跳「记忆总结」页，玩家在回退到剧情回忆/主配置时对着灰色输入框无从下手。
+ */
+describe('记忆总结报错跳转目标', () => {
+    it('独立模型开启且渠道存在时跳到记忆总结页', () => {
+        const resolved = 解析记忆总结生效接口(构造设置({
+            记忆总结独立模型开关: true,
+            记忆总结渠道ID: 'summary-channel',
+            记忆总结使用模型: 'summary-model'
+        }));
+
+        expect(resolved.来源).toBe('independent');
+        expect(resolved.设置页).toBe('memory_summary_model');
+        expect(resolved.配置?.名称).toBe('记忆总结渠道');
+    });
+
+    it('未开独立模型且剧情回忆可用时跳到剧情回忆页', () => {
+        const resolved = 解析记忆总结生效接口(构造设置({
+            剧情回忆独立模型开关: true,
+            剧情回忆渠道ID: 'recall-channel',
+            剧情回忆使用模型: 'recall-model'
+        }));
+
+        expect(resolved.来源).toBe('recall');
+        expect(resolved.设置页).toBe('recall');
+        expect(resolved.配置?.名称).toBe('剧情回忆渠道');
+    });
+
+    it('既没开独立模型也没开剧情回忆时跳到接口连接页', () => {
+        const resolved = 解析记忆总结生效接口(构造设置());
+
+        expect(resolved.来源).toBe('primary');
+        expect(resolved.设置页).toBe('api');
+        expect(resolved.配置?.名称).toBe('主剧情渠道');
+    });
+
+    it('独立开关开着但渠道被删且没填独立地址时，实际回退主配置，跳接口连接页', () => {
+        const resolved = 解析记忆总结生效接口(构造设置({
+            记忆总结独立模型开关: true,
+            记忆总结渠道ID: 'deleted-channel',
+            记忆总结使用模型: 'summary-model'
+        }));
+
+        expect(resolved.来源).toBe('primary');
+        expect(resolved.设置页).toBe('api');
+        // 请求实际打在主渠道地址上，只是模型名沿用了独立配置
+        expect(resolved.配置?.baseUrl).toBe('https://main.example.test/v1');
+    });
+
+    it('独立渠道被删但填了独立地址时，仍按独立配置处理', () => {
+        const resolved = 解析记忆总结生效接口(构造设置({
+            记忆总结独立模型开关: true,
+            记忆总结渠道ID: 'deleted-channel',
+            记忆总结使用模型: 'summary-model',
+            记忆总结API地址: 'https://summary-standalone.example.test/v1'
+        }));
+
+        expect(resolved.来源).toBe('independent');
+        expect(resolved.设置页).toBe('memory_summary_model');
+        expect(resolved.配置?.baseUrl).toBe('https://summary-standalone.example.test/v1');
     });
 });
