@@ -3,6 +3,7 @@ import React from 'react';
 import type { VariableReviewActions } from '../../../hooks/useGame/variableReviewActions';
 import { OrnateBorder } from '../../ui/decorations/OrnateBorder';
 import { lazyImportWithReload } from '../../../utils/lazyImportWithReload';
+import { 设置导航分组, 展平设置项, 读取收起组, 折叠存储键, type SettingsTab } from './settingsNav';
 import { 
     接口设置结构, 提示词结构, ThemePreset, 视觉设置结构, 节日结构, 聊天记录结构,
     游戏设置结构, 记忆配置结构, 记忆系统结构, NPC结构, TavernCommand, OpeningConfig, 剧情系统结构, 叙事状态结构
@@ -39,7 +40,9 @@ const MusicSettings = React.lazy(() => lazyImportWithReload('settings-music', ()
 const NpcManager = React.lazy(() => lazyImportWithReload('settings-npc-manager', () => import('./NpcManager')));
 const VariableManager = React.lazy(() => lazyImportWithReload('settings-variable-manager', () => import('./VariableManager')));
 
-type SettingsTab = 'api' | 'workflow_graph' | 'image_generation' | 'recall' | 'memory_summary_model' | 'memory_refine_model' | 'map_model' | 'polish' | 'role_chat' | 'world_evolution' | 'variable_model' | 'planning_model' | 'independent_api_gpt' | 'novel_decomposition' | 'novel_decomposition_runtime' | 'prompt' | 'storage' | 'theme' | 'visual' | 'world' | 'game' | 'reality' | 'tavern_preset' | 'memory' | 'history' | 'context' | 'logs' | 'music' | 'npc_management' | 'variable_manager';
+// 设置页签的联合类型统一放在 settingsNav.ts，桌面端与手机端共用一份，避免两处漂移。
+// 这里重新导出，保持既有引用（`import type { SettingsTab } from './SettingsModal'`）可用。
+export type { SettingsTab };
 type RuntimeStateSections = Record<'角色' | '环境' | '社交' | '世界' | '战斗' | '剧情' | '剧情规划' | '女主剧情规划' | '玩家门派' | '任务列表' | '约定列表' | '记忆系统', unknown>;
 type 游戏初始时间修复结果 = { ok: boolean; message: string; value?: string };
 
@@ -130,47 +133,68 @@ const SettingsModal: React.FC<Props> = ({
     onSaveApi, onSaveVisual, onSaveGame, onSaveMemory, onDeleteMemory, onRefineMemories, onRegenerateMapFromMemory, onCreateNpc, onSaveNpc, onDeleteNpc, onRestoreNpcBackup, onStartNpcMemorySummary, npcMemorySummaryQueueLength = 0, npcMemorySummaryError = '', onUploadNpcImage, onReplaceVariableSection, onApplyVariableCommand, onRepairGameInitialTime, onUpdatePrompts, onUpdateFestivals, onThemeChange,
     onReturnToHome, isHome, returnHomeSaving = false, requestConfirm
 }) => {
-    const tabItems = [
-        { id: 'game', label: '游戏设定' },
-        { id: 'reality', label: '真实世界' },
-        { id: 'tavern_preset', label: '酒馆预设' },
-        { id: 'world', label: '世界设定' },
-        { id: 'memory', label: '记忆配置' },
-        { id: 'visual', label: '视觉显示' },
-        { id: 'npc_management', label: 'NPC管理' },
-        { id: 'variable_manager', label: '变量管理' },
-        { id: 'music', label: '背景音乐' },
-        { id: 'history', label: '互动历史' },
-        { id: 'context', label: '上下文' },
-        { id: 'logs', label: '运行日志' },
-        { id: 'api', label: '接口连接' },
-        { id: 'workflow_graph', label: '生成流程图' },
-        { id: 'image_generation', label: '文生图' },
-        { id: 'recall', label: '剧情回忆' },
-        { id: 'memory_summary_model', label: '记忆总结' },
-        { id: 'memory_refine_model', label: '记忆精炼' },
-        { id: 'map_model', label: '地图生成' },
-        { id: 'polish', label: '文章优化' },
-        { id: 'role_chat', label: '角色对话' },
-        { id: 'world_evolution', label: '世界演变' },
-        { id: 'variable_model', label: '变量生成' },
-        { id: 'planning_model', label: '规划分析' },
-        { id: 'independent_api_gpt', label: '独立API GPT' },
-        { id: 'novel_decomposition', label: '小说分解接口' },
-        { id: 'novel_decomposition_runtime', label: '当前小说分解注入' },
-        { id: 'prompt', label: '提示词' },
-        { id: 'theme', label: '界面风格' },
-        { id: 'storage', label: '数据存储' }
-    ] as const;
+    // 30 项的分组定义在 ./settingsNav，桌面端与手机端共用一份，避免两处各长各的。
+    // 这里只按分组展开成平铺列表，逐项 id / label 与改前完全一致。
+    const tabItems = React.useMemo(() => 展平设置项(), []);
     // 「上下文」是排查提示词 / 额外提示词来源的唯一入口，必须始终可见；
     // 只有偏调试性质的「互动历史」才随研发 / 诊断模式显隐。
-    const visibleTabItems = tabItems.filter((item) => item.id !== 'history'
-        || (gameConfig as any)?.启用研发诊断模式 === true).slice();
+    const 研发诊断开启 = (gameConfig as any)?.启用研发诊断模式 === true;
+    const 项可见 = React.useCallback(
+        (id: SettingsTab) => id !== 'history' || 研发诊断开启,
+        [研发诊断开启],
+    );
+    const visibleTabItems = React.useMemo(
+        () => tabItems.filter((item) => 项可见(item.id)),
+        [tabItems, 项可见],
+    );
     React.useEffect(() => {
         if (!visibleTabItems.some((item) => item.id === activeTab)) {
             onTabChange('game');
         }
     }, [activeTab, onTabChange, visibleTabItems]);
+
+    // ── 分组导航的折叠状态 ────────────────────────────────────────────
+    // 默认五组全收：用户 2026-11-21 拍板，首屏就要一屏看全五个组标题。
+    // 手风琴式：点一组只展开这一组，其余收起；再点收起。
+    // 当前页所在的组点标题时不收起自己，只收其他组，避免当前页被藏起来。
+    //
+    const 组ID列表 = React.useMemo(() => 设置导航分组.map((组) => 组.id), []);
+    const [收起组, set收起组] = React.useState<string[]>(读取收起组);
+    const 持久化收起组 = React.useCallback((下一个: string[]) => {
+        set收起组(下一个);
+        try {
+            window.localStorage.setItem(折叠存储键, JSON.stringify(下一个));
+        } catch {
+            // 存不下就只在本次会话里生效，不影响使用
+        }
+    }, []);
+    const 当前页所在组 = React.useMemo(() => {
+        const 命中 = 设置导航分组.find((组) => 组.items.some((item) => item.id === activeTab)
+            || (组.sub?.items.some((item) => item.id === activeTab) ?? false));
+        return 命中?.id ?? '';
+    }, [activeTab]);
+    const 切换组 = React.useCallback((组ID: string) => {
+        // 展开这一组、其余组全收。只动「组 id」，抽屉状态由它自己管，不被这里重置。
+        const 只留这组 = 组ID列表.filter((id) => id !== 组ID);
+        if (组ID === 当前页所在组) {
+            // 当前页在本组：不许把它收起，只把其他组收起来
+            持久化收起组(只留这组);
+            return;
+        }
+        if (收起组.includes(组ID)) {
+            // 原来是收着的 → 展开它
+            持久化收起组(只留这组);
+            return;
+        }
+        // 原来是展开的 → 收起它
+        持久化收起组([...收起组, 组ID]);
+    }, [组ID列表, 收起组, 当前页所在组, 持久化收起组]);
+    const 切换抽屉 = React.useCallback((抽屉ID: string) => {
+        const 下一个 = 收起组.includes(抽屉ID)
+            ? 收起组.filter((id) => id !== 抽屉ID)
+            : [...收起组, 抽屉ID];
+        持久化收起组(下一个);
+    }, [收起组, 持久化收起组]);
 
     const 设置加载占位 = (
         <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-wuxia-gold/20 bg-[#f3ead4]/95 text-sm tracking-[0.2em] text-amber-900 shadow-inner">
@@ -270,20 +294,87 @@ const SettingsModal: React.FC<Props> = ({
                     {/* Sidebar */}
                     <div className="hidden md:flex w-[220px] lg:w-[236px] bg-black/40 border-r border-wuxia-gold/10 flex-col pt-9 relative z-10 min-h-0">
                         <h2 className="text-xl text-wuxia-gold font-serif font-black px-5 mb-6 italic" style={{ fontFamily: 'var(--ui-页面标题-font-family, inherit)', fontSize: 'var(--ui-页面标题-font-size, 28px)' }}>设置</h2>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            {visibleTabItems.map(item => (
-                                <button 
-                                    key={item.id}
-                                    onClick={() => onTabChange(item.id as any)}
-                                    className={`w-full px-4 py-3 text-left text-sm font-bold tracking-[0.2em] transition-all hover:bg-white/5 hover:pl-6 ${
-                                        activeTab === item.id 
-                                        ? 'text-wuxia-gold border-l-4 border-wuxia-gold bg-white/5 shadow-[inset_10px_0_20px_rgba(0,0,0,0.5)]' 
-                                        : 'text-gray-500 border-l-4 border-transparent'
-                                    }`}
-                                >
-                                    {item.label}
-                                </button>
-                            ))}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-2">
+                            {设置导航分组.map((组) => {
+                                const 组收起 = 收起组.includes(组.id);
+                                const 组内可见项 = 组.items.filter((item) => 项可见(item.id));
+                                const 抽屉可见项 = (组.sub?.items ?? []).filter((item) => 项可见(item.id));
+                                // 一个可见项都没有的组（例如只剩「互动历史」且研发模式关闭）直接不显示
+                                if (组内可见项.length === 0 && 抽屉可见项.length === 0) return null;
+                                const 抽屉收起 = 组.sub ? 收起组.includes(组.sub.id) : true;
+                                return (
+                                    <div key={组.id} className="mt-2.5 first:mt-1">
+                                        {/* 组标题：点一下只展开这一组，其余收起 */}
+                                        <button
+                                            type="button"
+                                            onClick={() => 切换组(组.id)}
+                                            aria-expanded={!组收起}
+                                            className="group flex h-6 w-full items-center justify-between border-b border-white/10 text-[12px] font-bold tracking-[1.2px] text-[#b9a889] transition-colors hover:text-wuxia-gold [html[data-theme='day']_&]:border-[#d8c9a6] [html[data-theme='day']_&]:text-[#6d5a33] [html[data-theme='day']_&]:hover:text-[#4a3410]"
+                                        >
+                                            <span className="pl-[14px]">{组.title}</span>
+                                            <span aria-hidden="true" className="pr-0.5 text-[11px] opacity-70">
+                                                {组收起 ? '▸' : '▾'}
+                                            </span>
+                                        </button>
+
+                                        {!组收起 && (
+                                            <div className="pt-0.5">
+                                                {组内可见项.map((item) => (
+                                                    <button
+                                                        key={item.id}
+                                                        type="button"
+                                                        onClick={() => onTabChange(item.id as any)}
+                                                        className={`h-[34px] w-full border-l-[3px] pl-[11px] text-left text-[13px] leading-[34px] tracking-[1px] transition-colors ${
+                                                            activeTab === item.id
+                                                                ? 'border-wuxia-gold font-bold text-wuxia-gold'
+                                                                : 'border-transparent text-gray-500 hover:text-wuxia-gold'
+                                                        }`}
+                                                    >
+                                                        {item.label}
+                                                    </button>
+                                                ))}
+
+                                                {/* 「各环节独立模型」抽屉：默认收起，点它自己展开/收起，不影响整组 */}
+                                                {组.sub && 抽屉可见项.length > 0 && (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => 切换抽屉(组.sub!.id)}
+                                                            aria-expanded={!抽屉收起}
+                                                            className="flex h-8 w-full items-center justify-between border border-white/10 bg-white/5 pl-[14px] pr-1.5 text-[12px] tracking-[0.6px] text-[#c9bb9c] transition-colors hover:text-wuxia-gold [html[data-theme='day']_&]:border-[#e0d2b0] [html[data-theme='day']_&]:bg-[#f5eeda] [html[data-theme='day']_&]:text-[#6d5a33] [html[data-theme='day']_&]:hover:text-[#4a3410]"
+                                                        >
+                                                            <span>{组.sub.title}</span>
+                                                            <span className="text-[10px] opacity-80">
+                                                                {抽屉收起 ? '▸' : '▾'} {抽屉可见项.length}
+                                                            </span>
+                                                        </button>
+                                                        {!抽屉收起 && 抽屉可见项.map((item) => (
+                                                            <button
+                                                                key={item.id}
+                                                                type="button"
+                                                                onClick={() => onTabChange(item.id as any)}
+                                                                className={`h-[34px] w-full border-l-[3px] pl-[23px] text-left text-[13px] leading-[34px] tracking-[1px] transition-colors ${
+                                                                    activeTab === item.id
+                                                                        ? 'border-wuxia-gold font-bold text-wuxia-gold'
+                                                                        : 'border-transparent text-gray-500 hover:text-wuxia-gold'
+                                                                }`}
+                                                            >
+                                                                {item.label}
+                                                            </button>
+                                                        ))}
+                                                    </>
+                                                )}
+
+                                                {组.note && !研发诊断开启 && (
+                                                    <div className="py-1 pl-[26px] text-[10px] text-gray-600 [html[data-theme='day']_&]:text-[#8a7f66]">
+                                                        {组.note}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
 
                         {/* Footer Actions */}
