@@ -2817,3 +2817,19 @@ html[data-theme="day"] .novel-epub-repair-label {
 .lazy-scroll-passthrough * {
   pointer-events: none !important;
 }
+
+/* 避开设置弹窗按类名匹配的字色规则，让普通导航项有独立的悬停反馈。 */
+.settings-nav-item-idle {
+  color: rgba(222, 216, 204, 0.9);
+}
+.settings-nav-item-idle:hover,
+.settings-nav-item-idle:focus-visible {
+  color: rgb(var(--c-wuxia-gold));
+}
+html[data-theme="day"] .settings-nav-item-idle {
+  color: #374151;
+}
+html[data-theme="day"] .settings-nav-item-idle:hover,
+html[data-theme="day"] .settings-nav-item-idle:focus-visible {
+  color: #4a3410;
+}
