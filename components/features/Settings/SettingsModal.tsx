@@ -174,8 +174,12 @@ const SettingsModal: React.FC<Props> = ({
         return 命中?.id ?? '';
     }, [activeTab]);
     const 切换组 = React.useCallback((组ID: string) => {
-        // 展开这一组、其余组全收。只动「组 id」，抽屉状态由它自己管，不被这里重置。
-        const 只留这组 = 组ID列表.filter((id) => id !== 组ID);
+        // 展开这一组、其余组全收。只重置「组 id」，
+        // 其余键（抽屉 id，例如 model:sub）原样保留，抽屉状态由它自己管。
+        // 注意：不能只用 组ID列表 拼新数组——那会把抽屉键从列表里抹掉，
+        // 而「不在列表里 = 展开」，等于强行把抽屉铺开、并丢掉用户手动收起的状态。
+        const 非组键 = 收起组.filter((id) => !组ID列表.includes(id));
+        const 只留这组 = [...组ID列表.filter((id) => id !== 组ID), ...非组键];
         if (组ID === 当前页所在组) {
             // 当前页在本组：不许把它收起，只把其他组收起来
             持久化收起组(只留这组);
@@ -186,7 +190,7 @@ const SettingsModal: React.FC<Props> = ({
             持久化收起组(只留这组);
             return;
         }
-        // 原来是展开的 → 收起它
+        // 原来是展开的 → 收起它（同样不动抽屉键）
         持久化收起组([...收起组, 组ID]);
     }, [组ID列表, 收起组, 当前页所在组, 持久化收起组]);
     const 切换抽屉 = React.useCallback((抽屉ID: string) => {
