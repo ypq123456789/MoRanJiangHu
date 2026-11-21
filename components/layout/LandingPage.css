@@ -1,0 +1,667 @@
+/* 墨色江湖 · 首页（LandingPage）— 宣纸淡墨 / 玄墨灯影流式布局 */
+
+.landing-page.lp-shell {
+  --lp-surface: rgb(var(--c-ink-black));
+  --lp-card-bg: color-mix(in srgb, rgb(var(--c-ink-black)) 82%, rgb(var(--c-ink-gray)) 18%);
+  --lp-card-bg-soft: color-mix(in srgb, rgb(var(--c-ink-black)) 72%, rgb(var(--c-ink-gray)) 28%);
+  --lp-ink: color-mix(in srgb, rgb(var(--c-paper-white)) 95%, rgb(var(--c-wuxia-gold)));
+  --lp-muted: color-mix(in srgb, rgb(var(--c-paper-white)) 68%, rgb(var(--c-ink-black)));
+  --lp-subtle: color-mix(in srgb, rgb(var(--c-paper-white)) 52%, rgb(var(--c-ink-black)));
+  --lp-border: rgb(var(--c-wuxia-gold) / 0.22);
+  --lp-border-soft: rgb(var(--c-wuxia-gold) / 0.14);
+  --lp-border-strong: rgb(var(--c-wuxia-gold) / 0.42);
+  --lp-hover-bg: rgb(var(--c-wuxia-gold) / 0.12);
+  --lp-gold: rgb(var(--c-wuxia-gold));
+  --lp-accent-red: color-mix(in srgb, rgb(var(--c-wuxia-red)) 58%, rgb(var(--c-paper-white)));
+  --lp-seal-bg: rgb(var(--c-wuxia-red) / 0.16);
+  --lp-seal-border: color-mix(in srgb, rgb(var(--c-wuxia-red)) 60%, rgb(var(--c-paper-white)));
+  --lp-seal-text: color-mix(in srgb, rgb(var(--c-wuxia-red)) 40%, rgb(var(--c-paper-white)));
+  --lp-primary-bg: linear-gradient(180deg, rgb(var(--c-wuxia-gold)), color-mix(in srgb, rgb(var(--c-wuxia-gold)) 78%, rgb(var(--c-ink-black))));
+  --lp-primary-text: rgb(var(--c-ink-black));
+  --lp-primary-border: rgb(var(--c-wuxia-gold));
+  --lp-primary-dot: rgb(var(--c-wuxia-red));
+  --lp-primary-shadow: 0 10px 28px rgb(var(--c-wuxia-gold) / 0.2);
+  --lp-apk-bg: rgba(45, 168, 128, 0.14);
+  --lp-apk-border: rgba(94, 212, 168, 0.36);
+  --lp-apk-text: #9ee8ca;
+  --lp-stat-online: #8de0be;
+  --lp-stat-recent: #93ccf0;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: 100%;
+  padding: max(var(--app-safe-top, env(safe-area-inset-top, 0px)), 14px) clamp(14px, 2.4vw, 28px) calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 14px);
+  border-radius: 0.75rem;
+  background-color: var(--lp-surface);
+  color: var(--lp-ink);
+}
+
+html[data-theme="day"] .landing-page.lp-shell {
+  --lp-surface: rgba(250, 246, 236, 0.96);
+  --lp-card-bg: rgba(255, 252, 245, 0.86);
+  --lp-card-bg-soft: rgba(248, 243, 231, 0.78);
+  --lp-ink: color-mix(in srgb, rgb(var(--c-paper-white)) 92%, rgb(var(--c-wuxia-gold-dark)));
+  --lp-muted: color-mix(in srgb, rgb(var(--c-paper-white)) 66%, rgb(var(--c-ink-black)));
+  --lp-subtle: color-mix(in srgb, rgb(var(--c-paper-white)) 52%, rgb(var(--c-ink-black)));
+  --lp-border: rgb(var(--c-wuxia-gold) / 0.22);
+  --lp-border-soft: rgb(var(--c-wuxia-gold) / 0.14);
+  --lp-border-strong: rgb(var(--c-wuxia-gold) / 0.42);
+  --lp-hover-bg: rgb(var(--c-wuxia-gold) / 0.08);
+  --lp-gold: rgb(var(--c-wuxia-gold));
+  --lp-accent-red: color-mix(in srgb, rgb(var(--c-wuxia-red)) 86%, rgb(var(--c-paper-white)));
+  --lp-seal-bg: rgb(var(--c-wuxia-red) / 0.07);
+  --lp-seal-border: rgb(var(--c-wuxia-red) / 0.36);
+  --lp-seal-text: color-mix(in srgb, rgb(var(--c-wuxia-red)) 86%, rgb(var(--c-paper-white)));
+  --lp-primary-bg: #2c2219;
+  --lp-primary-text: #f7f1e4;
+  --lp-primary-border: #2c2219;
+  --lp-primary-dot: #c94835;
+  --lp-primary-shadow: 0 8px 22px rgba(44, 34, 25, 0.18);
+  --lp-apk-bg: rgba(18, 114, 88, 0.08);
+  --lp-apk-border: rgba(18, 114, 88, 0.32);
+  --lp-apk-text: #155e4b;
+  --lp-stat-online: #1d5746;
+  --lp-stat-recent: #244d69;
+  background-color: var(--lp-surface) !important;
+}
+
+.lp-inner {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1180px;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: clamp(14px, 2vh, 22px);
+}
+
+/* Top Utility Bar */
+.lp-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.lp-ver-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg);
+  color: var(--lp-muted);
+  font-family: var(--ui-等宽信息-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  backdrop-filter: blur(12px);
+}
+
+.lp-topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lp-util-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg);
+  color: var(--lp-ink);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.lp-util-btn:hover {
+  background: color-mix(in srgb, var(--lp-card-bg) 82%, rgb(var(--c-wuxia-gold)) 14%);
+  border-color: var(--lp-border-strong);
+}
+
+.lp-util-btn:focus-visible,
+.lp-btn-primary:focus-visible,
+.lp-btn-secondary:focus-visible,
+.lp-btn-tool:focus-visible,
+.lp-rel-btn:focus-visible,
+.lp-foot-btn:focus-visible {
+  outline: 2px solid rgb(var(--c-wuxia-gold));
+  outline-offset: 2px;
+}
+
+.lp-util-btn--accent {
+  color: var(--lp-gold);
+  border-color: var(--lp-border-strong);
+}
+
+.lp-util-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.82;
+}
+
+/* Harmonize embedded GitHubSyncButton inside topbar */
+.lp-topbar-actions > button[title="管理云端同步"] {
+  min-height: 34px !important;
+  height: 34px;
+  padding: 0 12px !important;
+  border-radius: 6px !important;
+  border-color: var(--lp-border) !important;
+  background: var(--lp-card-bg) !important;
+  color: var(--lp-ink) !important;
+  font-size: 12.5px !important;
+  letter-spacing: 0.08em;
+  box-shadow: none !important;
+  backdrop-filter: blur(12px);
+}
+
+.lp-topbar-actions > button[title="管理云端同步"]:hover {
+  background: color-mix(in srgb, var(--lp-card-bg) 82%, rgb(var(--c-wuxia-gold)) 14%) !important;
+  border-color: var(--lp-border-strong) !important;
+}
+
+/* Center Hero + Entries (Pure flex flow, ZERO position: absolute) */
+.lp-hero {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(14px, 2.2vh, 22px);
+  width: 100%;
+  padding-block: clamp(4px, 1vh, 14px);
+}
+
+.lp-title-block {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 100%;
+}
+
+.lp-title {
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+  font-family: var(--ui-页面标题-font-family, "Songti SC", "STSong", "SimSun", Georgia, ui-serif, serif);
+  font-size: clamp(2.85rem, 5.2vw, 4.1rem);
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: 0.14em;
+  padding-left: 0.14em;
+  color: var(--lp-ink);
+  text-shadow: 0 6px 26px rgb(var(--c-wuxia-gold) / 0.16);
+  transition: opacity 160ms ease;
+}
+
+.lp-title:hover {
+  opacity: 0.9;
+}
+
+html[data-theme="day"] .lp-title {
+  color: #241c14;
+  text-shadow: 0 2px 18px rgba(113, 63, 18, 0.12);
+}
+
+.lp-subtitle-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 8px;
+  max-width: 100%;
+}
+
+.lp-subtitle-line {
+  width: clamp(28px, 6vw, 56px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--lp-accent-red));
+  opacity: 0.72;
+}
+
+.lp-subtitle-line--right {
+  background: linear-gradient(270deg, transparent, var(--lp-accent-red));
+}
+
+.lp-subtitle {
+  margin: 0;
+  font-family: var(--ui-分组标题-font-family, "Songti SC", "STSong", ui-serif, serif);
+  font-size: clamp(0.95rem, 1.5vw, 1.125rem);
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  padding-left: 0.42em;
+  color: var(--lp-accent-red);
+}
+
+/* Slim Edition Notice */
+.lp-edition {
+  width: min(680px, 100%);
+  border-radius: 8px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg);
+  padding: 10px 18px;
+  text-align: center;
+  backdrop-filter: blur(14px);
+}
+
+.lp-edition-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  margin-bottom: 5px;
+}
+
+.lp-edition-seal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--lp-seal-border);
+  background: var(--lp-seal-bg);
+  color: var(--lp-seal-text);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.lp-edition-co {
+  font-size: 12px;
+  color: var(--lp-muted);
+}
+
+.lp-edition-desc {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--lp-ink);
+  opacity: 0.86;
+}
+
+/* Entry Architecture: Primary Pair + 4 Tool Chips */
+.lp-entries {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 11px;
+  width: min(680px, 100%);
+}
+
+.lp-primary-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: min(468px, 100%);
+}
+
+.lp-btn-primary {
+  height: 50px;
+  border-radius: 8px;
+  border: 1px solid var(--lp-primary-border);
+  background: var(--lp-primary-bg);
+  color: var(--lp-primary-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: var(--ui-页面标题-font-family, "Songti SC", "STSong", ui-serif, serif);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  padding-left: 0.22em;
+  cursor: pointer;
+  box-shadow: var(--lp-primary-shadow);
+  transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
+}
+
+.lp-btn-primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.lp-btn-primary:active {
+  transform: translateY(0);
+}
+
+.lp-primary-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--lp-primary-dot);
+  transform: rotate(45deg);
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.lp-btn-secondary {
+  height: 50px;
+  border-radius: 8px;
+  border: 1.5px solid var(--lp-border-strong);
+  background: var(--lp-card-bg);
+  color: var(--lp-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--ui-页面标题-font-family, "Songti SC", "STSong", ui-serif, serif);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  padding-left: 0.2em;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+
+.lp-btn-secondary:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--lp-card-bg) 80%, rgb(var(--c-wuxia-gold)) 14%);
+  border-color: rgb(var(--c-wuxia-gold) / 0.65);
+}
+
+.lp-btn-secondary:active {
+  transform: translateY(0);
+}
+
+.lp-tool-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.lp-btn-tool {
+  height: 40px;
+  border-radius: 7px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg);
+  color: var(--lp-ink);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.lp-btn-tool:hover {
+  background: color-mix(in srgb, var(--lp-card-bg) 82%, rgb(var(--c-wuxia-gold)) 14%);
+  border-color: var(--lp-border-strong);
+  color: var(--lp-gold);
+}
+
+.lp-tool-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--lp-muted);
+  transition: color 150ms ease;
+}
+
+.lp-btn-tool:hover .lp-tool-icon {
+  color: var(--lp-gold);
+}
+
+/* Bottom Two-Card Info Deck (Normal Flow — ZERO overlap) */
+.lp-deck {
+  display: grid;
+  grid-template-columns: minmax(0, 1.06fr) minmax(0, 1fr);
+  gap: 16px;
+  width: min(1040px, 100%);
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.lp-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 186px;
+  border-radius: 12px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg);
+  padding: 14px 18px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+html[data-theme="day"] .lp-card {
+  box-shadow: 0 10px 28px rgba(113, 63, 18, 0.08);
+}
+
+.lp-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--lp-border-soft);
+}
+
+.lp-card-title {
+  font-family: var(--ui-分组标题-font-family, "Songti SC", "STSong", ui-serif, serif);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--lp-gold);
+}
+
+.lp-card-meta {
+  font-family: var(--ui-等宽信息-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--lp-muted);
+}
+
+.lp-release-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  flex: 1 1 auto;
+  align-content: center;
+}
+
+.lp-rel-btn {
+  min-height: 38px;
+  border-radius: 6px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg-soft);
+  color: var(--lp-ink);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.lp-rel-btn:hover {
+  background: var(--lp-hover-bg);
+  border-color: var(--lp-border-strong);
+  color: var(--lp-gold);
+}
+
+.lp-rel-btn--apk {
+  border-color: var(--lp-apk-border);
+  background: var(--lp-apk-bg);
+  color: var(--lp-apk-text);
+  font-weight: 600;
+}
+
+.lp-rel-btn--apk:hover {
+  border-color: var(--lp-apk-text);
+  background: color-mix(in srgb, var(--lp-apk-bg) 75%, var(--lp-apk-text) 16%);
+  color: var(--lp-apk-text);
+}
+
+/* Harmonize Presence Chart inside unified lp-card */
+.lp-presence-card .landing-presence-panel,
+html[data-theme="day"] .lp-presence-card .landing-presence-panel {
+  border: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  padding: 6px 0 0 !important;
+}
+
+.lp-presence-card .landing-presence-metric {
+  min-height: 44px;
+}
+
+.lp-presence-card .landing-presence-label {
+  color: var(--lp-muted) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.14em !important;
+}
+
+.lp-presence-card .landing-presence-online,
+.lp-presence-card .landing-presence-peak-value {
+  color: var(--lp-stat-online) !important;
+  font-size: 20px !important;
+  line-height: 1.2;
+}
+
+.lp-presence-card .landing-presence-recent {
+  color: var(--lp-stat-recent) !important;
+  font-size: 20px !important;
+  line-height: 1.2;
+}
+
+.lp-presence-card .landing-presence-chart-scroll {
+  min-height: 92px;
+}
+
+/* Footer */
+.lp-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  width: min(1040px, 100%);
+  margin: 0 auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--lp-border-soft);
+  flex-shrink: 0;
+}
+
+.lp-foot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 5px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg);
+  color: var(--lp-gold);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.lp-foot-btn:hover {
+  background: var(--lp-hover-bg);
+  border-color: var(--lp-border-strong);
+}
+
+/* Compact desktop height (<= 820px): keep 1-screen balance without crowding */
+@media (min-width: 768px) and (max-height: 820px) {
+  .lp-inner {
+    gap: 10px;
+  }
+
+  .lp-hero {
+    gap: 11px;
+    padding-block: 2px;
+  }
+
+  .lp-title {
+    font-size: clamp(2.4rem, 4.4vw, 3.25rem);
+  }
+
+  .lp-edition {
+    padding: 8px 14px;
+  }
+
+  .lp-btn-primary,
+  .lp-btn-secondary {
+    height: 44px;
+    font-size: 15.5px;
+  }
+
+  .lp-btn-tool {
+    height: 36px;
+  }
+
+  .lp-card {
+    min-height: 164px;
+    padding: 11px 15px;
+  }
+
+  .lp-rel-btn {
+    min-height: 34px;
+  }
+}
+
+/* Narrow / Tablet / Mobile responsive stacking */
+@media (max-width: 900px) {
+  .lp-deck {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .lp-topbar {
+    justify-content: center;
+  }
+
+  .lp-topbar-actions {
+    justify-content: center;
+  }
+
+  .lp-primary-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .lp-tool-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lp-release-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

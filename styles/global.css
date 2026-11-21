@@ -1955,7 +1955,7 @@ html[data-theme="day"] .right-panel-bottom-fade {
  * The later (max-height: 800px) block adds MORE aggressive overrides for short screens.
  */
 @media (min-width: 768px) {
-  .desktop-quick-actions {
+  .action-composer .desktop-quick-actions {
     max-height: min(220px, 30vh);
     overflow-y: auto;
     overflow-x: hidden;
@@ -1964,18 +1964,136 @@ html[data-theme="day"] .right-panel-bottom-fade {
     cursor: default;
   }
 
-  .desktop-quick-actions-list {
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.5rem;
+  .action-composer .desktop-quick-actions-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1rem;
   }
 
-  .desktop-quick-action-button {
+  /* Legacy day-mode rules match the mobile chip and toolbar classes by substring.
+     Keep the desktop surfaces tied to the same theme tokens in every palette. */
+  .action-composer .desktop-quick-actions-list .desktop-quick-action-button {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0.4rem 0.25rem;
     white-space: normal;
-    max-width: min(100%, 320px);
-    padding: 0.35rem 0.75rem;
-    line-height: 1.3;
+    overflow-wrap: anywhere;
+    text-align: left;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    letter-spacing: normal;
+    color: rgb(var(--c-paper-white));
+    border: 0;
+    border-bottom: 1px solid rgb(var(--c-paper-white) / 0.14);
+    border-color: rgb(var(--c-paper-white) / 0.14) !important;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none;
+    backdrop-filter: none;
   }
+
+  .action-composer .desktop-quick-actions-list .desktop-quick-action-button:hover,
+  .action-composer .desktop-quick-actions-list .desktop-quick-action-button:focus-visible {
+    color: rgb(var(--c-paper-white));
+    background: rgb(var(--c-ink-gray)) !important;
+  }
+
+  .action-composer .action-input {
+    grid-area: 1 / 1;
+    background: rgb(var(--c-ink-gray) / 0.9);
+    border-color: rgb(var(--c-paper-white) / 0.26);
+    border-radius: 0.5rem;
+    box-shadow: none;
+  }
+
+  .action-composer .action-input:focus-within {
+    border-color: rgb(var(--c-wuxia-gold));
+    background: rgb(var(--c-ink-gray));
+  }
+
+  .action-composer .action-input textarea::placeholder {
+    color: rgb(var(--c-paper-white) / 0.65);
+  }
+
+  .action-composer .action-send {
+    width: auto;
+    gap: 0.35rem;
+    padding-inline: 0.9rem;
+    border-radius: 0.5rem;
+    box-shadow: none;
+    font-size: 0.875rem;
+  }
+
+  .action-composer .action-send svg { width: 1rem; }
+  .action-composer .action-send:hover:enabled { background: rgb(var(--c-wuxia-gold)); }
+
+  .action-composer .action-controls .action-tools {
+    grid-area: 2 / 1 / 3 / -1;
+    height: auto;
+    flex-wrap: wrap;
+    column-gap: 0.75rem;
+    padding: 0;
+    border: 0;
+    background: transparent !important;
+  }
+
+  .action-composer .action-controls .action-tools > button {
+    width: auto;
+    height: 1.75rem;
+    gap: 0.25rem;
+    padding-inline: 0.15rem;
+    font-size: 0.75rem;
+    color: rgb(var(--c-paper-white) / 0.78);
+    background: transparent !important;
+  }
+
+  .action-composer .action-controls .action-tools > button:hover:enabled,
+  .action-composer .action-controls .action-tools > button[aria-pressed="true"] {
+    color: rgb(var(--c-wuxia-gold)) !important;
+  }
+
+  .action-composer .action-controls .action-tools > button svg { width: 0.9rem; }
+  .action-composer .action-controls .action-tools > .w-px { display: none; }
+
+  .action-composer .desktop-quick-actions-count {
+    background: rgb(var(--c-wuxia-gold) / 0.14);
+    color: rgb(var(--c-wuxia-gold));
+  }
+
+  .action-composer .desktop-quick-actions-collapse-btn {
+    border: 1px solid rgb(var(--c-wuxia-gold) / 0.28);
+    background: rgb(var(--c-ink-gray) / 0.65);
+    color: rgb(var(--c-paper-white) / 0.78);
+  }
+
+  .action-composer .desktop-quick-actions-collapse-btn:hover {
+    border-color: rgb(var(--c-wuxia-gold) / 0.55);
+    background: rgb(var(--c-wuxia-gold) / 0.14);
+    color: rgb(var(--c-wuxia-gold));
+  }
+
+  .action-composer .action-controls .action-tools > button.action-options-restore-pill {
+    height: 1.45rem;
+    padding-inline: 0.55rem;
+    border-radius: 9999px;
+    border: 1px solid rgb(var(--c-wuxia-red) / 0.42);
+    background: rgb(var(--c-wuxia-red) / 0.11) !important;
+    color: color-mix(in srgb, rgb(var(--c-wuxia-red)) 76%, rgb(var(--c-paper-white))) !important;
+    font-weight: 600;
+  }
+
+  .action-composer .action-controls .action-tools > button.action-options-restore-pill:hover:enabled {
+    border-color: rgb(var(--c-wuxia-gold) / 0.65);
+    background: rgb(var(--c-wuxia-gold) / 0.16) !important;
+    color: rgb(var(--c-wuxia-gold)) !important;
+  }
+
+  .action-composer .action-reroll-help { margin-inline-start: auto; color: rgb(var(--c-paper-white) / 0.78); }
+  .action-composer .action-reroll-help[open] { width: 100%; }
+  .action-composer .action-reroll-help[open] summary { margin-bottom: 0.25rem; }
 }
 
 /* Short-screen (<800px) aggressive overrides on top of the baseline above */
@@ -1993,21 +2111,6 @@ html[data-theme="day"] .right-panel-bottom-fade {
     min-height: 48px !important;
   }
 
-  .desktop-game-topbar > .hidden.md\:flex {
-    padding-left: 3.5rem !important;
-    padding-right: 3.5rem !important;
-  }
-
-  .desktop-game-topbar > .hidden.md\:flex > .absolute.left-1\/2 {
-    top: -5px !important;
-  }
-
-  .desktop-game-topbar-date-card {
-    margin-top: 0.25rem !important;
-    min-width: 210px !important;
-    padding: 0.25rem 1.25rem !important;
-  }
-
   .desktop-game-status-badges {
     top: 0.5rem !important;
   }
@@ -2017,7 +2120,7 @@ html[data-theme="day"] .right-panel-bottom-fade {
     display: none !important;
   }
 
-  .desktop-quick-actions {
+  .action-composer .desktop-quick-actions {
     max-height: min(128px, 18vh);
     overflow-y: auto;
     overflow-x: hidden;
@@ -2027,20 +2130,9 @@ html[data-theme="day"] .right-panel-bottom-fade {
     cursor: default !important;
   }
 
-  .desktop-quick-actions-list {
-    min-width: 0 !important;
-    justify-content: center;
-    gap: 0.35rem !important;
-  }
-
-  .desktop-quick-action-button {
-    min-width: 88px !important;
-    max-width: min(100%, 260px);
-    white-space: normal !important;
-    padding: 0.25rem 0.6rem !important;
-    font-size: 12px !important;
-    line-height: 1.25 !important;
-    letter-spacing: 0.04em !important;
+  .action-composer .desktop-quick-actions-list .desktop-quick-action-button {
+    padding-block: 0.2rem;
+    font-size: 0.8125rem;
   }
 
   .right-panel-body {

@@ -1815,6 +1815,19 @@ const App: React.FC = () => {
         || safeShowSaveLoad.show
         || state.showSettings
     );
+    const [desktopRightPanelCollapsed, setDesktopRightPanelCollapsed] = React.useState<boolean>(() => {
+        try {
+            return localStorage.getItem('moran.rightPanel.collapsed.v1') === '1';
+        } catch {
+            return false;
+        }
+    });
+    const setDesktopRightPanelCollapsedPersisted = React.useCallback((next: boolean) => {
+        setDesktopRightPanelCollapsed(next);
+        try {
+            localStorage.setItem('moran.rightPanel.collapsed.v1', next ? '1' : '0');
+        } catch {}
+    }, []);
     const desktopRightDetailId = activeMobileWindowId || 'detail';
     const desktopRightDetailClass = state.view === 'game' && !isMobile
         ? `desktop-right-detail-modal desktop-right-detail-modal--${desktopRightDetailId}${desktopDetailFullscreen ? ' desktop-right-detail-modal--fullscreen' : ''}`
@@ -3522,46 +3535,65 @@ const App: React.FC = () => {
                             )}
                         </div>
 
-                        {/* 右侧栏 */}
-                        <div className="hidden md:block h-full w-[var(--desktop-side-menu-width)] shrink-0 relative z-20 bg-ink-black/95 border-l border-wuxia-gold/20 flex flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.5)]">
-                            <RightPanel 
-                                onOpenSettings={openSettings} 
-                                onOpenInventory={openInventory}
-                                onOpenEquipment={openEquipment} 
-                                onOpenBattle={openBattle}
-                                onOpenTeam={openTeam}
-                                onOpenSocial={openSocial}
-                                onOpenKungfu={openKungfu}
-                                onOpenWorld={openWorld}
-                                onOpenMap={openMap}
-                                onOpenSect={openSect}
-                                onOpenTask={openTask} 
-                                onOpenAgreement={openAgreement} 
-                                onOpenStory={openStory}
-                                onOpenHeroinePlan={openHeroinePlan}
-                                onOpenMemory={openMemory}
-                                onOpenNovelExport={openNovelExport}
-                                onOpenAuctionHouse={openAuctionHouse}
-                                auctionHouseLabel={当前题材市场名称}
-                                sectLabel={组织入口显示名称}
-                                uiLabels={题材界面文案}
-                                onOpenImageManager={openImageManagerWithCheck}
-                                onOpenNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
-                                worldEvolutionEnabled={meta.worldEvolutionEnabled}
-                                worldEvolutionUpdating={meta.worldEvolutionUpdating}
-                                enableWorldPanel={state.apiConfig?.功能模型占位?.世界演变功能启用 !== false}
-                                enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
-                                enablePlanningPanel={state.apiConfig?.功能模型占位?.规划分析功能启用 !== false}
-                                enableKungfu={启用修炼体系}
-                                kungfuLabel={功法显示名称}
-                                onSave={openSave}
-                                onLoad={openLoad}
-                                onReturnToHome={() => { void handleReturnToHomeWithAutoSave(); }}
-                                returnHomeSaving={returnHomeSaving}
-                                visualConfig={effectiveVisualConfig}
-                                latestChangedSections={latestChangedSections}
-                            />
-                        </div>
+                        {/* 右侧栏（支持一键收起为右缘竖书签，打开系统弹窗时自动展示以便切页） */}
+                        {(!desktopRightPanelCollapsed || desktopRightDetailPanelOpen) ? (
+                            <div className="hidden md:flex h-full w-[var(--desktop-side-menu-width)] shrink-0 relative z-20 bg-ink-black/95 border-l border-wuxia-gold/20 flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.5)]">
+                                <RightPanel
+                                    onOpenSettings={openSettings}
+                                    onOpenInventory={openInventory}
+                                    onOpenEquipment={openEquipment}
+                                    onOpenBattle={openBattle}
+                                    onOpenTeam={openTeam}
+                                    onOpenSocial={openSocial}
+                                    onOpenKungfu={openKungfu}
+                                    onOpenWorld={openWorld}
+                                    onOpenMap={openMap}
+                                    onOpenSect={openSect}
+                                    onOpenTask={openTask}
+                                    onOpenAgreement={openAgreement}
+                                    onOpenStory={openStory}
+                                    onOpenHeroinePlan={openHeroinePlan}
+                                    onOpenMemory={openMemory}
+                                    onOpenNovelExport={openNovelExport}
+                                    onOpenAuctionHouse={openAuctionHouse}
+                                    auctionHouseLabel={当前题材市场名称}
+                                    sectLabel={组织入口显示名称}
+                                    uiLabels={题材界面文案}
+                                    onOpenImageManager={openImageManagerWithCheck}
+                                    onOpenNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
+                                    worldEvolutionEnabled={meta.worldEvolutionEnabled}
+                                    worldEvolutionUpdating={meta.worldEvolutionUpdating}
+                                    enableWorldPanel={state.apiConfig?.功能模型占位?.世界演变功能启用 !== false}
+                                    enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
+                                    enablePlanningPanel={state.apiConfig?.功能模型占位?.规划分析功能启用 !== false}
+                                    enableKungfu={启用修炼体系}
+                                    kungfuLabel={功法显示名称}
+                                    onSave={openSave}
+                                    onLoad={openLoad}
+                                    onReturnToHome={() => { void handleReturnToHomeWithAutoSave(); }}
+                                    returnHomeSaving={returnHomeSaving}
+                                    visualConfig={effectiveVisualConfig}
+                                    latestChangedSections={latestChangedSections}
+                                    activeKey={activeMobileWindowId}
+                                    onCollapse={!desktopRightDetailPanelOpen ? () => setDesktopRightPanelCollapsedPersisted(true) : undefined}
+                                />
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setDesktopRightPanelCollapsedPersisted(false)}
+                                className="hidden md:inline-flex rp-edge-ear"
+                                aria-label="展开天机菜单"
+                                title="展开天机菜单"
+                            >
+                                {latestChangedSections.length > 0 && (
+                                    <span className="rp-edge-ear-dot" aria-label="有新变动" />
+                                )}
+                                <span className="rp-edge-ear-text">
+                                    {题材界面文案?.标题?.系统菜单题头 || '天机'}
+                                </span>
+                            </button>
+                        )}
 
                         {desktopRightDetailPanelOpen && (
                             <div

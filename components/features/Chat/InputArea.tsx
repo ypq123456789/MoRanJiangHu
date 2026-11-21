@@ -269,6 +269,25 @@ const InputArea: React.FC<Props> = ({
     }, [isStreamingDefault]);
     const [expandedCommandStageId, setExpandedCommandStageId] = useState<string | null>(null);
     const [queueCollapsed, setQueueCollapsed] = useState(true);
+    const [desktopOptionsCollapsed, setDesktopOptionsCollapsed] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('moran.desktopActionOptions.collapsed.v1') === '1';
+        } catch {
+            return false;
+        }
+    });
+    const toggleDesktopOptionsCollapsed = (next: boolean) => {
+        setDesktopOptionsCollapsed(next);
+        try {
+            if (next) {
+                localStorage.setItem('moran.desktopActionOptions.collapsed.v1', '1');
+            } else {
+                localStorage.removeItem('moran.desktopActionOptions.collapsed.v1');
+            }
+        } catch {
+            // 忽略存储写入异常
+        }
+    };
     const [mobileInputExpanded, setMobileInputExpanded] = useState(false);
     const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
     const desktopTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -862,6 +881,7 @@ const InputArea: React.FC<Props> = ({
     const queueVisible = pipelineStages.some((stage) => Boolean(stage.progress));
     const currentRunningStage = pipelineStages.find((stage) => 队列阶段运行中(stage.progress?.phase));
     const latestFinishedStage = [...pipelineStages].reverse().find((stage) => stage.progress && !队列阶段运行中(stage.progress.phase));
+    const failedStage = pipelineStages.find(stage => stage.progress?.phase === 'error');
     const queueRunning = Boolean(currentRunningStage);
     const queueBadgeClass = queueRunning
         ? 'border-wuxia-cyan/60 bg-gradient-to-r from-wuxia-cyan/20 via-wuxia-gold/15 to-wuxia-cyan/20 text-wuxia-cyan animate-pulse shadow-[0_0_18px_rgba(34,211,238,0.2)]'
@@ -933,8 +953,27 @@ const InputArea: React.FC<Props> = ({
         effectiveMapUpdateProgress?.phase
     ]);
 
+    const rerollHint = !rerollHintDismissed && canReroll && !busy && (
+        <div className="flex items-start gap-2 rounded-lg border border-wuxia-gold/30 bg-wuxia-gold/5 px-3 py-2">
+            <span className="flex-1 text-[11px] leading-relaxed text-wuxia-gold/90">
+                对上一回合的「主剧情」回复不满意？点工具栏中的「重ROLL」回旋箭头图标，可回档到上一轮——你输入的行动会自动填回输入框，修改后重新发送即可。（「角色对话」面板里的对话另有一套「重ROLL」按钮，在对话框下方。）
+            </span>
+            <button
+                type="button"
+                onClick={关闭重roll提示}
+                className="shrink-0 rounded p-0.5 text-wuxia-gold/60 transition-colors hover:text-wuxia-gold"
+                title="不再显示"
+                aria-label="不再显示重roll提示"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-3.5 w-3.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+    );
+
     return (
-        <div className={`shrink-0 relative z-20 pb-2 px-2 sm:px-4 flex flex-col gap-1`}>
+        <div className="action-composer shrink-0 relative z-20 pb-2 px-2 sm:px-4 flex flex-col gap-1">
             {queueVisible && (
                 <div className="w-full px-2 md:px-4">
                     <div className="mx-auto w-full max-w-5xl space-y-1">
@@ -966,6 +1005,7 @@ const InputArea: React.FC<Props> = ({
                                     <span className="inline-flex min-w-0 items-center justify-center gap-2">
                                         {queueRunning && <RunningSpinner />}
                                         <span className="min-w-0 truncate">{queueRunning ? `${currentRunningStage?.label || '队列'}运行中` : '队列'}</span>
+                                        {failedStage && <span className="hidden md:inline text-wuxia-gold">{failedStage.label}失败</span>}
                                     </span>
                                 </button>
                             </div>
@@ -1178,33 +1218,55 @@ const InputArea: React.FC<Props> = ({
                     </div>
                 </div>
             )}
-            {/* Quick Actions Chips (Fixed Box Size, Scrolling Text) */}
             {normalizedOptions.length > 0 && (
-                <div
-                    ref={quickActionsRef}
-                    className="desktop-quick-actions w-full px-2 md:px-4 pb-0 overflow-x-auto no-scrollbar select-none cursor-grab active:cursor-grabbing"
-                    onPointerDown={handleQuickActionsPointerDown}
-                    onPointerMove={handleQuickActionsPointerMove}
-                    onPointerUp={endQuickActionsDrag}
-                    onPointerCancel={endQuickActionsDrag}
-                    onPointerLeave={endQuickActionsDrag}
-                >
-                    <div className="desktop-quick-actions-list flex flex-nowrap md:flex-wrap md:justify-center gap-2 min-w-max md:min-w-0">
-                        {normalizedOptions.map((opt, idx) => (
-                            <button 
-                                key={idx}
-                                onClick={() => handleOptionClick(opt)}
-                                disabled={loading}
-                                className="desktop-quick-action-button shrink-0 px-3 py-1.5 bg-black/55 border border-wuxia-gold/40 text-gray-100 rounded hover:bg-wuxia-gold hover:text-ink-black hover:border-wuxia-gold transition-all text-sm sm:text-base tracking-[0.08em] shadow-sm backdrop-blur-sm min-w-[96px] sm:min-w-[112px] max-w-[320px] text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                <>
+                    {!desktopOptionsCollapsed && (
+                        <div className="desktop-quick-actions-header hidden md:flex items-center justify-between gap-2 px-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <h3 className="text-xs font-semibold tracking-widest text-wuxia-gold">行动建议</h3>
+                                <span className="desktop-quick-actions-count rounded-full px-1.5 py-0.5 font-mono text-[10px] leading-none">
+                                    {normalizedOptions.length} 项
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => toggleDesktopOptionsCollapsed(true)}
+                                className="desktop-quick-actions-collapse-btn inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                                aria-label="收起行动建议"
+                                title="收起行动建议列表，释放正文阅读空间"
                             >
-                                 {opt}
+                                <span>收起</span>
+                                <span aria-hidden="true">▾</span>
                             </button>
-                        ))}
+                        </div>
+                    )}
+                    <div
+                        ref={quickActionsRef}
+                        className={`desktop-quick-actions ${desktopOptionsCollapsed ? 'md:hidden' : ''} w-full px-2 md:px-0 pb-0 overflow-x-auto no-scrollbar select-none cursor-grab active:cursor-grabbing`}
+                        onPointerDown={handleQuickActionsPointerDown}
+                        onPointerMove={handleQuickActionsPointerMove}
+                        onPointerUp={endQuickActionsDrag}
+                        onPointerCancel={endQuickActionsDrag}
+                        onPointerLeave={endQuickActionsDrag}
+                    >
+                        <div className="desktop-quick-actions-list flex flex-nowrap gap-2 min-w-max md:min-w-0">
+                            {normalizedOptions.map((opt, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => handleOptionClick(opt)}
+                                    disabled={loading}
+                                    className="desktop-quick-action-button shrink-0 px-3 py-1.5 bg-black/55 border border-wuxia-gold/40 text-gray-100 rounded hover:bg-wuxia-gold hover:text-ink-black hover:border-wuxia-gold transition-all text-sm sm:text-base tracking-[0.08em] shadow-sm backdrop-blur-sm min-w-[96px] sm:min-w-[112px] max-w-[320px] text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <span aria-hidden="true" className="hidden shrink-0 whitespace-nowrap md:inline font-mono text-xs tabular-nums text-wuxia-gold">{String(idx + 1).padStart(2, '0')}</span>
+                                    <span>{opt}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                </>
             )}
 
-            <div className="h-px w-full bg-gradient-to-r from-transparent via-wuxia-gold/30 to-transparent my-0.5 opacity-50"></div>
+            <div className="md:hidden h-px w-full bg-gradient-to-r from-transparent via-wuxia-gold/30 to-transparent my-0.5 opacity-50"></div>
 
             {recallProgress && (
                 <div className="rounded-lg border border-wuxia-cyan/30 bg-wuxia-cyan/5 p-2 space-y-1">
@@ -1383,30 +1445,13 @@ const InputArea: React.FC<Props> = ({
                 </div>
             )}
 
-            {!rerollHintDismissed && canReroll && !busy && (
-                <div className="flex items-start gap-2 rounded-lg border border-wuxia-gold/30 bg-wuxia-gold/5 px-3 py-2">
-                    <span className="flex-1 text-[11px] leading-relaxed text-wuxia-gold/90">
-                        对上一回合的「主剧情」回复不满意？点工具栏中的「重ROLL」回旋箭头图标，可回档到上一轮——你输入的行动会自动填回输入框，修改后重新发送即可。（「角色对话」面板里的对话另有一套「重ROLL」按钮，在对话框下方。）
-                    </span>
-                    <button
-                        type="button"
-                        onClick={关闭重roll提示}
-                        className="shrink-0 rounded p-0.5 text-wuxia-gold/60 transition-colors hover:text-wuxia-gold"
-                        title="不再显示"
-                        aria-label="不再显示重roll提示"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-3.5 w-3.5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
-            )}
+            {rerollHint && <div className="md:hidden">{rerollHint}</div>}
 
             {/* Main Control Bar */}
-            <div className="flex items-center gap-1 sm:gap-1.5">
+            <div className="action-controls flex items-center gap-1 sm:gap-1.5 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:gap-x-2 md:gap-y-1.5">
                 
                 {/* Left Controls Group */}
-                <div className="flex shrink-0 items-center gap-0.5 bg-black/40 border border-gray-700/50 rounded-lg p-0.5 h-9 sm:gap-1 sm:rounded-xl sm:p-1 sm:h-11">
+                <div className="action-tools flex shrink-0 items-center gap-0.5 bg-black/40 border border-gray-700/50 rounded-lg p-0.5 h-9 sm:gap-1 sm:rounded-xl sm:p-1 sm:h-11">
                     {/* Role Chat (场外角色对话) */}
                     {onOpenRoleChat && (
                         <button
@@ -1418,11 +1463,13 @@ const InputArea: React.FC<Props> = ({
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
                             </svg>
+                            <span className="hidden md:inline">角色对话</span>
                         </button>
                     )}
                     {/* Stream Toggle */}
                     <button 
                         onClick={() => setIsStreaming(!isStreaming)}
+                        aria-pressed={isStreaming}
                         className={`w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center transition-all ${isStreaming ? 'text-wuxia-cyan bg-wuxia-cyan/10' : 'text-gray-600 hover:text-gray-400'}`}
                         title={isStreaming ? "流式传输开启" : "流式传输关闭"}
                         disabled={busy}
@@ -1430,6 +1477,7 @@ const InputArea: React.FC<Props> = ({
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                         </svg>
+                        <span className="hidden md:inline">流式</span>
                     </button>
 
                     <div className="w-px h-5 sm:h-6 bg-gray-800"></div>
@@ -1446,6 +1494,7 @@ const InputArea: React.FC<Props> = ({
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
                                 </svg>
+                                <span className="hidden md:inline">快速重开</span>
                             </button>
                             <div className="w-px h-5 sm:h-6 bg-gray-800"></div>
                         </>
@@ -1461,6 +1510,7 @@ const InputArea: React.FC<Props> = ({
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                         </svg>
+                        <span className="hidden md:inline">回档</span>
                     </button>
                     <div className="w-px h-5 sm:h-6 bg-gray-800"></div>
                     <button
@@ -1473,11 +1523,31 @@ const InputArea: React.FC<Props> = ({
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
                             <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-3.22-6.92" />
                         </svg>
+                        <span className="hidden md:inline">变量续跑</span>
                     </button>
+                    {normalizedOptions.length > 0 && desktopOptionsCollapsed && (
+                        <button
+                            type="button"
+                            onClick={() => toggleDesktopOptionsCollapsed(false)}
+                            className="action-options-restore-pill hidden md:inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors"
+                            aria-label="展开行动建议"
+                            title="展开行动建议列表"
+                        >
+                            <span aria-hidden="true">✦</span>
+                            <span>行动建议 ({normalizedOptions.length})</span>
+                            <span aria-hidden="true">▴</span>
+                        </button>
+                    )}
+                    {rerollHint && (
+                        <details className="action-reroll-help hidden md:block">
+                            <summary className="cursor-pointer text-xs">回档说明</summary>
+                            {rerollHint}
+                        </details>
+                    )}
                 </div>
 
                 {/* Input Field */}
-                <div className={`flex-1 min-w-0 bg-black/40 border border-gray-700/50 rounded-lg transition-all shadow-inner sm:rounded-xl sm:px-4 sm:flex sm:items-center px-2.5 ${busy ? 'opacity-50 cursor-not-allowed' : 'focus-within:border-wuxia-gold/50 focus-within:bg-black/60'} ${mobileInputExpanded ? 'h-auto' : 'h-9'} sm:h-auto sm:min-h-[44px] sm:max-h-[160px] sm:overflow-hidden`}>
+                <div className={`action-input flex-1 min-w-0 bg-black/40 border border-gray-700/50 rounded-lg transition-all shadow-inner sm:rounded-xl sm:px-4 sm:flex sm:items-center px-2.5 ${busy ? 'opacity-50 cursor-not-allowed' : 'focus-within:border-wuxia-gold/50 focus-within:bg-black/60'} ${mobileInputExpanded ? 'h-auto' : 'h-9'} sm:h-auto sm:min-h-[44px] sm:max-h-[160px] sm:overflow-hidden`}>
                     {/* Mobile: textarea with auto-grow */}
                     <textarea
                         ref={mobileTextareaRef}
@@ -1569,12 +1639,13 @@ const InputArea: React.FC<Props> = ({
                     <button 
                         onClick={() => { void handleSend(); }} 
                         disabled={!content.trim() || busy} 
-                        className="ml-1 w-10 sm:w-12 sm:ml-0 h-9 sm:h-11 shrink-0 bg-wuxia-gold text-ink-black rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(230,200,110,0.3)] hover:bg-white hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
+                        className="action-send ml-1 w-10 sm:w-12 sm:ml-0 h-9 sm:h-11 shrink-0 bg-wuxia-gold text-ink-black rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(230,200,110,0.3)] hover:bg-white hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
                         title="发送"
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">
                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l6-6m0 0l6 6m-6-6v12a6 6 0 01-12 0v-3" />
                         </svg>
+                         <span className="hidden md:inline">发送</span>
                     </button>
                 )}
 

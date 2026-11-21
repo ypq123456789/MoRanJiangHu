@@ -50,8 +50,8 @@ describe('低高度桌面端紧凑布局', () => {
         expect(css).toMatch(/\.desktop-quick-actions\s*\{[^}]*max-height:\s*min\(220px,\s*30vh\);/s);
         expect(css).toMatch(/\.desktop-quick-actions\s*\{[^}]*overflow-y:\s*auto;/s);
         expect(css).toMatch(/\.desktop-quick-action-button\s*\{[^}]*white-space:\s*normal;/s);
-        expect(css).toMatch(/\.desktop-quick-action-button\s*\{[^}]*max-width:\s*min\(100%,\s*320px\);/s);
-        expect(css).toMatch(/\.desktop-quick-actions-list\s*\{[^}]*flex-wrap:\s*wrap;/s);
+        expect(css).toMatch(/\.desktop-quick-action-button\s*\{[^}]*max-width:\s*100%;/s);
+        expect(css).toMatch(/\.desktop-quick-actions-list\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
 
         // 基线块必须位于短屏覆盖块之前
         const baselineIndex = css.indexOf('@media (min-width: 768px) {');

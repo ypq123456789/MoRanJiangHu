@@ -1,8 +1,8 @@
 import React from 'react';
-import GameButton from '../ui/GameButton';
 import { useMusic } from '../features/Music/MusicProvider';
 import MusicPlayerUI from '../features/Music/MusicPlayerUI';
 import type { 题材界面文案 } from '../../utils/resourceLabels';
+import './RightPanel.css';
 
 interface Props {
     onOpenSettings: () => void;
@@ -40,7 +40,73 @@ interface Props {
     returnHomeSaving?: boolean;
     visualConfig?: any;
     latestChangedSections?: string[];
+    activeKey?: string | null;
+    onCollapse?: () => void;
 }
+
+type MenuItemDef = {
+    key: string;
+    label: string;
+    action: () => void;
+    changeKeys?: string[];
+    wide?: boolean;
+    updating?: boolean;
+};
+
+type AccordionGroupDef = {
+    id: string;
+    title: string;
+    items: MenuItemDef[];
+};
+
+const OPEN_GROUPS_STORAGE_KEY = 'moran.rightPanel.openGroups.v1';
+
+const readInitialOpenGroups = (): string[] => {
+    try {
+        const raw = localStorage.getItem(OPEN_GROUPS_STORAGE_KEY);
+        if (!raw) return ['combat'];
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) {
+            return parsed;
+        }
+    } catch {}
+    return ['combat'];
+};
+
+const QuickIcon: React.FC<{ id: 'inventory' | 'social' | 'equipment' | 'task' }> = ({ id }) => {
+    if (id === 'inventory') {
+        return (
+            <svg viewBox="0 0 20 20" className="rp-quick-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 7h10l1 9.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 16.5L5 7Z" />
+                <path d="M7.5 7V5.2a2.5 2.5 0 0 1 5 0V7" />
+            </svg>
+        );
+    }
+    if (id === 'social') {
+        return (
+            <svg viewBox="0 0 20 20" className="rp-quick-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="8" cy="7" r="2.7" />
+                <path d="M3.5 16c.5-2.6 2.2-4 4.5-4s4 1.4 4.5 4" />
+                <circle cx="14.2" cy="8.2" r="2" />
+                <path d="M13.5 12.2c1.8.3 3 1.5 3.3 3.8" />
+            </svg>
+        );
+    }
+    if (id === 'equipment') {
+        return (
+            <svg viewBox="0 0 20 20" className="rp-quick-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M10 2.5 16 5v4.5c0 3.7-2.5 6.4-6 8-3.5-1.6-6-4.3-6-8V5l6-2.5Z" />
+                <path d="M10 6.2v6.6M7.2 9.2h5.6" />
+            </svg>
+        );
+    }
+    return (
+        <svg viewBox="0 0 20 20" className="rp-quick-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="4" y="3" width="12" height="14" rx="1.8" />
+            <path d="M7 7.2h6M7 10.5h6M7 13.8h4" />
+        </svg>
+    );
+};
 
 const RightPanel: React.FC<Props> = ({
     onOpenSettings,
@@ -76,21 +142,33 @@ const RightPanel: React.FC<Props> = ({
     onLoad,
     onReturnToHome,
     returnHomeSaving = false,
-    visualConfig,
-    latestChangedSections = []
+    latestChangedSections = [],
+    activeKey = null,
+    onCollapse,
 }) => {
     const { enabled, currentLyric } = useMusic();
-    const baseFontSize = Number(visualConfig?.['右侧栏']?.fontSize || visualConfig?.fontSize) || 13;
-    const scaleFont = (ratio: number, min = 13) => `${Math.max(min, Math.round(baseFontSize * ratio))}px`;
     const [dismissedChangeKeys, setDismissedChangeKeys] = React.useState<Set<string>>(() => new Set());
+    const [openGroups, setOpenGroups] = React.useState<string[]>(readInitialOpenGroups);
     const changeSignature = React.useMemo(() => latestChangedSections.slice().sort().join('|'), [latestChangedSections]);
 
     React.useEffect(() => {
         setDismissedChangeKeys(new Set());
     }, [changeSignature]);
 
-    const wrapChangedAction = (changeKeys: string[], action: () => void) => () => {
-        if (changeKeys.length > 0) {
+    const toggleGroup = (groupId: string) => {
+        setOpenGroups((prev) => {
+            const next = prev.includes(groupId)
+                ? prev.filter((id) => id !== groupId)
+                : [...prev, groupId];
+            try {
+                localStorage.setItem(OPEN_GROUPS_STORAGE_KEY, JSON.stringify(next));
+            } catch {}
+            return next;
+        });
+    };
+
+    const wrapChangedAction = (changeKeys: string[] | undefined, action: () => void) => () => {
+        if (changeKeys && changeKeys.length > 0) {
             setDismissedChangeKeys((prev) => {
                 const next = new Set(prev);
                 changeKeys.forEach((key) => next.add(key));
@@ -100,116 +178,238 @@ const RightPanel: React.FC<Props> = ({
         action();
     };
 
+    const hasUnread = (changeKeys?: string[]) =>
+        Boolean(changeKeys && changeKeys.some((key) => latestChangedSections.includes(key) && !dismissedChangeKeys.has(key)));
+
     const menuLabel = uiLabels?.菜单;
     const titleLabel = uiLabels?.标题;
     const systemHeaderTitle = titleLabel?.系统菜单题头 || '天机';
-    const systemHeaderSubtitle = titleLabel?.系统菜单副题 || 'System Menu';
-    const menuItems = [
-        { label: menuLabel?.battle || '战斗', action: onOpenBattle, color: 'primary' as const, changeKeys: ['战斗'] },
-        { label: menuLabel?.equipment || '装备', action: onOpenEquipment, color: 'primary' as const, changeKeys: ['装备'] },
-        { label: menuLabel?.inventory || '背包', action: onOpenInventory, color: 'primary' as const, changeKeys: ['背包'] },
-        ...(onOpenAuctionHouse ? [{ label: auctionHouseLabel, action: onOpenAuctionHouse, color: 'primary' as const }] : []),
-        { label: menuLabel?.social || '社交', action: onOpenSocial, color: 'primary' as const, changeKeys: ['社交'] },
-        ...(enableWorldPanel ? [{
-            label: worldEvolutionUpdating ? `${menuLabel?.world || '世界'}·更新中` : (menuLabel?.world || '世界'),
-            action: onOpenWorld,
-            color: worldEvolutionUpdating ? 'secondary' as const : 'primary' as const,
-            changeKeys: ['世界'],
-            className: worldEvolutionEnabled && worldEvolutionUpdating
-                ? 'animate-pulse shadow-[0_0_18px_rgba(90,220,220,0.35)]'
-                : ''
-        }] : []),
-        { label: menuLabel?.team || '队伍', action: onOpenTeam, color: 'primary' as const, changeKeys: ['队伍'] },
-        ...(enableKungfu ? [{ label: kungfuLabel, action: onOpenKungfu, color: 'primary' as const, changeKeys: ['功法'] }] : []),
-        { label: menuLabel?.map || '地图', action: onOpenMap, color: 'primary' as const, changeKeys: ['地图'] },
-        { label: sectLabel, action: onOpenSect, color: 'primary' as const, changeKeys: ['玩家门派'] },
-        { label: menuLabel?.task || '任务', action: onOpenTask, color: 'primary' as const, changeKeys: ['任务列表'] },
-        { label: menuLabel?.agreement || '约定', action: onOpenAgreement, color: 'primary' as const, changeKeys: ['约定列表'] },
-        { label: menuLabel?.story || '剧情', action: onOpenStory, color: 'primary' as const, changeKeys: ['剧情'] },
-        ...(enablePlanningPanel && enableHeroinePlan ? [{ label: menuLabel?.plan || '规划', action: onOpenHeroinePlan, color: 'primary' as const, changeKeys: ['剧情规划'] }] : []),
-        { label: menuLabel?.memory || '记忆', action: onOpenMemory, color: 'primary' as const, changeKeys: ['记忆系统'] },
-        ...(onOpenNovelExport ? [{ label: '导出小说', action: onOpenNovelExport, color: 'secondary' as const }] : []),
-        ...(onOpenImageManager ? [{ label: menuLabel?.imageManager || '图册', action: onOpenImageManager, color: 'secondary' as const }] : []),
-        ...(onOpenNovelDecomposition ? [{ label: '分解工坊', action: onOpenNovelDecomposition, color: 'secondary' as const }] : []),
+
+    const quickItems: Array<{
+        key: string;
+        iconId: 'inventory' | 'social' | 'equipment' | 'task';
+        label: string;
+        action: () => void;
+        changeKeys: string[];
+    }> = [
+        { key: 'inventory', iconId: 'inventory', label: menuLabel?.inventory || '背包', action: onOpenInventory, changeKeys: ['背包'] },
+        { key: 'social', iconId: 'social', label: menuLabel?.social || '社交', action: onOpenSocial, changeKeys: ['社交'] },
+        { key: 'equipment', iconId: 'equipment', label: menuLabel?.equipment || '装备', action: onOpenEquipment, changeKeys: ['装备'] },
+        { key: 'task', iconId: 'task', label: menuLabel?.task || '任务', action: onOpenTask, changeKeys: ['任务列表'] },
     ];
 
+    const groups: AccordionGroupDef[] = [
+        {
+            id: 'combat',
+            title: '身手市集',
+            items: [
+                { key: 'battle', label: menuLabel?.battle || '战斗', action: onOpenBattle, changeKeys: ['战斗'] },
+                ...(enableKungfu ? [{ key: 'kungfu', label: kungfuLabel, action: onOpenKungfu, changeKeys: ['功法'] }] : []),
+                ...(onOpenAuctionHouse ? [{ key: 'auction_house', label: auctionHouseLabel, action: onOpenAuctionHouse, wide: auctionHouseLabel.length >= 4 }] : []),
+            ],
+        },
+        {
+            id: 'world',
+            title: '江湖舆图',
+            items: [
+                { key: 'team', label: menuLabel?.team || '队伍', action: onOpenTeam, changeKeys: ['队伍'] },
+                { key: 'sect', label: sectLabel, action: onOpenSect, changeKeys: ['玩家门派'] },
+                ...(enableWorldPanel ? [{
+                    key: 'world',
+                    label: worldEvolutionUpdating ? `${menuLabel?.world || '世界'}·演化中` : (menuLabel?.world || '世界'),
+                    action: onOpenWorld,
+                    changeKeys: ['世界'],
+                    wide: Boolean(worldEvolutionUpdating),
+                    updating: Boolean(worldEvolutionEnabled && worldEvolutionUpdating),
+                }] : []),
+                { key: 'map', label: menuLabel?.map || '地图', action: onOpenMap, changeKeys: ['地图'] },
+            ],
+        },
+        {
+            id: 'story',
+            title: '纪事卷宗',
+            items: [
+                { key: 'agreement', label: menuLabel?.agreement || '约定', action: onOpenAgreement, changeKeys: ['约定列表'] },
+                { key: 'story', label: menuLabel?.story || '剧情', action: onOpenStory, changeKeys: ['剧情'] },
+                ...(enablePlanningPanel && enableHeroinePlan ? [{ key: 'plan', label: menuLabel?.plan || '规划', action: onOpenHeroinePlan, changeKeys: ['剧情规划'] }] : []),
+                { key: 'memory', label: menuLabel?.memory || '记忆', action: onOpenMemory, changeKeys: ['记忆系统'] },
+            ],
+        },
+    ];
+
+    const extraToolItems: MenuItemDef[] = [
+        ...(onOpenImageManager ? [{ key: 'image_manager', label: menuLabel?.imageManager || '图册', action: onOpenImageManager }] : []),
+        ...(onOpenNovelExport ? [{ key: 'export_novel', label: '导出小说', action: onOpenNovelExport, wide: true }] : []),
+        ...(onOpenNovelDecomposition ? [{ key: 'novel_decomposition', label: '分解工坊', action: onOpenNovelDecomposition, wide: true }] : []),
+    ];
+    if (extraToolItems.length > 0) {
+        groups.push({ id: 'tools', title: '藏书工坊', items: extraToolItems });
+    }
+
     const systemItems = [
-        { label: '保存进度', action: onSave },
-        { label: '读取进度', action: onLoad },
-        { label: titleLabel?.系统设置 || '江湖设置', action: onOpenSettings },
+        { key: 'save', label: '保存进度', action: onSave },
+        { key: 'load', label: '读取进度', action: onLoad },
+        { key: 'settings', label: titleLabel?.系统设置 || '江湖设置', action: onOpenSettings },
         ...(onReturnToHome ? [{
-            label: returnHomeSaving ? '正在保存存档中' : '返回首页',
+            key: 'home',
+            label: returnHomeSaving ? '保存中...' : '返回首页',
             action: onReturnToHome,
             disabled: returnHomeSaving,
-            className: 'text-red-400/80 hover:text-red-300 hover:border-red-900/70 hover:bg-red-950/10 disabled:cursor-wait disabled:opacity-70'
+            isExit: true,
         }] : []),
     ];
 
     return (
-        <div className="right-panel-body h-full flex flex-col p-2 border-l border-wuxia-gold/20 relative bg-transparent">
-            <div className="right-panel-ambient absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-700 via-black to-black"></div>
-
+        <div className="right-panel-body rp-shell">
             {enabled ? (
-                <div className="mb-4 pb-4 border-b border-gray-800 shrink-0">
+                <div className="rp-music-wrap">
+                    {onCollapse && (
+                        <div className="rp-music-top">
+                            <button
+                                type="button"
+                                onClick={onCollapse}
+                                className="rp-collapse-btn"
+                                aria-label="收起天机菜单"
+                                title="收起右侧菜单，获得更宽阅读视野"
+                            >
+                                <span>收起</span>
+                                <span aria-hidden="true">▸</span>
+                            </button>
+                        </div>
+                    )}
                     <MusicPlayerUI />
+                    {currentLyric && (
+                        <div className="mt-1.5 text-center overflow-hidden h-7 flex items-center justify-center">
+                            <p className="text-wuxia-gold/90 italic tracking-wider leading-tight px-1 line-clamp-2 text-xs">
+                                {currentLyric}
+                            </p>
+                        </div>
+                    )}
                 </div>
             ) : (
-                <div className="right-panel-system-header mb-3 text-center border-b border-gray-800 pb-3 relative h-[62px] flex flex-col justify-center shrink-0">
-                    <h1 className="font-black tracking-[0.28em] opacity-90 drop-shadow-md text-wuxia-gold" style={{ fontSize: scaleFont(1.62, 21) }}>{systemHeaderTitle}</h1>
-                    <div className="text-gray-600 tracking-[0.14em] mt-0.5 uppercase" style={{ fontSize: scaleFont(0.86, 11), lineHeight: 1.1 }}>{systemHeaderSubtitle}</div>
-                    <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-wuxia-gold/50 to-transparent"></div>
-                </div>
-            )}
-
-            {enabled && currentLyric && (
-                <div className="mb-2 -mt-1 text-center overflow-hidden animate-in fade-in duration-700 h-8 flex items-center justify-center">
-                    <p className="text-wuxia-gold/90 italic tracking-wider leading-tight px-2 line-clamp-2 drop-shadow-[0_0_3px_rgba(230,200,110,0.3)]" style={{ fontSize: scaleFont(1.02, 14) }}>
-                        {currentLyric}
-                    </p>
-                </div>
-            )}
-
-            <div className="right-panel-menu-frame flex-1 flex flex-col gap-2 relative py-1 min-h-0">
-                <div className="right-panel-menu-outline absolute inset-0 border border-gray-800 bg-white/[0.02] pointer-events-none">
-                    <div className="right-panel-menu-corner absolute top-0 left-0 w-2 h-2 border-t border-l border-gray-600"></div>
-                    <div className="right-panel-menu-corner absolute top-0 right-0 w-2 h-2 border-t border-r border-gray-600"></div>
-                    <div className="right-panel-menu-corner absolute bottom-0 left-0 w-2 h-2 border-b border-l border-gray-600"></div>
-                    <div className="right-panel-menu-corner absolute bottom-0 right-0 w-2 h-2 border-b border-r border-gray-600"></div>
-                </div>
-                <div className="right-panel-menu-scroll p-2.5 space-y-2 h-full overflow-y-auto no-scrollbar relative z-10">
-                    {menuItems.map((item) => {
-                        const changeKeys = Array.isArray((item as any).changeKeys) ? (item as any).changeKeys as string[] : [];
-                        const hasUnreadChange = changeKeys.some((key) => latestChangedSections.includes(key) && !dismissedChangeKeys.has(key));
-                        return (
-                        <GameButton
-                            key={item.label}
-                            onClick={wrapChangedAction(changeKeys, item.action)}
-                            variant={item.color}
-                            className={`relative w-full text-center py-1.5 tracking-[0.12em] hover:scale-[1.015] transition-transform !skew-x-0 border-opacity-60 ${item.className || ''}`}
-                            contentClassName="!skew-x-0"
+                <div className="rp-header">
+                    <div className="rp-title-wrap">
+                        <h1 className="rp-title">{systemHeaderTitle}</h1>
+                    </div>
+                    {onCollapse && (
+                        <button
+                            type="button"
+                            onClick={onCollapse}
+                            className="rp-collapse-btn"
+                            aria-label="收起天机菜单"
+                            title="收起右侧菜单，获得更宽阅读视野"
                         >
-                            <span className="whitespace-nowrap" style={{ fontSize: scaleFont(1.08, 14), lineHeight: 1.35 }}>{item.label}</span>
-                            {hasUnreadChange && (
-                                <span className="absolute right-1.5 top-1.5 h-3 w-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,1),0_0_3px_rgba(0,0,0,0.8)] ring-2 ring-white border border-red-600 animate-pulse" />
-                            )}
-                        </GameButton>
-                    );})}
+                            <span>收起</span>
+                            <span aria-hidden="true">▸</span>
+                        </button>
+                    )}
+                </div>
+            )}
+
+            <div className="right-panel-menu-scroll rp-scroll no-scrollbar">
+                {/* 高频 2x2 印格：永不折叠，1 次点击直达 */}
+                <div className="rp-quick-grid" role="group" aria-label="常用入口">
+                    {quickItems.map((item) => {
+                        const active = activeKey === item.key;
+                        const unread = hasUnread(item.changeKeys);
+                        return (
+                            <button
+                                key={item.key}
+                                type="button"
+                                onClick={wrapChangedAction(item.changeKeys, item.action)}
+                                className={`rp-quick-tile ${active ? 'rp-quick-tile--active' : ''}`}
+                                aria-current={active ? 'page' : undefined}
+                                title={item.label}
+                            >
+                                <QuickIcon id={item.iconId} />
+                                <span className="rp-quick-label">{item.label}</span>
+                                {unread && <span className="rp-dot" aria-label="有新变动" />}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* 可折叠书卷手风琴 */}
+                <div className="rp-acc-list">
+                    {groups.map((group) => {
+                        const containsActive = group.items.some((item) => item.key === activeKey);
+                        const isOpen = openGroups.includes(group.id) || containsActive;
+                        const groupUnread = group.items.some((item) => hasUnread(item.changeKeys) || item.updating);
+                        return (
+                            <div key={group.id} className="rp-acc-group">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleGroup(group.id)}
+                                    className="rp-acc-trigger"
+                                    aria-expanded={isOpen}
+                                >
+                                    <span className="rp-acc-trigger-left">
+                                        <svg
+                                            viewBox="0 0 12 12"
+                                            className={`rp-acc-chevron ${isOpen ? 'rp-acc-chevron--open' : ''}`}
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            aria-hidden="true"
+                                        >
+                                            <path d="M4.2 2.5 7.8 6l-3.6 3.5" />
+                                        </svg>
+                                        <span>{group.title}</span>
+                                    </span>
+                                    <span className="rp-acc-meta">
+                                        {!isOpen && groupUnread && <span className="rp-dot" aria-label="卷内有新变动" />}
+                                        <span>{group.items.length} 项</span>
+                                    </span>
+                                </button>
+
+                                {isOpen && (
+                                    <div className="rp-acc-grid">
+                                        {group.items.map((item) => {
+                                            const active = activeKey === item.key;
+                                            const unread = hasUnread(item.changeKeys);
+                                            const isWide = Boolean(item.wide || item.label.length >= 5);
+                                            return (
+                                                <button
+                                                    key={item.key}
+                                                    type="button"
+                                                    onClick={wrapChangedAction(item.changeKeys, item.action)}
+                                                    className={`rp-chip ${isWide ? 'rp-chip--wide' : ''} ${active ? 'rp-chip--active' : ''} ${item.updating ? 'rp-chip--updating animate-pulse' : ''}`}
+                                                    aria-current={active ? 'page' : undefined}
+                                                    title={item.label}
+                                                >
+                                                    <span className="rp-chip-label">{item.label}</span>
+                                                    {unread && <span className="rp-dot" aria-label="有新变动" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
-            <div className="right-panel-system-actions mt-3 pt-3 border-t border-gray-800 space-y-1.5 shrink-0">
-                {systemItems.map((item) => (
-                    <button
-                        key={item.label}
-                        onClick={item.action}
-                        disabled={(item as any).disabled}
-                        className={`right-panel-system-button w-full text-center transition-all py-1 uppercase tracking-[0.08em] border border-transparent hover:border-gray-800 hover:bg-white/5 rounded-sm text-gray-500 ${item.className || ''}`}
-                        style={{ fontSize: scaleFont(0.88, 12) }}
-                    >
-                        [ {item.label} ]
-                    </button>
-                ))}
+
+            <div className="right-panel-system-actions rp-sys-grid">
+                {systemItems.map((item) => {
+                    const active = activeKey === item.key;
+                    return (
+                        <button
+                            key={item.key}
+                            type="button"
+                            onClick={item.action}
+                            disabled={Boolean((item as any).disabled)}
+                            className={`rp-sys-btn ${active ? 'rp-sys-btn--active' : ''} ${(item as any).isExit ? 'rp-sys-btn--exit' : ''}`}
+                            aria-current={active ? 'page' : undefined}
+                            title={item.label}
+                        >
+                            {item.label}
+                        </button>
+                    );
+                })}
             </div>
-            <div className="right-panel-bottom-fade absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none"></div>
         </div>
     );
 };
