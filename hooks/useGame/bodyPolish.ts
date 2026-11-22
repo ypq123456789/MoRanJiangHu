@@ -391,7 +391,7 @@ export const 执行正文润色 = async (
     baseResponse: GameResponse,
     rawText: string,
     deps: 正文润色依赖,
-    options?: { manual?: boolean; playerInput?: string; signal?: AbortSignal; allowExpansionForLength?: boolean; minLength?: number }
+    options?: { manual?: boolean; playerInput?: string; signal?: AbortSignal; allowExpansionForLength?: boolean; minLength?: number; prefetchedRawText?: string }
 ): Promise<{ response: GameResponse; applied: boolean; error?: string; rawText?: string }> => {
     if (!deps.文章优化已开启) {
         return { response: baseResponse, applied: false, error: '文章优化已关闭。' };
@@ -584,7 +584,7 @@ export const 执行正文润色 = async (
         return { response: baseResponse, applied: false, error: '正文为空，无法优化。' };
     }
 
-    const 执行一次文章优化 = async (prompt: string, retryHint = '', bodyOverride?: string) => {
+    const 执行一次文章优化 = async (prompt: string, retryHint = '', bodyOverride?: string, prefetchedRawText?: string) => {
         const result = await 执行文章优化请求带超时({
             parentSignal: requestSignal,
             firstResponseTimeoutMs: requestTimeouts.firstResponseMs,
@@ -602,7 +602,8 @@ export const 执行正文润色 = async (
                         onTimeoutDelta(delta, accumulated);
                         guardedOnDelta(delta, accumulated);
                     }
-                } : undefined
+                } : undefined,
+                prefetchedRawText
             ),
             resolveCompletedDraft: (accumulated) => {
                 if (!/<正文>[\s\S]*<\/正文>/.test(accumulated)) return null;
@@ -632,7 +633,7 @@ export const 执行正文润色 = async (
 
     let polishedResult;
     try {
-        polishedResult = await 执行一次文章优化(effectivePolishPrompt);
+        polishedResult = await 执行一次文章优化(effectivePolishPrompt, '', undefined, options?.prefetchedRawText);
     } catch (error) {
         if (options?.signal?.aborted || !是否文章优化协议污染错误(error)) throw error;
         polishedResult = await 执行一次文章优化(effectivePolishPrompt, [

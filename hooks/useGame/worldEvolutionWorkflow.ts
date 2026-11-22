@@ -34,6 +34,8 @@ export type 世界演变触发参数 = {
     stateBase?: Partial<响应命令处理状态>;
     signal?: AbortSignal;
     onStreamDelta?: (delta: string, accumulated: string) => void;
+    /** 省次数模式：复用主剧情请求里已经带回的本阶段原始输出。 */
+    prefetchedRawText?: string;
 };
 
 export type 世界演变执行结果 = {
@@ -453,7 +455,8 @@ export const 执行世界演变更新工作流 = async (
                 worldCotPrompt,
                 fandomPromptBundle.enabled,
                 独立世界演变GPT模式,
-                streamOptions
+                streamOptions,
+                params?.prefetchedRawText
             )
         );
         /**

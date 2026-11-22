@@ -46,6 +46,8 @@ type 地图更新请求参数 = {
     };
     signal?: AbortSignal;
     onDelta?: (delta: string, accumulated: string) => void;
+    /** 省次数模式：复用主剧情请求里已经带回的本阶段原始输出。 */
+    prefetchedRawText?: string;
 };
 
 const 地图层级顺序 = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'] as const;
@@ -542,10 +544,13 @@ export const 生成地图更新 = async (
         重置为完整预算();
     });
 
+    const 预取地图文本 = typeof params.prefetchedRawText === 'string' ? params.prefetchedRawText.trim() : '';
     let rawText = '';
     try {
         rawText = await Promise.race([
-            (async () => {
+            预取地图文本
+                ? Promise.resolve(预取地图文本)
+                : (async () => {
                 /**
                  * 地图命令块被截断后仍可能解析出**部分合法命令**，那样 `commands.length > 0`
                  * 会判定本轮「更新完成」，玩家看到的是「地图只更新了一半」。

@@ -688,6 +688,75 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                 </label>
             </div>
 
+            <div className="space-y-3 rounded-md border border-wuxia-cyan/30 bg-black/30 p-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <div className="text-sm font-bold text-wuxia-cyan">省次数模式</div>
+                        <div className="mt-1 text-[11px] leading-5 text-gray-400">
+                            开启后每个普通回合只发一次请求：正文、润色、变量、世界、规划、地图的结果都从同一次输出里拆分。参与环节按现有开关自动决定；某环节没有带回结果时，自动降级回独立请求。开局流程与剧情回忆检索不在合并范围内。
+                        </div>
+                    </div>
+                    <input
+                        type="checkbox"
+                        aria-label="启用省次数模式"
+                        checked={form.功能模型占位.省次数模式启用 === true}
+                        onChange={(event) => setForm((prev) => ({
+                            ...prev,
+                            功能模型占位: {
+                                ...prev.功能模型占位,
+                                省次数模式启用: event.target.checked
+                            }
+                        }))}
+                        className="mt-1 h-4 w-4 shrink-0 accent-cyan-400"
+                    />
+                </div>
+                {form.功能模型占位.省次数模式启用 === true && (
+                    <div className="grid gap-3 md:grid-cols-2">
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-gray-300">这一次请求用哪个接口</label>
+                            <InlineSelect
+                                value={form.功能模型占位.省次数模式渠道ID || ''}
+                                options={[
+                                    { value: '', label: '跟随主剧情接口（默认）' },
+                                    ...form.configs.map((cfg) => ({
+                                        value: cfg.id,
+                                        label: `${cfg.名称 || cfg.model || cfg.id}`
+                                    }))
+                                ]}
+                                onChange={(id) => setForm((prev) => ({
+                                    ...prev,
+                                    功能模型占位: {
+                                        ...prev.功能模型占位,
+                                        省次数模式渠道ID: id,
+                                        省次数模式使用模型: '',
+                                        省次数模式API地址: '',
+                                        省次数模式API密钥: ''
+                                    }
+                                }))}
+                                buttonClassName="border-gray-700 bg-black/60 py-2.5"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-gray-300">模型（留空使用所选接口的默认模型）</label>
+                            <input
+                                type="text"
+                                aria-label="省次数模式模型"
+                                value={form.功能模型占位.省次数模式使用模型 || ''}
+                                onChange={(event) => setForm((prev) => ({
+                                    ...prev,
+                                    功能模型占位: {
+                                        ...prev.功能模型占位,
+                                        省次数模式使用模型: event.target.value
+                                    }
+                                }))}
+                                placeholder="例如：gpt-4o-mini"
+                                className="w-full rounded-md border border-gray-700 bg-black/50 p-3 text-sm text-white outline-none transition-all focus:border-wuxia-cyan"
+                            />
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {form.configs.length === 0 ? (
                 <div className="rounded-md border border-dashed border-gray-700 bg-black/20 p-6 text-center text-gray-400">
                     还没有任何接口配置，请先点击上方“新建配置”。
