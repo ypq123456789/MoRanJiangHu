@@ -334,7 +334,8 @@ export const 构建小说拆分模式包创意工坊模块 = (params: {
     ];
 
     return {
-        id: `local-${suiteId}-mode-package`,
+        // 同一数据集重复「生成本地模式包」时应覆盖旧副本，而不是按时间戳堆积多条同名记录。
+        id: `local-novel-${dataset.id || suiteId}-mode-package`,
         type: 'topic',
         formatVersion: 2,
         workshopKind: 'standard_module',

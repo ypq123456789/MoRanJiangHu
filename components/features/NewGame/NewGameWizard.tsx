@@ -6,6 +6,7 @@ import type { 开局预设方案结构 } from '../../../data/newGamePresets';
 import { 从模式世界书提取提示词, type 创意工坊模块条目, type 创意工坊模块类型, type 创意工坊世界细节生成配置 } from '../../../data/creativeWorkshopModules';
 import type { CurrencySystem, 题材模式类型 } from '../../../models/system';
 import { 解析题材包修炼默认值 } from '../../../utils/modeCultivationDefault';
+import { filterCreativeWorkshopLogicalDuplicates, normalizeCreativeWorkshopTitle } from '../../../utils/creativeWorkshopDedupe';
 import { OrnateBorder } from '../../ui/decorations/OrnateBorder';
 import InlineSelect from '../../ui/InlineSelect';
 import NewGameDiyTools from './NewGameDiyTools';
@@ -2154,7 +2155,11 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                                 const type: 创意工坊模块类型 = 'topic';
                                                 const selectedKey = 已选创意工坊子项[type] || '';
                                                 const selectedEntry = selectedKey ? 按键查找创意工坊模块(selectedKey) : null;
-                                                const options = 创意工坊模块列表.filter((entry) => entry.type === type);
+                                                const options = filterCreativeWorkshopLogicalDuplicates(创意工坊模块列表).filter((entry) => entry.type === type);
+                                                // 旧存档可能记着已被合并掉的同作品副本键：把它补回选项，避免下拉框显示成「不使用模式包」
+                                                if (selectedEntry && selectedEntry.type === type && !options.some((entry) => 创意工坊模块键(entry) === selectedKey)) {
+                                                    options.unshift(selectedEntry);
+                                                }
                                                 return (
                                                     <div className="rounded-xl border border-white/10 bg-black/25 p-3 space-y-2 md:col-span-2">
                                                         <div className="text-[11px] font-bold text-emerald-200">{创意工坊类型标签[type]}</div>
@@ -2164,7 +2169,7 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                                                 { value: '', label: '不使用模式包' },
                                                                 ...options.map((entry) => ({
                                                                     value: 创意工坊模块键(entry),
-                                                                    label: `${读取模块模式(entry) || '通用'} · ${entry.title}`
+                                                                    label: `${读取模块模式(entry) || '通用'} · ${normalizeCreativeWorkshopTitle(entry)}`
                                                                 }))
                                                             ]}
                                                             onChange={(moduleKey) => 选择创意工坊子项(type, moduleKey)}
