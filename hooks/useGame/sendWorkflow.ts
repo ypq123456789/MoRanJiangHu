@@ -11,6 +11,7 @@ import { recordDiagnosticLog } from '../../services/diagnosticLog';
 import type { GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
 import { 获取主剧情接口配置, 获取剧情回忆接口配置, 获取文章优化接口配置, 获取变量计算接口配置, 获取世界演变接口配置, 获取规划分析接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 变量校准功能已启用 as 变量生成功能已启用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
 import { 构建省次数附加输出协议, 提取省次数分节, 过滤省次数流式草稿, type 省次数环节 } from '../../utils/singleCallMode';
+import { 获取繁体输出指令 } from '../../utils/traditionalChinese';
 import { 规范化游戏设置 } from '../../utils/gameSettings';
 import { 获取游玩请求超时毫秒 } from '../../utils/gameRequestTimeouts';
 import { 计算正文字数容错字数, 正文字数差距在容错内 } from '../../utils/bodyLengthTolerance';
@@ -1447,7 +1448,29 @@ export const 执行主剧情发送工作流 = async (
     if (currentState.apiConfig?.功能模型占位?.世界演变功能启用 !== false) 省次数启用环节.push('world');
     if (currentState.apiConfig?.功能模型占位?.规划分析功能启用 !== false) 省次数启用环节.push('planning');
     if (currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false) 省次数启用环节.push('map');
-    const 省次数附加协议 = 使用省次数模式 ? 构建省次数附加输出协议(省次数启用环节) : '';
+    // 润色阶段在省次数模式下不再单独发请求，因此必须把它本该收到的用户配置与运行时约束提前写进协议。
+    const 省次数润色补充指令 = 省次数启用环节.includes('polish')
+        ? (() => {
+            const feature = currentState.apiConfig?.功能模型占位;
+            const 自定义提示词 = typeof feature?.文章优化提示词 === 'string' ? feature.文章优化提示词.trim() : '';
+            const 运行时配置 = 规范化游戏设置(currentState.gameConfig);
+            const 字数要求 = Number(运行时配置.字数要求) || 0;
+            const 叙事人称 = 运行时配置.叙事人称 || '第二人称';
+            return [
+                自定义提示词 ? `【用户配置的文章优化提示词 · 必须遵守】\n${自定义提示词}` : '',
+                '【本回合润色硬约束 · 必须遵守】',
+                `- 润色后正文保持在 ${字数要求} 字左右，不得压缩成大纲、摘要或设定说明。`,
+                '- 角色对白必须单独成行并以【角色名】开头；旁白只写动作、环境与心理，不得把对白混进旁白行。',
+                '- 禁止在【旁白】/【角色名】行用（）或()补充描写；括号信息改写成独立句并入动作链。',
+                `- 叙事人称固定为${叙事人称}。`,
+                `- 本回合玩家输入：${sendInput || '（无）'}。只能保留与输入一致的玩家发言，不得替主角补写未输入的关键决策与台词。`,
+                获取繁体输出指令(currentState.gameConfig)
+            ].filter(Boolean).join('\n');
+        })()
+        : '';
+    const 省次数附加协议 = 使用省次数模式
+        ? 构建省次数附加输出协议(省次数启用环节, 省次数润色补充指令)
+        : '';
     const naturalProseSnapshotPending = naturalProseSettingsService.load().then(
         value => ({ value, error: undefined }), error => ({ value: undefined, error })
     );
