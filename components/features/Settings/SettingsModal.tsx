@@ -331,7 +331,7 @@ const SettingsModal: React.FC<Props> = ({
                                                         className={`h-[34px] w-full border-l-[3px] pl-[11px] text-left text-[13px] leading-[34px] tracking-[1px] transition-colors ${
                                                             activeTab === item.id
                                                                 ? 'border-wuxia-gold font-bold text-wuxia-gold'
-                                                                : 'border-transparent text-gray-500 hover:text-wuxia-gold'
+                                                                : 'border-transparent settings-nav-item-idle'
                                                         }`}
                                                     >
                                                         {item.label}
@@ -360,7 +360,7 @@ const SettingsModal: React.FC<Props> = ({
                                                                 className={`h-[34px] w-full border-l-[3px] pl-[23px] text-left text-[13px] leading-[34px] tracking-[1px] transition-colors ${
                                                                     activeTab === item.id
                                                                         ? 'border-wuxia-gold font-bold text-wuxia-gold'
-                                                                        : 'border-transparent text-gray-500 hover:text-wuxia-gold'
+                                                                        : 'border-transparent settings-nav-item-idle'
                                                                 }`}
                                                             >
                                                                 {item.label}

@@ -1,9 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { 环境信息结构, 节日结构, 视觉设置结构 } from '../../types';
 import { 构建区域文字样式 } from '../../utils/visualSettings';
 import { normalizeCanonicalGameTime } from '../../hooks/useGame/timeUtils';
 import { setNativeSystemBarsHidden } from '../../utils/nativeRuntime';
 import { 计算游戏历程天数 } from '../../utils/gameTimeJourney';
+import './TopBar.css';
 
 interface Props {
     环境: 环境信息结构;
@@ -27,70 +28,143 @@ const 颜色转透明度 = (color: string | undefined, alpha: number, fallback: 
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const TopItem: React.FC<{
-    label: string;
-    value: string | number;
-    highlight?: boolean;
-    visualConfig?: 视觉设置结构;
-    isExpanded?: boolean;
-    compact?: boolean;
-    align?: 'left' | 'right';
-    onClick?: () => void;
-    onLongPress?: () => void;
-    onMouseEnter?: () => void;
-    onMouseLeave?: () => void;
-}> = ({ label, value, highlight, visualConfig, isExpanded, compact = false, align = 'left', onClick, onLongPress, onMouseEnter, onMouseLeave }) => {
-    const areaStyle = 构建区域文字样式(visualConfig, '顶部栏');
-    const labelColor = 颜色转透明度(areaStyle.color as string | undefined, 0.62, 'rgba(230, 200, 110, 0.62)');
-    const baseFontSize = Number(areaStyle.fontSize) || 14;
-    const labelFontSize = compact ? `${Math.max(8, Math.round(baseFontSize * 0.58))}px` : `${Math.max(13, Math.round(baseFontSize * 0.96))}px`;
-    const valueFontSize = compact ? `${Math.max(10, Math.round(baseFontSize * 0.76))}px` : `${Math.max(16, Math.round(baseFontSize * 1.14))}px`;
-    
-    // Long press logic
-    const timerRef = React.useRef<NodeJS.Timeout | null>(null);
-    const isLongPressActive = React.useRef(false);
+type AncestorToken = { type: 'seg'; text: string } | { type: 'ellipsis' };
 
-    const handleTouchStart = () => {
-        isLongPressActive.current = false;
-        timerRef.current = setTimeout(() => {
-            isLongPressActive.current = true;
-            onLongPress?.();
-        }, 500); // 500ms for long press
-    };
+export const buildVisibleAncestors = (ancestors: string[], collapseLevel: number): AncestorToken[] => {
+    if (ancestors.length === 0) return [];
+    if (ancestors.length === 1) {
+        return collapseLevel >= 1 ? [{ type: 'ellipsis' }] : [{ type: 'seg', text: ancestors[0] }];
+    }
+    if (ancestors.length === 2) {
+        if (collapseLevel <= 0) return [{ type: 'seg', text: ancestors[0] }, { type: 'seg', text: ancestors[1] }];
+        if (collapseLevel === 1) return [{ type: 'ellipsis' }, { type: 'seg', text: ancestors[1] }];
+        return [{ type: 'ellipsis' }];
+    }
+    if (collapseLevel <= 0) {
+        return ancestors.map((text) => ({ type: 'seg' as const, text }));
+    }
+    if (collapseLevel === 1) {
+        return [
+            { type: 'seg', text: ancestors[0] },
+            { type: 'ellipsis' },
+            { type: 'seg', text: ancestors[ancestors.length - 1] },
+        ];
+    }
+    if (collapseLevel === 2) {
+        return [
+            { type: 'ellipsis' },
+            { type: 'seg', text: ancestors[ancestors.length - 1] },
+        ];
+    }
+    return [{ type: 'ellipsis' }];
+};
 
-    const handleTouchEnd = (e: React.TouchEvent) => {
-        if (timerRef.current) {
-            clearTimeout(timerRef.current);
-        }
-        if (!isLongPressActive.current) {
-            // If it wasn't a long press, treat it as a click
-            onClick?.();
-        } else {
-            // Prevent the default click if it was a long press
-            e.preventDefault();
-        }
-    };
+const getMaxCollapseLevel = (ancestorCount: number): number => {
+    if (ancestorCount <= 0) return 0;
+    if (ancestorCount === 1) return 1;
+    if (ancestorCount === 2) return 2;
+    return 3;
+};
 
+const WeatherIcon: React.FC<{ weather: string }> = ({ weather }) => {
+    if (/[雷电]/.test(weather)) {
+        return (
+            <svg viewBox="0 0 24 24" className="topbar-weather-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6.5 16a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 17 9.5a3.5 3.5 0 0 1 .5 6.5" />
+                <path d="M13 12l-2.2 4h2.7L11.5 21" />
+            </svg>
+        );
+    }
+    if (/[雨淋骤]/.test(weather)) {
+        return (
+            <svg viewBox="0 0 24 24" className="topbar-weather-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6.5 15a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 17 8.5a3.5 3.5 0 0 1 .5 6.5H6.5Z" />
+                <path d="M8.5 18l-1 2.5M12.5 18l-1 2.5M16.5 18l-1 2.5" />
+            </svg>
+        );
+    }
+    if (/[雪霜冰]/.test(weather)) {
+        return (
+            <svg viewBox="0 0 24 24" className="topbar-weather-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9" />
+            </svg>
+        );
+    }
+    if (/[雾霾岚烟]/.test(weather)) {
+        return (
+            <svg viewBox="0 0 24 24" className="topbar-weather-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 9h14M6 13h14M4 17h12" />
+            </svg>
+        );
+    }
+    if (/[风沙尘]/.test(weather)) {
+        return (
+            <svg viewBox="0 0 24 24" className="topbar-weather-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 10h11a2.5 2.5 0 1 0-2.5-2.5" />
+                <path d="M4 15h14a2 2 0 1 1-2 2" />
+            </svg>
+        );
+    }
+    if (/[阴云晦]/.test(weather)) {
+        return (
+            <svg viewBox="0 0 24 24" className="topbar-weather-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6.5 17a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 17 10.5a3.5 3.5 0 0 1 .5 6.5H6.5Z" />
+            </svg>
+        );
+    }
     return (
-        <div 
-            className={`flex flex-col justify-center relative group cursor-pointer transition-all duration-300 ${compact ? `mx-0 w-[54px] ${align === 'right' ? 'items-end text-right' : 'items-start text-left'}` : 'items-center mx-1 md:mx-4'} ${isExpanded ? (compact ? 'scale-[1.03]' : 'scale-110') : ''}`} 
-            onClick={onClick}
-            onMouseEnter={onMouseEnter}
-            onMouseLeave={onMouseLeave}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-            onContextMenu={(e) => isLongPressActive.current && e.preventDefault()} // Block context menu on long press
-        >
-            {!compact && <div className={`absolute -inset-1.5 border-x border-wuxia-gold/0 group-hover:border-wuxia-gold/20 transition-all duration-500 scale-y-50 group-hover:scale-y-100 ${isExpanded ? 'border-wuxia-gold/40 scale-y-100' : ''}`}></div>}
-            <div className={compact ? 'w-full truncate tracking-[0.08em] mb-0' : 'tracking-[0.18em] mb-0.5'} style={{ ...areaStyle, color: labelColor, fontSize: labelFontSize, lineHeight: compact ? 1 : 1.1 }}>
-                {label}
-            </div>
-            <div className={`${compact ? 'w-full truncate whitespace-nowrap' : 'whitespace-nowrap'} drop-shadow-md transition-transform ${highlight ? 'font-bold animate-pulse scale-[1.03]' : (compact ? '' : 'group-hover:scale-[1.03]')} ${isExpanded ? 'text-wuxia-gold font-bold' : ''}`} style={{ ...areaStyle, fontSize: valueFontSize, lineHeight: compact ? 1.05 : 1.15 }}>
-                {value}
-            </div>
-        </div>
+        <svg viewBox="0 0 24 24" className="topbar-weather-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6" />
+        </svg>
     );
 };
+
+const EnvironmentIcon: React.FC = () => (
+    <svg viewBox="0 0 20 20" className="topbar-env-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+        <path d="M3 7.5c1.7-1.6 3.5-1.6 5.2 0s3.5 1.6 5.2 0c1-.9 2-1.3 3.6-1" />
+        <path d="M3 12.8c1.7-1.6 3.5-1.6 5.2 0s3.5 1.6 5.2 0c1-.9 2-1.3 3.6-1" />
+    </svg>
+);
+
+const FullscreenIcon: React.FC<{ active: boolean }> = ({ active }) => (
+    <svg viewBox="0 0 20 20" className="topbar-fullscreen-icon" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {active ? (
+            <>
+                <path d="M7.5 3.5v4h-4" />
+                <path d="M12.5 3.5v4h4" />
+                <path d="M7.5 16.5v-4h-4" />
+                <path d="M12.5 16.5v-4h4" />
+            </>
+        ) : (
+            <>
+                <path d="M7 3.5H3.5V7" />
+                <path d="M13 3.5h3.5V7" />
+                <path d="M7 16.5H3.5V13" />
+                <path d="M13 16.5h3.5V13" />
+            </>
+        )}
+    </svg>
+);
+
+const ChevronDownIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="topbar-loc-chevron" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4.5 6.25 8 9.75l3.5-3.5" />
+    </svg>
+);
+
+const SealStarIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="topbar-festival-icon" fill="currentColor" aria-hidden="true">
+        <path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8 6.4 6.4 8 1.5Z" />
+    </svg>
+);
+
+const CalendarIcon: React.FC = () => (
+    <svg viewBox="0 0 20 20" className="topbar-journey-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3.25" y="4.5" width="13.5" height="12.25" rx="2" />
+        <path d="M6.75 2.75v3M13.25 2.75v3M3.5 8.5h13" />
+    </svg>
+);
 
 const DetailCard: React.FC<{
     title: string;
@@ -106,7 +180,9 @@ const DetailCard: React.FC<{
     const areaStyle = 构建区域文字样式(visualConfig, '顶部栏');
     return (
         <div 
-            className={`absolute top-full mt-2 z-[100] pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-300 ${className}`}
+            role="region"
+            aria-label={title}
+            className={`absolute top-full mt-1.5 z-[100] pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-200 ${className || ''}`}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
@@ -185,10 +261,6 @@ const DetailCard: React.FC<{
         </div>
     );
 };
-
-const Divider = () => (
-    <div className="h-4 md:h-5 w-px bg-gradient-to-b from-transparent via-wuxia-gold/30 to-transparent mx-0.5 md:mx-1"></div>
-);
 
 const parseEnvTime = (env?: 环境信息结构): { year: number; month: number; day: number; hour: number; minute: number } | null => {
     if (!env || typeof env !== 'object') return null;
@@ -325,9 +397,28 @@ const MobileInfoButton: React.FC<{
 
 const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festivals = [], visualConfig }) => {
     const [expandedType, setExpandedType] = useState<ExpandedType>(null);
+    const [desktopExpandedType, setDesktopExpandedType] = useState<ExpandedType>(null);
+    const [pinnedType, setPinnedType] = useState<ExpandedType>(null);
     const [fullscreenDetailType, setFullscreenDetailType] = useState<Exclude<ExpandedType, null> | null>(null);
     const [mobileCollapsed, setMobileCollapsed] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState<boolean>(() => (typeof document !== 'undefined' ? hasFullscreenElement() : false));
+    const [barSize, setBarSize] = useState('0x0');
+    const [fontLoadTick, setFontLoadTick] = useState(0);
+    const [collapseState, setCollapseState] = useState<{ key: string; level: number }>({ key: '', level: 0 });
+
     const lastMobileDismissAtRef = useRef(0);
+    const topbarRef = useRef<HTMLDivElement | null>(null);
+    const barGridRef = useRef<HTMLDivElement | null>(null);
+    const leftSlotRef = useRef<HTMLDivElement | null>(null);
+    const rightSlotRef = useRef<HTMLDivElement | null>(null);
+    const locationInnerRef = useRef<HTMLSpanElement | null>(null);
+    const fullscreenDialogRef = useRef<HTMLDivElement | null>(null);
+    const fullscreenCloseBtnRef = useRef<HTMLButtonElement | null>(null);
+    const pinnedTypeRef = useRef<ExpandedType>(null);
+    const hoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const triggerRefs = useRef<Partial<Record<Exclude<ExpandedType, null>, HTMLButtonElement | null>>>({});
+
+    pinnedTypeRef.current = pinnedType;
 
     const parsedTime = parseEnvTime(环境);
     const derivedDayCount = useMemo(() => {
@@ -336,8 +427,12 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     const month = parsedTime?.month ?? null;
     const day = parsedTime?.day ?? null;
     const topBarStyle = 构建区域文字样式(visualConfig, '顶部栏');
+    const customTopBarEnabled = Boolean(visualConfig?.区域文字样式?.顶部栏?.启用自定义);
     const 顶栏基础字号 = parseFloat(String(topBarStyle.fontSize ?? '')) || 14;
     const 顶栏字号 = (ratio: number, min = 13) => `${Math.max(min, Math.round(顶栏基础字号 * ratio))}px`;
+    const desktopFontScale = customTopBarEnabled
+        ? Number(Math.max(0.85, Math.min(1.25, 顶栏基础字号 / 15)).toFixed(3))
+        : 1;
 
     const numericTime = parsedTime
         ? `${parsedTime.hour.toString().padStart(2, '0')}:${parsedTime.minute.toString().padStart(2, '0')}`
@@ -365,6 +460,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     const festivalDisplay = currentFestival
         ? currentFestival.名称
         : (环境节日是否匹配当前日期 ? 环境节日名称 : '平常日');
+    const hasActiveFestival = Boolean(currentFestival);
     const dateBadge = 构建日期短文本(parsedTime);
     const weatherDisplay = useMemo(() => {
         const rawWeather = (环境 as any)?.天气;
@@ -374,25 +470,42 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         }
         return '未知';
     }, [环境]);
-    const environmentDisplay = useMemo(() => {
-        const envVars = Array.isArray(环境?.环境变量)
+
+    const environmentVars = useMemo(() => (
+        Array.isArray(环境?.环境变量)
             ? 环境.环境变量
-            : (环境?.环境变量 && typeof 环境.环境变量 === 'object' ? [环境.环境变量 as any] : []);
-        if (envVars.length > 0) {
-            const names = envVars
+            : (环境?.环境变量 && typeof 环境.环境变量 === 'object' ? [环境.环境变量 as any] : [])
+    ), [环境?.环境变量]);
+
+    const environmentDisplay = useMemo(() => {
+        if (environmentVars.length > 0) {
+            const names = environmentVars
                 .map((item: any) => (typeof item?.名称 === 'string' ? item.名称.trim() : ''))
                 .filter(Boolean);
             if (names.length > 0) return names.join('、');
-            const descriptions = envVars
+            const descriptions = environmentVars
                 .map((item: any) => (typeof item?.描述 === 'string' ? item.描述.trim() : ''))
                 .filter(Boolean);
             if (descriptions.length > 0) return descriptions[0];
         }
         return '无';
-    }, [环境?.环境变量]);
+    }, [environmentVars]);
+
+    const desktopEnvText = useMemo(() => {
+        if (environmentVars.length === 0) return '';
+        const names = environmentVars
+            .map((item: any) => (typeof item?.名称 === 'string' ? item.名称.trim() : ''))
+            .filter((value) => value && value !== '无' && value !== '无特殊环境');
+        if (names.length > 0) return names.join('、');
+        const descriptions = environmentVars
+            .map((item: any) => (typeof item?.描述 === 'string' ? item.描述.trim() : ''))
+            .filter((value) => value && value !== '无' && value !== '无特殊环境');
+        return descriptions[0] || '';
+    }, [environmentVars]);
 
     const weatherEnd = (环境 as any)?.天气?.结束日期 || '长久';
-    const locationBadge = useMemo(() => {
+
+    const locationSegments = useMemo(() => {
         const rawSmall = typeof 环境?.小地点 === 'string' ? 环境.小地点.trim() : '';
         const rawSpecific = typeof 环境?.具体地点 === 'string' ? 环境.具体地点.trim() : '';
         let normalizedSpecific = rawSpecific;
@@ -403,9 +516,22 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         const segments = [环境?.大地点, 环境?.中地点, rawSmall, normalizedSpecific]
             .map((part) => (typeof part === 'string' ? part.trim() : ''))
             .filter(Boolean);
-        const uniqueSegments = segments.filter((part, idx) => segments.indexOf(part) === idx);
-        return uniqueSegments.length > 0 ? uniqueSegments.join(' - ') : '未知地点';
+        // Only collapse adjacent duplicates so the deepest valid field is never dropped when it shares a name with a higher ancestor.
+        const dedupedSegments = segments.filter((part, idx) => idx === 0 || part !== segments[idx - 1]);
+        return dedupedSegments.length > 0 ? dedupedSegments : ['未知地点'];
     }, [环境?.大地点, 环境?.中地点, 环境?.小地点, 环境?.具体地点]);
+
+    const locationSlashPath = useMemo(() => locationSegments.join(' / '), [locationSegments]);
+    const currentLocation = locationSegments[locationSegments.length - 1] || '未知地点';
+    const ancestorLocations = useMemo(() => locationSegments.slice(0, -1), [locationSegments]);
+    const maxCollapseLevel = getMaxCollapseLevel(ancestorLocations.length);
+    const measureKey = `${locationSlashPath}|${barSize}|${desktopEnvText}|${hasActiveFestival ? festivalDisplay : ''}|${weatherDisplay}|${derivedDayCount}|${customTopBarEnabled ? `${desktopFontScale}:${String(topBarStyle.fontFamily || '')}` : 'default'}|${fontLoadTick}`;
+    const effectiveCollapseLevel = collapseState.key === measureKey ? Math.min(collapseState.level, maxCollapseLevel) : 0;
+    const visibleAncestors = useMemo(
+        () => buildVisibleAncestors(ancestorLocations, effectiveCollapseLevel),
+        [ancestorLocations, effectiveCollapseLevel]
+    );
+
     const mobileLocationBadge = useMemo(() => {
         const rawSmall = typeof 环境?.小地点 === 'string' ? 环境.小地点.trim() : '';
         const rawSpecific = typeof 环境?.具体地点 === 'string' ? 环境.具体地点.trim() : '';
@@ -421,9 +547,11 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         return uniqueSegments.length > 0 ? uniqueSegments.join(' - ') : '未知地点';
     }, [环境?.中地点, 环境?.小地点, 环境?.具体地点]);
 
-    React.useEffect(() => {
+    useEffect(() => {
         const syncSystemBars = () => {
-            void setNativeSystemBarsHidden(hasFullscreenElement());
+            const fullscreenActive = hasFullscreenElement();
+            setIsFullscreen(fullscreenActive);
+            void setNativeSystemBarsHidden(fullscreenActive);
         };
 
         document.addEventListener('fullscreenchange', syncSystemBars);
@@ -433,10 +561,223 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         };
     }, []);
 
+    useEffect(() => {
+        const barEl = barGridRef.current;
+        if (!barEl) return;
+        const updateSize = () => {
+            const nextSize = `${Math.floor(barEl.clientWidth)}x${Math.floor(barEl.clientHeight)}`;
+            setBarSize((prev) => (prev === nextSize ? prev : nextSize));
+        };
+        updateSize();
+        const cleanupFns: Array<() => void> = [];
+        if (typeof ResizeObserver !== 'undefined') {
+            const observer = new ResizeObserver(updateSize);
+            observer.observe(barEl);
+            cleanupFns.push(() => observer.disconnect());
+        }
+        window.addEventListener('resize', updateSize);
+        cleanupFns.push(() => window.removeEventListener('resize', updateSize));
+
+        let cancelled = false;
+        const fontSet = typeof document !== 'undefined' ? (document as Document & { fonts?: FontFaceSet }).fonts : undefined;
+        const handleFontLoadingDone = () => {
+            if (!cancelled) setFontLoadTick((prev) => prev + 1);
+        };
+        fontSet?.addEventListener('loadingdone', handleFontLoadingDone);
+        cleanupFns.push(() => fontSet?.removeEventListener('loadingdone', handleFontLoadingDone));
+        if (fontSet?.ready) {
+            void fontSet.ready.then(() => {
+                if (!cancelled) setFontLoadTick((prev) => prev + 1);
+            });
+        }
+        return () => {
+            cancelled = true;
+            cleanupFns.forEach((fn) => fn());
+        };
+    }, []);
+
+    useLayoutEffect(() => {
+        if (effectiveCollapseLevel >= maxCollapseLevel) return;
+        const barEl = barGridRef.current;
+        const leftEl = leftSlotRef.current;
+        const rightEl = rightSlotRef.current;
+        const innerEl = locationInnerRef.current;
+        if (!barEl || !leftEl || !rightEl || !innerEl) return;
+        if (barEl.clientWidth <= 0) return;
+
+        const barStyle = window.getComputedStyle(barEl);
+        const padX = (parseFloat(barStyle.paddingLeft) || 0) + (parseFloat(barStyle.paddingRight) || 0);
+        const colGap = parseFloat(barStyle.columnGap) || 12;
+        const sideWidth = Math.max(leftEl.offsetWidth, rightEl.offsetWidth);
+        // Prefer symmetric clearance first so center stays visually centered; keep generous breathing room on narrow desktop.
+        const symmetricAvail = barEl.clientWidth - padX - sideWidth * 2 - colGap * 2 - 12;
+        const totalAvail = barEl.clientWidth - padX - leftEl.offsetWidth - rightEl.offsetWidth - colGap * 2 - 12;
+        const proportionCap = barEl.clientWidth <= 1120
+            ? Math.floor(barEl.clientWidth * 0.48)
+            : Math.floor(barEl.clientWidth * 0.56);
+        const rawAvail = Math.max(symmetricAvail, Math.min(totalAvail, symmetricAvail + 48));
+        const maxCenterWidth = Math.max(96, Math.floor(Math.min(rawAvail, proportionCap)));
+        const neededWidth = Math.ceil(innerEl.scrollWidth) + 16;
+
+        if (neededWidth > maxCenterWidth) {
+            setCollapseState({ key: measureKey, level: effectiveCollapseLevel + 1 });
+        }
+    }, [effectiveCollapseLevel, maxCollapseLevel, measureKey]);
+
+    const clearHoverCloseTimer = useCallback(() => {
+        if (hoverCloseTimerRef.current) {
+            clearTimeout(hoverCloseTimerRef.current);
+            hoverCloseTimerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => {
+        return () => clearHoverCloseTimer();
+    }, [clearHoverCloseTimer]);
+
+    useEffect(() => {
+        if (desktopExpandedType === 'environment' && !desktopEnvText) {
+            setDesktopExpandedType(null);
+            if (pinnedType === 'environment') setPinnedType(null);
+        }
+        if (desktopExpandedType === 'festival' && !hasActiveFestival) {
+            setDesktopExpandedType(null);
+            if (pinnedType === 'festival') setPinnedType(null);
+        }
+    }, [desktopExpandedType, pinnedType, desktopEnvText, hasActiveFestival]);
+
+    const closeDesktopPanel = useCallback((returnFocus = false) => {
+        clearHoverCloseTimer();
+        const prevType = desktopExpandedType;
+        setPinnedType(null);
+        setDesktopExpandedType(null);
+        if (returnFocus && prevType) {
+            triggerRefs.current[prevType]?.focus();
+        }
+    }, [clearHoverCloseTimer, desktopExpandedType]);
+
+    const closeFullscreenDetail = useCallback((returnFocus = true) => {
+        clearHoverCloseTimer();
+        const prevType = fullscreenDetailType;
+        setFullscreenDetailType(null);
+        setPinnedType(null);
+        setDesktopExpandedType(null);
+        if (returnFocus && prevType) {
+            requestAnimationFrame(() => {
+                const primary = triggerRefs.current[prevType];
+                if (primary && primary.isConnected) {
+                    primary.focus();
+                    return;
+                }
+                // 原按钮已随内容消失（例如节日跨进平常日）：退回到仍在顶栏上的可见控件。
+                const fallback = triggerRefs.current.journey
+                    || triggerRefs.current.location
+                    || triggerRefs.current.weather;
+                fallback?.focus();
+            });
+        }
+    }, [clearHoverCloseTimer, fullscreenDetailType]);
+
+    // 视口降到 md 以下时全屏遮罩被 CSS 隐藏，但 fullscreenDetailType 仍有值：
+    // 焦点会留在页面别处，且窗口拉回桌面宽度后详情又自己冒出来。
+    // 按审查意见采用「离开桌面布局时关掉详情」这一支；此时桌面顶栏整体不可见，
+    // 所以不归还焦点（否则会把焦点塞给看不见的按钮）。
+    useEffect(() => {
+        if (!fullscreenDetailType) return;
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+        const desktopQuery = window.matchMedia('(min-width: 768px)');
+        const handleChange = (event: MediaQueryListEvent) => {
+            if (!event.matches) closeFullscreenDetail(false);
+        };
+        if (!desktopQuery.matches) {
+            closeFullscreenDetail(false);
+            return;
+        }
+        desktopQuery.addEventListener('change', handleChange);
+        return () => desktopQuery.removeEventListener('change', handleChange);
+    }, [fullscreenDetailType, closeFullscreenDetail]);
+
+    useEffect(() => {
+        if (!fullscreenDetailType) return;
+        if (typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth < 768) return;
+        const dialog = fullscreenDialogRef.current;
+        if (!dialog || !dialog.contains(document.activeElement)) {
+            fullscreenCloseBtnRef.current?.focus();
+        }
+    }, [fullscreenDetailType, barSize]);
+
+    useEffect(() => {
+        if (!desktopExpandedType && !fullscreenDetailType) return;
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return;
+            if (fullscreenDetailType) {
+                event.preventDefault();
+                closeFullscreenDetail();
+                return;
+            }
+            if (desktopExpandedType) {
+                event.preventDefault();
+                const focusInsideTopbar = Boolean(
+                    topbarRef.current &&
+                    document.activeElement &&
+                    topbarRef.current.contains(document.activeElement)
+                );
+                closeDesktopPanel(focusInsideTopbar);
+            }
+        };
+
+        const handlePointerDown = (event: PointerEvent) => {
+            if (fullscreenDetailType) return;
+            const target = event.target as Node | null;
+            if (topbarRef.current && target && !topbarRef.current.contains(target)) {
+                closeDesktopPanel(false);
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('pointerdown', handlePointerDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('pointerdown', handlePointerDown);
+        };
+    }, [desktopExpandedType, fullscreenDetailType, closeDesktopPanel, closeFullscreenDetail]);
+
+    const openDesktopOnHover = (type: Exclude<ExpandedType, null>) => {
+        clearHoverCloseTimer();
+        if (pinnedTypeRef.current && pinnedTypeRef.current !== type) return;
+        setDesktopExpandedType(type);
+    };
+
+    const scheduleDesktopHoverClose = (type: Exclude<ExpandedType, null>) => {
+        clearHoverCloseTimer();
+        if (pinnedTypeRef.current === type) return;
+        hoverCloseTimerRef.current = setTimeout(() => {
+            if (pinnedTypeRef.current === type) return;
+            const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+            if (activeEl && activeEl instanceof HTMLElement && activeEl.closest('.desktop-topbar-card')) {
+                return;
+            }
+            setDesktopExpandedType((prev) => (prev === type ? null : prev));
+        }, 140);
+    };
+
+    const toggleDesktopPin = (type: Exclude<ExpandedType, null>) => {
+        clearHoverCloseTimer();
+        if (pinnedType === type && desktopExpandedType === type) {
+            setPinnedType(null);
+            setDesktopExpandedType(null);
+            return;
+        }
+        setPinnedType(type);
+        setDesktopExpandedType(type);
+    };
+
     const toggleFullScreen = async () => {
         if (!hasFullscreenElement()) {
             try {
                 await document.documentElement.requestFullscreen();
+                setIsFullscreen(true);
                 await setNativeSystemBarsHidden(true);
             } catch (err: any) {
                 console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
@@ -444,11 +785,13 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         } else if (document.exitFullscreen) {
             try {
                 await document.exitFullscreen();
+                setIsFullscreen(false);
                 await setNativeSystemBarsHidden(false);
             } catch (err: any) {
                 console.error(`Error attempting to exit full-screen mode: ${err.message} (${err.name})`);
             }
         } else {
+            setIsFullscreen(false);
             await setNativeSystemBarsHidden(false);
         }
     };
@@ -459,7 +802,9 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     };
 
     const openFullscreenDetail = (type: Exclude<ExpandedType, null>) => {
-        setExpandedType(type);
+        clearHoverCloseTimer();
+        setPinnedType(type);
+        setDesktopExpandedType(type);
         setFullscreenDetailType(type);
     };
 
@@ -475,9 +820,6 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
     };
 
     const alternateTime = timeFormat === '数字' ? traditionalTime : numericTime;
-    const environmentVars = Array.isArray(环境?.环境变量)
-        ? 环境.环境变量
-        : (环境?.环境变量 && typeof 环境.环境变量 === 'object' ? [环境.环境变量 as any] : []);
 
     const detailConfigs: Record<Exclude<ExpandedType, null>, { title: string; content: React.ReactNode }> = {
         weather: {
@@ -561,9 +903,53 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         { type: 'festival' as const, label: '节日', shortLabel: '节', value: festivalDisplay, highlight: !!currentFestival },
     ];
 
+    const desktopLocationDetailContent = (
+        <div className="space-y-2">
+            <div className="desktop-topbar-card-summary">{locationSlashPath}</div>
+            {detailConfigs.location.content}
+        </div>
+    );
+
+    const desktopBarStyle: React.CSSProperties = customTopBarEnabled
+        ? ({
+            ['--topbar-custom-ink' as any]: topBarStyle.color,
+            ['--topbar-scale' as any]: String(desktopFontScale),
+        } as React.CSSProperties)
+        : {};
+
+    const handleFullscreenDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'Tab') return;
+        const container = fullscreenDialogRef.current;
+        if (!container) return;
+        const focusables = Array.from(
+            container.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )
+        );
+        if (focusables.length === 0) {
+            event.preventDefault();
+            return;
+        }
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey) {
+            if (document.activeElement === first || !container.contains(document.activeElement)) {
+                event.preventDefault();
+                last.focus();
+            }
+        } else if (document.activeElement === last || !container.contains(document.activeElement)) {
+            event.preventDefault();
+            first.focus();
+        }
+    };
+
     return (
-        <div className="desktop-game-topbar w-full relative overflow-visible z-[230] bg-[#000] pt-[var(--app-safe-top,env(safe-area-inset-top,0px))] md:h-[58px] md:min-h-[58px] md:pt-0" style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}>
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
+        <div
+            ref={topbarRef}
+            className="desktop-game-topbar w-full relative overflow-visible z-[230] pt-[var(--app-safe-top,env(safe-area-inset-top,0px))] md:h-[58px] md:min-h-[58px] md:pt-0"
+            style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle }}
+        >
+            <div className="md:hidden absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
 
             <div className="md:hidden fixed left-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+60px)] z-[88] flex items-start gap-2 pointer-events-auto">
                 <div className="flex items-start gap-2">
@@ -613,149 +999,234 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                 </div>
             </div>
 
-            <div className="hidden md:flex items-center justify-between w-full px-20 relative z-10 h-full">
-                <div className="flex items-center">
-                    <div className="flex items-center">
-                        <div className="relative">
-                            <TopItem 
-                                label="天气" 
-                                value={weatherDisplay} 
-                                visualConfig={visualConfig} 
-                                isExpanded={expandedType === 'weather'}
-                                onMouseEnter={() => setExpandedType('weather')}
-                                onMouseLeave={() => setExpandedType(null)}
-                            />
-                            {expandedType === 'weather' && (
-                                <DetailCard 
-                                    title={detailConfigs.weather.title}
-                                    className="left-0"
-                                    onExpand={() => openFullscreenDetail('weather')}
-                                    onMouseEnter={() => setExpandedType('weather')}
-                                    onMouseLeave={() => setExpandedType(null)}
-                                    visualConfig={visualConfig}
-                                    content={
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 flex items-center justify-center bg-wuxia-gold/10 rounded-full border border-wuxia-gold/20">
-                                                <svg viewBox="0 0 64 64" className="w-8 h-8">
-                                                    <circle fill="#fbbf24" r="5" cy="24" cx="19"></circle>
-                                                    <path d="M46.5 31.5h-.32a10.49 10.49 0 00-19.11-8 7 7 0 00-10.57 6 7.21 7.21 0 00.1 1.14A7.5 7.5 0 0018 45.5a4.19 4.19 0 00.5 0v0h28a7 7 0 000-14z" fill="#f3f7fe"></path>
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <p className="text-lg font-bold">{weatherDisplay}</p>
-                                                <p className="text-wuxia-gold/60" style={{ fontSize: 顶栏字号(0.96, 13) }}>预计结束：{weatherEnd}</p>
-                                            </div>
+            <div
+                ref={barGridRef}
+                className={`desktop-topbar-grid hidden md:grid ${customTopBarEnabled ? 'desktop-topbar-grid--custom' : ''}`}
+                style={desktopBarStyle}
+            >
+                {/* Left · 天时：天气为主，环境有值才显示软囊 */}
+                <div ref={leftSlotRef} className="desktop-topbar-left">
+                    <div
+                        className="desktop-topbar-slot"
+                        onMouseEnter={() => openDesktopOnHover('weather')}
+                        onMouseLeave={() => scheduleDesktopHoverClose('weather')}
+                    >
+                        <button
+                            ref={(el) => { triggerRefs.current.weather = el; }}
+                            type="button"
+                            className="topbar-btn topbar-weather-btn"
+                            aria-expanded={desktopExpandedType === 'weather'}
+                            aria-label={`天气：${weatherDisplay}`}
+                            title={`天气：${weatherDisplay}（预计结束：${weatherEnd}）`}
+                            onClick={() => toggleDesktopPin('weather')}
+                        >
+                            <WeatherIcon weather={weatherDisplay} />
+                            <span className="topbar-weather-text">{weatherDisplay}</span>
+                        </button>
+                        {desktopExpandedType === 'weather' && (
+                            <DetailCard
+                                title={detailConfigs.weather.title}
+                                className="left-0"
+                                onClose={() => closeDesktopPanel(true)}
+                                onExpand={() => openFullscreenDetail('weather')}
+                                onMouseEnter={() => openDesktopOnHover('weather')}
+                                onMouseLeave={() => scheduleDesktopHoverClose('weather')}
+                                visualConfig={visualConfig}
+                                content={
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 flex items-center justify-center bg-wuxia-gold/10 rounded-full border border-wuxia-gold/20 shrink-0">
+                                            <WeatherIcon weather={weatherDisplay} />
                                         </div>
-                                    }
-                                />
-                            )}
-                        </div>
-                        <Divider />
-                        <div className="relative">
-                            <TopItem 
-                                label="环境" 
-                                value={environmentDisplay} 
-                                visualConfig={visualConfig} 
-                                isExpanded={expandedType === 'environment'}
-                                onMouseEnter={() => setExpandedType('environment')}
-                                onMouseLeave={() => setExpandedType(null)}
+                                        <div>
+                                            <p className="text-lg font-bold">{weatherDisplay}</p>
+                                            <p className="text-wuxia-gold/60" style={{ fontSize: 顶栏字号(0.96, 13) }}>预计结束：{weatherEnd}</p>
+                                        </div>
+                                    </div>
+                                }
                             />
-                            {expandedType === 'environment' && (
-                                <DetailCard 
+                        )}
+                    </div>
+
+                    {desktopEnvText && (
+                        <div
+                            className="desktop-topbar-slot"
+                            onMouseEnter={() => openDesktopOnHover('environment')}
+                            onMouseLeave={() => scheduleDesktopHoverClose('environment')}
+                        >
+                            <button
+                                ref={(el) => { triggerRefs.current.environment = el; }}
+                                type="button"
+                                className="topbar-btn topbar-env-pill"
+                                aria-expanded={desktopExpandedType === 'environment'}
+                                aria-label={`环境：${desktopEnvText}`}
+                                title={`周遭环境：${desktopEnvText}`}
+                                onClick={() => toggleDesktopPin('environment')}
+                            >
+                                <EnvironmentIcon />
+                                <span className="topbar-env-text">{desktopEnvText}</span>
+                            </button>
+                            {desktopExpandedType === 'environment' && (
+                                <DetailCard
                                     title={detailConfigs.environment.title}
                                     className="left-0"
+                                    onClose={() => closeDesktopPanel(true)}
                                     onExpand={() => openFullscreenDetail('environment')}
-                                    onMouseEnter={() => setExpandedType('environment')}
-                                    onMouseLeave={() => setExpandedType(null)}
+                                    onMouseEnter={() => openDesktopOnHover('environment')}
+                                    onMouseLeave={() => scheduleDesktopHoverClose('environment')}
                                     visualConfig={visualConfig}
                                     content={detailConfigs.environment.content}
                                 />
                             )}
                         </div>
-                    </div>
+                    )}
                 </div>
 
-                <div className="absolute left-1/2 top-[-8px] transform -translate-x-1/2 h-full flex flex-col items-center justify-start pt-0 z-[240]">
-                    <div className="hidden md:flex gap-8 md:gap-16 w-full justify-center absolute top-0">
-                        <div className="w-[2px] h-7 md:h-8 bg-gradient-to-b from-wuxia-gold/40 to-black"></div>
-                        <div className="w-[2px] h-7 md:h-8 bg-gradient-to-b from-wuxia-gold/40 to-black"></div>
-                    </div>
-                    <div onClick={toggleFullScreen} className="desktop-game-topbar-date-card mt-0 md:mt-2 bg-[#111]/95 border border-wuxia-gold/25 md:border-2 md:border-double md:border-wuxia-gold/50 px-2 md:px-8 py-0.5 md:py-2 rounded-md md:rounded-lg shadow-[0_8px_18px_rgba(0,0,0,0.55)] relative flex flex-col items-center min-w-[104px] md:min-w-[240px] max-w-[118px] md:max-w-none transform md:hover:scale-105 transition-transform duration-500 pointer-events-none md:pointer-events-auto cursor-default md:cursor-pointer">
-                        <div className="hidden md:block absolute top-1 left-1 w-2 h-2 border-t border-l border-wuxia-gold/50"></div>
-                        <div className="hidden md:block absolute top-1 right-1 w-2 h-2 border-t border-r border-wuxia-gold/50"></div>
-                        <div className="hidden md:block absolute bottom-1 left-1 w-2 h-2 border-b border-l border-wuxia-gold/50"></div>
-                        <div className="hidden md:block absolute bottom-1 right-1 w-2 h-2 border-b border-r border-wuxia-gold/50"></div>
-                        <div className="hidden md:block tracking-[0.08em] md:tracking-[0.1em] text-shadow" style={{ ...topBarStyle, fontWeight: 700, fontSize: 顶栏字号(1.16, 18), lineHeight: 1.2 }}>
-                            {fullDateStr}
-                        </div>
-                        <div className="md:hidden text-shadow text-center leading-tight scale-[0.8]" style={{ color: topBarStyle.color }}>
-                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(0.78, 10), lineHeight: 1.05 }}>{mobileDateStr}</div>
-                            <div style={{ ...topBarStyle, fontSize: 顶栏字号(0.94, 13), fontWeight: 700, letterSpacing: '0.08em', lineHeight: 1.05 }}>{mobileClockStr}</div>
-                        </div>
-                        <div
-                            className="absolute -bottom-2 hidden md:flex bg-wuxia-red px-2 md:px-3 py-[1px] rounded border border-wuxia-gold/30 shadow-md items-center gap-1 z-30 font-bold tracking-widest max-w-[220px] md:max-w-[460px]"
-                            style={{ color: topBarStyle.color, fontFamily: topBarStyle.fontFamily, fontStyle: topBarStyle.fontStyle, fontSize: 顶栏字号(0.88, 12), lineHeight: 1.05 }}
+                {/* Center · 时空：日期时辰全屏入口 + 地点双层锚点 */}
+                <div className="desktop-topbar-center">
+                    <button
+                        type="button"
+                        onClick={() => { void toggleFullScreen(); }}
+                        className="desktop-game-topbar-date-card topbar-btn topbar-datetime-btn"
+                        aria-pressed={isFullscreen}
+                        aria-label={`${fullDateStr}，${isFullscreen ? '退出全屏' : '进入全屏'}`}
+                        title={isFullscreen ? '点击退出全屏' : '点击进入全屏'}
+                    >
+                        {parsedTime && (
+                            <>
+                                <span className="topbar-date-text">{mobileDateStr}</span>
+                                <span className="topbar-datetime-sep" aria-hidden="true" />
+                            </>
+                        )}
+                        <span className="topbar-time-text">{displayTime}</span>
+                        <FullscreenIcon active={isFullscreen} />
+                    </button>
+
+                    <div
+                        className="desktop-topbar-slot desktop-topbar-slot--center"
+                        onMouseEnter={() => openDesktopOnHover('location')}
+                        onMouseLeave={() => scheduleDesktopHoverClose('location')}
+                    >
+                        <button
+                            ref={(el) => { triggerRefs.current.location = el; }}
+                            type="button"
+                            className={`topbar-btn topbar-location-btn ${effectiveCollapseLevel >= maxCollapseLevel ? 'topbar-location-btn--final-fallback' : ''}`}
+                            aria-expanded={desktopExpandedType === 'location'}
+                            aria-label={`当前地点：${locationSlashPath}，查看完整层级`}
+                            title={locationSlashPath}
+                            data-collapse-level={effectiveCollapseLevel}
+                            onClick={() => toggleDesktopPin('location')}
                         >
-                            <span className="hidden md:inline opacity-90 truncate" title={locationBadge}>{locationBadge}</span>
-                        </div>
+                            <span ref={locationInnerRef} className="topbar-location-inner">
+                                {visibleAncestors.map((token, idx) => (
+                                    <React.Fragment key={token.type === 'ellipsis' ? `ellipsis-${idx}` : `${token.text}-${idx}`}>
+                                        {token.type === 'ellipsis' ? (
+                                            <span className="topbar-loc-ellipsis" aria-hidden="true">…</span>
+                                        ) : (
+                                            <span className="topbar-loc-seg">{token.text}</span>
+                                        )}
+                                        <span className="topbar-loc-sep" aria-hidden="true">›</span>
+                                    </React.Fragment>
+                                ))}
+                                <span className="topbar-loc-current-wrap">
+                                    <span className="topbar-loc-anchor" aria-hidden="true" />
+                                    <span className="topbar-loc-current">{currentLocation}</span>
+                                    <ChevronDownIcon />
+                                </span>
+                            </span>
+                        </button>
+                        {desktopExpandedType === 'location' && (
+                            <DetailCard
+                                title={detailConfigs.location.title}
+                                className="left-1/2 -translate-x-1/2"
+                                onClose={() => closeDesktopPanel(true)}
+                                onExpand={() => openFullscreenDetail('location')}
+                                onMouseEnter={() => openDesktopOnHover('location')}
+                                onMouseLeave={() => scheduleDesktopHoverClose('location')}
+                                visualConfig={visualConfig}
+                                content={desktopLocationDetailContent}
+                            />
+                        )}
                     </div>
                 </div>
 
-                <div className="flex items-center">
-                    <div className="flex items-center">
-                        <div className="relative">
-                            <TopItem 
-                                label="节日" 
-                                value={festivalDisplay} 
-                                highlight={!!currentFestival} 
-                                visualConfig={visualConfig} 
-                                isExpanded={expandedType === 'festival'}
-                                onMouseEnter={() => setExpandedType('festival')}
-                                onMouseLeave={() => setExpandedType(null)}
-                            />
-                            {expandedType === 'festival' && (
-                                <DetailCard 
+                {/* Right · 岁时：古籍朱印节日轻签（有节日才显） + 历程 */}
+                <div ref={rightSlotRef} className="desktop-topbar-right">
+                    {hasActiveFestival && (
+                        <div
+                            className="desktop-topbar-slot"
+                            onMouseEnter={() => openDesktopOnHover('festival')}
+                            onMouseLeave={() => scheduleDesktopHoverClose('festival')}
+                        >
+                            <button
+                                ref={(el) => { triggerRefs.current.festival = el; }}
+                                type="button"
+                                className="topbar-btn topbar-festival-seal"
+                                aria-expanded={desktopExpandedType === 'festival'}
+                                aria-label={`节日：${festivalDisplay}`}
+                                title={`今日时节：${festivalDisplay}`}
+                                onClick={() => toggleDesktopPin('festival')}
+                            >
+                                <SealStarIcon />
+                                <span className="topbar-festival-text">{festivalDisplay}</span>
+                            </button>
+                            {desktopExpandedType === 'festival' && (
+                                <DetailCard
                                     title={detailConfigs.festival.title}
                                     className="right-0 origin-top-right"
+                                    onClose={() => closeDesktopPanel(true)}
                                     onExpand={() => openFullscreenDetail('festival')}
-                                    onMouseEnter={() => setExpandedType('festival')}
-                                    onMouseLeave={() => setExpandedType(null)}
+                                    onMouseEnter={() => openDesktopOnHover('festival')}
+                                    onMouseLeave={() => scheduleDesktopHoverClose('festival')}
                                     visualConfig={visualConfig}
                                     content={detailConfigs.festival.content}
                                 />
                             )}
                         </div>
-                        <Divider />
-                        <div className="relative">
-                            <TopItem
-                                label="历程"
-                                value={`第 ${derivedDayCount} 天`}
+                    )}
+
+                    <div
+                        className="desktop-topbar-slot"
+                        onMouseEnter={() => openDesktopOnHover('journey')}
+                        onMouseLeave={() => scheduleDesktopHoverClose('journey')}
+                    >
+                        <button
+                            ref={(el) => { triggerRefs.current.journey = el; }}
+                            type="button"
+                            className="topbar-btn topbar-journey-btn"
+                            aria-expanded={desktopExpandedType === 'journey'}
+                            aria-label={`历程：第 ${derivedDayCount} 天`}
+                            title={`行程历程：第 ${derivedDayCount} 天`}
+                            onClick={() => toggleDesktopPin('journey')}
+                        >
+                            <CalendarIcon />
+                            <span>第 {derivedDayCount} 天</span>
+                        </button>
+                        {desktopExpandedType === 'journey' && (
+                            <DetailCard
+                                title={detailConfigs.journey.title}
+                                className="right-0 origin-top-right"
+                                onClose={() => closeDesktopPanel(true)}
+                                onExpand={() => openFullscreenDetail('journey')}
+                                onMouseEnter={() => openDesktopOnHover('journey')}
+                                onMouseLeave={() => scheduleDesktopHoverClose('journey')}
                                 visualConfig={visualConfig}
-                                isExpanded={expandedType === 'journey'}
-                                onMouseEnter={() => setExpandedType('journey')}
-                                onMouseLeave={() => setExpandedType(null)}
+                                content={detailConfigs.journey.content}
                             />
-                            {expandedType === 'journey' && (
-                                <DetailCard
-                                    title={detailConfigs.journey.title}
-                                    className="right-0 origin-top-right"
-                                    onExpand={() => openFullscreenDetail('journey')}
-                                    onMouseEnter={() => setExpandedType('journey')}
-                                    onMouseLeave={() => setExpandedType(null)}
-                                    visualConfig={visualConfig}
-                                    content={detailConfigs.journey.content}
-                                />
-                            )}
-                        </div>
+                        )}
                     </div>
                 </div>
             </div>
             {fullscreenDetailType && (
                 <div
                     className="fixed inset-0 z-[260] hidden items-center justify-center bg-black/72 px-10 py-12 backdrop-blur-md md:flex"
-                    onClick={() => setFullscreenDetailType(null)}
+                    onClick={() => closeFullscreenDetail()}
                 >
                     <div
+                        ref={fullscreenDialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={detailConfigs[fullscreenDetailType].title}
+                        onKeyDown={handleFullscreenDialogKeyDown}
                         className="relative flex max-h-[min(760px,calc(100vh-6rem))] w-[min(860px,calc(100vw-5rem))] flex-col overflow-hidden rounded-2xl border border-wuxia-gold/35 bg-[#070604]/95 p-6 text-wuxia-gold shadow-[0_24px_90px_rgba(0,0,0,0.72)]"
                         onClick={(event) => event.stopPropagation()}
                     >
@@ -765,15 +1236,23 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                 {detailConfigs[fullscreenDetailType].title}
                             </h2>
                             <button
+                                ref={fullscreenCloseBtnRef}
                                 type="button"
-                                onClick={() => setFullscreenDetailType(null)}
-                                className="inline-flex h-8 items-center rounded-full border border-wuxia-gold/25 px-3 text-sm text-wuxia-gold/75 transition-colors hover:border-wuxia-gold/55 hover:text-wuxia-gold"
+                                onClick={() => closeFullscreenDetail()}
+                                className="inline-flex h-8 items-center rounded-full border border-wuxia-gold/25 px-3 text-sm text-wuxia-gold/75 transition-colors hover:border-wuxia-gold/55 hover:text-wuxia-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-wuxia-gold"
                             >
                                 收起
                             </button>
                         </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto pr-1 leading-8 text-wuxia-gold/90" style={{ ...topBarStyle, fontSize: 顶栏字号(1.08, 15) }}>
-                            {detailConfigs[fullscreenDetailType].content}
+                        <div
+                            tabIndex={0}
+                            aria-label={`${detailConfigs[fullscreenDetailType].title}内容`}
+                            className="min-h-0 flex-1 overflow-y-auto rounded pr-1 leading-8 text-wuxia-gold/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-wuxia-gold/60"
+                            style={{ ...topBarStyle, fontSize: 顶栏字号(1.08, 15) }}
+                        >
+                            {fullscreenDetailType === 'location'
+                                ? desktopLocationDetailContent
+                                : detailConfigs[fullscreenDetailType].content}
                         </div>
                     </div>
                 </div>

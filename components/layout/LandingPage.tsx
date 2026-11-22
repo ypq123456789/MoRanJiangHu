@@ -9,6 +9,7 @@ import { 读取云端游玩会话 } from '../../services/cloudPlayService';
 import { isNativeCapacitorEnvironment, setNativeSystemBarsHidden } from '../../utils/nativeRuntime';
 import { 接口设置结构, ThemePreset } from '../../types';
 import CreativeWorkshopModal from '../features/Workshop/CreativeWorkshopModal';
+import './LandingPage.css';
 
 const WORKSHOP_PENDING_LOGIN_KEY = 'creative_workshop_pending_login';
 const WORKSHOP_QUERY_PARAM = 'open';
@@ -715,7 +716,7 @@ const LandingPage: React.FC<Props> = ({
     };
 
     return (
-        <div className="landing-page relative z-40 flex min-h-full w-full max-w-full min-w-0 flex-col items-center rounded-xl bg-black px-4 pt-[max(var(--app-safe-top,env(safe-area-inset-top,0px)),12px)] pb-[calc(var(--app-safe-bottom,env(safe-area-inset-bottom,0px))+16px)]">
+        <div className="landing-page lp-shell">
             <div className="landing-bg absolute inset-0" aria-hidden="true">
                 <div
                     className="landing-bg-art absolute inset-0"
@@ -723,223 +724,253 @@ const LandingPage: React.FC<Props> = ({
                 />
                 <div className="landing-bg-ink absolute inset-0" />
                 <div className="landing-bg-vignette absolute inset-0" />
-                <div className="landing-bg-grid absolute inset-x-0 bottom-0" />
             </div>
 
-            <div className="landing-topbar relative z-20 mb-3 flex w-full max-w-full min-w-0 flex-wrap items-center justify-center gap-2 pt-2 sm:max-w-6xl sm:justify-end md:mb-4">
-                <button
-                    type="button"
-                    onClick={() => { void openExternalUrl(DISCORD_PROJECT_THREAD_URL); }}
-                    className="landing-discord-thread-button landing-topbar-button min-h-[40px] border px-3 py-2 text-xs font-serif tracking-[0.16em] shadow-[0_0_18px_rgba(99,102,241,0.16)] transition-colors md:text-sm"
-                    style={actionButtonStyle}
-                    title={DISCORD_PROJECT_THREAD_TOOLTIP}
-                    aria-label={DISCORD_PROJECT_THREAD_TOOLTIP}
-                >
-                    Discord 独立贴
-                </button>
+            <div className="lp-inner">
+                <header className="lp-topbar">
+                    <div className="lp-ver-pill">
+                        VER {releaseInfo.versionName} · APK {releaseInfo.versionCode}
+                    </div>
 
-                <GitHubSyncButton floating={false} />
+                    <div className="lp-topbar-actions">
+                        <button
+                            type="button"
+                            onClick={() => { void openExternalUrl(DISCORD_PROJECT_THREAD_URL); }}
+                            className="lp-util-btn"
+                            style={actionButtonStyle}
+                            title={DISCORD_PROJECT_THREAD_TOOLTIP}
+                            aria-label={DISCORD_PROJECT_THREAD_TOOLTIP}
+                        >
+                            Discord 独立贴
+                        </button>
 
-                {isNativeApp && (
-                    <button
-                        type="button"
-                        onClick={() => { void handleCheckUpdate(); }}
-                    className="landing-topbar-button min-h-[40px] border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs font-serif tracking-[0.18em] text-wuxia-gold transition-colors hover:bg-black/80 md:text-sm"
-                        style={actionButtonStyle}
-                        title="检查 APK 更新"
-                    >
-                        {isCheckingUpdate ? '检查中...' : '检查更新'}
-                    </button>
-                )}
+                        <GitHubSyncButton floating={false} />
 
-                <button
-                    type="button"
-                    onClick={() => onThemeChange(currentTheme === 'day' ? 'ink' : 'day')}
-                    className="landing-topbar-button min-h-[40px] border border-wuxia-cyan/40 bg-black/60 px-3 py-2 text-xs font-serif tracking-[0.18em] text-wuxia-cyan transition-colors hover:bg-black/80 md:text-sm"
-                    style={actionButtonStyle}
-                    title={currentTheme === 'day' ? '切换到黑夜模式' : '切换到白天模式'}
-                >
-                    {currentTheme === 'day' ? '黑夜模式' : '白天模式'}
-                </button>
+                        {isNativeApp && (
+                            <button
+                                type="button"
+                                onClick={() => { void handleCheckUpdate(); }}
+                                className="lp-util-btn"
+                                style={actionButtonStyle}
+                                title="检查 APK 更新"
+                            >
+                                {isCheckingUpdate ? '检查中...' : '检查更新'}
+                            </button>
+                        )}
 
-                <button
-                    type="button"
-                    onClick={() => { void requestBrowserFullscreen(); }}
-                    className="landing-topbar-button min-h-[40px] border border-wuxia-gold/40 bg-black/60 px-3 py-2 text-xs font-serif tracking-[0.2em] text-wuxia-gold transition-colors hover:bg-black/80 md:text-sm"
-                    style={actionButtonStyle}
-                    title="切换全屏"
-                >
-                    全屏
-                </button>
-            </div>
+                        <button
+                            type="button"
+                            onClick={() => onThemeChange(currentTheme === 'day' ? 'ink' : 'day')}
+                            className="lp-util-btn lp-util-btn--accent"
+                            style={actionButtonStyle}
+                            title={currentTheme === 'day' ? '切换到黑夜模式' : '切换到白天模式'}
+                        >
+                            {currentTheme === 'day' ? (
+                                <svg viewBox="0 0 20 20" className="lp-util-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M15.8 11.9A6.2 6.2 0 1 1 8.1 4.2a5 5 0 0 0 7.7 7.7Z" />
+                                </svg>
+                            ) : (
+                                <svg viewBox="0 0 20 20" className="lp-util-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <circle cx="10" cy="10" r="3.4" />
+                                    <path d="M10 2.6v1.8M10 15.6v1.8M2.6 10h1.8M15.6 10h1.8M4.8 4.8l1.3 1.3M13.9 13.9l1.3 1.3M15.2 4.8l-1.3 1.3M6.1 13.9l-1.3 1.3" />
+                                </svg>
+                            )}
+                            {currentTheme === 'day' ? '黑夜模式' : '白天模式'}
+                        </button>
 
-            <div className="landing-stage relative z-10 flex w-full max-w-full min-w-0 flex-1 flex-col items-center gap-6 overflow-visible pb-2 lg:block lg:max-w-[2200px]">
-                <section className="landing-hero-section relative z-20 flex w-full max-w-full min-w-0 flex-col items-center justify-center overflow-x-hidden animate-fadeIn lg:absolute lg:left-1/2 lg:top-[40%] lg:min-h-[calc(100vh-210px)] lg:-translate-x-1/2 lg:-translate-y-1/2">
-                    <div className="relative mb-7 flex w-full max-w-full min-w-0 flex-col items-center">
-                        <div className="landing-title-glow absolute -top-20 left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-wuxia-gold/5 blur-3xl" />
+                        <button
+                            type="button"
+                            onClick={() => { void requestBrowserFullscreen(); }}
+                            className="lp-util-btn"
+                            style={actionButtonStyle}
+                            title="切换全屏"
+                        >
+                            <svg viewBox="0 0 20 20" className="lp-util-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M7 3.5H3.5V7M13 3.5h3.5V7M7 16.5H3.5V13M13 16.5h3.5V13" />
+                            </svg>
+                            全屏
+                        </button>
+                    </div>
+                </header>
 
+                <main className="lp-hero animate-fadeIn">
+                    <div className="lp-title-block">
                         <h1
                             onClick={() => { void requestBrowserFullscreen(); }}
-                            className="landing-title mb-4 cursor-pointer select-none bg-gradient-to-b from-gray-100 to-gray-500 bg-clip-text text-center font-serif text-7xl font-black tracking-[0.1em] text-transparent drop-shadow-2xl md:text-9xl"
+                            className="lp-title"
                             style={{
                                 fontFamily: 'var(--ui-页面标题-font-family, inherit)',
-                                fontSize: 'var(--ui-页面标题-font-size, clamp(3rem,8vw,6rem))',
-                                lineHeight: 'var(--ui-页面标题-line-height, 1.2)',
-                                fontStyle: 'var(--ui-页面标题-font-style, normal)'
+                                fontStyle: 'var(--ui-页面标题-font-style, normal)',
                             }}
                             title="点击切换全屏"
                         >
                             墨色江湖
                         </h1>
-
-                        <div
-                            className="landing-version-badge mb-4 inline-flex items-center border border-white/10 bg-black/30 px-3 py-1 text-[10px] font-mono tracking-[0.3em] text-gray-400/80 backdrop-blur-md"
-                            style={{
-                                fontFamily: 'var(--ui-等宽信息-font-family, inherit)',
-                                fontSize: 'var(--ui-等宽信息-font-size, 12px)',
-                                lineHeight: 'var(--ui-等宽信息-line-height, 1.45)'
-                            }}
-                        >
-                            VER {releaseInfo.versionName} · APK {releaseInfo.versionCode}
+                        <div className="lp-subtitle-row">
+                            <span className="lp-subtitle-line" aria-hidden="true" />
+                            <h2 className="lp-subtitle">却又不止江湖</h2>
+                            <span className="lp-subtitle-line lp-subtitle-line--right" aria-hidden="true" />
                         </div>
+                    </div>
 
-                        <div className="landing-subtitle-row flex w-full max-w-full min-w-0 items-center justify-center gap-3 opacity-90 sm:gap-6">
-                            <div className="h-px w-16 bg-gradient-to-r from-transparent to-wuxia-red" />
-                            <h2
-                                className="text-shadow-sm text-xl font-bold uppercase tracking-[0.5em] text-wuxia-red md:text-2xl"
-                                style={{
-                                    fontFamily: 'var(--ui-分组标题-font-family, inherit)',
-                                    lineHeight: 'var(--ui-分组标题-line-height, 1.35)'
-                                }}
+                    <div className="lp-edition">
+                        <div className="lp-edition-head">
+                            <span className="lp-edition-seal">✦ bacon159 二创版本</span>
+                            <span className="lp-edition-co">共创者：Ling、NullUserSIe、( ఠൠఠ )、倒挂的梦、Jiang-Xiaoxing</span>
+                        </div>
+                        <div className="lp-edition-desc">
+                            本版本的部分功能、设置项和本地数据结构可能与原版或其他二创版本不同，跨版本导入存档/设置前请务必备份；不同版本之间可能不兼容。
+                        </div>
+                    </div>
+
+                    <div className="lp-entries">
+                        <div className="lp-primary-row">
+                            <button
+                                type="button"
+                                onClick={() => setLocalPlayOpen(true)}
+                                className="lp-btn-primary"
+                                style={actionButtonStyle}
                             >
-                                却又不止江湖
-                            </h2>
-                            <div className="h-px w-16 bg-gradient-to-l from-transparent to-wuxia-red" />
+                                <span className="lp-primary-dot" aria-hidden="true" />
+                                本地游玩
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onCloudPlay}
+                                className="lp-btn-secondary"
+                                style={actionButtonStyle}
+                            >
+                                云端游玩
+                            </button>
                         </div>
 
-                        <div className="landing-edition-card mt-7 w-full max-w-full border-2 border-amber-400/70 bg-amber-950/35 px-4 py-4 text-center shadow-[0_0_28px_rgba(251,191,36,0.16)] sm:max-w-2xl">
-                            <div className="landing-edition-kicker text-sm font-bold tracking-[0.24em] text-amber-200 md:text-base">
-                                bacon159 二创版本
-                            </div>
-                            <div className="mt-2 text-xs leading-6 text-amber-50/90 md:text-sm">
-                                本版本的部分功能、设置项和本地数据结构可能与原版或其他二创版本不同，跨版本导入存档/设置前请务必备份；不同版本之间可能不兼容。
-                            </div>
-                            <div className="mt-3 border-t border-amber-300/25 pt-3 text-xs leading-6 text-amber-100/90 md:text-sm">
-                                共创者：Ling、NullUserSIe、( ఠൠఠ )、倒挂的梦、Jiang-Xiaoxing
-                            </div>
+                        <div className="lp-tool-row">
+                            <button
+                                type="button"
+                                onClick={() => { void handleOpenWorkshop(); }}
+                                className="lp-btn-tool"
+                                style={actionButtonStyle}
+                            >
+                                <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M10 2.8 11.9 7.6 17 9.5 11.9 11.4 10 16.5 8.1 11.4 3 9.5 8.1 7.6 10 2.8Z" />
+                                </svg>
+                                创意工坊
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onImageManager}
+                                className="lp-btn-tool"
+                                style={actionButtonStyle}
+                            >
+                                <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <rect x="3" y="4" width="14" height="12" rx="2" />
+                                    <circle cx="7.5" cy="8.2" r="1.2" />
+                                    <path d="m17 13-3.6-3.4a1 1 0 0 0-1.4 0L6.5 15" />
+                                </svg>
+                                图片管理
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onWorldbookManager}
+                                className="lp-btn-tool"
+                                style={actionButtonStyle}
+                            >
+                                <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M4 4.5A2 2 0 0 1 6 3h10v13H6a2 2 0 0 0-2 1.5V4.5Z" />
+                                    <path d="M4 15.5A1.5 1.5 0 0 1 5.5 14H16" />
+                                </svg>
+                                世界书管理
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onSettings}
+                                className="lp-btn-tool"
+                                style={actionButtonStyle}
+                            >
+                                <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <circle cx="10" cy="10" r="2.6" />
+                                    <path d="M10 3v1.8M10 15.2V17M3 10h1.8M15.2 10H17M5.1 5.1l1.3 1.3M13.6 13.6l1.3 1.3M14.9 5.1l-1.3 1.3M6.4 13.6l-1.3 1.3" />
+                                </svg>
+                                设置
+                            </button>
                         </div>
                     </div>
+                </main>
 
-                    <div className="landing-action-group flex w-[min(16rem,calc(100vw-2rem))] max-w-full flex-col gap-3 animate-slide-in delay-100">
-                        <GameButton onClick={() => setLocalPlayOpen(true)} variant="primary" className="py-4 text-lg shadow-lg">
-                            本地游玩
-                        </GameButton>
-
-                        <GameButton onClick={onCloudPlay} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-95 shadow-lg hover:opacity-100">
-                            云端游玩
-                        </GameButton>
-
-                        <GameButton onClick={() => { void handleOpenWorkshop(); }} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-95 shadow-lg hover:opacity-100">
-                            创意工坊
-                        </GameButton>
-
-                        <GameButton onClick={onImageManager} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-90 shadow-lg hover:opacity-100">
-                            图片管理
-                        </GameButton>
-
-                        <GameButton onClick={onWorldbookManager} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-90 shadow-lg hover:opacity-100">
-                            世界书管理
-                        </GameButton>
-
-                        <GameButton onClick={onSettings} variant="secondary" className="border-opacity-50 py-4 text-lg opacity-80 shadow-lg hover:opacity-100">
-                            设置
-                        </GameButton>
-                    </div>
-                </section>
-
-                <div className="landing-dashboard-row relative z-10 grid w-full max-w-full min-w-0 grid-cols-1 items-stretch gap-4 overflow-visible animate-fadeIn lg:absolute lg:bottom-16 lg:left-1/2 lg:h-[224px] lg:max-h-[224px] lg:max-w-[1020px] lg:-translate-x-1/2 lg:grid-cols-[minmax(300px,400px)_minmax(420px,1fr)] lg:overflow-visible">
-                    <aside className="landing-card landing-release-card flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-wuxia-gold/15 bg-black/45 px-4 py-3 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur-sm">
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-wuxia-gold/10 pb-2">
-                            <div>
-                                <div className="text-sm font-serif tracking-[0.24em] text-wuxia-gold">发布信息</div>
-                                <div className="mt-1 text-xs text-gray-400">
-                                    Web / APK 当前统一版本 v{releaseInfo.versionName}
-                                </div>
-                                <div className="mt-1 text-[11px] font-mono tracking-[0.08em] text-gray-500">
-                                    发布时间 {格式化发布时间(releaseInfo.releasePublishedAt)}
-                                </div>
-                            </div>
-                            <div className="text-xs font-mono tracking-[0.18em] text-gray-500">
-                                APK CODE {releaseInfo.versionCode}
-                            </div>
+                <section className="lp-deck animate-fadeIn" aria-label="版本信息与在线动态">
+                    <aside className="lp-card">
+                        <div className="lp-card-head">
+                            <span className="lp-card-title">发布信息</span>
+                            <span className="lp-card-meta">
+                                v{releaseInfo.versionName} · APK {releaseInfo.versionCode} · {格式化发布时间(releaseInfo.releasePublishedAt)}
+                            </span>
                         </div>
 
-                        <div className="landing-release-actions mt-2 grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
+                        <div className="lp-release-grid">
                             <button
                                 type="button"
                                 onClick={() => { void openExternalUrl(RELEASE_INFO.githubRepoUrl); }}
-                                className="min-h-[38px] border border-wuxia-gold/25 bg-white/[0.03] px-3 py-2 text-xs tracking-[0.16em] text-wuxia-gold transition-colors hover:bg-white/[0.06]"
+                                className="lp-rel-btn"
                             >
                                 GitHub 项目
                             </button>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    void handleDownloadApk();
-                                }}
-                                className="min-h-[38px] border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs tracking-[0.16em] text-emerald-300 transition-colors hover:bg-emerald-500/15"
+                                onClick={() => { void handleDownloadApk(); }}
+                                className="lp-rel-btn lp-rel-btn--apk"
                             >
-                                {isNativeApp ? (isCheckingUpdate ? '准备中...' : '下载 APK') : 'APK 下载'}
+                                {isNativeApp ? (isCheckingUpdate ? '准备中...' : '下载 APK') : '↓ APK 下载'}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => { void openExternalUrl(RELEASE_INFO.releaseNotesUrl); }}
-                                className="min-h-[38px] border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs tracking-[0.16em] text-sky-200 transition-colors hover:bg-sky-500/15"
+                                className="lp-rel-btn"
                             >
                                 更新日志
                             </button>
                             <button
                                 type="button"
                                 onClick={() => { void openExternalUrl((RELEASE_INFO as any).tutorialsUrl || '/tutorials.html'); }}
-                                className="min-h-[38px] border border-wuxia-gold/25 bg-wuxia-gold/10 px-3 py-2 text-xs tracking-[0.16em] text-wuxia-gold transition-colors hover:bg-wuxia-gold/15"
+                                className="lp-rel-btn"
                             >
                                 教程中心
                             </button>
                             <button
                                 type="button"
                                 onClick={() => { void openExternalUrl('/online-ranking.html'); }}
-                                className="min-h-[38px] border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs tracking-[0.16em] text-amber-200 transition-colors hover:bg-amber-500/16"
+                                className="lp-rel-btn"
                             >
                                 在线时长榜
                             </button>
                             <button
                                 type="button"
                                 onClick={() => { void openExternalUrl('/item-preset-feedback.html'); }}
-                                className="min-h-[38px] border border-fuchsia-500/25 bg-fuchsia-500/10 px-3 py-2 text-xs tracking-[0.16em] text-fuchsia-200 transition-colors hover:bg-fuchsia-500/15"
+                                className="lp-rel-btn"
                             >
                                 预设图反馈
                             </button>
                         </div>
                     </aside>
 
-                    <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                    <div className="lp-card lp-presence-card">
+                        <div className="lp-card-head">
+                            <span className="lp-card-title">江湖动态</span>
+                            <span className="lp-card-meta">每小时在线趋势</span>
+                        </div>
                         <在线人数折线图 data={presenceHistory} current={presenceStats} />
                     </div>
+                </section>
 
-                </div>
-            </div>
-
-            <div className="landing-friend-links relative z-10 mt-1 w-full max-w-full min-w-0 overflow-x-hidden border-t border-white/10 pt-1.5 sm:max-w-6xl lg:absolute lg:bottom-3 lg:left-1/2 lg:h-[38px] lg:-translate-x-1/2">
-                <div className="flex h-full flex-wrap items-center justify-center gap-2 overflow-visible">
+                <footer className="lp-footer">
                     <button
                         type="button"
                         onClick={() => setSupportDetailsOpen(true)}
-                        className="landing-support-link inline-flex h-[28px] items-center border border-amber-400/25 bg-amber-500/10 px-3 text-xs font-bold tracking-[0.12em] text-amber-100 transition-colors hover:border-amber-300/45 hover:bg-amber-500/18"
+                        className="lp-foot-btn"
                         title="查看 API 共享支持说明"
                     >
                         API 共享说明
                     </button>
-                </div>
+                </footer>
             </div>
 
             {supportDetailsOpen && (

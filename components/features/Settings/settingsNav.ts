@@ -32,7 +32,7 @@ export type 设置组 = {
 
 export const 设置导航分组: 设置组[] = [
     {
-        id: 'play',
+        id: 'group:play',
         title: '玩法与规则',
         items: [
             { id: 'game', label: '游戏设定' },
@@ -42,7 +42,7 @@ export const 设置导航分组: 设置组[] = [
         ],
     },
     {
-        id: 'world',
+        id: 'group:world',
         title: '角色与世界',
         items: [
             { id: 'npc_management', label: 'NPC管理' },
@@ -51,7 +51,7 @@ export const 设置导航分组: 设置组[] = [
         ],
     },
     {
-        id: 'model',
+        id: 'group:model',
         title: '模型与接口',
         items: [
             { id: 'api', label: '接口连接' },
@@ -78,7 +78,7 @@ export const 设置导航分组: 设置组[] = [
         },
     },
     {
-        id: 'look',
+        id: 'group:look',
         title: '界面与声音',
         items: [
             { id: 'visual', label: '视觉显示' },
@@ -87,7 +87,7 @@ export const 设置导航分组: 设置组[] = [
         ],
     },
     {
-        id: 'data',
+        id: 'group:data',
         title: '数据与排查',
         items: [
             { id: 'context', label: '上下文' },
@@ -124,20 +124,24 @@ export const 折叠存储键 = 'moran.settingsNav.collapsedV2';
 /** 只认「组 id / 抽屉 id」这类折叠键；项 id 不算折叠键 */
 export const 是折叠键 = (id: string): boolean => 默认收起组().includes(id);
 
-/** 读折叠状态；脏数据 / 旧键 / 读不到就退回默认全收 */
+/** 兼容 706 的无前缀组键，仍要求最多展开一个主组。抽屉单独记忆。 */
 export const 读取收起组 = (): string[] => {
     if (typeof window === 'undefined') return 默认收起组();
     try {
         const raw = window.localStorage.getItem(折叠存储键);
         if (!raw) return 默认收起组();
         const parsed: unknown = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
-            // 去掉认不出的键（例如旧版本没前缀的 'play'、或误存进来的项 id）
-            const 干净 = (parsed as string[]).filter(是折叠键);
-            return 干净.length === (parsed as string[]).length ? 干净 : 默认收起组();
-        }
+        if (!Array.isArray(parsed) || !parsed.every((值) => typeof 值 === 'string')) return 默认收起组();
+
+        const 组ID = 全部组ID();
+        const 旧组键 = new Map(组ID.map((id) => [id.slice('group:'.length), id]));
+        const 键列表 = (parsed as string[]).map((id) => 旧组键.get(id) ?? id);
+        if (!键列表.every(是折叠键)) return 默认收起组();
+        const 收起键 = new Set(键列表);
+        if (收起键.size !== 键列表.length) return 默认收起组();
+        if (组ID.filter((id) => !收起键.has(id)).length > 1) return 默认收起组();
+        return 默认收起组().filter((id) => 收起键.has(id));
     } catch {
-        // 读坏了就当没有，别让设置页打不开
+        return 默认收起组();
     }
-    return 默认收起组();
 };

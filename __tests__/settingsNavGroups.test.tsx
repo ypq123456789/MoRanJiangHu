@@ -155,6 +155,45 @@ describe('设置页左侧导航分组', () => {
         expect(侧栏项('接口连接')).toHaveLength(0);
     });
 
+    it('组编号与所有设置项和抽屉编号分开', () => {
+        const 独立组 = new Set(设置导航分组.map((组) => 组.id));
+        expect(独立组.size).toBe(5);
+        expect(展平设置项().some((项) => 独立组.has(项.id))).toBe(false);
+        expect(设置导航分组.some((组) => 组.sub && 独立组.has(组.sub.id))).toBe(false);
+    });
+
+    it.each([true, false])('升级后保留 706 已打开的模型组及抽屉状态（抽屉收起=%s）', (收起抽屉) => {
+        const 旧状态 = ['play', 'world', 'look', 'data', ...(收起抽屉 ? ['model:sub'] : [])];
+        window.localStorage.setItem(折叠存储键, JSON.stringify(旧状态));
+        render(<SettingsModal {...构造Props('context')} />);
+        expect(侧栏项('接口连接')).toHaveLength(1);
+        expect(侧栏项('剧情回忆')).toHaveLength(收起抽屉 ? 0 : 1);
+        fireEvent.click(screen.getByRole('button', { name: /玩法与规则/ }));
+        expect(读折叠状态()).toEqual([
+            'group:world', 'group:model', 'group:look', 'group:data', ...(收起抽屉 ? ['model:sub'] : []),
+        ]);
+    });
+
+    it('保留 706 五组全收时已展开的抽屉记忆', () => {
+        window.localStorage.setItem(折叠存储键, JSON.stringify(['play', 'world', 'model', 'look', 'data']));
+        render(<SettingsModal {...构造Props('context')} />);
+        expect(侧栏项('接口连接')).toHaveLength(0);
+        fireEvent.click(screen.getByRole('button', { name: /模型与接口/ }));
+        expect(侧栏项('剧情回忆')).toHaveLength(1);
+    });
+
+    it.each([
+        [[]], [['play', 'world']], [['group:play', 'group:world']],
+        [['play', 'play', 'world', 'look', 'data']],
+        [['play', 'group:play', 'world', 'look', 'data']],
+    ])('异常记录恢复为五组全收：%j', (记录) => {
+        window.localStorage.setItem(折叠存储键, JSON.stringify(记录));
+        render(<SettingsModal {...构造Props('context')} />);
+        for (const 组 of 设置导航分组) {
+            expect(screen.getByRole('button', { name: new RegExp(组.title) }).getAttribute('aria-expanded')).toBe('false');
+        }
+    });
+
     it('研发诊断关闭时不显示「互动历史」，并给出说明文字', () => {
         render(<SettingsModal {...构造Props('context')} />);
         fireEvent.click(screen.getByRole('button', { name: /数据与排查/ }));

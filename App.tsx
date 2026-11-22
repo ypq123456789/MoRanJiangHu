@@ -40,6 +40,7 @@ import { addScriptedMoneyDelta } from './utils/scriptedMoneyReconciler';
 import { 获取题材界面文案 } from './utils/resourceLabels';
 import { 获取题材顶部时间显示格式 } from './utils/modeRuntimeProfile';
 import { 计算游戏历程天数 } from './utils/gameTimeJourney';
+import { 计算回合键, 计算变化区域签名, 判断是否有未读, 合并已读键 } from './utils/rightPanelUnread';
 import { 整理世界状态客户可见大事 } from './hooks/useGame/worldEvolutionUtils';
 import { 分配角色属性点, type 可分配六维属性键 } from './utils/characterAttributePoints';
 import { getDiagnosticLogs, recordDiagnosticLog, subscribeDiagnosticLogs } from './services/diagnosticLog';
@@ -1815,6 +1816,49 @@ const App: React.FC = () => {
         || safeShowSaveLoad.show
         || state.showSettings
     );
+    const [desktopRightPanelCollapsed, setDesktopRightPanelCollapsed] = React.useState<boolean>(() => {
+        try {
+            return localStorage.getItem('moran.rightPanel.collapsed.v1') === '1';
+        } catch {
+            return false;
+        }
+    });
+    const setDesktopRightPanelCollapsedPersisted = React.useCallback((next: boolean) => {
+        setDesktopRightPanelCollapsed(next);
+        try {
+            localStorage.setItem('moran.rightPanel.collapsed.v1', next ? '1' : '0');
+        } catch {}
+    }, []);
+    const [dismissedRightPanelChangeKeys, setDismissedRightPanelChangeKeys] = React.useState<string[]>([]);
+    const latestChangedSignature = React.useMemo(
+        () => 计算变化区域签名(latestChangedSections),
+        [latestChangedSections]
+    );
+    // 已读状态按「回合」隔离：同一回合收起再展开保留已读；进入新回合时即使变化区域完全相同，
+    // 也要清空已读并重新提示。
+    const rightPanelTurnKey = React.useMemo(
+        () => 计算回合键(latestAssistantMessage?.timestamp, latestChangedSignature),
+        [latestAssistantMessage, latestChangedSignature]
+    );
+    React.useEffect(() => {
+        setDismissedRightPanelChangeKeys([]);
+    }, [rightPanelTurnKey]);
+    const handleDismissRightPanelChangeKeys = React.useCallback((keys: string[]) => {
+        if (!keys || keys.length === 0) return;
+        setDismissedRightPanelChangeKeys((prev) => 合并已读键(prev, keys));
+    }, []);
+    const rightPanelTrackedChangeKeys = React.useMemo(() => {
+        const keys = new Set<string>(['背包', '社交', '装备', '任务列表', '战斗', '队伍', '玩家门派', '地图', '约定列表', '剧情', '记忆系统']);
+        if (启用修炼体系) keys.add('功法');
+        if (state.apiConfig?.功能模型占位?.世界演变功能启用 !== false) keys.add('世界');
+        if (state.apiConfig?.功能模型占位?.规划分析功能启用 !== false && safeGameConfig?.启用女主剧情规划 === true) keys.add('剧情规划');
+        return keys;
+    }, [启用修炼体系, state.apiConfig?.功能模型占位?.世界演变功能启用, state.apiConfig?.功能模型占位?.规划分析功能启用, safeGameConfig?.启用女主剧情规划]);
+    const hasUnreadRightPanelChanges = React.useMemo(
+        () => 判断是否有未读(latestChangedSections, rightPanelTrackedChangeKeys, dismissedRightPanelChangeKeys)
+            || Boolean(state.apiConfig?.功能模型占位?.世界演变功能启用 !== false && meta.worldEvolutionEnabled && meta.worldEvolutionUpdating),
+        [latestChangedSections, rightPanelTrackedChangeKeys, dismissedRightPanelChangeKeys, state.apiConfig?.功能模型占位?.世界演变功能启用, meta.worldEvolutionEnabled, meta.worldEvolutionUpdating]
+    );
     const desktopRightDetailId = activeMobileWindowId || 'detail';
     const desktopRightDetailClass = state.view === 'game' && !isMobile
         ? `desktop-right-detail-modal desktop-right-detail-modal--${desktopRightDetailId}${desktopDetailFullscreen ? ' desktop-right-detail-modal--fullscreen' : ''}`
@@ -3522,46 +3566,67 @@ const App: React.FC = () => {
                             )}
                         </div>
 
-                        {/* 右侧栏 */}
-                        <div className="hidden md:block h-full w-[var(--desktop-side-menu-width)] shrink-0 relative z-20 bg-ink-black/95 border-l border-wuxia-gold/20 flex flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.5)]">
-                            <RightPanel 
-                                onOpenSettings={openSettings} 
-                                onOpenInventory={openInventory}
-                                onOpenEquipment={openEquipment} 
-                                onOpenBattle={openBattle}
-                                onOpenTeam={openTeam}
-                                onOpenSocial={openSocial}
-                                onOpenKungfu={openKungfu}
-                                onOpenWorld={openWorld}
-                                onOpenMap={openMap}
-                                onOpenSect={openSect}
-                                onOpenTask={openTask} 
-                                onOpenAgreement={openAgreement} 
-                                onOpenStory={openStory}
-                                onOpenHeroinePlan={openHeroinePlan}
-                                onOpenMemory={openMemory}
-                                onOpenNovelExport={openNovelExport}
-                                onOpenAuctionHouse={openAuctionHouse}
-                                auctionHouseLabel={当前题材市场名称}
-                                sectLabel={组织入口显示名称}
-                                uiLabels={题材界面文案}
-                                onOpenImageManager={openImageManagerWithCheck}
-                                onOpenNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
-                                worldEvolutionEnabled={meta.worldEvolutionEnabled}
-                                worldEvolutionUpdating={meta.worldEvolutionUpdating}
-                                enableWorldPanel={state.apiConfig?.功能模型占位?.世界演变功能启用 !== false}
-                                enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
-                                enablePlanningPanel={state.apiConfig?.功能模型占位?.规划分析功能启用 !== false}
-                                enableKungfu={启用修炼体系}
-                                kungfuLabel={功法显示名称}
-                                onSave={openSave}
-                                onLoad={openLoad}
-                                onReturnToHome={() => { void handleReturnToHomeWithAutoSave(); }}
-                                returnHomeSaving={returnHomeSaving}
-                                visualConfig={effectiveVisualConfig}
-                                latestChangedSections={latestChangedSections}
-                            />
-                        </div>
+                        {/* 右侧栏（支持一键收起为右缘竖书签，打开系统弹窗时自动展示以便切页） */}
+                        {(!desktopRightPanelCollapsed || desktopRightDetailPanelOpen) ? (
+                            <div className="hidden md:flex h-full w-[var(--desktop-side-menu-width)] shrink-0 relative z-20 bg-ink-black/95 border-l border-wuxia-gold/20 flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.5)]">
+                                <RightPanel
+                                    onOpenSettings={openSettings}
+                                    onOpenInventory={openInventory}
+                                    onOpenEquipment={openEquipment}
+                                    onOpenBattle={openBattle}
+                                    onOpenTeam={openTeam}
+                                    onOpenSocial={openSocial}
+                                    onOpenKungfu={openKungfu}
+                                    onOpenWorld={openWorld}
+                                    onOpenMap={openMap}
+                                    onOpenSect={openSect}
+                                    onOpenTask={openTask}
+                                    onOpenAgreement={openAgreement}
+                                    onOpenStory={openStory}
+                                    onOpenHeroinePlan={openHeroinePlan}
+                                    onOpenMemory={openMemory}
+                                    onOpenNovelExport={openNovelExport}
+                                    onOpenAuctionHouse={openAuctionHouse}
+                                    auctionHouseLabel={当前题材市场名称}
+                                    sectLabel={组织入口显示名称}
+                                    uiLabels={题材界面文案}
+                                    onOpenImageManager={openImageManagerWithCheck}
+                                    onOpenNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
+                                    worldEvolutionEnabled={meta.worldEvolutionEnabled}
+                                    worldEvolutionUpdating={meta.worldEvolutionUpdating}
+                                    enableWorldPanel={state.apiConfig?.功能模型占位?.世界演变功能启用 !== false}
+                                    enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
+                                    enablePlanningPanel={state.apiConfig?.功能模型占位?.规划分析功能启用 !== false}
+                                    enableKungfu={启用修炼体系}
+                                    kungfuLabel={功法显示名称}
+                                    onSave={openSave}
+                                    onLoad={openLoad}
+                                    onReturnToHome={() => { void handleReturnToHomeWithAutoSave(); }}
+                                    returnHomeSaving={returnHomeSaving}
+                                    visualConfig={effectiveVisualConfig}
+                                    latestChangedSections={latestChangedSections}
+                                    dismissedChangeKeys={dismissedRightPanelChangeKeys}
+                                    onDismissChangeKeys={handleDismissRightPanelChangeKeys}
+                                    activeKey={activeMobileWindowId}
+                                    onCollapse={!desktopRightDetailPanelOpen ? () => setDesktopRightPanelCollapsedPersisted(true) : undefined}
+                                />
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setDesktopRightPanelCollapsedPersisted(false)}
+                                className="hidden md:inline-flex rp-edge-ear"
+                                aria-label="展开天机菜单"
+                                title="展开天机菜单"
+                            >
+                                {hasUnreadRightPanelChanges && (
+                                    <span className="rp-edge-ear-dot" aria-label="有新变动" />
+                                )}
+                                <span className="rp-edge-ear-text">
+                                    {题材界面文案?.标题?.系统菜单题头 || '天机'}
+                                </span>
+                            </button>
+                        )}
 
                         {desktopRightDetailPanelOpen && (
                             <div
