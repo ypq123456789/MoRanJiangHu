@@ -334,6 +334,8 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
         onRetry?: (attempt: number, maxAttempts: number, reason: string) => void;
         onStreamDelta?: (delta: string, accumulated: string) => void;
         signal?: AbortSignal;
+        /** 省次数模式：复用主剧情请求里已经带回的本阶段原始输出。 */
+        prefetchedRawText?: string;
     }): Promise<统一规划分析结果> => {
         检查规划分析中断(params.signal);
         if (deps.规划分析进行中Ref?.current) {
@@ -627,12 +629,15 @@ export const 创建规划更新工作流 = (deps: 规划更新工作流依赖) =
                             }
                         },
                         onStreamEnd: streamOptions.onStreamEnd
-                    }
+                    },
+                    params.prefetchedRawText
                 ),
                 发起非流式请求: () => textAIService.generatePlanningAnalysis(
                     规划分析请求参数,
                     planningApi,
-                    signal
+                    signal,
+                    undefined,
+                    params.prefetchedRawText
                 ),
                 onFallback: (info) => {
                     if (info.重试失败) {

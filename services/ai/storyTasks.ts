@@ -1,4 +1,5 @@
 import { buildNaturalProsePrompt, type NaturalProseSettings } from '../../utils/naturalProse';
+import { 提取省次数分节 } from '../../utils/singleCallMode';
 import { GameResponse, TavernCommand, 内置提示词条目结构 } from '../../types';
 import type { 当前可用接口结构 } from '../../utils/apiConfig';
 import type { 小说拆分数据集结构, 小说拆分角色档案结构, 小说拆分势力档案结构, 小说拆分地图地点档案结构, 小说拆分物品档案结构 } from '../../models/novelDecomposition';
@@ -239,6 +240,8 @@ export interface StoryRequestOptions {
     disableThinking?: boolean;
     stripReasoning?: boolean;
     prefixMode?: boolean;
+    /** 省次数模式：解析主剧情前先剥离 <省次数附加> 块，避免分节命令污染正文协议。 */
+    stripSingleCallSections?: boolean;
 }
 
 export interface WorldStreamOptions {
@@ -1017,9 +1020,12 @@ export const generateVariableCalibrationUpdate = async (
      * `dedupedCommands.length === 0` 的兜底不会触发，于是「一半变量命令被静默合并」。
      * 调用方必须靠它拿到 `sawDone` 才能识别断流并降级非流式重试。
      */
-    onStreamEnd?: (info: 通用流式结束信息) => void
+    onStreamEnd?: (info: 通用流式结束信息) => void,
+    /** 省次数模式：主剧情一次请求已经带回本阶段的原始输出，直接解析，不再单独发请求。 */
+    prefetchedRawText?: string
 ): Promise<VariableCalibrationResult> => {
-    if (!apiConfig.apiKey) throw new Error('Missing API Key');
+    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
     if (params.taskMode === 'review') {
         if (!params.reviewContext) throw new Error('变量审查缺少审查上下文');
         const rawText = await 请求模型文本(apiConfig, buildVariableReviewMessages(params.stateJson, params.response, params.reviewContext, params.calibrationRulesContext || ''), {
@@ -1102,18 +1108,20 @@ export const generateVariableCalibrationUpdate = async (
         { role: 'assistant', content: 构建变量模型COT伪装提示词() || 默认COT伪装历史消息提示词.trim() }
     ], { 保留System: true, 合并同角色: false });
 
-    const rawText = await 请求模型文本(apiConfig, messages, {
-        temperature: 0.2,
-        signal,
-        errorDetailLimit: Number.POSITIVE_INFINITY,
-        streamOptions: onStreamDelta || onStreamEnd
-            ? {
-                stream: true,
-                onDelta: onStreamDelta,
-                onStreamEnd
-            }
-            : undefined
-    });
+    const rawText = 使用预取结果
+        ? String(prefetchedRawText)
+        : await 请求模型文本(apiConfig, messages, {
+            temperature: 0.2,
+            signal,
+            errorDetailLimit: Number.POSITIVE_INFINITY,
+            streamOptions: onStreamDelta || onStreamEnd
+                ? {
+                    stream: true,
+                    onDelta: onStreamDelta,
+                    onStreamEnd
+                }
+                : undefined
+        });
     const parsed = 解析变量校准响应(rawText);
 
     return {
@@ -2085,17 +2093,22 @@ export const generateNovelDecomposition = async (
 const 解析故事响应 = (
     rawText: string,
     requestOptions?: StoryRequestOptions
-): StoryResponseResult => ({
-    response: parseStoryRawText(rawText, {
-        validateTagCompleteness: requestOptions?.validateTagCompleteness,
-        enableTagRepair: requestOptions?.enableTagRepair,
-        requireActionOptionsTag: requestOptions?.requireActionOptionsTag,
-        requireDynamicWorldTag: requestOptions?.requireDynamicWorldTag,
-        validateDialogueFormat: requestOptions?.validateDialogueFormat,
-        knownSpeakers: requestOptions?.knownSpeakers
-    }),
-    rawText
-});
+): StoryResponseResult => {
+    const 主剧情文本 = requestOptions?.stripSingleCallSections
+        ? 提取省次数分节(rawText).storyText
+        : rawText;
+    return {
+        response: parseStoryRawText(主剧情文本, {
+            validateTagCompleteness: requestOptions?.validateTagCompleteness,
+            enableTagRepair: requestOptions?.enableTagRepair,
+            requireActionOptionsTag: requestOptions?.requireActionOptionsTag,
+            requireDynamicWorldTag: requestOptions?.requireDynamicWorldTag,
+            validateDialogueFormat: requestOptions?.validateDialogueFormat,
+            knownSpeakers: requestOptions?.knownSpeakers
+        }),
+        rawText
+    };
+};
 
 const 是否正文对白格式错误 = (error: any): boolean => {
     const text = `${error?.parseDetail || ''}\n${error?.message || ''}`;
@@ -2353,14 +2366,23 @@ export const generateStoryResponse = async (
         } catch (error: any) {
             流式意外终止则抛出(error);
             if (requestOptions?.validateDialogueFormat === true && error?.name === 'StoryResponseParseError') {
+                // 修复请求只处理主剧情协议，不能把省次数分节一起喂给修复器；
+                // 但修复成功后要把原分节拼回 rawText，否则调用方提取不到，所有阶段都会重复请求。
+                const 原有分节块 = rawText.match(/<\s*省次数附加\s*>[\s\S]*?<\s*\/\s*省次数附加\s*>/i)?.[0] || '';
+                const 恢复附加分节 = (result: StoryResponseResult): StoryResponseResult => (
+                    原有分节块 ? { ...result, rawText: `${result.rawText}\n${原有分节块}` } : result
+                );
+                const 修复用文本 = requestOptions?.stripSingleCallSections
+                    ? 提取省次数分节(rawText).storyText
+                    : rawText;
                 if (是否正文对白格式错误(error)) {
                     try {
-                        return await 修复故事响应正文对白格式(rawText, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions);
+                        return 恢复附加分节(await 修复故事响应正文对白格式(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions));
                     } catch {
-                        return 修复故事响应协议(rawText, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions);
+                        return 恢复附加分节(await 修复故事响应协议(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions));
                     }
                 }
-                return 修复故事响应协议(rawText, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions);
+                return 恢复附加分节(await 修复故事响应协议(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions));
             }
             throw error;
         }

@@ -55,6 +55,8 @@ export type 变量模型校准参数 = {
         openingConfigText?: string;
     };
     onStreamDelta?: (delta: string, accumulated: string) => void;
+    /** 省次数模式：复用主剧情请求里已经带回的本阶段原始输出。 */
+    prefetchedRawText?: string;
 };
 
 type 变量模型依赖 = {
@@ -663,7 +665,7 @@ export const 执行变量模型校准工作流 = async (
      * 所以 `dedupedCommands.length === 0` 的兜底不会触发，会出现「一半变量命令被静默合并」。
      * 这里用统一的完整性保护：走流式时校验结束标记，疑似被上游掐断就降级非流式重试一次。
      */
-    const 请求变量模型 = async (retryHint = '') => {
+    const 请求变量模型 = async (retryHint = '', prefetchedRawText?: string) => {
         const 附加提示词 = [mergedExtraPrompt, retryHint].filter(Boolean).join('\n\n');
         const 独立GPT模式 = runtimeGameConfig.独立APIGPT模式?.变量生成 === true;
         const 结果 = await 执行带完整性校验的请求({
@@ -679,7 +681,8 @@ export const 执行变量模型校准工作流 = async (
                 附加提示词,
                 params.onStreamDelta,
                 独立GPT模式,
-                streamOptions.onStreamEnd
+                streamOptions.onStreamEnd,
+                prefetchedRawText
             ),
             发起非流式请求: () => textAIService.generateVariableCalibrationUpdate(
                 变量模型请求参数,
@@ -687,7 +690,9 @@ export const 执行变量模型校准工作流 = async (
                 params.signal,
                 附加提示词,
                 undefined,
-                独立GPT模式
+                独立GPT模式,
+                undefined,
+                prefetchedRawText
             ),
             onFallback: (info) => {
                 if (info.重试失败) {
@@ -753,7 +758,7 @@ export const 执行变量模型校准工作流 = async (
         rawText ? `【上一版未通过校验的变量模型原始输出】\n${rawText}` : ''
     ].filter(Boolean).join('\n\n');
 
-    let firstResult = await 请求变量模型();
+    let firstResult = await 请求变量模型('', params.prefetchedRawText);
     try {
         return 校验并规整变量结果(firstResult);
     } catch (error: any) {

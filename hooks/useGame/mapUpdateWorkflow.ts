@@ -46,6 +46,8 @@ type 地图更新请求参数 = {
     };
     signal?: AbortSignal;
     onDelta?: (delta: string, accumulated: string) => void;
+    /** 省次数模式：复用主剧情请求里已经带回的本阶段原始输出。 */
+    prefetchedRawText?: string;
 };
 
 const 地图层级顺序 = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'] as const;
@@ -447,6 +449,8 @@ export const 生成地图更新 = async (
     const api = params.mode === 'auto_incremental'
         ? 获取地图自动更新接口配置(params.apiSettings)
         : 获取地图生成接口配置(params.apiSettings);
+    // 省次数模式下地图结果已经在主剧情那一次请求里带回来了，不需要独立地图接口可用。
+    const 预取地图文本 = typeof params.prefetchedRawText === 'string' ? params.prefetchedRawText.trim() : '';
     const env = params.stateBase?.环境 || params.环境;
     const world = params.stateBase?.世界 || params.世界;
     const social = params.stateBase?.社交 || params.社交 || [];
@@ -454,10 +458,11 @@ export const 生成地图更新 = async (
     const layerCount = Array.isArray((world as any)?.地图层级) ? (world as any).地图层级.length : 0;
     const bodyTextLength = 提取响应正文(params.currentResponse).length;
     const currentLocation = [env?.大地点, env?.中地点, env?.小地点, env?.具体地点].map(取文本).filter(Boolean).join(' > ');
-    const apiUsable = 接口配置是否可用(api);
+    const apiUsable = 接口配置是否可用(api) || Boolean(预取地图文本);
     const baseMeta = {
         diagnosticId,
         mode: params.mode,
+        prefetched: Boolean(预取地图文本),
         model: 取文本((api as any)?.model),
         supplier: 取文本((api as any)?.供应商),
         baseUrlHost: 读取接口主机((api as any)?.baseUrl),
@@ -545,7 +550,9 @@ export const 生成地图更新 = async (
     let rawText = '';
     try {
         rawText = await Promise.race([
-            (async () => {
+            预取地图文本
+                ? Promise.resolve(预取地图文本)
+                : (async () => {
                 /**
                  * 地图命令块被截断后仍可能解析出**部分合法命令**，那样 `commands.length > 0`
                  * 会判定本轮「更新完成」，玩家看到的是「地图只更新了一半」。

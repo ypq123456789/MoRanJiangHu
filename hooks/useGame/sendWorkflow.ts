@@ -9,7 +9,10 @@ import { 是否流式连接中断错误消息 } from '../../services/ai/chatComp
 import { recordAiParseFailureDiagnostic } from '../../services/diagnosticContext';
 import { recordDiagnosticLog } from '../../services/diagnosticLog';
 import type { GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
-import { 获取主剧情接口配置, 获取剧情回忆接口配置, 获取文章优化接口配置, 获取变量计算接口配置, 获取世界演变接口配置, 获取规划分析接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 变量校准功能已启用 as 变量生成功能已启用 } from '../../utils/apiConfig';
+import { 获取主剧情接口配置, 获取剧情回忆接口配置, 获取文章优化接口配置, 获取变量计算接口配置, 获取世界演变接口配置, 获取规划分析接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 变量校准功能已启用 as 变量生成功能已启用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
+import { 构建省次数附加输出协议, 提取省次数分节, 过滤省次数流式草稿, type 省次数环节 } from '../../utils/singleCallMode';
+import { 获取繁体输出指令 } from '../../utils/traditionalChinese';
+import { 构建变量相关规则提示词 } from '../../prompts/runtime/variableCalibrationReference';
 import { 规范化游戏设置 } from '../../utils/gameSettings';
 import { 获取游玩请求超时毫秒 } from '../../utils/gameRequestTimeouts';
 import { 计算正文字数容错字数, 正文字数差距在容错内 } from '../../utils/bodyLengthTolerance';
@@ -1256,7 +1259,7 @@ type 主剧情发送依赖 = {
     执行正文润色: (
         baseResponse: GameResponse,
         rawText: string,
-        options?: { manual?: boolean; playerInput?: string; signal?: AbortSignal; allowExpansionForLength?: boolean; minLength?: number }
+        options?: { manual?: boolean; playerInput?: string; signal?: AbortSignal; allowExpansionForLength?: boolean; minLength?: number; prefetchedRawText?: string }
     ) => Promise<{ response: GameResponse; applied: boolean; error?: string; rawText?: string }>;
     执行世界演变更新: (params?: 世界演变触发参数) => Promise<世界演变执行结果>;
     触发新增NPC自动生图: (npcs: any[]) => void;
@@ -1318,6 +1321,7 @@ type 主剧情发送依赖 = {
         onRetry?: (attempt: number, maxAttempts: number, reason: string) => void;
         onStreamDelta?: (delta: string, accumulated: string) => void;
         signal?: AbortSignal;
+        prefetchedRawText?: string;
     }) => Promise<{ updated: boolean; message: string; rawText?: string; commands: any[]; storyPlanCommands?: any[]; heroinePlanCommands?: any[] }>;
     后台执行变量生成: (params: {
         snapshot: 回合快照结构;
@@ -1329,6 +1333,7 @@ type 主剧情发送依赖 = {
         responseDurationSec?: number;
         worldEvolutionUpdated?: boolean;
         extraPromptAppend?: string;
+        prefetchedRawText?: string;
         onProgress?: (progress: 变量生成进度) => void;
     }) => Promise<void>;
     执行变量生成并合并响应: (params: {
@@ -1342,6 +1347,7 @@ type 主剧情发送依赖 = {
         responseDurationSec?: number;
         worldEvolutionUpdated?: boolean;
         extraPromptAppend?: string;
+        prefetchedRawText?: string;
         onProgress?: (progress: 变量生成进度) => void;
     }) => Promise<{
         mergedParsed: GameResponse;
@@ -1413,12 +1419,36 @@ export const 执行主剧情发送工作流 = async (
 
     if (!content.trim() || currentState.loading) return {};
 
-    const activeApi = 获取主剧情接口配置(currentState.apiConfig);
+    // 省次数模式：整回合只发一次请求（主剧情），其余环节从这一次输出的分节里拆。
+    // 接口不可用时静默回退普通链路，避免打开开关后整个回合无法进行。
+    const 省次数模式开启 = 省次数模式已启用(currentState.apiConfig);
+    const 省次数指定接口 = 省次数模式开启 ? 获取省次数模式接口配置(currentState.apiConfig) : null;
+    const 使用省次数模式 = Boolean(省次数指定接口 && 接口配置是否可用(省次数指定接口));
+    if (省次数模式开启 && !使用省次数模式) {
+        recordDiagnosticLog('warn', ['省次数模式接口不可用，已回退主剧情接口', {
+            hasConfig: Boolean(省次数指定接口),
+            model: 省次数指定接口?.model || ''
+        }]);
+    }
+    const activeApi = 使用省次数模式
+        ? (省次数指定接口 as NonNullable<typeof 省次数指定接口>)
+        : 获取主剧情接口配置(currentState.apiConfig);
     if (!接口配置是否可用(activeApi)) {
         alert('请先在设置中填写 API 地址/API Key，并选择主剧情使用模型');
         deps.setShowSettings(true);
         return { cancelled: true };
     }
+    // 「按现有开关自动决定」：参与环节完全沿用用户已经配置的各阶段开关与接口可用性。
+    const 省次数启用环节: 省次数环节[] = [];
+    if (deps.文章优化功能已开启() && 接口配置是否可用(获取文章优化接口配置(currentState.apiConfig))) {
+        省次数启用环节.push('polish');
+    }
+    if (变量生成功能已启用(currentState.apiConfig) && 接口配置是否可用(获取变量计算接口配置(currentState.apiConfig))) {
+        省次数启用环节.push('variable');
+    }
+    if (currentState.apiConfig?.功能模型占位?.世界演变功能启用 !== false) 省次数启用环节.push('world');
+    if (currentState.apiConfig?.功能模型占位?.规划分析功能启用 !== false) 省次数启用环节.push('planning');
+    if (currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false) 省次数启用环节.push('map');
     const naturalProseSnapshotPending = naturalProseSettingsService.load().then(
         value => ({ value, error: undefined }), error => ({ value: undefined, error })
     );
@@ -1494,6 +1524,39 @@ export const 执行主剧情发送工作流 = async (
     const recallRoundReady = nextRound >= recallMinRound;
     const extracted = 提取剧情回忆标签(content);
     let sendInput = extracted.cleanInput || content.trim();
+    // 润色阶段在省次数模式下不再单独发请求，因此必须把它本该收到的用户配置与运行时约束提前写进协议。
+    // 注意：必须放在 sendInput 初始化之后，否则 let 的暂时性死区会抛 ReferenceError。
+    const 省次数润色补充指令 = 使用省次数模式 && 省次数启用环节.includes('polish')
+        ? (() => {
+            const feature = currentState.apiConfig?.功能模型占位;
+            const 自定义提示词 = typeof feature?.文章优化提示词 === 'string' ? feature.文章优化提示词.trim() : '';
+            const 运行时配置 = 规范化游戏设置(currentState.gameConfig);
+            const 字数要求 = Number(运行时配置.字数要求) || 0;
+            const 叙事人称 = 运行时配置.叙事人称 || '第二人称';
+            return [
+                自定义提示词 ? `【用户配置的文章优化提示词 · 必须遵守】\n${自定义提示词}` : '',
+                '【本回合润色硬约束 · 必须遵守】',
+                `- 润色后正文保持在 ${字数要求} 字左右，不得压缩成大纲、摘要或设定说明。`,
+                '- 角色对白必须单独成行并以【角色名】开头；旁白只写动作、环境与心理，不得把对白混进旁白行。',
+                '- 禁止在【旁白】/【角色名】行用（）或()补充描写；括号信息改写成独立句并入动作链。',
+                `- 叙事人称固定为${叙事人称}。`,
+                `- 本回合玩家输入：${sendInput || '（无）'}。只能保留与输入一致的玩家发言，不得替主角补写未输入的关键决策与台词。`,
+                获取繁体输出指令(currentState.gameConfig)
+            ].filter(Boolean).join('\n');
+        })()
+        : '';
+    // 变量阶段在省次数模式下也不再单独请求，原独立请求里的校准规则必须一起进主剧情提示词。
+    const 省次数变量补充规则 = 使用省次数模式 && 省次数启用环节.includes('variable')
+        ? 构建变量相关规则提示词({
+            // 该函数当前只按 gameConfig 过滤内置纪律条目，promptPool 传空数组即可，
+            // 避免把「内置提示词条目结构」误当成「提示词结构」。
+            promptPool: [],
+            gameConfig: 规范化游戏设置(currentState.gameConfig)
+        })
+        : '';
+    const 省次数附加协议 = 使用省次数模式
+        ? 构建省次数附加输出协议(省次数启用环节, 省次数润色补充指令, 省次数变量补充规则)
+        : '';
     let recallTag = extracted.recallTag;
     let attachedRecallPreview = '';
     // 动态超时：基础 + 每 10 回合追加，封顶上限。上下文越长，检索越慢，死板 25s 不够用。
@@ -1866,6 +1929,18 @@ export const 执行主剧情发送工作流 = async (
             builtinPromptEntries: currentState.内置提示词列表,
             worldbooks: currentState.世界书列表
         });
+        // 附加协议放在消息链末尾；尾部是 assistant 前缀时插到前缀之前，避免破坏续写结构。
+        const 省次数请求消息 = 省次数附加协议
+            ? (() => {
+                const 列表 = [...orderedMessages];
+                const 尾部 = 列表[列表.length - 1];
+                const 协议消息 = { role: 'user' as const, content: 省次数附加协议 };
+                if (尾部?.role === 'assistant' && (尾部 as any).prefix === true) {
+                    return [...列表.slice(0, -1), 协议消息, 尾部];
+                }
+                return [...列表, 协议消息];
+            })()
+            : orderedMessages;
         const inputTokens = deps.估算消息Token(orderedMessages, activeApi?.model);
         const knownDialogueSpeakers = 收集主剧情已知对白说话人(currentState.角色, currentState.社交);
         recordDiagnosticLog('info', ['主剧情请求开始', {
@@ -1966,14 +2041,17 @@ export const 执行主剧情发送工作流 = async (
                                 stream: true,
                                 onDelta: (_delta, accumulated) => {
                                     markStreamActivity?.();
+                                    // 完整累计文本要留给流式超时恢复用（恢复解析需要 <短期记忆>/<命令> 等块）；
+                                    // 只把过滤后的正文推给界面，避免省次数分节在流式过程中闪现。
                                     latestStreamDraftText = accumulated;
+                                    const 可见草稿 = 省次数附加协议 ? 过滤省次数流式草稿(accumulated) : accumulated;
                                     deps.设置历史记录(prev => prev.map(item => {
                                         if (
                                             item.timestamp === streamMarker
                                             && item.role === 'assistant'
                                             && !item.structuredResponse
                                         ) {
-                                            return { ...item, content: accumulated };
+                                            return { ...item, content: 可见草稿 };
                                         }
                                         return item;
                                     }));
@@ -1982,7 +2060,8 @@ export const 执行主剧情发送工作流 = async (
                             : undefined,
                         extraPromptForService,
                         {
-                            orderedMessages,
+                            orderedMessages: 省次数请求消息,
+                            stripSingleCallSections: Boolean(省次数附加协议),
                             naturalProse: naturalProseSnapshot,
                             enableCotInjection: runtimeCotPseudoEnabled,
                             leadingSystemPrompt: builtContext.contextPieces.AI角色声明,
@@ -2021,7 +2100,9 @@ export const 执行主剧情发送工作流 = async (
                         : await 执行主剧情流式请求带空闲超时(
                             controller.signal,
                             (signal, markStreamActivity) => requestStory(signal, markStreamActivity),
-                            () => 尝试解析完整主剧情流式草稿(latestStreamDraftText, {
+                            () => 尝试解析完整主剧情流式草稿(
+                                省次数附加协议 ? 提取省次数分节(latestStreamDraftText).storyText : latestStreamDraftText,
+                                {
                                 validateTagCompleteness: runtimeGameConfig.启用标签检测完整性 === true,
                                 enableTagRepair: runtimeGameConfig.启用标签修复 !== false,
                                 requireActionOptionsTag: runtimeGameConfig.启用行动选项 !== false,
@@ -2127,6 +2208,15 @@ export const 执行主剧情发送工作流 = async (
 
         const socialBeforeMainCommands = deps.深拷贝(currentState.社交);
         const rawAiText = deps.获取原始AI消息(aiResult.rawText);
+        // 省次数模式：从这一次请求的原始输出里拆出各阶段结果；缺分节时对应阶段自动降级回独立请求。
+        let 省次数分节 = 省次数附加协议 ? 提取省次数分节(aiResult.rawText).sections : {};
+        if (省次数附加协议) {
+            recordDiagnosticLog('info', ['省次数模式分节提取', {
+                enabledStages: 省次数启用环节,
+                receivedStages: 省次数启用环节.filter(stage => Boolean(省次数分节[stage])),
+                rawTextLength: typeof aiResult.rawText === 'string' ? aiResult.rawText.length : 0
+            }]);
+        }
         let mainLengthShortage = 获取主剧情正文不足信息(aiData, runtimeGameConfig.字数要求);
         const shortBodyOnlyWarn = runtimeGameConfig.字数不足处理方式 === '仅提示';
         let shouldRegenerateForLength = Boolean(mainLengthShortage && !mainLengthShortage.withinTolerance && !shortBodyOnlyWarn);
@@ -2548,7 +2638,8 @@ export const 执行主剧情发送工作流 = async (
                         playerInput: sendInput,
                         signal: controller.signal,
                         allowExpansionForLength: allowShortDraftForPolish,
-                        minLength: runtimeGameConfig.字数要求
+                        minLength: runtimeGameConfig.字数要求,
+                        prefetchedRawText: 省次数分节.polish
                     }
                 ),
                 onError: (errorText) => {
@@ -2655,6 +2746,7 @@ export const 执行主剧情发送工作流 = async (
                         inputTokens,
                         responseDurationSec: deps.计算回复耗时秒(mainRequestStartedAt),
                         worldEvolutionUpdated: false,
+                        prefetchedRawText: 省次数分节.variable,
                         onProgress: options?.onVariableGenerationProgress
                     }),
                     onError: (errorText) => {
@@ -2795,6 +2887,7 @@ export const 执行主剧情发送工作流 = async (
                                 currentResponse: worldContextResponse,
                                 stateBase: stateSnapshot,
                                 signal: controller.signal,
+                                prefetchedRawText: 省次数分节.world,
                                 onStreamDelta: options?.onWorldEvolutionProgress
                                     ? (_delta, accumulated) => {
                                         options?.onWorldEvolutionProgress?.({
@@ -2891,7 +2984,8 @@ export const 执行主剧情发送工作流 = async (
                                     });
                                 }
                                 : undefined,
-                            signal: controller.signal
+                            signal: controller.signal,
+                            prefetchedRawText: 省次数分节.planning
                         }),
                         onError: (errorText) => {
                             options?.onPlanningProgress?.({
@@ -2960,7 +3054,8 @@ export const 执行主剧情发送工作流 = async (
                                 worldbooks: currentState.世界书列表,
                                 currentResponse: mapContextResponse,
                                 stateBase: stateSnapshot,
-                                signal: controller.signal
+                                signal: controller.signal,
+                                prefetchedRawText: 省次数分节.map
                             });
                             if (result.phase === 'error') {
                                 const wrappedError = new Error(result.statusText || '地图更新失败');
@@ -3363,6 +3458,9 @@ export const 执行主剧情发送工作流 = async (
                 阶段摘要: 暂停阶段摘要,
                 回合标识: aiTurnTimestamp,
                 执行: async () => {
+                    // 省次数分节是暂停前基于旧状态生成的；玩家可能已经改过变量，
+                    // 续跑时若继续复用其中的 set 命令会覆盖暂停期间的修改，因此强制走独立请求。
+                    省次数分节 = {};
                     // 暂停期间玩家可能改过背包/装备/功法/社交，也可能追加过系统消息或场外对话。
                     // 续跑前用最新状态重建命令基态与存档快照，避免旧回合快照把暂停期间的改动写回去。
                     const 续跑快照 = deps.获取续跑状态快照?.() || null;

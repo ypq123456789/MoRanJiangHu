@@ -2353,6 +2353,32 @@ export const 获取地图自动更新接口配置 = (settings: 接口设置结�
     });
 };
 
+/** 省次数模式：默认关闭；开启后主剧情请求改走用户指定的接口。 */
+export const 省次数模式已启用 = (settings: 接口设置结构): boolean =>
+    Boolean((settings as any)?.功能模型占位?.省次数模式启用);
+
+/**
+ * 省次数模式使用的接口配置。
+ * 未指定模型/渠道/地址时回退主剧情接口，避免开启开关后因为没填接口而整回合不可用。
+ */
+export const 获取省次数模式接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {
+    if (!省次数模式已启用(settings)) return null;
+    const feature = (settings as any)?.功能模型占位 || {};
+    // 用主剧情接口解析结果（而非裸的当前配置），保留「主剧情使用模型」的模型补齐回退。
+    const 主接口 = 获取主剧情接口配置(settings) || 获取当前接口配置(settings);
+    const 已指定接口 = 读取字符串(feature.省次数模式使用模型).trim()
+        || 读取字符串(feature.省次数模式渠道ID).trim()
+        || 读取字符串(feature.省次数模式API地址).trim();
+    if (!已指定接口) return 主接口;
+    return 构建独立文本接口配置(settings, {
+        渠道ID: feature.省次数模式渠道ID,
+        使用模型: feature.省次数模式使用模型,
+        API地址: feature.省次数模式API地址,
+        API密钥: feature.省次数模式API密钥,
+        默认配置: 主接口
+    });
+};
+
 export const 获取文章优化接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {
     const feature = (settings as any)?.功能模型占位;
     const independent = Boolean(feature?.文章优化独立模型开关);

@@ -135,6 +135,8 @@ export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) =
         responseDurationSec?: number;
         worldEvolutionUpdated?: boolean;
         extraPromptAppend?: string;
+        /** 省次数模式：复用主剧情请求里已经带回的本阶段原始输出。 */
+        prefetchedRawText?: string;
         onProgress?: (progress: 变量生成进度) => void;
     }) => {
         if (!deps.变量生成功能已启用(deps.apiConfig)) {
@@ -277,6 +279,7 @@ export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) =
                     openingConfig: deps.开局配置,
                     signal: controller.signal,
                     extraPromptAppend: params.extraPromptAppend,
+                    prefetchedRawText: params.prefetchedRawText,
                     recentRounds,
                     isOpeningRound,
                     onStreamDelta: 变量计算非流式
@@ -387,6 +390,8 @@ export const 创建变量校准协调器 = (deps: 变量生成工作流依赖) =
         responseDurationSec?: number;
         worldEvolutionUpdated?: boolean;
         extraPromptAppend?: string;
+        /** 省次数模式：复用主剧情请求里已经带回的本阶段原始输出。 */
+        prefetchedRawText?: string;
         onProgress?: (progress: 变量生成进度) => void;
     }) => {
         const calibration = await 执行变量校准并合并响应(params);
