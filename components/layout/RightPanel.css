@@ -398,7 +398,6 @@ html[data-theme="day"] .right-panel-body.rp-shell {
   top: 40%;
   transform: translateY(-50%);
   z-index: 35;
-  display: inline-flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;

@@ -580,6 +580,11 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
 
         let cancelled = false;
         const fontSet = typeof document !== 'undefined' ? (document as Document & { fonts?: FontFaceSet }).fonts : undefined;
+        const handleFontLoadingDone = () => {
+            if (!cancelled) setFontLoadTick((prev) => prev + 1);
+        };
+        fontSet?.addEventListener('loadingdone', handleFontLoadingDone);
+        cleanupFns.push(() => fontSet?.removeEventListener('loadingdone', handleFontLoadingDone));
         if (fontSet?.ready) {
             void fontSet.ready.then(() => {
                 if (!cancelled) setFontLoadTick((prev) => prev + 1);
@@ -659,16 +664,27 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         setDesktopExpandedType(null);
         if (prevType) {
             requestAnimationFrame(() => {
-                triggerRefs.current[prevType]?.focus();
+                const primary = triggerRefs.current[prevType];
+                if (primary && primary.isConnected) {
+                    primary.focus();
+                    return;
+                }
+                const fallback = triggerRefs.current.journey
+                    || triggerRefs.current.location
+                    || triggerRefs.current.weather;
+                fallback?.focus();
             });
         }
     }, [clearHoverCloseTimer, fullscreenDetailType]);
 
     useEffect(() => {
-        if (fullscreenDetailType) {
+        if (!fullscreenDetailType) return;
+        if (typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth < 768) return;
+        const dialog = fullscreenDialogRef.current;
+        if (!dialog || !dialog.contains(document.activeElement)) {
             fullscreenCloseBtnRef.current?.focus();
         }
-    }, [fullscreenDetailType]);
+    }, [fullscreenDetailType, barSize]);
 
     useEffect(() => {
         if (!desktopExpandedType && !fullscreenDetailType) return;
@@ -718,6 +734,10 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         if (pinnedTypeRef.current === type) return;
         hoverCloseTimerRef.current = setTimeout(() => {
             if (pinnedTypeRef.current === type) return;
+            const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+            if (activeEl && activeEl instanceof HTMLElement && activeEl.closest('.desktop-topbar-card')) {
+                return;
+            }
             setDesktopExpandedType((prev) => (prev === type ? null : prev));
         }, 140);
     };
@@ -1204,7 +1224,12 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                                 收起
                             </button>
                         </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto pr-1 leading-8 text-wuxia-gold/90" style={{ ...topBarStyle, fontSize: 顶栏字号(1.08, 15) }}>
+                        <div
+                            tabIndex={0}
+                            aria-label={`${detailConfigs[fullscreenDetailType].title}内容`}
+                            className="min-h-0 flex-1 overflow-y-auto rounded pr-1 leading-8 text-wuxia-gold/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-wuxia-gold/60"
+                            style={{ ...topBarStyle, fontSize: 顶栏字号(1.08, 15) }}
+                        >
                             {fullscreenDetailType === 'location'
                                 ? desktopLocationDetailContent
                                 : detailConfigs[fullscreenDetailType].content}

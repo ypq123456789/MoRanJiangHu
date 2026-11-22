@@ -5,7 +5,11 @@ const use数值变化提示 = (value: number | string | undefined) => {
     const [delta, setDelta] = React.useState<number | null>(null);
     const numeric = Number(value);
     React.useEffect(() => {
-        if (!Number.isFinite(numeric)) return;
+        if (!Number.isFinite(numeric)) {
+            previousRef.current = null;
+            setDelta(null);
+            return;
+        }
         const previous = previousRef.current;
         previousRef.current = numeric;
         if (previous === null || previous === numeric) return;

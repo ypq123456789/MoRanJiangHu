@@ -204,9 +204,9 @@ html[data-theme="day"] .landing-page.lp-shell {
   user-select: none;
   margin: 0;
   font-family: var(--ui-页面标题-font-family, "Songti SC", "STSong", "SimSun", Georgia, ui-serif, serif);
-  font-size: clamp(2.85rem, 5.2vw, 4.1rem);
+  font-size: var(--ui-页面标题-font-size, clamp(2.85rem, 5.2vw, 4.1rem));
   font-weight: 900;
-  line-height: 1.08;
+  line-height: var(--ui-页面标题-line-height, 1.08);
   letter-spacing: 0.14em;
   padding-left: 0.14em;
   color: var(--lp-ink);
@@ -609,7 +609,8 @@ html[data-theme="day"] .lp-presence-card .landing-presence-panel {
   }
 
   .lp-title {
-    font-size: clamp(2.4rem, 4.4vw, 3.25rem);
+    font-size: var(--ui-页面标题-font-size, clamp(2.4rem, 4.4vw, 3.25rem));
+    line-height: var(--ui-页面标题-line-height, 1.08);
   }
 
   .lp-edition {
@@ -619,7 +620,7 @@ html[data-theme="day"] .lp-presence-card .landing-presence-panel {
   .lp-btn-primary,
   .lp-btn-secondary {
     height: 44px;
-    font-size: 15.5px;
+    font-size: var(--ui-按钮-font-size, 15.5px);
   }
 
   .lp-btn-tool {

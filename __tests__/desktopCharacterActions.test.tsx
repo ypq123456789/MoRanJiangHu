@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InputArea from '../components/features/Chat/InputArea';
 import LeftPanel from '../components/layout/LeftPanel';
+import StatDelta from '../components/layout/StatDelta';
 import { 获取题材资源文案 } from '../utils/resourceLabels';
 
 beforeEach(() => localStorage.clear());
@@ -194,5 +195,27 @@ describe('江湖手记', () => {
         rerender(<LeftPanel 角色={{} as any} />);
         expect(screen.getByText('暂无穿戴')).toBeTruthy();
         expect(screen.getAllByText('空位')).toHaveLength(13);
+    });
+
+    it('数值变化提示在超时后自动清除，读数变为无效值时立即清除旧提示', () => {
+        vi.useFakeTimers();
+        try {
+            const { rerender, container } = render(<StatDelta current={20} />);
+            expect(container.textContent).toBe('');
+            rerender(<StatDelta current={18} />);
+            expect(container.textContent).toBe('-2');
+            rerender(<StatDelta current={undefined} />);
+            expect(container.textContent).toBe('');
+
+            rerender(<StatDelta current={10} />);
+            expect(container.textContent).toBe('');
+            rerender(<StatDelta current={15} />);
+            expect(container.textContent).toBe('+5');
+            vi.advanceTimersByTime(2600);
+            rerender(<StatDelta current={15} />);
+            expect(container.textContent).toBe('');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

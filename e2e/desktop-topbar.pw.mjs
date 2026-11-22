@@ -199,7 +199,7 @@ const measureTopbarBounds = (page) => page.evaluate(() => {
     const checkWithin = (textSel, btnSel) => {
         const textEl = document.querySelector(textSel);
         const btnEl = document.querySelector(btnSel);
-        if (!textEl || !btnEl) return true;
+        if (!textEl || !btnEl) return false;
         const tr = textEl.getBoundingClientRect();
         const br = btnEl.getBoundingClientRect();
         return (

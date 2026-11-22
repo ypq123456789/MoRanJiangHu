@@ -421,22 +421,22 @@
   }
 
   .topbar-weather-btn {
-    font-size: 0.875rem;
+    font-size: calc(0.875rem * var(--topbar-scale, 1));
     padding-inline: 0.35rem;
   }
 
   .topbar-env-pill {
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--topbar-scale, 1));
     padding: 0.15rem 0.5rem;
   }
 
   .topbar-festival-seal {
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--topbar-scale, 1));
     padding: 0.15rem 0.45rem;
   }
 
   .topbar-journey-btn {
-    font-size: 0.8125rem;
+    font-size: calc(0.8125rem * var(--topbar-scale, 1));
     padding-inline: 0.35rem;
   }
 }

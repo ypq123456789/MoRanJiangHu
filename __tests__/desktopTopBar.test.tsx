@@ -99,7 +99,11 @@ describe('桌面顶部状态栏（TopBar）', () => {
             btn.focus();
             fireEvent.click(btn);
             expect(btn.getAttribute('aria-expanded')).toBe('true');
-            expect(screen.getAllByRole('region', { name: regionName }).length).toBeGreaterThan(0);
+            const regions = screen.getAllByRole('region', { name: regionName });
+            expect(regions.length).toBeGreaterThan(0);
+            const closeBtn = regions[regions.length - 1].querySelector<HTMLButtonElement>('button[aria-label="关闭详情"]');
+            closeBtn?.focus();
+            expect(document.activeElement).toBe(closeBtn);
             fireEvent.keyDown(document, { key: 'Escape' });
             expect(btn.getAttribute('aria-expanded')).toBe('false');
             expect(document.activeElement).toBe(btn);

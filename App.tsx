@@ -1828,6 +1828,34 @@ const App: React.FC = () => {
             localStorage.setItem('moran.rightPanel.collapsed.v1', next ? '1' : '0');
         } catch {}
     }, []);
+    const [dismissedRightPanelChangeKeys, setDismissedRightPanelChangeKeys] = React.useState<string[]>([]);
+    const latestChangedSignature = React.useMemo(
+        () => latestChangedSections.slice().sort().join('|'),
+        [latestChangedSections]
+    );
+    React.useEffect(() => {
+        setDismissedRightPanelChangeKeys([]);
+    }, [latestChangedSignature]);
+    const handleDismissRightPanelChangeKeys = React.useCallback((keys: string[]) => {
+        if (!keys || keys.length === 0) return;
+        setDismissedRightPanelChangeKeys((prev) => {
+            const next = new Set(prev);
+            keys.forEach((key) => next.add(key));
+            return Array.from(next);
+        });
+    }, []);
+    const rightPanelTrackedChangeKeys = React.useMemo(() => {
+        const keys = new Set<string>(['背包', '社交', '装备', '任务列表', '战斗', '队伍', '玩家门派', '地图', '约定列表', '剧情', '记忆系统']);
+        if (启用修炼体系) keys.add('功法');
+        if (state.apiConfig?.功能模型占位?.世界演变功能启用 !== false) keys.add('世界');
+        if (state.apiConfig?.功能模型占位?.规划分析功能启用 !== false && safeGameConfig?.启用女主剧情规划 === true) keys.add('剧情规划');
+        return keys;
+    }, [启用修炼体系, state.apiConfig?.功能模型占位?.世界演变功能启用, state.apiConfig?.功能模型占位?.规划分析功能启用, safeGameConfig?.启用女主剧情规划]);
+    const hasUnreadRightPanelChanges = React.useMemo(
+        () => latestChangedSections.some((key) => rightPanelTrackedChangeKeys.has(key) && !dismissedRightPanelChangeKeys.includes(key))
+            || Boolean(state.apiConfig?.功能模型占位?.世界演变功能启用 !== false && meta.worldEvolutionEnabled && meta.worldEvolutionUpdating),
+        [latestChangedSections, rightPanelTrackedChangeKeys, dismissedRightPanelChangeKeys, state.apiConfig?.功能模型占位?.世界演变功能启用, meta.worldEvolutionEnabled, meta.worldEvolutionUpdating]
+    );
     const desktopRightDetailId = activeMobileWindowId || 'detail';
     const desktopRightDetailClass = state.view === 'game' && !isMobile
         ? `desktop-right-detail-modal desktop-right-detail-modal--${desktopRightDetailId}${desktopDetailFullscreen ? ' desktop-right-detail-modal--fullscreen' : ''}`
@@ -3574,6 +3602,8 @@ const App: React.FC = () => {
                                     returnHomeSaving={returnHomeSaving}
                                     visualConfig={effectiveVisualConfig}
                                     latestChangedSections={latestChangedSections}
+                                    dismissedChangeKeys={dismissedRightPanelChangeKeys}
+                                    onDismissChangeKeys={handleDismissRightPanelChangeKeys}
                                     activeKey={activeMobileWindowId}
                                     onCollapse={!desktopRightDetailPanelOpen ? () => setDesktopRightPanelCollapsedPersisted(true) : undefined}
                                 />
@@ -3586,7 +3616,7 @@ const App: React.FC = () => {
                                 aria-label="展开天机菜单"
                                 title="展开天机菜单"
                             >
-                                {latestChangedSections.length > 0 && (
+                                {hasUnreadRightPanelChanges && (
                                     <span className="rp-edge-ear-dot" aria-label="有新变动" />
                                 )}
                                 <span className="rp-edge-ear-text">

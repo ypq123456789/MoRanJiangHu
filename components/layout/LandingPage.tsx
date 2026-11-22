@@ -829,6 +829,7 @@ const LandingPage: React.FC<Props> = ({
                                 type="button"
                                 onClick={() => setLocalPlayOpen(true)}
                                 className="lp-btn-primary"
+                                style={actionButtonStyle}
                             >
                                 <span className="lp-primary-dot" aria-hidden="true" />
                                 本地游玩
@@ -837,6 +838,7 @@ const LandingPage: React.FC<Props> = ({
                                 type="button"
                                 onClick={onCloudPlay}
                                 className="lp-btn-secondary"
+                                style={actionButtonStyle}
                             >
                                 云端游玩
                             </button>
@@ -847,6 +849,7 @@ const LandingPage: React.FC<Props> = ({
                                 type="button"
                                 onClick={() => { void handleOpenWorkshop(); }}
                                 className="lp-btn-tool"
+                                style={actionButtonStyle}
                             >
                                 <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <path d="M10 2.8 11.9 7.6 17 9.5 11.9 11.4 10 16.5 8.1 11.4 3 9.5 8.1 7.6 10 2.8Z" />
@@ -857,6 +860,7 @@ const LandingPage: React.FC<Props> = ({
                                 type="button"
                                 onClick={onImageManager}
                                 className="lp-btn-tool"
+                                style={actionButtonStyle}
                             >
                                 <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <rect x="3" y="4" width="14" height="12" rx="2" />
@@ -869,6 +873,7 @@ const LandingPage: React.FC<Props> = ({
                                 type="button"
                                 onClick={onWorldbookManager}
                                 className="lp-btn-tool"
+                                style={actionButtonStyle}
                             >
                                 <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <path d="M4 4.5A2 2 0 0 1 6 3h10v13H6a2 2 0 0 0-2 1.5V4.5Z" />
@@ -880,6 +885,7 @@ const LandingPage: React.FC<Props> = ({
                                 type="button"
                                 onClick={onSettings}
                                 className="lp-btn-tool"
+                                style={actionButtonStyle}
                             >
                                 <svg viewBox="0 0 20 20" className="lp-tool-icon" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <circle cx="10" cy="10" r="2.6" />

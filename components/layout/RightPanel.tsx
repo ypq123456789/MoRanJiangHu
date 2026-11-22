@@ -40,6 +40,8 @@ interface Props {
     returnHomeSaving?: boolean;
     visualConfig?: any;
     latestChangedSections?: string[];
+    dismissedChangeKeys?: string[];
+    onDismissChangeKeys?: (keys: string[]) => void;
     activeKey?: string | null;
     onCollapse?: () => void;
 }
@@ -143,17 +145,24 @@ const RightPanel: React.FC<Props> = ({
     onReturnToHome,
     returnHomeSaving = false,
     latestChangedSections = [],
+    dismissedChangeKeys,
+    onDismissChangeKeys,
     activeKey = null,
     onCollapse,
 }) => {
     const { enabled, currentLyric } = useMusic();
-    const [dismissedChangeKeys, setDismissedChangeKeys] = React.useState<Set<string>>(() => new Set());
+    const [internalDismissedKeys, setInternalDismissedKeys] = React.useState<Set<string>>(() => new Set());
     const [openGroups, setOpenGroups] = React.useState<string[]>(readInitialOpenGroups);
     const changeSignature = React.useMemo(() => latestChangedSections.slice().sort().join('|'), [latestChangedSections]);
 
     React.useEffect(() => {
-        setDismissedChangeKeys(new Set());
+        setInternalDismissedKeys(new Set());
     }, [changeSignature]);
+
+    const effectiveDismissedKeys = React.useMemo(
+        () => (dismissedChangeKeys ? new Set(dismissedChangeKeys) : internalDismissedKeys),
+        [dismissedChangeKeys, internalDismissedKeys]
+    );
 
     const toggleGroup = (groupId: string) => {
         setOpenGroups((prev) => {
@@ -169,7 +178,8 @@ const RightPanel: React.FC<Props> = ({
 
     const wrapChangedAction = (changeKeys: string[] | undefined, action: () => void) => () => {
         if (changeKeys && changeKeys.length > 0) {
-            setDismissedChangeKeys((prev) => {
+            onDismissChangeKeys?.(changeKeys);
+            setInternalDismissedKeys((prev) => {
                 const next = new Set(prev);
                 changeKeys.forEach((key) => next.add(key));
                 return next;
@@ -179,7 +189,7 @@ const RightPanel: React.FC<Props> = ({
     };
 
     const hasUnread = (changeKeys?: string[]) =>
-        Boolean(changeKeys && changeKeys.some((key) => latestChangedSections.includes(key) && !dismissedChangeKeys.has(key)));
+        Boolean(changeKeys && changeKeys.some((key) => latestChangedSections.includes(key) && !effectiveDismissedKeys.has(key)));
 
     const menuLabel = uiLabels?.菜单;
     const titleLabel = uiLabels?.标题;
