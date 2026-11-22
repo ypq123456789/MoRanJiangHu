@@ -218,7 +218,7 @@ if (skipOpenListApkUpload) {
 }
 
 const websiteBaseUrl = String(releaseInfo.websiteUrl || '').replace(/\/+$/, '');
-const githubReleaseAccelerators = readEnv('GITHUB_RELEASE_ACCELERATORS', 'https://gh.ddlc.top,https://gh-proxy.com,https://gh-proxy.ygxz.in,https://ghfast.top')
+const githubReleaseAccelerators = readEnv('GITHUB_RELEASE_ACCELERATORS', 'https://ghproxy.net,https://gh.ddlc.top,https://ghfast.top')
   .split(',')
   .map((item) => item.trim().replace(/\/+$/, ''))
   .filter((item) => /^https:\/\/[^/]+$/i.test(item));

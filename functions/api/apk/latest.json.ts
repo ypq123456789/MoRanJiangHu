@@ -10,9 +10,8 @@ import {
 } from './_shared';
 
 const DEFAULT_GITHUB_RELEASE_ACCELERATORS = [
+    'https://ghproxy.net',
     'https://gh.ddlc.top',
-    'https://gh-proxy.com',
-    'https://gh-proxy.ygxz.in',
     'https://ghfast.top'
 ];
 const DEFAULT_GITHUB_RAW_ACCELERATOR = 'https://cloudflare-proxy-6rw.pages.dev';

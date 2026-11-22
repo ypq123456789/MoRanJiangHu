@@ -29,7 +29,7 @@
     "FANDOM_PRESET_BASE_BRANCH": "main",
     "MORAN_OPENLIST_API_BASE_URL": "http://159.138.7.126:5244",
     "MORAN_OPENLIST_DIRECT_BASE_URL": "http://159.138.7.126:5244",
-    "MORAN_GITHUB_RELEASE_ACCELERATOR": "https://gh-proxy.com"
+    "MORAN_GITHUB_RELEASE_ACCELERATOR": "https://ghproxy.net"
   },
   "kv_namespaces": [
     {
