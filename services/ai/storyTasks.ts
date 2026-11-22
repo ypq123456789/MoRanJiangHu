@@ -2366,18 +2366,23 @@ export const generateStoryResponse = async (
         } catch (error: any) {
             流式意外终止则抛出(error);
             if (requestOptions?.validateDialogueFormat === true && error?.name === 'StoryResponseParseError') {
-                // 修复请求只处理主剧情协议，不能把省次数分节一起喂给修复器。
+                // 修复请求只处理主剧情协议，不能把省次数分节一起喂给修复器；
+                // 但修复成功后要把原分节拼回 rawText，否则调用方提取不到，所有阶段都会重复请求。
+                const 原有分节块 = rawText.match(/<\s*省次数附加\s*>[\s\S]*?<\s*\/\s*省次数附加\s*>/i)?.[0] || '';
+                const 恢复附加分节 = (result: StoryResponseResult): StoryResponseResult => (
+                    原有分节块 ? { ...result, rawText: `${result.rawText}\n${原有分节块}` } : result
+                );
                 const 修复用文本 = requestOptions?.stripSingleCallSections
                     ? 提取省次数分节(rawText).storyText
                     : rawText;
                 if (是否正文对白格式错误(error)) {
                     try {
-                        return await 修复故事响应正文对白格式(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions);
+                        return 恢复附加分节(await 修复故事响应正文对白格式(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions));
                     } catch {
-                        return 修复故事响应协议(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions);
+                        return 恢复附加分节(await 修复故事响应协议(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions));
                     }
                 }
-                return 修复故事响应协议(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions);
+                return 恢复附加分节(await 修复故事响应协议(修复用文本, error?.parseDetail || error?.message || '正文对白格式不合规', apiConfig, signal, requestOptions));
             }
             throw error;
         }

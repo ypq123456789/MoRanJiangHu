@@ -2364,7 +2364,8 @@ export const 省次数模式已启用 = (settings: 接口设置结构): boolean 
 export const 获取省次数模式接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {
     if (!省次数模式已启用(settings)) return null;
     const feature = (settings as any)?.功能模型占位 || {};
-    const 主接口 = 获取当前接口配置(settings);
+    // 用主剧情接口解析结果（而非裸的当前配置），保留「主剧情使用模型」的模型补齐回退。
+    const 主接口 = 获取主剧情接口配置(settings) || 获取当前接口配置(settings);
     const 已指定接口 = 读取字符串(feature.省次数模式使用模型).trim()
         || 读取字符串(feature.省次数模式渠道ID).trim()
         || 读取字符串(feature.省次数模式API地址).trim();

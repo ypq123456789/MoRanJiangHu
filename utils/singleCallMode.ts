@@ -58,7 +58,9 @@ const 环节示例: Record<省次数环节, string> = {
 export const 构建省次数附加输出协议 = (
     启用环节: 省次数环节[],
     /** 润色环节的生效设置：用户自定义提示词 + 字数/人称/对白等运行时硬约束，避免合并后设置失效。 */
-    润色补充指令 = ''
+    润色补充指令 = '',
+    /** 变量环节的校准规则（含用户自定义资源公式等），独立请求原本会注入，合并后必须补上。 */
+    变量补充规则 = ''
 ): string => {
     const 有效环节 = 省次数环节顺序.filter(item => 启用环节.includes(item));
     if (有效环节.length === 0) return '';
@@ -84,7 +86,9 @@ export const 构建省次数附加输出协议 = (
         ...有效环节.map((item, index) => {
             const 补充 = item === 'polish' && 润色补充指令.trim()
                 ? `\n【本回合生效的润色设置 · 必须遵守】\n${润色补充指令.trim()}`
-                : '';
+                : item === 'variable' && 变量补充规则.trim()
+                    ? `\n【本回合生效的变量校准规则 · 必须遵守】\n${变量补充规则.trim()}`
+                    : '';
             return `${index + 1}. ${环节输出要求[item]}${补充}`;
         }),
         '',
@@ -137,6 +141,10 @@ export const 提取省次数分节 = (rawText: string): 省次数分节提取结
         const tag = 省次数分节标签[环节];
         const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         storyText = storyText.replace(new RegExp(`<\\s*${escaped}\\s*>[\\s\\S]*?<\\s*\\/\\s*${escaped}\\s*>`, 'gi'), '');
+        // 未闭合的分节（响应被截断）必须整段丢掉：解析器会给里面的 <命令> 补上闭合标签，
+        // 否则分节命令会被当成主剧情命令写入状态。
+        const 未闭合位置 = storyText.search(new RegExp(`<\\s*${escaped}\\s*>`, 'i'));
+        if (未闭合位置 >= 0) storyText = storyText.slice(0, 未闭合位置);
     }
     return { storyText, sections };
 };

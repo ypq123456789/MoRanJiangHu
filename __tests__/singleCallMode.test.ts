@@ -60,6 +60,11 @@ describe('省次数模式 · 协议生成', () => {
         expect(协议).toContain('用更克制的古风笔法润色');
         expect(协议).toContain('角色对白必须单独成行');
     });
+
+    it('自定义变量校准规则会被带进协议', () => {
+        const 协议 = 构建省次数附加输出协议(['variable'], '', '- 资源扣减按自定义公式结算');
+        expect(协议).toContain('资源扣减按自定义公式结算');
+    });
 });
 
 describe('省次数模式 · 分节提取', () => {
@@ -100,6 +105,17 @@ describe('省次数模式 · 分节提取', () => {
         expect(storyText).not.toContain('省次数附加');
         // 未闭合的分节不采纳，交给调用方降级回独立请求，避免应用半截命令。
         expect(sections.variable).toBeUndefined();
+    });
+
+    it('外层缺失且分节未闭合时，分节命令不会漏进主剧情命令', () => {
+        const raw = [
+            '<正文>【旁白】正文。</正文>',
+            '<变量校准><命令>set 角色.气血 = 50'
+        ].join('\n');
+        const { storyText, sections } = 提取省次数分节(raw);
+        expect(sections.variable).toBeUndefined();
+        expect(storyText).not.toContain('set 角色.气血');
+        expect(parseStoryRawText(storyText).tavern_commands?.some(cmd => cmd.key === '角色.气血')).not.toBe(true);
     });
 
     it('流式草稿只展示主剧情正文', () => {

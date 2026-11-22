@@ -449,6 +449,8 @@ export const 生成地图更新 = async (
     const api = params.mode === 'auto_incremental'
         ? 获取地图自动更新接口配置(params.apiSettings)
         : 获取地图生成接口配置(params.apiSettings);
+    // 省次数模式下地图结果已经在主剧情那一次请求里带回来了，不需要独立地图接口可用。
+    const 预取地图文本 = typeof params.prefetchedRawText === 'string' ? params.prefetchedRawText.trim() : '';
     const env = params.stateBase?.环境 || params.环境;
     const world = params.stateBase?.世界 || params.世界;
     const social = params.stateBase?.社交 || params.社交 || [];
@@ -456,10 +458,11 @@ export const 生成地图更新 = async (
     const layerCount = Array.isArray((world as any)?.地图层级) ? (world as any).地图层级.length : 0;
     const bodyTextLength = 提取响应正文(params.currentResponse).length;
     const currentLocation = [env?.大地点, env?.中地点, env?.小地点, env?.具体地点].map(取文本).filter(Boolean).join(' > ');
-    const apiUsable = 接口配置是否可用(api);
+    const apiUsable = 接口配置是否可用(api) || Boolean(预取地图文本);
     const baseMeta = {
         diagnosticId,
         mode: params.mode,
+        prefetched: Boolean(预取地图文本),
         model: 取文本((api as any)?.model),
         supplier: 取文本((api as any)?.供应商),
         baseUrlHost: 读取接口主机((api as any)?.baseUrl),
@@ -544,7 +547,6 @@ export const 生成地图更新 = async (
         重置为完整预算();
     });
 
-    const 预取地图文本 = typeof params.prefetchedRawText === 'string' ? params.prefetchedRawText.trim() : '';
     let rawText = '';
     try {
         rawText = await Promise.race([
