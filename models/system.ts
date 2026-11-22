@@ -271,6 +271,7 @@ export interface 生图配置档结构 {
 
 export interface 功能模型占位配置结构 {
     主剧情使用模型: string;
+    新增接口后自动切换主剧情: boolean;
     DeepSeek稳定模型救场开关: boolean;
     DeepSeek稳定模型使用模型: string;
     DeepSeek稳定模型API地址: string;
@@ -292,6 +293,11 @@ export interface 功能模型占位配置结构 {
     女主规划独立模型开关: boolean;
     剧情规划独立模型开关: boolean;
     文章优化独立模型开关: boolean;
+    省次数模式启用: boolean;
+    省次数模式使用模型: string;
+    省次数模式渠道ID?: string;
+    省次数模式API地址: string;
+    省次数模式API密钥: string;
     小说拆分功能启用: boolean;
     小说拆分独立模型开关: boolean;
     剧情回忆使用模型: string;

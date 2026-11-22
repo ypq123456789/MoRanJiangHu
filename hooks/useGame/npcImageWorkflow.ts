@@ -911,7 +911,17 @@ export const 执行NPC生图工作流 = async (
         deps.NPC生图进行中集合.delete(npcKey);
         const 下一项 = 出队NPC生图();
         if (下一项) {
-            void 执行NPC生图工作流(下一项.npc, 下一项.options, 下一项.deps);
+            // 队列接续任务是「后台自动触发」的，没有调用方能接住它的 rejection。
+            // 若这里裸 void，401/402/403 等上游错误会直接冒到 window.unhandledrejection，
+            // 被 index.html 的 preboot 处理器误判成「应用启动失败」并整屏盖住游戏。
+            void 执行NPC生图工作流(下一项.npc, 下一项.options, 下一项.deps).catch((error) => {
+                try {
+                    const 队列NPC名称 = typeof 下一项.npc?.姓名 === 'string' ? 下一项.npc.姓名.trim() : '';
+                    console.warn('NPC 生图队列接续任务失败（已隔离，不影响后续队列）', 队列NPC名称, error);
+                } catch {
+                    /* 兜底日志本身不得再抛错 */
+                }
+            });
         }
     }
 };

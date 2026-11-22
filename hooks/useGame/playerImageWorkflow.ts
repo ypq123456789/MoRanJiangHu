@@ -91,7 +91,10 @@ export const 创建主角图片工作流 = (deps: 主角图片工作流依赖) =
             return next;
         });
         if (snapshot) {
-            void deps.执行自动存档({ role: snapshot, history: deps.获取历史记录(), force: true });
+            void Promise.resolve(deps.执行自动存档({ role: snapshot, history: deps.获取历史记录(), force: true }))
+                .catch((error) => {
+                    console.warn('生图结果写回后的自动存档失败（已隔离）', error);
+                });
         }
     };
 

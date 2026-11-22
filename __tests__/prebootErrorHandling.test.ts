@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
-const loadPrebootListeners = () => {
+const loadPrebootListeners = (options?: { mounted?: boolean }) => {
     const html = fs.readFileSync('index.html', 'utf8');
     const match = html.match(/<script>\s*([\s\S]*?window\.__MORAN_PREBOOT_LOGS__[\s\S]*?)<\/script>/);
     if (!match) throw new Error('preboot script not found');
@@ -13,12 +13,14 @@ const loadPrebootListeners = () => {
             listeners[type] = listener;
         })
     };
+    const rootElement = { childElementCount: options?.mounted ? 1 : 0 };
     const documentMock: any = {
         body: {
             appendChild: vi.fn((node: any) => {
                 appended.push(node);
             })
         },
+        getElementById: vi.fn((id: string) => (id === 'root' ? rootElement : null)),
         createElement: vi.fn(() => ({
             id: '',
             style: {},
@@ -110,5 +112,34 @@ describe('preboot error handling', () => {
         });
 
         expect(appended).toHaveLength(1);
+    });
+
+    // 回归：v1.0.706 线上事故。玩家已在游戏中，后台自动生图撞上第三方渠道 403，
+    // 该 rejection 被误判为「应用启动失败」，整屏遮罩盖死游戏。
+    it('never blocks an already mounted app with a mid-session rejection', () => {
+        const { windowMock, listeners, appended } = loadPrebootListeners({ mounted: true });
+        const preventDefault = vi.fn();
+
+        listeners.unhandledrejection({
+            reason: new Error('协议请求错误: AI 接口拒绝访问（403）：积分不足。'),
+            preventDefault
+        });
+
+        expect(appended).toHaveLength(0);
+        expect(windowMock.__MORAN_PREBOOT_LOGS__.at(-1).level).toBe('error');
+    });
+
+    it('never replaces an already mounted app with the overlay on a stray window.error', () => {
+        const { listeners, appended } = loadPrebootListeners({ mounted: true });
+
+        listeners.error({
+            message: 'Uncaught TypeError: x is not a function',
+            filename: 'https://msjh.bacon159.pp.ua/assets/index.js',
+            lineno: 1,
+            colno: 2,
+            error: new Error('x is not a function')
+        });
+
+        expect(appended).toHaveLength(0);
     });
 });

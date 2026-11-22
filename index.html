@@ -94,6 +94,17 @@
         return false;
       }
 
+      // 应用是否已经真正渲染出来。启动阶段的失败要弹遮罩（此时界面是空的，必须让用户拿到诊断信息）；
+      // 但应用跑起来之后的异步失败（后台自动生图、可选请求）不能盖住整屏——那是功能失败，不是启动失败。
+      function isAppMounted() {
+        try {
+          var root = document.getElementById ? document.getElementById('root') : null;
+          return !!(root && root.childElementCount > 0);
+        } catch (error) {
+          return false;
+        }
+      }
+
       function showOverlay() {
         if (!document.body) return;
         if (!overlay) {
@@ -140,6 +151,8 @@
           event.filename ? event.filename + ':' + event.lineno + ':' + event.colno : '',
           event.error
         ]);
+        // 同上：应用已经渲染出来时，单个未捕获异常不该把整个界面替换成启动失败面板。
+        if (isAppMounted()) return;
         showOverlay();
       });
 
@@ -150,6 +163,8 @@
           return;
         }
         push('error', ['preboot unhandledrejection', event.reason]);
+        // 已渲染完成 = 不是启动失败。只记录日志，让业务层自己的失败提示去告诉用户。
+        if (isAppMounted()) return;
         showOverlay();
       });
 

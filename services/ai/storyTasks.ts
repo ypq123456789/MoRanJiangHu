@@ -342,9 +342,12 @@ export const generatePolishedBody = async (
     signal?: AbortSignal,
     extraPrompt?: string,
     cotPseudoHistoryPrompt?: string,
-    streamOptions?: WorldStreamOptions
+    streamOptions?: WorldStreamOptions,
+    /** 省次数模式：主剧情一次请求已经带回润色后的正文，直接复用，不再单独发请求。 */
+    prefetchedRawText?: string
 ): Promise<PolishedBodyResult> => {
-    if (!apiConfig.apiKey) throw new Error('Missing API Key');
+    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
     const normalizedBody = (bodyText || '').trim();
     if (!normalizedBody) {
         return {
@@ -382,12 +385,14 @@ export const generatePolishedBody = async (
     }
     const messages = 规范化文本补全消息链(messagesRaw, { 保留System: true, 合并同角色: false });
 
-    const raw = await 请求模型文本(apiConfig, messages, {
-        temperature: 0.6,
-        signal,
-        streamOptions,
-        errorDetailLimit: Number.POSITIVE_INFINITY
-    });
+    const raw = 使用预取结果
+        ? String(prefetchedRawText)
+        : await 请求模型文本(apiConfig, messages, {
+            temperature: 0.6,
+            signal,
+            streamOptions,
+            errorDetailLimit: Number.POSITIVE_INFINITY
+        });
 
     return {
         bodyText: 清理润色正文输出(raw),
@@ -874,9 +879,12 @@ export const generateWorldEvolutionUpdate = async (
     cotPrompt?: string,
     fandomEnabled?: boolean,
     gptMode?: boolean,
-    streamOptions?: WorldStreamOptions
+    streamOptions?: WorldStreamOptions,
+    /** 省次数模式：主剧情一次请求已经带回本阶段的原始输出，直接解析，不再单独发请求。 */
+    prefetchedRawText?: string
 ): Promise<WorldEvolutionResult> => {
-    if (!apiConfig.apiKey) throw new Error('Missing API Key');
+    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
 
     const normalizedExtraPrompt = (extraPrompt || '').trim();
     const normalizedCotPseudoPrompt = (cotPseudoHistoryPrompt || '').trim();
@@ -918,12 +926,14 @@ export const generateWorldEvolutionUpdate = async (
     }
     const messages = 规范化文本补全消息链(messagesRaw, { 保留System: true, 合并同角色: false });
 
-    const rawText = await 请求模型文本(apiConfig, messages, {
-        temperature: 0.4,
-        signal,
-        errorDetailLimit: Number.POSITIVE_INFINITY,
-        streamOptions
-    });
+    const rawText = 使用预取结果
+        ? String(prefetchedRawText)
+        : await 请求模型文本(apiConfig, messages, {
+            temperature: 0.4,
+            signal,
+            errorDetailLimit: Number.POSITIVE_INFINITY,
+            streamOptions
+        });
     const parsed = 解析世界演变响应(rawText);
     return {
         commands: parsed.commands,
@@ -1911,7 +1921,7 @@ const 规范化新小说拆分物品档案 = (raw: any): NovelDecompositionItemP
     首次出现: typeof raw?.首次出现 === 'string' ? raw.首次出现.trim() : typeof raw?.firstSeen === 'string' ? raw.firstSeen.trim() : ''
 });
 
-const 构建规划分析消息链 = (
+export const 构建规划分析消息链 = (
     params: {
         playerName: string;
         playerInput?: string;
@@ -1997,9 +2007,12 @@ export const generatePlanningAnalysis = async (
     },
     apiConfig: 当前可用接口结构,
     signal?: AbortSignal,
-    streamOptions?: WorldStreamOptions
+    streamOptions?: WorldStreamOptions,
+    /** 省次数模式：主剧情一次请求已经带回本阶段的原始输出，直接解析，不再单独发请求。 */
+    prefetchedRawText?: string
 ): Promise<PlanningAnalysisResult> => {
-    if (!apiConfig.apiKey) throw new Error('Missing API Key');
+    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
     const request = (forceUserTrigger = false) => 请求模型文本(apiConfig, 构建规划分析消息链(params, { forceUserTrigger }), {
         temperature: 0.3,
         signal,
@@ -2008,7 +2021,7 @@ export const generatePlanningAnalysis = async (
     });
     let rawText = '';
     try {
-        rawText = await request(false);
+        rawText = 使用预取结果 ? String(prefetchedRawText) : await request(false);
     } catch (error: any) {
         const message = String(error?.message || error || '');
         const shouldRetryWithUserTrigger = params.gptMode !== true && /(messages?|role|assistant|last message|final message|pre[- ]?fill|tool|400|invalid_request)/i.test(message);

@@ -198,15 +198,18 @@ describe('接口模型异步请求竞态', () => {
         expect(screen.queryByText('连接测试成功')).toBeNull();
     });
 
-    it('最大输出 Token 校验失败时保留提示且不发送连接请求', async () => {
+    it('最大输出 Token 超过模型上限时自动回落到建议档位并继续连接测试', async () => {
         fetchModelsMock.mockResolvedValueOnce(['gpt-4o-mini']);
+        testConnectionMock.mockResolvedValueOnce({ ok: true, detail: 'OK' } as any);
         renderSettings();
 
         fireEvent.click(screen.getByRole('button', { name: '64K' }));
         fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
 
         await waitFor(() => expect(screen.getByText(/gpt-4o-mini 官方最大输出约为 16384/)).toBeTruthy());
-        expect(testConnectionMock).not.toHaveBeenCalled();
+        await waitFor(() => expect(testConnectionMock).toHaveBeenCalledTimes(1));
+        // gpt-4o-mini 的建议档位是 8K：不再拦截请求，而是按官方上限内的值发送。
+        expect(testConnectionMock.mock.calls[0][0]).toMatchObject({ maxTokens: 8192 });
         expect(screen.getByRole('button', { name: '测试连接' })).not.toHaveProperty('disabled', true);
     });
 
