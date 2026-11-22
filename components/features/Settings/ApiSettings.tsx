@@ -20,7 +20,7 @@ interface Props {
     onSave: (settings: 接口设置结构) => void;
 }
 
-type 最大输出档位 = '8k' | '32k' | '64k' | 'custom';
+type 最大输出档位 = '8k' | '32k' | '64k' | '128k' | 'custom';
 
 type 模型输出推荐项 = {
     key: string;
@@ -41,6 +41,7 @@ const 最大输出档位预设: Array<{ id: 最大输出档位; label: string; v
     { id: '8k', label: '8K', value: 8_192 },
     { id: '32k', label: '32K', value: 32_768 },
     { id: '64k', label: '64K', value: 65_536 },
+    { id: '128k', label: '128K', value: 131_072 },
     { id: 'custom', label: '自定义' }
 ];
 
@@ -136,6 +137,7 @@ const 推断最大输出档位 = (maxTokens?: number): 最大输出档位 | null
     if (maxTokens === 8_192) return '8k';
     if (maxTokens === 32_768) return '32k';
     if (maxTokens === 65_536) return '64k';
+    if (maxTokens === 131_072) return '128k';
     return 'custom';
 };
 
@@ -256,29 +258,71 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
         }));
     };
 
+    /**
+     * 切换主剧情模型。若新模型在推荐表里有明确官方输出上限、而当前档位超过它，
+     * 直接把档位回落到该模型的建议值。否则新建接口的默认 128K 会让 gpt-4o 这类
+     * 小上限模型在保存/连接测试时被校验拦住，用户还得手动改一次档位。
+     */
     const updateMainModel = (model: string) => {
         const normalizedModel = model.trim();
+        const matched = 匹配模型输出推荐(normalizedModel);
+        const targetId = activeConfig?.id || formRef.current.activeConfigId;
+        const targetConfig = formRef.current.configs.find((cfg) => cfg.id === targetId);
+        let 回落值: number | null = null;
+        if (
+            matched
+            && targetConfig
+            && typeof targetConfig.maxTokens === 'number'
+            && Number.isFinite(targetConfig.maxTokens)
+            && targetConfig.maxTokens > matched.officialMaxOutput
+        ) {
+            回落值 = matched.suggestedSelection > 0 && matched.suggestedSelection <= matched.officialMaxOutput
+                ? matched.suggestedSelection
+                : matched.officialMaxOutput;
+        }
         setForm((prev) => ({
             ...prev,
-            activeConfigId: activeConfig?.id || prev.activeConfigId,
-            configs: prev.configs.map((cfg) => cfg.id === activeConfig?.id ? { ...cfg, model: normalizedModel, updatedAt: Date.now() } : cfg),
+            activeConfigId: targetId,
+            configs: prev.configs.map((cfg) => {
+                if (cfg.id !== targetId) return cfg;
+                return 回落值 == null
+                    ? { ...cfg, model: normalizedModel, updatedAt: Date.now() }
+                    : { ...cfg, model: normalizedModel, maxTokens: 回落值, updatedAt: Date.now() };
+            }),
             功能模型占位: {
                 ...prev.功能模型占位,
                 主剧情使用模型: normalizedModel
             }
         }));
+        if (回落值 != null && matched) {
+            setMessage(`主剧情模型已切换为 ${normalizedModel}，最大输出 Token 已自动调整为 ${回落值}（该模型官方上限约 ${matched.officialMaxOutput}）。`);
+        }
     };
 
     const 校验主剧情最大输出配置 = (): string | null => {
         if (!activeConfig) return '请先创建并选择一个接口配置。';
         const mainModel = 主剧情解析模型.trim();
         if (!mainModel) return '主剧情使用模型为必选项，请先获取列表并选择。';
-        const maxTokens = activeConfig.maxTokens;
-        const matched = 匹配模型输出推荐(mainModel);
-        if (typeof maxTokens === 'number' && Number.isFinite(maxTokens) && matched && maxTokens > matched.officialMaxOutput) {
-            return `${mainModel} 官方最大输出约为 ${matched.officialMaxOutput}，当前设置 ${maxTokens} 过高，请调整。`;
-        }
+        // 超过模型官方上限不再直接拦住保存：新建配置默认 128K，拦住会让用户一进来就保存失败。
+        // 统一在 解析保存用最大输出Token 里回落到该模型建议档位，并给出提示。
         return null;
+    };
+
+    /**
+     * 保存时把超过模型官方上限的档位回落到建议值。
+     * 返回实际要写入的 maxTokens；未超上限时原样返回。
+     */
+    const 解析保存用最大输出Token = (config: 单接口配置结构 | null, model: string): number | undefined => {
+        const maxTokens = config?.maxTokens;
+        const matched = 匹配模型输出推荐(model);
+        if (!matched || typeof maxTokens !== 'number' || !Number.isFinite(maxTokens) || maxTokens <= matched.officialMaxOutput) {
+            return maxTokens;
+        }
+        const 回落值 = matched.suggestedSelection > 0 && matched.suggestedSelection <= matched.officialMaxOutput
+            ? matched.suggestedSelection
+            : matched.officialMaxOutput;
+        setMessage(`${model} 官方最大输出约为 ${matched.officialMaxOutput}，最大输出 Token 已从 ${maxTokens} 自动回落为 ${回落值}。`);
+        return 回落值;
     };
 
     const fetchModelsFromConfig = async (config: 单接口配置结构): Promise<string[]> => (
@@ -351,17 +395,22 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
 
     const handleCreateConfig = () => {
         const created = 创建接口配置模板(newProvider);
-        setForm((prev) => {
-            const nextConfigs = [...prev.configs, created];
-            return {
-                ...prev,
-                activeConfigId: created.id,
-                configs: nextConfigs
-            };
-        });
-        setSelectedConfigId(created.id);
+        const 自动切换主剧情 = formRef.current.功能模型占位.新增接口后自动切换主剧情 === true;
+        // 还没有任何主剧情配置时必须选中新建的，否则用户进不了编辑状态。
+        const 需要选中新配置 = 自动切换主剧情 || !formRef.current.activeConfigId;
+        setForm((prev) => ({
+            ...prev,
+            configs: [...prev.configs, created]
+        }));
+        if (需要选中新配置) {
+            setSelectedConfigId(created.id);
+        }
         setMainModelOptions([]);
-        setMessage(`已新增 ${供应商标签[newProvider]} 配置，请填写后保存。`);
+        setMessage(
+            自动切换主剧情
+                ? `已新增 ${供应商标签[newProvider]} 配置，并按设置自动切换为当前主剧情接口，请填写后保存。`
+                : `已新增 ${供应商标签[newProvider]} 配置，主剧情接口保持不变；需要切换时在配置列表中选择它并保存。`
+        );
     };
 
     const handleDeleteActive = () => {
@@ -386,9 +435,15 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
             setMessage(tokenValidationError);
             return;
         }
+        const 保存用最大输出Token = 解析保存用最大输出Token(activeConfig, 主剧情解析模型);
         const normalized = 规范化接口设置({
             ...form,
             activeConfigId: selectedConfigId || form.activeConfigId,
+            configs: form.configs.map((cfg) => {
+                if (!activeConfig || cfg.id !== activeConfig.id) return cfg;
+                if (保存用最大输出Token === cfg.maxTokens) return cfg;
+                return { ...cfg, maxTokens: 保存用最大输出Token, updatedAt: Date.now() };
+            }),
             功能模型占位: {
                 ...form.功能模型占位,
                 主剧情使用模型: (activeConfig?.model || '').trim()
@@ -416,6 +471,7 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
         let keepMessage = false;
         let modelForTest = (requestConfig.model || '').trim() || (formRef.current.功能模型占位.主剧情使用模型 || '').trim();
         let configForTest = requestConfig;
+        let 目标配置ID = requestConfig.id;
         const 当前请求仍有效 = (expectedModel?: string): boolean => {
             if (operationId !== asyncOperationIdRef.current) return false;
             const latestForm = formRef.current;
@@ -478,9 +534,27 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                 && typeof configForTest.maxTokens === 'number'
                 && configForTest.maxTokens > matched.officialMaxOutput
             ) {
+                // 默认 128K 会撞上 gpt-4o 这类小上限模型。这里直接按模型建议值发送，
+                // 而不是拦下来让用户自己去猜该选哪个档位。
+                const 回落值 = matched.suggestedSelection > 0 && matched.suggestedSelection <= matched.officialMaxOutput
+                    ? matched.suggestedSelection
+                    : matched.officialMaxOutput;
+                目标配置ID = configForTest.id;
                 keepMessage = true;
-                setMessage(`${modelForTest} 官方最大输出约为 ${matched.officialMaxOutput}，当前设置 ${configForTest.maxTokens} 过高，请调整。`);
-                return;
+                setMessage(`${modelForTest} 官方最大输出约为 ${matched.officialMaxOutput}，本次连接测试按 ${回落值} 发送（原设置 ${configForTest.maxTokens}），保存时会一并调整。`);
+                configForTest = { ...configForTest, maxTokens: 回落值 };
+                setForm((prev) => ({
+                    ...prev,
+                    configs: prev.configs.map((cfg) => (
+                        cfg.id === 目标配置ID ? { ...cfg, maxTokens: 回落值, updatedAt: Date.now() } : cfg
+                    ))
+                }));
+                formRef.current = {
+                    ...formRef.current,
+                    configs: formRef.current.configs.map((cfg) => (
+                        cfg.id === 目标配置ID ? { ...cfg, maxTokens: 回落值, updatedAt: Date.now() } : cfg
+                    ))
+                };
             }
             if (!modelForTest) {
                 keepMessage = true;
@@ -591,6 +665,24 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                         <GameButton onClick={handleCreateConfig} variant="secondary" className="w-full md:w-auto">新建配置</GameButton>
                     </div>
                 </div>
+                <label className="flex items-center justify-between gap-3 rounded-md border border-gray-700/60 bg-black/40 px-3 py-2 text-xs text-gray-300">
+                    <span className="leading-5">
+                        新增后自动切换主剧情接口
+                        <span className="ml-2 text-[11px] text-gray-500">关闭时（默认）只把新接口加入列表，主剧情仍走当前配置</span>
+                    </span>
+                    <input
+                        type="checkbox"
+                        checked={form.功能模型占位.新增接口后自动切换主剧情 === true}
+                        onChange={(event) => setForm((prev) => ({
+                            ...prev,
+                            功能模型占位: {
+                                ...prev.功能模型占位,
+                                新增接口后自动切换主剧情: event.target.checked
+                            }
+                        }))}
+                        className="h-4 w-4 shrink-0 accent-cyan-400"
+                    />
+                </label>
             </div>
 
             {form.configs.length === 0 ? (
@@ -741,7 +833,7 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                                     />
                                 )}
 
-                                <div className="text-[11px] text-gray-400">统一档位：8K / 32K / 64K。若模型上限不在档位内，请使用自定义输入。</div>
+                                <div className="text-[11px] text-gray-400">统一档位：8K / 32K / 64K / 128K。新建配置默认 128K；若模型上限不在档位内，请使用自定义输入。切换主剧情模型时，若当前档位超过该模型官方上限，会自动回落到建议档位。</div>
                                 <div className="text-[11px] text-gray-400">留空时默认按 8192 发送，并根据模型上下文自动钳制。</div>
                             </div>
 
@@ -849,18 +941,8 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                             label: model
                         }))}
                         onChange={(model) => {
+                            // 档位回落（含提示）统一在 updateMainModel 里处理，避免这里再清空一次覆盖掉自动调整结果。
                             updateMainModel(model);
-                            if (activeConfig) {
-                                const matched = 匹配模型输出推荐(model);
-                                if (
-                                    matched &&
-                                    typeof activeConfig.maxTokens === 'number' &&
-                                    activeConfig.maxTokens > matched.officialMaxOutput
-                                ) {
-                                    updateActiveConfig({ maxTokens: undefined });
-                                    setMessage(`主剧情模型已切换为 ${model}，原最大输出 Token 超过该模型上限，请重新选择档位。`);
-                                }
-                            }
                         }}
                         disabled={主剧情模型选项.length === 0}
                         placeholder={主剧情模型选项.length ? '请选择模型' : '请先点击获取列表'}

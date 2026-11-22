@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { 执行NPC生图工作流, 构建词组转化性别硬约束 } from '../hooks/useGame/npcImageWorkflow';
 
+// 队列接续测试需要快速失败，跳过真实的重试等待（默认 3 次 + 1.2s/2.4s backoff）
+vi.mock('../utils/imageGenerationRetry', () => ({
+    生图最大自动重试次数: 0,
+    执行生图模型调用带重试: (runner: () => Promise<unknown>) => runner()
+}));
+
 vi.mock('../services/ai/image', () => ({
     generateNpcImagePrompt: vi.fn(async () => ({ 原始描述: '{}', 生图词组: 'masterpiece, 1girl, inn background' })),
     buildNpcDirectImagePrompt: vi.fn(() => ({ 原始描述: '{}', 生图词组: 'masterpiece, 1girl, inn background' })),
@@ -241,5 +247,36 @@ describe('npc image workflow full-flow age prefix regression', () => {
         expect(任务.最终正向提示词).toContain('1woman, female, solo focus');
         expect(任务.最终正向提示词).not.toContain('adult woman');
         expect(任务.性别固定前缀来源).toBe('custom');
+    });
+});
+
+// 回归：v1.0.706 线上事故。NPC 生图队列用 `void` 接续下一项，
+// 续跑任务撞上第三方渠道 402/403 时没有接收方，直接冒到 window.unhandledrejection，
+// 被 index.html 的 preboot 误判成「应用启动失败」，整屏遮罩盖死游戏。
+describe('npc image workflow queue continuation isolation', () => {
+    it('never leaks a queue continuation failure as a global unhandled rejection', async () => {
+        const imageService = await import('../services/ai/image');
+        const generateMock = imageService.generateImageByPrompt as unknown as ReturnType<typeof vi.fn>;
+        generateMock.mockRejectedValue(new Error('API Error: 403 - insufficient_credits'));
+
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+        process.on('unhandledRejection', onUnhandled);
+
+        const npcA = { id: 'npc_queue_a', 姓名: '甲', 性别: '女' };
+        const npcB = { id: 'npc_queue_b', 姓名: '乙', 性别: '女' };
+        const { deps } = 构建NPC生图依赖([npcA, npcB]);
+
+        try {
+            const first = 执行NPC生图工作流(npcA, { 构图: '头像', force: true }, deps as any);
+            // 计数已被第一项占用 → 第二项走队列，等第一项结束后由 finally 接续
+            await 执行NPC生图工作流(npcB, { 构图: '头像', force: true }, deps as any);
+            await expect(first).rejects.toThrow();
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            expect(unhandled).toHaveLength(0);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+            generateMock.mockReset();
+        }
     });
 });

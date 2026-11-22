@@ -770,6 +770,7 @@ const 默认模型词组转化器预设列表: 模型词组转化器预设结构
 
 export const 默认功能模型占位: 功能模型占位配置结构 = {
     主剧情使用模型: '',
+    新增接口后自动切换主剧情: false,
     DeepSeek稳定模型救场开关: false,
     DeepSeek稳定模型使用模型: '',
     DeepSeek稳定模型API地址: '',
@@ -789,6 +790,11 @@ export const 默认功能模型占位: 功能模型占位配置结构 = {
     女主规划独立模型开关: false,
     剧情规划独立模型开关: false,
     文章优化独立模型开关: false,
+    省次数模式启用: false,
+    省次数模式使用模型: '',
+    省次数模式渠道ID: '',
+    省次数模式API地址: '',
+    省次数模式API密钥: '',
     小说拆分功能启用: false,
     小说拆分独立模型开关: false,
     剧情回忆使用模型: '',
@@ -1551,6 +1557,8 @@ const 标准化功能模型占位 = (raw: any): 功能模型占位配置结构 =
             : 'comfyui';
     return {
         主剧情使用模型: 读取字符串(raw?.主剧情使用模型),
+        新增接口后自动切换主剧情: raw?.新增接口后自动切换主剧情 === true
+            || String(raw?.新增接口后自动切换主剧情).trim().toLowerCase() === 'true',
         DeepSeek稳定模型救场开关: raw?.DeepSeek稳定模型救场开关 === true
             || String(raw?.DeepSeek稳定模型救场开关).trim().toLowerCase() === 'true',
         DeepSeek稳定模型使用模型: 读取字符串(raw?.DeepSeek稳定模型使用模型),
@@ -1572,6 +1580,11 @@ const 标准化功能模型占位 = (raw: any): 功能模型占位配置结构 =
         女主规划独立模型开关: Boolean(raw?.女主规划独立模型开关),
         剧情规划独立模型开关: Boolean(raw?.剧情规划独立模型开关),
         文章优化独立模型开关: Boolean(raw?.文章优化独立模型开关),
+        省次数模式启用: Boolean(raw?.省次数模式启用),
+        省次数模式使用模型: 读取字符串(raw?.省次数模式使用模型),
+        省次数模式渠道ID: 读取字符串(raw?.省次数模式渠道ID),
+        省次数模式API地址: 读取字符串(raw?.省次数模式API地址),
+        省次数模式API密钥: 读取字符串(raw?.省次数模式API密钥),
         小说拆分功能启用: Boolean(raw?.小说拆分功能启用),
         小说拆分独立模型开关: Boolean(raw?.小说拆分独立模型开关),
         剧情回忆使用模型: 读取字符串(raw?.剧情回忆使用模型),
@@ -1800,6 +1813,15 @@ export const 创建空接口设置 = (): 接口设置结构 => ({
     功能模型占位: { ...默认功能模型占位 }
 });
 
+/**
+ * 新建接口配置的默认最大输出 Token。
+ *
+ * 取 128K：剧情正文 + 结构化命令很容易超过 8K/32K，历史线上事故里
+ * `finish_reason=length` 导致「上游输出为空、正文截断」的反馈绝大多数是默认值太小。
+ * 若用户选择的模型在推荐表里且有更低的官方上限，接口设置页会在他选模型时自动回落到建议档位。
+ */
+export const 新建接口默认最大输出Token = 131_072;
+
 export const 创建接口配置模板 = (
     supplier: 接口供应商类型,
     options?: { compatiblePreset?: OpenAI兼容方案类型 }
@@ -1822,7 +1844,7 @@ export const 创建接口配置模板 = (
         apiKey: '',
         model: preset.model,
         自定义请求头: '',
-        maxTokens: undefined,
+        maxTokens: 新建接口默认最大输出Token,
         temperature: undefined,
         topP: undefined,
         createdAt: now,
