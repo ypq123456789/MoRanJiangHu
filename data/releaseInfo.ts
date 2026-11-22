@@ -1476,8 +1476,8 @@ export const RELEASE_INFO = {
     ],
     "notes": "新建 AI 接口时，「最大输出 Token」默认给到 128K，长篇剧情更少因为输出上限太小而中途截断或返回空内容。\n接口设置里新增「新增后自动切换主剧情接口」开关，默认关闭：新建接口只加入列表，不会顶替你正在用的主剧情接口；需要切换时再手动选。\n切换主剧情模型时，如果当前输出档位超过该模型的官方上限，会自动回落到推荐档位，不必再手动反复调整。\n修复后台自动生图失败时，错误提示误把整个游戏盖成「应用启动失败」的问题；现在生图失败只提示，正常游戏不受影响。\n本次更新同时覆盖浏览器端与安卓安装包。\n官网：https://msjh.bacon159.pp.ua/\n备用站：https://msjh.bacon.de5.net/",
     "releasePublishedAt": "2026-11-23T01:26:22+08:00",
-    "apkSize": 6028720,
-    "apkSha256": "4a1fa1e308363a8e8a1ff9c15a8ca1601e8d50a4a30a9257d5a363db45d7e353"
+    "apkSize": 6030511,
+    "apkSha256": "8910ed96a10e766254f905540d1e214d4b1aea4bb8a538a66676e0f624aab5cb"
 } as const;
 
 export type ReleaseInfo = typeof RELEASE_INFO;
