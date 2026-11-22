@@ -656,19 +656,20 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         }
     }, [clearHoverCloseTimer, desktopExpandedType]);
 
-    const closeFullscreenDetail = useCallback(() => {
+    const closeFullscreenDetail = useCallback((returnFocus = true) => {
         clearHoverCloseTimer();
         const prevType = fullscreenDetailType;
         setFullscreenDetailType(null);
         setPinnedType(null);
         setDesktopExpandedType(null);
-        if (prevType) {
+        if (returnFocus && prevType) {
             requestAnimationFrame(() => {
                 const primary = triggerRefs.current[prevType];
                 if (primary && primary.isConnected) {
                     primary.focus();
                     return;
                 }
+                // 原按钮已随内容消失（例如节日跨进平常日）：退回到仍在顶栏上的可见控件。
                 const fallback = triggerRefs.current.journey
                     || triggerRefs.current.location
                     || triggerRefs.current.weather;
@@ -676,6 +677,25 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
             });
         }
     }, [clearHoverCloseTimer, fullscreenDetailType]);
+
+    // 视口降到 md 以下时全屏遮罩被 CSS 隐藏，但 fullscreenDetailType 仍有值：
+    // 焦点会留在页面别处，且窗口拉回桌面宽度后详情又自己冒出来。
+    // 按审查意见采用「离开桌面布局时关掉详情」这一支；此时桌面顶栏整体不可见，
+    // 所以不归还焦点（否则会把焦点塞给看不见的按钮）。
+    useEffect(() => {
+        if (!fullscreenDetailType) return;
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+        const desktopQuery = window.matchMedia('(min-width: 768px)');
+        const handleChange = (event: MediaQueryListEvent) => {
+            if (!event.matches) closeFullscreenDetail(false);
+        };
+        if (!desktopQuery.matches) {
+            closeFullscreenDetail(false);
+            return;
+        }
+        desktopQuery.addEventListener('change', handleChange);
+        return () => desktopQuery.removeEventListener('change', handleChange);
+    }, [fullscreenDetailType, closeFullscreenDetail]);
 
     useEffect(() => {
         if (!fullscreenDetailType) return;
@@ -1199,7 +1219,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
             {fullscreenDetailType && (
                 <div
                     className="fixed inset-0 z-[260] hidden items-center justify-center bg-black/72 px-10 py-12 backdrop-blur-md md:flex"
-                    onClick={closeFullscreenDetail}
+                    onClick={() => closeFullscreenDetail()}
                 >
                     <div
                         ref={fullscreenDialogRef}
@@ -1218,7 +1238,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
                             <button
                                 ref={fullscreenCloseBtnRef}
                                 type="button"
-                                onClick={closeFullscreenDetail}
+                                onClick={() => closeFullscreenDetail()}
                                 className="inline-flex h-8 items-center rounded-full border border-wuxia-gold/25 px-3 text-sm text-wuxia-gold/75 transition-colors hover:border-wuxia-gold/55 hover:text-wuxia-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-wuxia-gold"
                             >
                                 收起

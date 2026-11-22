@@ -486,10 +486,16 @@ test('1440px 鼠标悬停与点击固定、焦点不抢夺、大面板焦点管�
 
     const dialog = page.getByRole('dialog', { name: '当前地点' });
     const collapseBtn = dialog.getByRole('button', { name: '收起' });
+    const detailScroller = dialog.getByLabel('当前地点内容');
     await expect(dialog).toBeVisible();
     await expect(collapseBtn).toBeFocused();
+    // Tab 循环现在包含内容滚动区（长描述可用键盘滚动），不再是只困住收起按钮
+    await page.keyboard.press('Tab');
+    await expect(detailScroller).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(collapseBtn).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(detailScroller).toBeFocused();
 
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();

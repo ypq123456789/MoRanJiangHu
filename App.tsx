@@ -40,6 +40,7 @@ import { addScriptedMoneyDelta } from './utils/scriptedMoneyReconciler';
 import { 获取题材界面文案 } from './utils/resourceLabels';
 import { 获取题材顶部时间显示格式 } from './utils/modeRuntimeProfile';
 import { 计算游戏历程天数 } from './utils/gameTimeJourney';
+import { 计算回合键, 计算变化区域签名, 判断是否有未读, 合并已读键 } from './utils/rightPanelUnread';
 import { 整理世界状态客户可见大事 } from './hooks/useGame/worldEvolutionUtils';
 import { 分配角色属性点, type 可分配六维属性键 } from './utils/characterAttributePoints';
 import { getDiagnosticLogs, recordDiagnosticLog, subscribeDiagnosticLogs } from './services/diagnosticLog';
@@ -1830,19 +1831,21 @@ const App: React.FC = () => {
     }, []);
     const [dismissedRightPanelChangeKeys, setDismissedRightPanelChangeKeys] = React.useState<string[]>([]);
     const latestChangedSignature = React.useMemo(
-        () => latestChangedSections.slice().sort().join('|'),
+        () => 计算变化区域签名(latestChangedSections),
         [latestChangedSections]
+    );
+    // 已读状态按「回合」隔离：同一回合收起再展开保留已读；进入新回合时即使变化区域完全相同，
+    // 也要清空已读并重新提示。
+    const rightPanelTurnKey = React.useMemo(
+        () => 计算回合键(latestAssistantMessage?.timestamp, latestChangedSignature),
+        [latestAssistantMessage, latestChangedSignature]
     );
     React.useEffect(() => {
         setDismissedRightPanelChangeKeys([]);
-    }, [latestChangedSignature]);
+    }, [rightPanelTurnKey]);
     const handleDismissRightPanelChangeKeys = React.useCallback((keys: string[]) => {
         if (!keys || keys.length === 0) return;
-        setDismissedRightPanelChangeKeys((prev) => {
-            const next = new Set(prev);
-            keys.forEach((key) => next.add(key));
-            return Array.from(next);
-        });
+        setDismissedRightPanelChangeKeys((prev) => 合并已读键(prev, keys));
     }, []);
     const rightPanelTrackedChangeKeys = React.useMemo(() => {
         const keys = new Set<string>(['背包', '社交', '装备', '任务列表', '战斗', '队伍', '玩家门派', '地图', '约定列表', '剧情', '记忆系统']);
@@ -1852,7 +1855,7 @@ const App: React.FC = () => {
         return keys;
     }, [启用修炼体系, state.apiConfig?.功能模型占位?.世界演变功能启用, state.apiConfig?.功能模型占位?.规划分析功能启用, safeGameConfig?.启用女主剧情规划]);
     const hasUnreadRightPanelChanges = React.useMemo(
-        () => latestChangedSections.some((key) => rightPanelTrackedChangeKeys.has(key) && !dismissedRightPanelChangeKeys.includes(key))
+        () => 判断是否有未读(latestChangedSections, rightPanelTrackedChangeKeys, dismissedRightPanelChangeKeys)
             || Boolean(state.apiConfig?.功能模型占位?.世界演变功能启用 !== false && meta.worldEvolutionEnabled && meta.worldEvolutionUpdating),
         [latestChangedSections, rightPanelTrackedChangeKeys, dismissedRightPanelChangeKeys, state.apiConfig?.功能模型占位?.世界演变功能启用, meta.worldEvolutionEnabled, meta.worldEvolutionUpdating]
     );

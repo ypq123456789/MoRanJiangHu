@@ -2,6 +2,7 @@ import React from 'react';
 import { useMusic } from '../features/Music/MusicProvider';
 import MusicPlayerUI from '../features/Music/MusicPlayerUI';
 import type { 题材界面文案 } from '../../utils/resourceLabels';
+import { 判断是否有未读 } from '../../utils/rightPanelUnread';
 import './RightPanel.css';
 
 interface Props {
@@ -145,23 +146,16 @@ const RightPanel: React.FC<Props> = ({
     onReturnToHome,
     returnHomeSaving = false,
     latestChangedSections = [],
-    dismissedChangeKeys,
+    dismissedChangeKeys = [],
     onDismissChangeKeys,
     activeKey = null,
     onCollapse,
 }) => {
     const { enabled, currentLyric } = useMusic();
-    const [internalDismissedKeys, setInternalDismissedKeys] = React.useState<Set<string>>(() => new Set());
     const [openGroups, setOpenGroups] = React.useState<string[]>(readInitialOpenGroups);
-    const changeSignature = React.useMemo(() => latestChangedSections.slice().sort().join('|'), [latestChangedSections]);
-
-    React.useEffect(() => {
-        setInternalDismissedKeys(new Set());
-    }, [changeSignature]);
-
-    const effectiveDismissedKeys = React.useMemo(
-        () => (dismissedChangeKeys ? new Set(dismissedChangeKeys) : internalDismissedKeys),
-        [dismissedChangeKeys, internalDismissedKeys]
+    const changeSectionSet = React.useMemo(
+        () => new Set(latestChangedSections),
+        [latestChangedSections]
     );
 
     const toggleGroup = (groupId: string) => {
@@ -176,20 +170,19 @@ const RightPanel: React.FC<Props> = ({
         });
     };
 
+    // 已读状态由 App 持有，组件卸载重挂不会丢失；收起书签与菜单项共用同一套判断。
+    const hasUnread = (changeKeys?: string[]) =>
+        判断是否有未读(changeKeys || [], changeSectionSet, dismissedChangeKeys);
+
     const wrapChangedAction = (changeKeys: string[] | undefined, action: () => void) => () => {
-        if (changeKeys && changeKeys.length > 0) {
-            onDismissChangeKeys?.(changeKeys);
-            setInternalDismissedKeys((prev) => {
-                const next = new Set(prev);
-                changeKeys.forEach((key) => next.add(key));
-                return next;
-            });
+        // 只登记「此刻真的有未读」的键。回合键在同一回合的后处理期间不变，
+        // 若把暂时没有变化的键也记成已读，后处理稍后补上的变化就再也不会提示。
+        const unreadKeys = (changeKeys || []).filter((key) => hasUnread([key]));
+        if (unreadKeys.length > 0) {
+            onDismissChangeKeys?.(unreadKeys);
         }
         action();
     };
-
-    const hasUnread = (changeKeys?: string[]) =>
-        Boolean(changeKeys && changeKeys.some((key) => latestChangedSections.includes(key) && !effectiveDismissedKeys.has(key)));
 
     const menuLabel = uiLabels?.菜单;
     const titleLabel = uiLabels?.标题;
