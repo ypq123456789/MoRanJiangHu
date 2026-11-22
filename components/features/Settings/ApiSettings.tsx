@@ -400,6 +400,9 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
         const 需要选中新配置 = 自动切换主剧情 || !formRef.current.activeConfigId;
         setForm((prev) => ({
             ...prev,
+            // 异步模型列表请求用 activeConfigId 做来源校验，必须与 selectedConfigId 同步，
+            // 否则旧配置的响应会串进新配置的模型选择框。
+            activeConfigId: 需要选中新配置 ? created.id : prev.activeConfigId,
             configs: [...prev.configs, created]
         }));
         if (需要选中新配置) {
@@ -960,18 +963,9 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                             type="text"
                             value={主剧情解析模型}
                             onChange={(e) => {
-                                const nextModel = e.target.value;
-                                updateMainModel(nextModel);
-                                if (activeConfig) {
-                                    const matched = 匹配模型输出推荐(nextModel);
-                                    if (
-                                        matched &&
-                                        typeof activeConfig.maxTokens === 'number' &&
-                                        activeConfig.maxTokens > matched.officialMaxOutput
-                                    ) {
-                                        updateActiveConfig({ maxTokens: undefined });
-                                    }
-                                }
+                                // 档位回落（含提示）统一在 updateMainModel 里处理；
+                                // 这里不能再按旧 activeConfig 清一次 maxTokens，否则会覆盖回落结果。
+                                updateMainModel(e.target.value);
                             }}
                             placeholder="可直接手动输入模型名称"
                             className="w-full rounded-md border-2 border-transparent bg-black/50 p-3 text-white outline-none transition-all focus:border-wuxia-gold"
