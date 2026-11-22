@@ -55,7 +55,7 @@ const providers = [
     label: 'GitHub Raw (CF 加速)',
     url: `https://ghfast.top/${githubRawUrl}`
   },
-  ...['https://gh.ddlc.top', 'https://gh-proxy.com', 'https://gh-proxy.ygxz.in', 'https://ghfast.top'].map((baseUrl) => ({
+  ...['https://ghproxy.net', 'https://gh.ddlc.top', 'https://ghfast.top'].map((baseUrl) => ({
     provider: `github-accelerator-${new URL(baseUrl).hostname}`,
     label: `GitHub 加速 (${new URL(baseUrl).hostname})`,
     url: `${baseUrl}/${githubDirectUrl}`

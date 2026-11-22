@@ -31,7 +31,7 @@ describe('release publish manifest script', () => {
         expect(source).toContain('oneDriveDirectApkUrl: providerApkUrls.onedriveDirect');
         expect(source).toContain('...githubAcceleratedApkUrls');
         expect(source).not.toContain('...orderedProviderUrls,\n      providerApkUrls.github');
-        expect(source).toContain("readEnv('GITHUB_RELEASE_ACCELERATORS', 'https://gh.ddlc.top,https://gh-proxy.com,https://gh-proxy.ygxz.in,https://ghfast.top')");
+        expect(source).toContain("readEnv('GITHUB_RELEASE_ACCELERATORS', 'https://ghproxy.net,https://gh.ddlc.top,https://ghfast.top')");
         expect(source).toContain('B2 release distribution is decommissioned');
         expect(source).toContain("process.env.MORAN_B2_SKIP_APK_UPLOAD !== '0'");
     });

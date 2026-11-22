@@ -36,9 +36,8 @@ describe('APK latest manifest proxy', () => {
         expect(payload.latest.quarkTvApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=quark-tv');
         expect(payload.latest.githubApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/version/MoRanJiangHu-v1.0.528.apk?provider=github');
         expect(payload.latest.githubAcceleratedApkUrls).toEqual([
+            'https://ghproxy.net/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
             'https://gh.ddlc.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
-            'https://gh-proxy.com/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
-            'https://gh-proxy.ygxz.in/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk',
             'https://ghfast.top/https://github.com/ypq123456789/MoRanJiangHu/releases/download/v1.0.528/MoRanJiangHu-v1.0.528.apk'
         ]);
         expect(payload.latest.oneDriveApkUrl).toBe('https://msjh.bacon159.pp.ua/api/apk/latest.apk?provider=onedrive');
