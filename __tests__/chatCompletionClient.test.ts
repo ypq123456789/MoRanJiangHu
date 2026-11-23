@@ -207,6 +207,15 @@ describe('chatCompletionClient Claude compatible message normalization', () => {
         expect(规范化请求模型名称('gemini-3.1-pro-high-search-真流-[星星公益站-CLI渠道]'))
             .toBe('gemini-3.1-pro-high-search');
         expect(规范化请求模型名称('deepseek-v3.2（公益渠道）')).toBe('deepseek-v3.2');
+        // 上游真实 id 自带中文段、又没有显示用括注时必须原样发送：
+        // 卡嘉莉等站点的合法 id 就是 `gemini-4-hydrogen-原生1M支持工具`，
+        // 砍成 `gemini-4-hydrogen` 会被上游判 model_not_found。
+        expect(规范化请求模型名称('gemini-4-hydrogen-原生1M支持工具'))
+            .toBe('gemini-4-hydrogen-原生1M支持工具');
+        expect(规范化请求模型名称('gemini-4-hydrogen-原生1M防外审注入不支持工具'))
+            .toBe('gemini-4-hydrogen-原生1M防外审注入不支持工具');
+        expect(规范化请求模型名称('[公益]捐赠#681/gemini-4-argon-ais'))
+            .toBe('[公益]捐赠#681/gemini-4-argon-ais');
 
         const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
             choices: [{ message: { content: 'pong' } }]

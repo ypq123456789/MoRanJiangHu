@@ -201,15 +201,23 @@ export const 规范化请求模型名称 = (value: string): string => {
     if (/^[\x20-\x7E]+$/.test(raw)) return raw;
 
     let candidate = raw;
+    let strippedDisplaySuffix = false;
     for (let index = 0; index < 3; index += 1) {
         const next = candidate
             .replace(/[\s_-]*[（(【\[][^）)】\]]*[）)】\]]\s*$/u, '')
             .trim();
         if (next === candidate) break;
         candidate = next;
+        strippedDisplaySuffix = true;
     }
 
     if (/^[\x20-\x7E]+$/.test(candidate)) return candidate;
+
+    // 只有确认过「尾部确实是一段显示用括注」时，才继续把中文尾巴当备注砍掉。
+    // 反例：上游真实模型 id 本身带中文段（如 gemini-4-hydrogen-原生1M支持工具），
+    // 无括号时按首个非 ASCII 字符截断会把 id 砍成 gemini-4-hydrogen，上游直接 400 model_not_found。
+    // 显示名与真实 id 的分界点就是括号：`id-真流-[站点渠道]` 要截，`id-原生1M支持工具` 不能截。
+    if (!strippedDisplaySuffix) return raw;
 
     const nonAsciiIndex = [...candidate].findIndex((char) => char.charCodeAt(0) > 0x7E);
     if (nonAsciiIndex > 0) {
