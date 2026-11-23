@@ -483,7 +483,9 @@ const GridMapScene: React.FC<Props> = ({
     const personLabelFontSize = Math.max(0.82, 1.05 * inverseViewScale);
     const personLabelHeight = Math.max(0.98, 1.28 * inverseViewScale);
     const personMarkerRadius = Math.max(0.26, 0.34 * inverseViewScale);
-    const playerMarkerRadius = Math.max(0.34, 0.46 * inverseViewScale);
+    // 主角与 NPC 用同样大小的点位，靠外圈高亮与金色区分主次；
+    // 之前主角半径更大、又单独偏移，视觉上像一个"躲在角落的标记"，没有和 NPC 并列。
+    const playerMarkerRadius = personMarkerRadius;
     const personOuterRadius = Math.max(0.36, 0.52 * inverseViewScale);
     const personLayouts = useMemo(() => {
         const placed: Array<{ x: number; y: number }> = [];

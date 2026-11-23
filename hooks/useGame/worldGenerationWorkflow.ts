@@ -540,11 +540,18 @@ export const 执行世界生成工作流 = async (
             );
             if (!useManualWorldPrompt) {
                 let pulse = 0;
+                const 首包等待开始 = Date.now();
                 worldStreamHeartbeat = setInterval(() => {
                     if (worldDeltaReceived) return;
                     pulse = (pulse + 1) % 4;
                     const dots = '.'.repeat(pulse) || '.';
-                    开局流式历史更新器?.更新(`【生成中】${useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观'}${dots}`);
+                    const 等待秒 = Math.max(0, Math.round((Date.now() - 首包等待开始) / 1000));
+                    // 部分中转会把整段内容聚合后一次性下发（实测同一渠道短请求首包 5~9 秒、
+                    // 全部内容只到 1 帧）。这里把等待时长和可能的原因直接写出来，避免玩家以为卡死。
+                    const 首包提示 = 等待秒 >= 8
+                        ? `\n已等待 ${等待秒} 秒，上游暂未返回内容。\n部分渠道不支持逐字返回，会在生成完成后一次性给出全文，请继续等待。`
+                        : '';
+                    开局流式历史更新器?.更新(`【生成中】${useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观'}${dots}${首包提示}`);
                 }, 420);
             }
         }

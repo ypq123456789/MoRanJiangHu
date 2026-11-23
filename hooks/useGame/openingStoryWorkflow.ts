@@ -87,7 +87,7 @@ import { 生成地图更新 } from './mapUpdateWorkflow';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
 
 const 开局规划分析请求超时毫秒 = 90000;
-const 开场剧情慢首包提示毫秒 = 30000;
+const 开场剧情慢首包提示毫秒 = 10000;
 const 开场剧情首次流式响应超时毫秒 = 240000;
 
 export const 安全触发开局主角自动生图 = async (
@@ -944,8 +944,9 @@ export const 执行开场剧情生成工作流 = async (
                 pulse = (pulse + 1) % 4;
                 const dots = '.'.repeat(pulse) || '.';
                 const waitingMs = Date.now() - openingStreamWaitingStartedAt;
+                const 等待秒 = Math.max(0, Math.round(waitingMs / 1000));
                 const waitingText = waitingMs >= 开场剧情慢首包提示毫秒
-                    ? `【等待中】模型首包较慢，仍在等待开场剧情${dots}`
+                    ? `【等待中】开场剧情首包较慢，已等待 ${等待秒} 秒${dots}\n部分渠道不支持逐字返回，会在生成完成后一次性给出全文，请继续等待。`
                     : `【生成中】开场剧情生成${dots}`;
                 deps.设置历史记录(prev => prev.map(item => {
                     if (

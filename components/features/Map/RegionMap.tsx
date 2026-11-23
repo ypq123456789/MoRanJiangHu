@@ -1,49 +1,69 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { 地点树节点, 地点层级类型 } from '../../../utils/locationTree';
-import {
-    NPC有显式地图位置,
-    NPC有精确地图位置,
-    NPC属于地图视图,
-    NPC显式位置命中任一,
-    NPC精确位置命中任一,
-    构建当前地点候选,
-    构建当前叶子地点候选,
-    地图文本相互命中,
-    选择NPC精确匹配地图节点,
-    选择NPC匹配地图节点,
-} from '../../../utils/mapNpcLocation';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { 地点树节点 } from '../../../utils/locationTree';
+import { 提取NPC精确地图位置片段 } from '../../../utils/mapNpcLocation';
 
 interface Props {
+    /** 当前层子节点（保留兼容；连续地图优先使用 allNodes） */
     nodes: 地点树节点[];
+    /** 完整地图树的根节点，用于「一张图无缝切换」 */
+    allNodes?: 地点树节点[];
     currentNodeId: string;
     currentLocationName: string;
     onSelect: (node: 地点树节点) => void;
     onLocateCurrent: () => void;
-    level: 地点层级类型;
+    level?: 地点树节点['层级'];
     socialList?: any[];
     env?: { 大地点?: string; 中地点?: string; 小地点?: string; 具体地点?: string };
     viewLocationName?: string;
     viewPathNames?: string[];
     viewDescription?: string;
     viewNodeNpcs?: any[];
+    /** 地点索引/面包屑当前选中的节点，变化时飞入对应区块 */
+    selectedNodeId?: string;
+    playerName?: string;
 }
 
-const 约束数值 = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+type 层级名 = 地点树节点['层级'];
+type 视野 = { x: number; y: number; w: number; h: number };
+type 区块 = { x: number; y: number; w: number; h: number };
 
-const 约束地图点 = (
-    point: { x: number; y: number },
-    mapW: number,
-    mapH: number,
-    padding = 0
-) => {
-    const safePadding = Math.max(0, Math.min(padding, mapW / 2, mapH / 2));
-    const maxX = Math.max(safePadding, mapW - safePadding);
-    const maxY = Math.max(safePadding, mapH - safePadding);
-    return {
-        x: 约束数值(Number.isFinite(point.x) ? point.x : mapW / 2, safePadding, maxX),
-        y: 约束数值(Number.isFinite(point.y) ? point.y : mapH / 2, safePadding, maxY),
-    };
+interface 布局项 {
+    node: 地点树节点;
+    box: 区块;
+    depth: number;
+    /** 父块顶部给人物预留的轨道高度 */
+    track: number;
+    子节点: 布局项[];
+}
+
+interface 人物点 { name: string; player: boolean }
+
+const WORLD: 视野 = { x: 0, y: 0, w: 1000, h: 680 };
+const ORDER: Record<string, number> = { 寰宇: 0, 大地点: 1, 中地点: 2, 小地点: 3, 区地点: 4, 子地点: 5 };
+const 层级标签: Record<层级名, string> = {
+    寰宇: '界域', 大地点: '大陆', 中地点: '地域', 小地点: '城镇', 区地点: '场所', 子地点: '房间',
 };
+const FILL: Record<层级名, string> = {
+    寰宇: 'rgba(96,132,180,0.18)',
+    大地点: 'rgba(104,150,116,0.20)',
+    中地点: 'rgba(170,140,85,0.20)',
+    小地点: 'rgba(196,160,100,0.24)',
+    区地点: 'url(#map-bld-normal)',
+    子地点: 'rgba(232,206,160,0.26)',
+};
+const STROKE: Record<层级名, string> = {
+    寰宇: 'rgba(140,180,230,0.34)',
+    大地点: 'rgba(130,180,140,0.38)',
+    中地点: 'rgba(200,170,110,0.40)',
+    小地点: 'rgba(200,165,105,0.38)',
+    区地点: 'rgba(214,180,126,0.55)',
+    子地点: 'rgba(224,200,158,0.45)',
+};
+const 目标字号: Record<层级名, number> = {
+    寰宇: 18, 大地点: 16, 中地点: 14, 小地点: 13, 区地点: 12, 子地点: 11,
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const 稳定哈希数 = (input: string): number => {
     let h = 2166136261;
@@ -51,775 +71,517 @@ const 稳定哈希数 = (input: string): number => {
     return h >>> 0;
 };
 
-// ─── 等高线 ───
+const 名字文本 = (name: string) => (name && name.length > 4 ? `${name.slice(0, 4)}…` : name) || '';
 
-const 生成等高线 = (nodeNames: string[], mapW: number, mapH: number): Array<Array<{ x: number; y: number }>> => {
-    const combinedText = nodeNames.join('');
-    const hasTerrainHint = ['山', '岭', '峰', '谷', '坡', '崖', '林', '溪', '野', '郊', '荒', '水', '河', '湖', '海', '原', '漠', '渊', '域', '岛', '陆', '泽', '丘'].some(k => combinedText.includes(k));
-    const lines: Array<Array<{ x: number; y: number }>> = [];
-    const count = hasTerrainHint ? Math.max(4, Math.min(8, Math.floor(mapH / 4))) : Math.max(3, Math.min(5, Math.floor(mapH / 8)));
-    for (let li = 0; li < count; li++) {
-        const yBase = ((li + 1) / (count + 1)) * mapH;
-        const amp = 0.55 + (li % 3) * 0.22;
-        const phase = (li + 1) * 0.9;
-        const points: Array<{ x: number; y: number }> = [];
-        for (let s = 0; s <= 18; s++) {
-            const x = (s / 18) * mapW;
-            const y = yBase + Math.sin((x / Math.max(1, mapW)) * Math.PI * 2 + phase) * amp + Math.sin((x / Math.max(1, mapW)) * Math.PI * 4 + phase * 0.7) * 0.22;
-            points.push({ x: Math.max(0.5, Math.min(mapW - 0.5, x)), y: Math.max(0.5, Math.min(mapH - 0.5, y)) });
-        }
-        lines.push(points);
-    }
-    return lines;
-};
+/** 父块顶部留人物轨道，子块从轨道下方开始排；人物另有最上层绘制，不会被压住。 */
+function 排布地图树(roots: 地点树节点[], 人物映射: Map<string, 人物点[]>): { flat: 布局项[]; byId: Map<string, 布局项> } {
+    const flat: 布局项[] = [];
+    const byId = new Map<string, 布局项>();
+    const visited = new Set<string>();
 
-// ─── 布局计算 ───
+    const walk = (node: 地点树节点, box: 区块, depth: number) => {
+        if (visited.has(node.ID)) return;
+        visited.add(node.ID);
+        const kids = (node.子节点 || []).filter(kid => kid && kid.ID !== node.ID && !visited.has(kid.ID));
+        const item: 布局项 = { node, box, depth, track: 0, 子节点: [] };
+        flat.push(item);
+        byId.set(node.ID, item);
+        if (kids.length === 0) return;
 
-interface 布局点 { x: number; y: number; node: 地点树节点; isCurrent: boolean; }
-
-const 计算布局 = (nodes: 地点树节点[], currentNodeId: string, mapW: number, mapH: number, mapPad: number = 4): 布局点[] => {
-    if (nodes.length === 0) return [];
-    const pad = mapPad;
-    const usableW = mapW - pad * 2;
-    const usableH = mapH - pad * 2;
-    const cols = Math.max(2, Math.min(Math.ceil(Math.sqrt(nodes.length * (usableW / usableH))), 6));
-    const rows = Math.ceil(nodes.length / cols);
-    const cellW = usableW / cols;
-    const cellH = usableH / rows;
-
-    const sorted = [...nodes].sort((a, b) => {
-        if (a.ID === currentNodeId) return -1;
-        if (b.ID === currentNodeId) return 1;
-        return 稳定哈希数(a.名称 + a.ID) - 稳定哈希数(b.名称 + b.ID);
-    });
-
-    return sorted.map((node, i) => {
-        const hash = 稳定哈希数(node.名称 + node.ID);
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const jx = ((hash >> 4) % 20 - 10) / 30 * cellW;
-        const jy = ((hash >> 12) % 20 - 10) / 30 * cellH;
-        const safePoint = 约束地图点({
-            x: pad + col * cellW + cellW / 2 + jx,
-            y: pad + row * cellH + cellH / 2 + jy,
-        }, mapW, mapH, Math.max(1, mapPad));
-        return {
-            x: safePoint.x,
-            y: safePoint.y,
-            node,
-            isCurrent: node.ID === currentNodeId,
+        const cols = Math.max(1, Math.ceil(Math.sqrt(kids.length)));
+        const rows = Math.ceil(kids.length / cols);
+        const pad = Math.max(2, Math.min(box.w / (cols + 1), box.h / (rows + 1)) * 0.22);
+        const 人数 = 人物映射.get(node.ID)?.length || 0;
+        const track = 人数 > 0 ? Math.min(box.h * 0.24, 16 + (人数 > 3 ? 26 : 14)) : Math.min(box.h * 0.06, 8);
+        item.track = track;
+        const inner: 区块 = {
+            x: box.x + pad,
+            y: box.y + pad + track,
+            w: Math.max(2, box.w - pad * 2),
+            h: Math.max(2, box.h - pad * 2 - track),
         };
-    });
-};
-
-// 不同层级使用不同的地图尺寸（pad控制内容距边框的距离）
-const 取地图尺寸 = (level: 地点层级类型) => {
-    if (level === '寰宇') return { w: 128, h: 96, pad: 10 };
-    if (level === '大地点') return { w: 72, h: 54, pad: 6 };
-    if (level === '中地点') return { w: 52, h: 40, pad: 8 };
-    return { w: 52, h: 40, pad: 4 };
-};
-
-const RegionMap: React.FC<Props> = ({ nodes, currentNodeId, currentLocationName, onSelect, onLocateCurrent, level, socialList = [], env, viewLocationName = '', viewPathNames = [], viewDescription = '', viewNodeNpcs = [] }) => {
-    const svgRef = useRef<SVGSVGElement>(null);
-    const { w: MAP_W, h: MAP_H, pad: MAP_PAD } = 取地图尺寸(level);
-
-    const [dragMode, setDragMode] = useState(false);
-    const [mapZoom, setMapZoom] = useState(1);
-    const [mapPan, setMapPan] = useState({ x: 0, y: 0 });
-    const [mapFocusPoint, setMapFocusPoint] = useState<{ x: number; y: number } | null>(null);
-
-    const dragStateRef = useRef<{
-        pointerId: number; startClientX: number; startClientY: number;
-        startPan: { x: number; y: number }; viewBoxW: number; viewBoxH: number; rectW: number; rectH: number;
-    } | null>(null);
-
-    useEffect(() => { setMapZoom(1); setMapPan({ x: 0, y: 0 }); setMapFocusPoint(null); }, [nodes, MAP_W, MAP_H]);
-
-    const contourLines = useMemo(() => 生成等高线(nodes.map(n => n.名称), MAP_W, MAP_H), [nodes, MAP_W, MAP_H]);
-    const layouts = useMemo(() => 计算布局(nodes, currentNodeId, MAP_W, MAP_H, MAP_PAD), [nodes, currentNodeId, MAP_W, MAP_H, MAP_PAD]);
-
-    const nodeNames = nodes.map(n => n.名称).join('');
-    const showWater = ['海', '洋', '湖', '河', '江', '泽', '渊', '水'].some(k => nodeNames.includes(k));
-    const showHills = ['山', '岭', '丘', '峰', '崖', '谷', '原', '野', '漠'].some(k => nodeNames.includes(k));
-
-    const MAX_ZOOM = 8;
-    const OVERSCAN = MAP_W; // 超边界范围，拖出地图时填充底色
-
-    // ViewBox 计算 — 允许拖出地图边界，模拟无限延伸
-    const mapViewBox = useMemo(() => {
-        const zoom = 约束数值(mapZoom, 1, MAX_ZOOM);
-        const width = MAP_W / zoom;
-        const height = MAP_H / zoom;
-        const cx = (mapFocusPoint?.x ?? MAP_W / 2) + mapPan.x;
-        const cy = (mapFocusPoint?.y ?? MAP_H / 2) + mapPan.y;
-        const x = 约束数值(cx - width / 2, -OVERSCAN, MAP_W + OVERSCAN - width);
-        const y = 约束数值(cy - height / 2, -OVERSCAN, MAP_H + OVERSCAN - height);
-        return { x, y, width, height };
-    }, [mapZoom, mapPan, mapFocusPoint, MAP_W, MAP_H]);
-
-    // 滚轮缩放
-    const handleWheel = useCallback((e: React.WheelEvent) => {
-        e.preventDefault();
-        setMapZoom(prev => 约束数值(Number((prev + (e.deltaY < 0 ? 0.5 : -0.5)).toFixed(2)), 1, MAX_ZOOM));
-    }, []);
-
-    // 拖拽平移
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        if (e.button !== 0) return;
-        if (!dragMode) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        dragStateRef.current = {
-            pointerId: e.pointerId, startClientX: e.clientX, startClientY: e.clientY,
-            startPan: mapPan, viewBoxW: mapViewBox.width, viewBoxH: mapViewBox.height,
-            rectW: Math.max(1, rect.width), rectH: Math.max(1, rect.height),
-        };
-        e.currentTarget.setPointerCapture(e.pointerId);
-    }, [mapPan, mapViewBox, dragMode]);
-
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
-        const s = dragStateRef.current;
-        if (!s || s.pointerId !== e.pointerId) return;
-        const dx = (e.clientX - s.startClientX) / s.rectW * s.viewBoxW;
-        const dy = (e.clientY - s.startClientY) / s.rectH * s.viewBoxH;
-        setMapFocusPoint(null);
-        const maxPanX = MAP_W / 2;
-        const maxPanY = MAP_H / 2;
-        setMapPan({
-            x: 约束数值(s.startPan.x - dx, -maxPanX, maxPanX),
-            y: 约束数值(s.startPan.y - dy, -maxPanY, maxPanY),
+        const gap = Math.max(2, Math.min(inner.w / (cols + 1), inner.h / (rows + 1)) * 0.22);
+        const cw = Math.max(1.5, (inner.w - gap * (cols + 1)) / cols);
+        const ch = Math.max(1.5, (inner.h - gap * (rows + 1)) / rows);
+        kids.forEach((kid, index) => {
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+            const child = 排布子项(kid, {
+                x: inner.x + gap + col * (cw + gap),
+                y: inner.y + gap + row * (ch + gap),
+                w: cw,
+                h: ch,
+            }, depth + 1);
+            item.子节点.push(child);
         });
-    }, [MAP_W, MAP_H]);
-
-    const handlePointerUp = useCallback((e: React.PointerEvent) => {
-        if (dragStateRef.current?.pointerId === e.pointerId) {
-            dragStateRef.current = null;
-            e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-    }, []);
-
-    // 定位到当前位置：如果在当前层则直接缩放，否则导航到对应层级
-    const handleLocateCurrent = () => {
-        const found = layouts.find(l => l.isCurrent);
-        if (found) {
-            setMapFocusPoint({ x: found.x, y: found.y });
-            setMapPan({ x: 0, y: 0 });
-            setMapZoom(4);
-        } else {
-            onLocateCurrent();
-        }
     };
 
-    // ─── 层级视觉配置 ───
-    const isSpace = level === '寰宇';
-    const isWorld = level === '大地点';
-    const isContinent = level === '中地点';
-    const isTown = level === '小地点';
-    const isRoom = level === '子地点' || level === '区地点';
-    const bgColor = isSpace ? '#080c18' : isWorld ? '#e8f0e8' : isContinent ? '#f2ead5' : isTown ? '#faf6ee' : isRoom ? '#ede0cc' : '#f5f0e1';
-    const borderColor = isSpace ? 'rgba(80,120,200,0.25)' : isWorld ? 'rgba(80,140,100,0.3)' : isContinent ? 'rgba(160,130,80,0.35)' : isTown ? 'rgba(150,120,80,0.3)' : isRoom ? 'rgba(190,160,120,0.35)' : 'rgba(180,150,100,0.3)';
-    const gridC = isSpace ? 'rgba(60,100,180,0.18)' : isWorld ? 'rgba(100,160,120,0.2)' : isContinent ? 'rgba(180,150,100,0.15)' : isTown ? 'rgba(180,140,90,0.2)' : isRoom ? 'rgba(200,170,130,0.12)' : 'rgba(180,150,110,0.18)';
-    const gridC4 = isSpace ? 'rgba(80,140,220,0.3)' : isWorld ? 'rgba(80,140,100,0.35)' : isContinent ? 'rgba(160,120,60,0.3)' : isTown ? 'rgba(150,100,50,0.4)' : isRoom ? 'rgba(170,130,80,0.3)' : 'rgba(160,120,70,0.35)';
-    const ctrC1 = isSpace ? 'rgba(40,80,160,0.2)' : isWorld ? 'rgba(80,140,100,0.15)' : isContinent ? 'rgba(180,130,80,0.2)' : isTown ? 'rgba(170,120,70,0.2)' : isRoom ? 'rgba(180,140,90,0.18)' : 'rgba(160,120,70,0.3)';
-    const ctrC2 = isSpace ? 'rgba(50,100,180,0.14)' : 'rgba(180,140,90,0.2)';
-    const mFill = isSpace ? 'rgba(180,210,255,0.85)' : 'rgba(140,100,60,0.75)';
-    const mStroke = isSpace ? 'rgba(140,180,240,0.7)' : 'rgba(120,80,40,0.6)';
-    const mCurFill = isSpace ? 'rgba(255,220,100,0.95)' : '#40c870';
-    const mCurStroke = isSpace ? 'rgba(255,240,180,1)' : '#208040';
-    const mCurGlow = isSpace ? 'rgba(255,220,100,0.3)' : 'rgba(64,200,112,0.3)';
-    const lColor = isSpace ? 'rgba(200,220,255,0.9)' : 'rgba(80,50,20,0.85)';
-    const lColorCur = isSpace ? '#fde68a' : '#8b2500';
-    const lStroke = isSpace ? 'rgba(0,0,20,0.6)' : 'rgba(255,250,240,0.5)';
+    // 拆成内部函数，避免递归时重复创建临时数组
+    function 排布子项(node: 地点树节点, box: 区块, depth: number): 布局项 {
+        const before = flat.length;
+        walk(node, box, depth);
+        return flat[before] || { node, box, depth, track: 0, 子节点: [] };
+    }
 
-    const stars = useMemo(() => {
-        if (!isSpace) return [];
-        const result: Array<{ x: number; y: number; r: number; o: number }> = [];
-        const starRange = MAP_W + OVERSCAN * 2;
-        for (let i = 0; i < 200; i++) {
-            const h = 稳定哈希数(`star-${i}`);
-            result.push({
-                x: -OVERSCAN + (h % 1000) / 1000 * starRange,
-                y: -OVERSCAN + ((h >> 10) % 1000) / 1000 * (MAP_H + OVERSCAN * 2),
-                r: 0.04 + ((h >> 20) % 100) / 400,
-                o: 0.3 + ((h >> 16) % 70) / 100,
-            });
-        }
-        return result;
-    }, [isSpace, MAP_W, MAP_H, OVERSCAN]);
+    roots.forEach(root => walk(root, WORLD, 0));
+    return { flat, byId };
+}
 
-    const orbits = useMemo(() => {
-        if (!isSpace) return [];
-        const r: Array<{ rx: number; ry: number }> = [];
-        for (let i = 0; i < 4; i++) r.push({ rx: 8 + i * 7, ry: (8 + i * 7) * 0.55 });
-        return r;
-    }, [isSpace]);
+const RegionMap: React.FC<Props> = ({
+    nodes,
+    allNodes,
+    currentNodeId,
+    currentLocationName,
+    onSelect,
+    onLocateCurrent,
+    level,
+    socialList = [],
+    env,
+    viewLocationName,
+    viewPathNames,
+    viewDescription,
+    viewNodeNpcs,
+    selectedNodeId,
+    playerName = '',
+}) => {
+    const wrapRef = useRef<HTMLDivElement>(null);
+    const svgRef = useRef<SVGSVGElement>(null);
+    const [容器, set容器] = useState({ w: 800, h: 520 });
+    const [view, setView] = useState<视野>({ ...WORLD });
+    const viewRef = useRef(view);
+    const tweenRef = useRef<number | null>(null);
+    const dragRef = useRef<{ pointerId: number; startX: number; startY: number; from: 视野; moved: boolean } | null>(null);
+    const suppressClickRef = useRef(false);
+    const 已外部选中 = useRef<string | null>(null);
 
-    // 大地点：大陆板块，严格边界 + 不重叠
-    const continentBlobs = useMemo(() => {
-        if (!isWorld) return [];
-        const 大陆色板 = ['#c8d8a0', '#b8c9a8', '#d4c8a8', '#a8c8b8', '#c0d0b0', '#d0c4a0', '#bcc8b4', '#c4d0a8'];
-        const margin = 3; // 板块距地图边缘的最小距离
-        const sized = layouts.map(l => {
-            const hash = 稳定哈希数(l.node.名称);
-            const maxR = Math.min(MAP_W, MAP_H) / 2 - margin;
-            const size = Math.min(maxR, 5 + (hash % 40) / 10); // 5~9 半径，板块更大
-            return { ...l, size };
-        }).sort((a, b) => b.size - a.size);
+    useEffect(() => { viewRef.current = view; }, [view]);
 
-        const placed: Array<{ x: number; y: number; r: number }> = [];
-        return sized.map(item => {
-            let { x, y } = item;
-            const r = item.size;
-            // 先确保在边界内
-            x = Math.max(margin + r, Math.min(MAP_W - margin - r, x));
-            y = Math.max(margin + r, Math.min(MAP_H - margin - r, y));
-            // 力导向推开重叠
-            for (let attempt = 0; attempt < 80; attempt++) {
-                let anyOverlap = false;
-                for (const p of placed) {
-                    const dist = Math.hypot(p.x - x, p.y - y);
-                    const minDist = p.r + r + 1; // 板块间最小间距
-                    if (dist < minDist) {
-                        anyOverlap = true;
-                        const overlap = minDist - dist;
-                        const angle = Math.atan2(y - p.y, x - p.x);
-                        x += Math.cos(angle) * overlap * 0.5;
-                        y += Math.sin(angle) * overlap * 0.5;
-                    }
+    useLayoutEffect(() => {
+        const target = wrapRef.current;
+        if (!target) return;
+        const update = () => set容器({ w: Math.max(240, target.clientWidth), h: Math.max(200, target.clientHeight) });
+        update();
+        if (typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver(update);
+        observer.observe(target);
+        return () => observer.disconnect();
+    }, []);
+
+    // NPC 落点：同名只保留一次，只认位置路径里真实出现的节点，多个命中取最深。
+    const 人物映射 = useMemo(() => {
+        const result = new Map<string, 人物点[]>();
+        const add = (id: string, person: 人物点) => {
+            if (!id) return;
+            const list = result.get(id) || [];
+            if (list.some(item => item.name === person.name)) return;
+            list.push(person);
+            result.set(id, list);
+        };
+        const 源节点 = allNodes?.length ? allNodes : nodes;
+        const 全部 = 源节点.flatMap(root => [root, ...(function collect(node: 地点树节点): 地点树节点[] {
+            return (node.子节点 || []).flatMap(child => [child, ...collect(child)]);
+        })(root)]);
+        const 深到浅 = [...全部].sort((a, b) => {
+            const depth = (node: 地点树节点) => {
+                let d = 0;
+                let cursor = node;
+                const seen = new Set<string>();
+                while (cursor?.父级ID && !seen.has(cursor.ID) && seen.size < 30) {
+                    seen.add(cursor.ID);
+                    const parent = 全部.find(item => item.ID === cursor.父级ID);
+                    if (!parent) break;
+                    cursor = parent;
+                    d += 1;
                 }
-                if (!anyOverlap) break;
-                // 推完后夹回边界
-                x = Math.max(margin + r, Math.min(MAP_W - margin - r, x));
-                y = Math.max(margin + r, Math.min(MAP_H - margin - r, y));
-            }
-            placed.push({ x, y, r });
-            const pts = 20;
-            const vertices: Array<{ x: number; y: number }> = [];
-            const hash = 稳定哈希数(item.node.名称);
-            for (let j = 0; j < pts; j++) {
-                const angle = (Math.PI * 2 * j) / pts;
-                const rr = r * (0.88 + ((hash >> (j % 16)) % 24) / 100);
-                vertices.push({
-                    x: Math.max(margin, Math.min(MAP_W - margin, x + Math.cos(angle) * rr)),
-                    y: Math.max(margin, Math.min(MAP_H - margin, y + Math.sin(angle) * rr * 0.75)),
-                });
-            }
-            return { vertices, color: 大陆色板[Math.abs(hash) % 大陆色板.length], node: item.node, cx: x, cy: y, isCurrent: item.isCurrent, size: r };
-        });
-    }, [isWorld, layouts, MAP_W, MAP_H]);
-
-    // 大洲层：驿道路网（最小生成树连接所有城镇）
-    const roadNetwork = useMemo(() => {
-        if (!isContinent || layouts.length < 2) return [];
-        const edges: Array<{ from: number; to: number; dist: number }> = [];
-        for (let i = 0; i < layouts.length; i++) {
-            for (let j = i + 1; j < layouts.length; j++) {
-                edges.push({ from: i, to: j, dist: Math.hypot(layouts[i].x - layouts[j].x, layouts[i].y - layouts[j].y) });
-            }
-        }
-        edges.sort((a, b) => a.dist - b.dist);
-        const parent = layouts.map((_, i) => i);
-        const find = (x: number): number => parent[x] === x ? x : (parent[x] = find(parent[x]));
-        const mst: Array<{ from: number; to: number }> = [];
-        for (const e of edges) {
-            const rf = find(e.from), rt = find(e.to);
-            if (rf !== rt) { parent[rf] = rt; mst.push({ from: e.from, to: e.to }); }
-        }
-        return mst;
-    }, [isContinent, layouts]);
-
-    // 城镇层：网格街区布局（有最低格数，空位预留）
-    const townGrid = useMemo(() => {
-        if (!isTown || layouts.length === 0) return null;
-        const count = layouts.length;
-        // 最低 3×2 格，随建筑增多扩展
-        const minCols = 3, minRows = 2;
-        const cols = Math.max(minCols, Math.ceil(Math.sqrt(count * (MAP_W / MAP_H))));
-        const rows = Math.max(minRows, Math.ceil(count / cols));
-        const cellW = (MAP_W - 4) / cols;
-        const cellH = (MAP_H - 4) / rows;
-        const startX = 2;
-        const startY = 2;
-        // 打乱分配：用名称哈希决定位置，不堆在一起
-        const shuffled = [...layouts].sort((a, b) => 稳定哈希数(a.node.名称) - 稳定哈希数(b.node.名称));
-        const cells: Array<{ x: number; y: number; w: number; h: number; node: 地点树节点 | null; isCurrent: boolean; colorIdx: number }> = [];
-        let placed = 0;
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                const node = placed < shuffled.length ? shuffled[placed].node : null;
-                if (node) placed++;
-                cells.push({
-                    x: startX + c * cellW + 0.3,
-                    y: startY + r * cellH + 0.3,
-                    w: cellW - 0.6,
-                    h: cellH - 0.6,
-                    node,
-                    isCurrent: node ? node.ID === currentNodeId : false,
-                    colorIdx: node ? 稳定哈希数(node.名称) % 5 : -1,
-                });
-            }
-        }
-        const roads: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
-        for (let r = 1; r < rows; r++) {
-            roads.push({ x1: startX, y1: startY + r * cellH, x2: startX + cols * cellW, y2: startY + r * cellH });
-        }
-        for (let c = 1; c < cols; c++) {
-            roads.push({ x1: startX + c * cellW, y1: startY, x2: startX + c * cellW, y2: startY + rows * cellH });
-        }
-        return { cells, roads, cols, rows, cellW, cellH, startX, startY };
-    }, [isTown, layouts, MAP_W, MAP_H, currentNodeId]);
-
-    // 室内层：子节点优先；没有子节点时展示当前视图本身，避免最底层变成空房间。
-    const roomCards = useMemo(() => {
-        if (!isRoom) return [];
-        const source = layouts.length > 0
-            ? layouts.map(l => ({ node: l.node, isCurrent: l.isCurrent }))
-            : [{
-                node: {
-                    ID: 'room-current-view',
-                    名称: viewLocationName || currentLocationName || '当前位置',
-                    层级: '子地点' as const,
-                    父级ID: '',
-                    描述: viewDescription,
-                    子节点: [],
-                },
-                isCurrent: true,
-            }];
-        const cols = Math.min(source.length, 3);
-        const rows = Math.ceil(source.length / cols);
-        const cardW = (MAP_W - 4) / cols;
-        const cardH = Math.min(8, (MAP_H - 4) / rows);
-        const startX = (MAP_W - cardW * cols) / 2;
-        const startY = (MAP_H - cardH * rows) / 2;
-        return source.map((item, i) => {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            return {
-                x: startX + col * cardW + 0.5,
-                y: startY + row * cardH + 0.5,
-                w: cardW - 1,
-                h: cardH - 1,
-                node: item.node,
-                isCurrent: item.isCurrent || item.node.ID === currentNodeId,
+                return d;
             };
+            return depth(b) - depth(a);
         });
-    }, [isRoom, layouts, MAP_W, MAP_H, currentNodeId, currentLocationName, viewLocationName, viewDescription]);
-
-    // NPC匹配：城镇层按子建筑分配；房间/建筑层按当前具体地点兜底。
-    const npcAtLocation = useMemo(() => {
-        if ((!isTown && !isRoom) || socialList.length === 0) return [];
-        const currentNames = 构建当前地点候选(env, currentLocationName);
-        const currentLeafNames = 构建当前叶子地点候选(env, currentLocationName);
-        const viewNames = [viewLocationName, ...viewPathNames].filter(Boolean);
-        const viewMatchesCurrent = viewNames.length === 0 || viewNames.some((viewName) => currentNames.some((currentName) => 地图文本相互命中(viewName, currentName)));
-        return socialList.filter((npc: any) => {
-            if (isTown) {
-                return NPC属于地图视图(npc, nodes, {
-                    env,
-                    currentLocationName,
-                    viewNodeName: viewLocationName || env?.小地点 || currentLocationName,
-                    viewPathNames: viewNames.length > 0 ? viewNames : currentNames,
-                });
+        const 已见 = new Set<string>();
+        (Array.isArray(socialList) ? socialList : []).forEach((npc: any) => {
+            const name = String(npc?.姓名 || npc?.名称 || '').trim();
+            if (!name || 已见.has(name)) return;
+            已见.add(name);
+            const parts = 提取NPC精确地图位置片段(npc);
+            let target: 地点树节点 | null = null;
+            for (const node of 深到浅) {
+                const nodeName = node.名称.replace(/\s+/g, '').toLowerCase();
+                if (nodeName && parts.some(part => part === nodeName || (part.length >= 2 && part.includes(nodeName)))) {
+                    target = node;
+                    break;
+                }
             }
-            if (选择NPC精确匹配地图节点(npc, nodes)) return true;
-            if (NPC精确位置命中任一(npc, viewNames)) return true;
-            if (NPC精确位置命中任一(npc, currentLeafNames)) return true;
-            return !NPC有精确地图位置(npc) && !NPC有显式地图位置(npc) && npc?.是否在场 === true && viewMatchesCurrent && nodes.length <= 1;
+            if (!target && npc?.是否在场 === true) target = 全部.find(node => node.ID === currentNodeId) || null;
+            if (target) add(target.ID, { name, player: false });
         });
-    }, [isTown, isRoom, socialList, nodes, env, currentLocationName, viewLocationName, viewPathNames]);
+        const me = playerName.trim();
+        if (me && currentNodeId) add(currentNodeId, { name: me, player: true });
+        return result;
+    }, [allNodes, nodes, socialList, currentNodeId, playerName]);
 
-    // NPC分配到具体建筑/房间：优先按当前位置路径命中节点；只写"在场"的 NPC 放到当前具体地点。
-    const npcByNode = useMemo(() => {
-        const map = new Map<string, any[]>();
-        if ((!isTown && !isRoom) || npcAtLocation.length === 0) return map;
-        npcAtLocation.forEach((npc: any) => {
-            const matchedNode = isRoom
-                ? 选择NPC精确匹配地图节点(npc, nodes)
-                : 选择NPC匹配地图节点(npc, nodes, { env, currentLocationName: viewLocationName || currentLocationName });
-            if (matchedNode) {
-                if (!map.has(matchedNode.ID)) map.set(matchedNode.ID, []);
-                map.get(matchedNode.ID)!.push(npc);
-            } else {
-                if (!map.has('_unplaced')) map.set('_unplaced', []);
-                map.get('_unplaced')!.push(npc);
-            }
+    const { flat, byId } = useMemo(() => {
+        const 全部节点 = allNodes?.length ? allNodes : nodes;
+        const roots = 全部节点.filter(root => root && (!root.父级ID || !全部节点.some(node => node.ID === root.父级ID)));
+        return 排布地图树(roots, 人物映射);
+    }, [allNodes, nodes, 人物映射]);
+
+    const 飞入 = useCallback((box: 区块, pad = 22, animate = true) => {
+        const from = viewRef.current;
+        const ratio = from.w / Math.max(1, from.h);
+        let w = box.w + pad * 2;
+        let h = box.h + pad * 2;
+        if (w / h < ratio) w = h * ratio; else h = w / ratio;
+        const to: 视野 = {
+            x: box.x + box.w / 2 - w / 2,
+            y: box.y + box.h / 2 - h / 2,
+            w,
+            h,
+        };
+        if (!animate) {
+            if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current);
+            tweenRef.current = null;
+            viewRef.current = to;
+            setView(to);
+            return;
+        }
+        const start = performance.now();
+        if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current);
+        const step = (t: number) => {
+            const k = clamp((t - start) / 420, 0, 1);
+            const e = 1 - Math.pow(1 - k, 3);
+            const next: 视野 = {
+                x: from.x + (to.x - from.x) * e,
+                y: from.y + (to.y - from.y) * e,
+                w: from.w + (to.w - from.w) * e,
+                h: from.h + (to.h - from.h) * e,
+            };
+            viewRef.current = next;
+            setView(next);
+            if (k < 1) tweenRef.current = requestAnimationFrame(step);
+            else tweenRef.current = null;
+        };
+        tweenRef.current = requestAnimationFrame(step);
+    }, []);
+
+    useEffect(() => () => {
+        if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current);
+    }, []);
+
+    // 当前所在地点变化时，自动把镜头放到玩家所在区块。
+    // 注意只按 ID 变化触发：父组件每次渲染都会重建 allNodes/人物映射，若把 byId 当依赖
+    // 直接飞入，玩家点开别的区块看详情时镜头会被立刻拉回去。
+    const 上次定位节点 = useRef<string | null>(null);
+    useEffect(() => {
+        if (上次定位节点.current === currentNodeId) return;
+        上次定位节点.current = currentNodeId;
+        const target = byId.get(currentNodeId);
+        if (target) 飞入(target.box, 24, false);
+    }, [currentNodeId, byId, 飞入]);
+
+    // 地点索引/面包屑选中变化时飞入；点地图自身触发的选中不重复飞。
+    useEffect(() => {
+        if (!selectedNodeId || 已外部选中.current === selectedNodeId) return;
+        已外部选中.current = selectedNodeId;
+        const target = byId.get(selectedNodeId);
+        if (target) 飞入(target.box, 24, true);
+    }, [selectedNodeId, byId, 飞入]);
+
+    const 缩放 = useCallback((factor: number) => {
+        const cur = viewRef.current;
+        const nw = clamp(cur.w * factor, 70, 1500);
+        const nh = nw * (cur.h / cur.w);
+        setView({
+            x: cur.x - (nw - cur.w) / 2,
+            y: cur.y - (nh - cur.h) / 2,
+            w: nw,
+            h: nh,
         });
-        return map;
-    }, [isTown, isRoom, npcAtLocation, nodes, env, currentLocationName, viewLocationName]);
+    }, []);
 
-    const markerSize = isSpace ? 3.2 : isWorld ? 0 : isContinent ? 0.5 : isTown ? 0 : isRoom ? 0 : 0.6;
-    const hitSize = isWorld ? 4 : isTown ? 0 : isRoom ? 3 : markerSize + 1.5;
-    const fontSize = isSpace ? 1.2 : isWorld ? 0.9 : isContinent ? 0.7 : isTown ? 0.7 : isRoom ? 0.95 : (nodes.length > 0 ? Math.max(0.6, Math.min(1.1, MAP_W / (nodes.length * 4 + 8))) : 0.8);
+    // 原生 wheel 监听，避免 React 的 passive 监听无法 preventDefault。
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const onWheel = (event: WheelEvent) => {
+            event.preventDefault();
+            const rect = svg.getBoundingClientRect();
+            const cur = viewRef.current;
+            const scale = Math.min(rect.width / cur.w, rect.height / cur.h) || 1;
+            const offsetX = (rect.width - cur.w * scale) / 2;
+            const offsetY = (rect.height - cur.h * scale) / 2;
+            const worldX = cur.x + (event.clientX - rect.left - offsetX) / scale;
+            const worldY = cur.y + (event.clientY - rect.top - offsetY) / scale;
+            const factor = event.deltaY > 0 ? 1.12 : 1 / 1.12;
+            const nw = clamp(cur.w * factor, 70, 1500);
+            const nh = nw * (cur.h / cur.w);
+            const next: 视野 = {
+                x: worldX - (worldX - cur.x) * (nw / cur.w),
+                y: worldY - (worldY - cur.y) * (nh / cur.h),
+                w: nw,
+                h: nh,
+            };
+            viewRef.current = next;
+            setView(next);
+        };
+        svg.addEventListener('wheel', onWheel, { passive: false });
+        return () => svg.removeEventListener('wheel', onWheel);
+    }, []);
+
+    const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+        if (e.button !== 0) return;
+        dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, from: { ...viewRef.current }, moved: false };
+        e.currentTarget.setPointerCapture(e.pointerId);
+    };
+    const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+        const drag = dragRef.current;
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+        if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const scale = Math.min(rect.width / drag.from.w, rect.height / drag.from.h) || 1;
+        const next: 视野 = { ...drag.from, x: drag.from.x - dx / scale, y: drag.from.y - dy / scale };
+        viewRef.current = next;
+        setView(next);
+    };
+    const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+        const drag = dragRef.current;
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        if (drag.moved) suppressClickRef.current = true;
+        dragRef.current = null;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    };
+
+    const handleSelect = (node: 地点树节点) => {
+        if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+        已外部选中.current = node.ID;
+        onSelect(node);
+        const target = byId.get(node.ID);
+        if (target) 飞入(target.box, 24, true);
+    };
+
+    const 画布比例 = Math.min(容器.w / Math.max(1, view.w), 容器.h / Math.max(1, view.h)) || 1;
+    const px2world = 1 / 画布比例;
+    // 名称是否显示由「框在屏幕上够不够大」决定，不再按整图视野宽度一刀切；
+    // 否则全览时明明有空间的城镇也会变成空框，AI 生成的地名看不到。
+    const 显示名 = view.w < 2400;
+    const 显示人物名 = view.w < 1500;
+    const 最小可读 = 9.5;
+
+    const 有建筑 = flat.some(item => item.node.层级 === '区地点' || item.node.层级 === '子地点');
+    const 有人物 = 人物映射.size > 0;
+    const isSpace = level === '寰宇';
 
     return (
-        <div className="relative w-full h-full min-h-[400px] overflow-hidden rounded-xl"
-            style={{ background: bgColor, border: `1px solid ${borderColor}` }}
-            onWheel={handleWheel}
-        >
+        <div ref={wrapRef} className="relative h-full min-h-[400px] w-full overflow-hidden rounded-xl"
+            style={{ background: '#0a0d14', border: '1px solid rgba(190,158,92,0.24)' }}>
             <svg ref={svgRef}
-                className={`absolute inset-0 h-full w-full touch-none ${dragMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                viewBox={`${mapViewBox.x} ${mapViewBox.y} ${mapViewBox.width} ${mapViewBox.height}`}
+                className="absolute inset-0 h-full w-full touch-none cursor-grab active:cursor-grabbing"
+                viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
                 preserveAspectRatio="xMidYMid meet"
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
+                onDoubleClick={() => 飞入(WORLD, 0, true)}
             >
-                {/* 裁剪路径：防止任何元素画出地图 */}
                 <defs>
-                    <clipPath id="map-clip">
-                        <rect x={-OVERSCAN} y={-OVERSCAN} width={MAP_W + OVERSCAN * 2} height={MAP_H + OVERSCAN * 2} />
-                    </clipPath>
+                    <linearGradient id="map-bld-normal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#e9d7af" />
+                        <stop offset="100%" stopColor="#b99560" />
+                    </linearGradient>
+                    <linearGradient id="map-bld-current" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#efb266" />
+                        <stop offset="100%" stopColor="#b96b20" />
+                    </linearGradient>
+                    <filter id="map-bld-shadow" x="-25%" y="-25%" width="150%" height="150%">
+                        <feDropShadow dx="0" dy="0.3" stdDeviation="0.3" floodColor="rgba(0,0,0,0.45)" />
+                    </filter>
                 </defs>
-                <g clipPath="url(#map-clip)">
-                {/* 超边界底色：拖出地图时不会看到白边 */}
-                <rect x={-OVERSCAN} y={-OVERSCAN} width={MAP_W + OVERSCAN * 2} height={MAP_H + OVERSCAN * 2} fill={bgColor} pointerEvents="none" />
-                {isSpace && stars.map((s, i) => <circle key={`st-${i}`} cx={s.x} cy={s.y} r={s.r} fill="#fff" opacity={s.o} pointerEvents="none" />)}
-                {isSpace && orbits.map((o, i) => <ellipse key={`ob-${i}`} cx={MAP_W / 2} cy={MAP_H / 2} rx={o.rx} ry={o.ry} fill="none" stroke="rgba(80,140,220,0.15)" strokeWidth={0.08} strokeDasharray={i % 2 === 0 ? 'none' : '0.3 0.6'} pointerEvents="none" />)}
-                {/* 世界层级：海洋铺满超边界 */}
-                {isWorld && <rect x={-OVERSCAN} y={-OVERSCAN} width={MAP_W + OVERSCAN * 2} height={MAP_H + OVERSCAN * 2} fill="rgba(140,190,210,0.3)" pointerEvents="none" />}
-                {!isSpace && !isWorld && showHills && <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="rgba(140,180,140,0.15)" pointerEvents="none" />}
-                {!isSpace && !isWorld && showWater && (
-                    <path d={`M 0 ${MAP_H * 0.72} C ${MAP_W * 0.18} ${MAP_H * 0.62}, ${MAP_W * 0.32} ${MAP_H * 0.86}, ${MAP_W * 0.5} ${MAP_H * 0.72} S ${MAP_W * 0.82} ${MAP_H * 0.5}, ${MAP_W} ${MAP_H * 0.6} L ${MAP_W} ${MAP_H} L 0 ${MAP_H} Z`}
-                        fill="rgba(140,190,210,0.25)" stroke="rgba(100,150,180,0.35)" strokeWidth={0.1} pointerEvents="none" />
-                )}
-                {Array.from({ length: MAP_W + 1 + OVERSCAN * 2 }).map((_, i) => {
-                    const x = i - OVERSCAN;
-                    return <line key={`gx-${i}`} x1={x} y1={-OVERSCAN} x2={x} y2={MAP_H + OVERSCAN} stroke={i % 4 === 0 ? gridC4 : gridC} strokeWidth={i % 4 === 0 ? 0.08 : 0.04} pointerEvents="none" />;
-                })}
-                {Array.from({ length: MAP_H + 1 + OVERSCAN * 2 }).map((_, i) => {
-                    const y = i - OVERSCAN;
-                    return <line key={`gy-${i}`} x1={-OVERSCAN} y1={y} x2={MAP_W + OVERSCAN} y2={y} stroke={i % 4 === 0 ? gridC4 : gridC} strokeWidth={i % 4 === 0 ? 0.08 : 0.04} pointerEvents="none" />;
-                })}
-                {!isSpace && !isContinent && !isTown && !isRoom && contourLines.map((pts, i) => (
-                    <polyline key={`ctr-${i}`} points={pts.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill="none" stroke={i % 2 === 0 ? ctrC1 : ctrC2} strokeWidth={0.1} strokeDasharray="0.5 0.4" strokeLinecap="round" pointerEvents="none" />
-                ))}
 
-                {/* 大洲层：双线古卷边框 */}
-                {isContinent && <>
-                    <rect x={0.8} y={0.8} width={MAP_W - 1.6} height={MAP_H - 1.6}
-                        fill="none" stroke="rgba(140,100,50,0.4)" strokeWidth={0.2} pointerEvents="none" />
-                    <rect x={0.4} y={0.4} width={MAP_W - 0.8} height={MAP_H - 0.8}
-                        fill="none" stroke="rgba(160,120,60,0.25)" strokeWidth={0.1} pointerEvents="none" />
-                </>}
-                {/* 大洲层：边缘山脉装饰 */}
-                {isContinent && [-0.3, MAP_H + 0.3].map((yy, ri) => {
-                    const peaks: Array<{x:number;h:number}> = [];
-                    for (let px = 2; px < MAP_W - 2; px += 2.5 + (稳定哈希数(`mt-${ri}-${px}`) % 20) / 10) {
-                        peaks.push({ x: px, h: 0.6 + (稳定哈希数(`pk-${ri}-${px}`) % 60) / 30 });
-                    }
-                    const topY = ri === 0 ? yy - 2 : yy + 2;
-                    return <g key={`mtns-${ri}`}>
-                        {peaks.map((p, pi) => {
-                            if (pi === 0) return null;
-                            const prev = peaks[pi - 1];
-                            const cy = ri === 0 ? yy - p.h : yy + p.h;
-                            if (ri === 0) {
-                                return <polygon key={pi}
-                                    points={`${prev.x},${yy} ${(prev.x + p.x) / 2},${cy} ${p.x},${yy}`}
-                                    fill="rgba(140,120,80,0.2)" stroke="rgba(120,90,50,0.35)" strokeWidth={0.06}
-                                    pointerEvents="none" />;
-                            }
-                            return null;
-                        })}
-                    </g>;
-                })}
-                {/* 室内层：房间块可视化 */}
-                {isRoom && roomCards.length > 0 && <>
-                    <rect x={1.2} y={1.2} width={MAP_W - 2.4} height={MAP_H - 2.4}
-                        rx={0.5} fill="rgba(245,232,205,0.34)" stroke="rgba(125,82,36,0.24)" strokeWidth={0.12}
-                        pointerEvents="none" />
-                    {roomCards.map((card, index) => {
-                        const directNpcs = npcByNode.get(card.node.ID) || [];
-                        const fallbackNpcs = index === 0 ? (npcByNode.get('_unplaced') || []) : [];
-                        const seen = new Set<string>();
-                        const cardNpcList = [...directNpcs, ...fallbackNpcs].filter((npc: any) => {
-                            const name = String(npc?.姓名 || npc?.名称 || '').trim();
-                            const key = name || JSON.stringify(npc);
-                            if (!key || seen.has(key)) return false;
-                            seen.add(key);
-                            return true;
-                        });
-                        const isVirtualCurrent = card.node.ID === 'room-current-view';
-                        const isClickable = !isVirtualCurrent;
-                        const fill = card.isCurrent ? 'rgba(230,185,110,0.62)' : 'rgba(238,221,190,0.78)';
-                        const stroke = card.isCurrent ? 'rgba(148,82,20,0.84)' : 'rgba(116,78,40,0.42)';
-                        const title = card.node.名称 || '当前位置';
-                        const desc = card.node.描述 || viewDescription || '';
-                        const titleSize = Math.max(1.05, Math.min(1.7, card.w / Math.max(4.5, title.length * 0.48)));
-                        const descSize = Math.max(0.72, Math.min(0.9, card.w / 18));
-                        const markerRadius = Math.max(0.54, Math.min(0.72, card.w / 18));
-                        const labelSize = Math.max(0.68, Math.min(0.86, card.w / 16));
-                        return (
-                            <g key={card.node.ID} className={isClickable ? 'cursor-pointer' : ''} style={{ outline: 'none' }}>
-                                <rect x={card.x} y={card.y} width={card.w} height={card.h} rx={0.28}
-                                    fill={fill} stroke={stroke} strokeWidth={0.12} pointerEvents="none" />
-                                <rect x={card.x + 0.35} y={card.y + 0.35} width={Math.max(0.1, card.w - 0.7)} height={Math.max(0.1, card.h - 0.7)}
-                                    rx={0.2} fill="none" stroke="rgba(120,82,45,0.22)" strokeWidth={0.06} pointerEvents="none" />
-                                {isClickable && (
-                                    <rect x={card.x} y={card.y} width={card.w} height={card.h} rx={0.28}
-                                        fill="transparent" style={{ cursor: 'pointer' }}
-                                        onClick={() => { onSelect(card.node); setMapZoom(1); setMapPan({ x: 0, y: 0 }); setMapFocusPoint(null); }} />
-                                )}
-                                <text x={card.x + card.w / 2} y={card.y + 1.35}
-                                    textAnchor="middle" dominantBaseline="middle" pointerEvents="none"
-                                    fill={card.isCurrent ? '#713300' : 'rgba(56,34,16,0.9)'}
-                                    fontSize={titleSize} fontFamily="serif" fontWeight="bold">
-                                    {title}
-                                </text>
-                                {card.isCurrent && (
-                                    <rect x={card.x + card.w - 1.1} y={card.y + 0.35} width={0.62} height={0.62} rx={0.12}
-                                        fill="#40c870" stroke="#208040" strokeWidth={0.06} pointerEvents="none" />
-                                )}
-                                {desc && card.h > 4.2 && !['小地点', '区地点', '子地点'].includes(card.node?.层级) && (
-                                    <text x={card.x + card.w / 2} y={card.y + 2.8}
-                                        textAnchor="middle" pointerEvents="none" fill="rgba(69,47,26,0.72)" fontSize={descSize} fontFamily="serif">
-                                        {desc.slice(0, Math.max(12, Math.floor(card.w * 1.7)))}
-                                    </text>
-                                )}
-                                {cardNpcList.length > 0 ? (
-                                    cardNpcList.slice(0, 4).map((npc: any, i: number) => {
-                                        const name = String(npc?.姓名 || npc?.名称 || '?');
-                                        const npcColors = ['#d49090', '#90b4d4', '#90d490', '#d4c490', '#b490d4', '#90d4c4'];
-                                        const c = npcColors[Math.abs(name.length + i) % npcColors.length];
-                                        const count = Math.min(4, cardNpcList.length);
-                                        const spacing = Math.min(3.2, Math.max(2.2, card.w / 4.8));
-                                        const totalWidth = (count - 1) * spacing;
-                                        const x = card.x + card.w / 2 - totalWidth / 2 + i * spacing;
-                                        const y = card.y + Math.max(4.15, card.h * 0.62);
-                                        return (
-                                            <g key={`${card.node.ID}-npc-${i}`}>
-                                                <circle cx={x} cy={y} r={markerRadius} fill={c} stroke="rgba(72,35,24,0.52)" strokeWidth={0.08} pointerEvents="none" />
-                                                <text x={x} y={y + markerRadius + 0.62}
-                                                    textAnchor="middle" dominantBaseline="middle" pointerEvents="none"
-                                                    fill="rgba(44,24,12,0.92)" fontSize={labelSize} fontFamily="serif" fontWeight="bold">
-                                                    {name.slice(0, 3)}
-                                                </text>
-                                            </g>
-                                        );
-                                    })
-                                ) : (
-                                    <text x={card.x + 0.7} y={card.y + card.h - 0.75}
-                                        pointerEvents="none" fill="rgba(96,68,40,0.42)" fontSize={0.5} fontFamily="serif">
-                                        暂无在场角色
-                                    </text>
-                                )}
-                            </g>
-                        );
-                    })}
-                </>}
-                {/* 城镇层：网格街区路网 */}
-                {isTown && townGrid && <>
-                    {/* 背景地面 */}
-                    <rect x={townGrid.startX} y={townGrid.startY}
-                        width={townGrid.cols * townGrid.cellW} height={townGrid.rows * townGrid.cellH}
-                        fill="rgba(220,210,190,0.3)" stroke="none" pointerEvents="none" />
-                    {/* 道路线 */}
-                    {townGrid.roads.map((r, i) => (
-                        <line key={`tr-${i}`} x1={r.x1} y1={r.y1} x2={r.x2} y2={r.y2}
-                            stroke="rgba(160,130,90,0.5)" strokeWidth={0.35} strokeLinecap="square" pointerEvents="none" />
-                    ))}
-                    {/* 空位：虚线框 */}
-                    {townGrid.cells.filter(c => !c.node).map((cell, i) => (
-                        <rect key={`empty-${i}`} x={cell.x} y={cell.y} width={cell.w} height={cell.h} rx={0.12}
-                            fill="rgba(220,210,190,0.2)" stroke="rgba(160,130,90,0.2)" strokeWidth={0.06}
-                            strokeDasharray="0.2 0.2" pointerEvents="none" />
-                    ))}
-                    {/* 建筑方块：多色区分 */}
-                    {townGrid.cells.filter(c => c.node).map((cell) => {
-                        const bldColors = [
-                            'rgba(190,155,120,0.7)', 'rgba(175,148,125,0.68)', 'rgba(185,160,130,0.7)',
-                            'rgba(170,140,120,0.68)', 'rgba(180,150,122,0.7)',
-                        ];
-                        const bldStroke = [
-                            'rgba(130,90,55,0.6)', 'rgba(120,85,50,0.6)', 'rgba(125,95,60,0.6)',
-                            'rgba(115,80,48,0.6)', 'rgba(128,92,55,0.6)',
-                        ];
-                        return (
-                            <g key={cell.node!.ID} className="cursor-pointer" style={{ outline: 'none' }}>
-                                <rect x={cell.x} y={cell.y} width={cell.w} height={cell.h} rx={0.15}
-                                    fill={cell.isCurrent ? 'rgba(200,120,40,0.6)' : bldColors[cell.colorIdx]}
-                                    stroke={cell.isCurrent ? 'rgba(180,80,20,0.9)' : bldStroke[cell.colorIdx]}
-                                    strokeWidth={0.12} pointerEvents="none" />
-                                {/* 建筑小屋顶线 */}
-                                <line x1={cell.x + 0.15} y1={cell.y + 0.25} x2={cell.x + cell.w - 0.15} y2={cell.y + 0.25}
-                                    stroke={cell.isCurrent ? 'rgba(180,80,20,0.4)' : 'rgba(120,80,40,0.25)'}
-                                    strokeWidth={0.06} pointerEvents="none" />
-                                <rect x={cell.x} y={cell.y} width={cell.w} height={cell.h} rx={0.15}
-                                    fill="transparent" style={{ cursor: 'pointer' }}
-                                    onClick={() => { onSelect(cell.node!); setMapZoom(1); setMapPan({ x: 0, y: 0 }); setMapFocusPoint(null); }} />
-                                {cell.w > 2 && (
-                                    <text x={cell.x + cell.w / 2} y={cell.y + cell.h / 2}
-                                        textAnchor="middle" dominantBaseline="middle" pointerEvents="none"
-                                        fill={cell.isCurrent ? '#6b2000' : 'rgba(50,30,10,0.8)'}
-                                        fontSize={Math.min(fontSize, cell.w / (cell.node!.名称.length * 0.55 + 1))}
-                                        fontFamily="serif" fontWeight="bold">
-                                        {cell.node!.名称}
-                                    </text>
-                                )}
-                                {/* 玩家当前位置：绿色方块标记 */}
-                                {cell.isCurrent && (
-                                    <rect x={cell.x + cell.w - 0.55} y={cell.y + 0.1} width={0.4} height={0.4} rx={0.06}
-                                        fill="#40c870" stroke="#208040" strokeWidth={0.06} pointerEvents="none" />
-                                )}
-                                {/* NPC标记：粉色圆点（详细列表在右侧面板） */}
-                                {npcByNode.has(cell.node!.ID) && (
-                                    <circle cx={cell.x + 0.4} cy={cell.y + 0.4} r={0.28}
-                                        fill="#f06090" stroke="#c03060" strokeWidth={0.06}
-                                        pointerEvents="none" />
-                                )}
-                            </g>
-                        );
-                    })}
-                </>}
-                {/* 大洲层：驿道路网 */}
-                {isContinent && roadNetwork.map((e, i) => {
-                    const from = 约束地图点(layouts[e.from], MAP_W, MAP_H, Math.max(MAP_PAD, markerSize + 0.6));
-                    const to = 约束地图点(layouts[e.to], MAP_W, MAP_H, Math.max(MAP_PAD, markerSize + 0.6));
+                <rect x={WORLD.x} y={WORLD.y} width={WORLD.w} height={WORLD.h} rx={12}
+                    fill="rgba(28,34,44,0.92)" stroke="rgba(190,158,92,0.22)" strokeWidth={2} pointerEvents="none" />
+
+                {flat.map((item) => {
+                    const { node, box } = item;
+                    const x = box.x, y = box.y, w = box.w, h = box.h;
+                    const isBuilding = node.层级 === '区地点' || node.层级 === '子地点';
+                    const isPlayerHere = node.ID === currentNodeId;
+                    const isSelected = node.ID === selectedNodeId;
+                    const 有子节点 = item.子节点.length > 0;
+                    const radius = isBuilding ? Math.min(4, w * 0.05) : Math.min(10, Math.max(3, w * 0.02));
+                    const 框宽px = w * 画布比例;
+                    const 框高px = h * 画布比例;
+                    const 字px = Math.min(目标字号[node.层级] || 11, 框宽px * 0.24, 框高px * 0.34);
+                    const nameSize = 字px * px2world;
+                    // 名称截断按「框在屏幕上能放几个字」算，避免全览时长地名糊成一团
+                    const 可容字数 = Math.max(0, Math.floor(框宽px / Math.max(6, 字px * 0.98)));
+                    const 叶名 = 可容字数 >= 2
+                        ? (node.名称.length > 可容字数 ? `${node.名称.slice(0, 可容字数 - 1)}…` : node.名称)
+                        : '';
+                    const 父标签可容 = Math.max(0, Math.floor((框宽px - 14) / Math.max(6, Math.min(10.5, 框宽px * 0.18) * 0.98)));
+                    const 父标签名 = 父标签可容 >= 2
+                        ? (node.名称.length > 父标签可容 ? `${node.名称.slice(0, 父标签可容 - 1)}…` : node.名称)
+                        : '';
+                    const 门朝向 = 稳定哈希数(node.ID) % 4;
+                    // 门/屋顶按 CSS 像素给尺寸（MapLibre 式标注口径），不要按世界坐标比例放大
+                    const 门宽 = Math.min(14 * px2world, w * 0.34);
+                    const 门高 = Math.min(8 * px2world, h * 0.3);
+                    const 屋檐缩进 = Math.min(8 * px2world, w * 0.14);
+                    const 屋檐高度 = Math.min(6 * px2world, h * 0.22);
+
                     return (
-                        <g key={`road-${i}`}>
-                            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                                stroke="rgba(140,110,60,0.5)" strokeWidth={0.3} strokeLinecap="round" pointerEvents="none" />
-                            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                                stroke="rgba(200,170,120,0.35)" strokeWidth={0.12} strokeDasharray="0.4 0.35" strokeLinecap="round" pointerEvents="none" />
+                        <g key={node.ID}>
+                            <rect data-node={node.ID} x={x} y={y} width={w} height={h} rx={radius}
+                                fill={isBuilding ? (isPlayerHere ? 'url(#map-bld-current)' : 'url(#map-bld-normal)') : FILL[node.层级]}
+                                stroke={isPlayerHere || isSelected ? 'rgba(255,196,96,0.95)' : STROKE[node.层级]}
+                                strokeWidth={(isPlayerHere || isSelected ? 1.6 : Math.max(0.8, Math.min(2, w * 0.012)))}
+                                filter={isBuilding ? 'url(#map-bld-shadow)' : undefined}
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => handleSelect(node)}
+                            >
+                                <title>{`${层级标签[node.层级]} · ${node.名称}${node.控制势力 ? `\n主导势力：${node.控制势力}` : ''}${node.描述 ? `\n${node.描述}` : ''}`}</title>
+                            </rect>
+
+                            {isBuilding && 框高px > 10 && (
+                                <g pointerEvents="none">
+                                    <line x1={x + 屋檐缩进} y1={y + 屋檐高度} x2={x + w - 屋檐缩进} y2={y + 屋檐高度}
+                                        stroke="rgba(74,46,18,0.35)" strokeWidth={Math.max(0.6 * px2world, 0.6)} />
+                                    {门朝向 === 0 && <rect x={x + w / 2 - 门宽 / 2} y={y + h - 门高} width={门宽} height={门高}
+                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                    {门朝向 === 1 && <rect x={x + w - 门高} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
+                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                    {门朝向 === 2 && <rect x={x + w / 2 - 门宽 / 2} y={y} width={门宽} height={门高}
+                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                    {门朝向 === 3 && <rect x={x} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
+                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                </g>
+                            )}
+
+                            {显示名 && !有子节点 && 字px >= 最小可读 && 叶名 && (
+                                <g pointerEvents="none">
+                                    <text x={x + w / 2} y={y + h / 2 - (node.控制势力 ? nameSize * 0.34 : 0)}
+                                        textAnchor="middle" dominantBaseline="middle"
+                                        fill={isPlayerHere ? '#ffe0a8' : 'rgba(250,240,220,0.94)'}
+                                        stroke="rgba(8,11,18,0.9)" strokeWidth={2 * px2world} paintOrder="stroke"
+                                        fontSize={nameSize} fontFamily="serif" fontWeight="bold">
+                                        {叶名}
+                                    </text>
+                                    {node.控制势力 && Math.min(9, 字px * 0.78, 框高px * 0.2) >= 最小可读 && (
+                                        <text x={x + w / 2} y={y + h / 2 + nameSize * 0.98}
+                                            textAnchor="middle" dominantBaseline="middle"
+                                            fill="rgba(236,212,170,0.78)"
+                                            stroke="rgba(8,11,18,0.85)" strokeWidth={1.5 * px2world} paintOrder="stroke"
+                                            fontSize={Math.min(9, 字px * 0.78) * px2world} fontFamily="serif">
+                                            {node.控制势力}
+                                        </text>
+                                    )}
+                                </g>
+                            )}
+
+                            {有子节点 && 框宽px > 60 && 框高px > 40 && 父标签名 && Math.min(10.5, 框宽px * 0.18) >= 最小可读 && (
+                                <text x={x + 6 * px2world} y={y + 9 * px2world}
+                                    textAnchor="start" dominantBaseline="middle" pointerEvents="none"
+                                    fill={isPlayerHere ? '#ffd48a' : 'rgba(248,230,196,0.92)'}
+                                    fontSize={Math.min(10.5, 框宽px * 0.18) * px2world} fontFamily="serif"
+                                    fontWeight={isPlayerHere ? 'bold' : 'normal'}>
+                                    {父标签名}
+                                </text>
+                            )}
                         </g>
                     );
                 })}
-                {/* 大地点：大陆板块（圆润多边形，不填满，有碰撞避免） */}
-                {isWorld && continentBlobs.map((blob) => (
-                    <g key={blob.node.ID} style={{ outline: 'none' }}>
-                        <polygon
-                            points={blob.vertices.map(v => `${v.x},${v.y}`).join(' ')}
-                            fill={blob.color} fillOpacity={0.55}
-                            stroke={blob.isCurrent ? 'rgba(180,100,20,0.7)' : 'rgba(100,120,80,0.35)'}
-                            strokeWidth={0.15} strokeLinejoin="round"
-                            pointerEvents="none"
-                        />
-                        <circle cx={blob.cx} cy={blob.cy} r={blob.size * 0.8} fill="transparent" style={{ cursor: 'pointer' }}
-                            onClick={() => { onSelect(blob.node); setMapZoom(1); setMapPan({ x: 0, y: 0 }); setMapFocusPoint(null); }} />
-                        <text x={blob.cx} y={blob.cy}
-                            textAnchor="middle" dominantBaseline="middle"
-                            fill={blob.isCurrent ? '#7a3a0e' : 'rgba(50,35,15,0.9)'}
-                            fontSize={fontSize} fontFamily="serif" fontWeight="bold"
-                            stroke="rgba(255,255,255,0.4)" strokeWidth={0.06}
-                            pointerEvents="none">
-                            {blob.node.名称}
-                        </text>
-                    </g>
-                ))}
-                {/* 大洲层：城寨标记 */}
-                {isContinent && layouts.map(({ x, y, node, isCurrent }) => (
-                    <g key={node.ID} className="cursor-pointer" style={{ outline: 'none' }}>
-                        <circle cx={x} cy={y} r={hitSize} fill="transparent" stroke="none" style={{ cursor: 'pointer' }}
-                            onClick={() => { onSelect(node); setMapZoom(1); setMapPan({ x: 0, y: 0 }); setMapFocusPoint(null); }} />
-                        {/* 城寨方形 */}
-                        <rect x={x - markerSize} y={y - markerSize} width={markerSize * 2} height={markerSize * 2}
-                            fill={isCurrent ? 'rgba(180,80,20,0.9)' : 'rgba(140,100,50,0.75)'}
-                            stroke={isCurrent ? 'rgba(180,80,20,1)' : 'rgba(100,70,30,0.6)'}
-                            strokeWidth={0.08} pointerEvents="none" />
-                        {isCurrent && <rect x={x - markerSize - 0.2} y={y - markerSize - 0.2} width={markerSize * 2 + 0.4} height={markerSize * 2 + 0.4}
-                            fill="none" stroke="rgba(200,80,20,0.4)" strokeWidth={0.1} pointerEvents="none" />}
-                        {/* 名称牌匾 */}
-                        <rect x={x - node.名称.length * fontSize * 0.35 - 0.3} y={y + markerSize + 0.25}
-                            width={node.名称.length * fontSize * 0.7 + 0.6} height={fontSize + 0.4}
-                            rx={0.15} fill="rgba(255,250,240,0.55)" stroke="rgba(160,120,70,0.3)"
-                            strokeWidth={0.04} pointerEvents="none" />
-                        <text x={x} y={y + markerSize + 0.5}
-                            textAnchor="middle" dominantBaseline="hanging" pointerEvents="none"
-                            fill={isCurrent ? '#7a2e00' : 'rgba(60,35,15,0.85)'}
-                            fontSize={fontSize} fontFamily="serif" fontWeight="bold">
-                            {node.名称}
-                        </text>
-                    </g>
-                ))}
-                {/* 其他层级：地点标记（排除已有独立样式的层级） */}
-                {!isWorld && !isContinent && !isTown && layouts.map(({ x, y, node, isCurrent }) => (
-                    <g key={node.ID} className="cursor-pointer" style={{ outline: 'none' }}>
-                        {/* 隐形大点击区 */}
-                        <circle cx={x} cy={y} r={hitSize} fill="transparent" stroke="none" style={{ cursor: 'pointer' }}
-                            onClick={() => { onSelect(node); setMapZoom(1); setMapPan({ x: 0, y: 0 }); setMapFocusPoint(null); }} />
-                        {isSpace ? (
-                            /* 寰宇：圆形星球 */
-                            <>
-                                <circle cx={x} cy={y} r={markerSize}
-                                    fill={isCurrent ? mCurFill : mFill}
-                                    stroke={isCurrent ? mCurStroke : mStroke}
-                                    strokeWidth={0.15} pointerEvents="none"
-                                />
-                                {isCurrent && <circle cx={x} cy={y} r={markerSize + 0.6} fill="none" stroke={mCurGlow} strokeWidth={0.15} pointerEvents="none" />}
-                            </>
-                        ) : (
-                            /* 其他层级：菱形标记 */
-                            <>
-                                <polygon
-                                    points={`${x},${y - markerSize} ${x + markerSize},${y} ${x},${y + markerSize} ${x - markerSize},${y}`}
-                                    fill={isCurrent ? mCurFill : mFill}
-                                    stroke={isCurrent ? mCurStroke : mStroke}
-                                    strokeWidth={0.1} pointerEvents="none"
-                                />
-                                {isCurrent && <circle cx={x} cy={y} r={markerSize + 0.5} fill="none" stroke={mCurGlow} strokeWidth={0.12} pointerEvents="none" />}
-                            </>
-                        )}
-                        <text x={x} y={y + markerSize + 0.6}
-                            textAnchor="middle" dominantBaseline="hanging" pointerEvents="none"
-                            fill={isCurrent ? lColorCur : lColor}
-                            fontSize={fontSize} fontFamily="serif" fontWeight={isSpace ? 'bold' : 'normal'}
-                            stroke={lStroke} strokeWidth={0.06}>
-                            {node.名称}
-                        </text>
-                    </g>
-                ))}
-                </g>
+
+                {/* 人物统一最后绘制：无论父块还是子块，圆点与姓名都不会被遮挡。 */}
+                {flat.map((item) => {
+                    const markers = 人物映射.get(item.node.ID) || [];
+                    if (markers.length === 0) return null;
+                    const { x, y, w, h } = item.box;
+                    const 框宽px = w * 画布比例;
+                    const 框高px = h * 画布比例;
+                    if (框宽px <= 26 || 框高px <= 16) return null;
+                    const rpx = Math.min(4.6, 框宽px * 0.055, 框高px * 0.085);
+                    const r = Math.max(0.8, rpx * px2world);
+                    const 名字px = Math.min(12, 框宽px * 0.22);
+                    const gapPx = clamp(框宽px / markers.length, rpx * 2.6, 46);
+                    const 画名字 = 显示人物名 && 名字px >= 8
+                        && gapPx >= (item.子节点.length > 0 ? 22 : 18)
+                        && 框高px > (item.子节点.length > 0 ? 60 : 26);
+                    const cy = item.子节点.length > 0
+                        ? y + Math.max(4, item.track * 0.42)
+                        : y + h - Math.max(r * 2.4, 7 * px2world);
+                    return (
+                        <g key={`people-${item.node.ID}`} pointerEvents="none">
+                            {markers.map((marker, index) => {
+                                const cx = x + w / 2 + (index - (markers.length - 1) / 2) * gapPx * px2world;
+                                const 名宽px = Math.max(1, 名字文本(marker.name).length) * 名字px * 0.95;
+                                return (
+                                    <g key={`${item.node.ID}-${marker.name}`}>
+                                        <circle cx={cx} cy={cy} r={r + 1.1 * px2world} fill="rgba(250,244,230,0.95)" />
+                                        <circle cx={cx} cy={cy} r={r}
+                                            fill={marker.player ? '#40c870' : '#f06090'}
+                                            stroke={marker.player ? '#1f7a3f' : '#c03060'}
+                                            strokeWidth={1 * px2world} />
+                                        {画名字 && gapPx >= 名宽px * 1.05 && (
+                                            <text x={cx} y={cy + r + 4 * px2world}
+                                                textAnchor="middle" dominantBaseline="middle"
+                                                fill={marker.player ? '#86efac' : '#f9a8d4'}
+                                                stroke="rgba(8,11,18,0.92)" strokeWidth={2 * px2world} paintOrder="stroke"
+                                                fontSize={名字px * px2world} fontFamily="serif" fontWeight="bold">
+                                                {名字文本(marker.name)}
+                                            </text>
+                                        )}
+                                    </g>
+                                );
+                            })}
+                        </g>
+                    );
+                })}
             </svg>
 
             {/* 工具栏 */}
             <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5">
-                <button onClick={() => setMapZoom(prev => 约束数值(Number((prev + 0.5).toFixed(2)), 1, MAX_ZOOM))}
-                    className={`w-7 h-7 rounded-full border text-sm flex items-center justify-center transition-colors ${isSpace ? 'border-sky-700/40 bg-slate-900/80 text-sky-300 hover:bg-sky-900/50' : 'border-amber-800/30 bg-[#faf6ed]/90 text-amber-900 hover:bg-amber-100'}`} title="放大">
-                    +
-                </button>
-                <button onClick={() => setMapZoom(prev => 约束数值(Number((prev - 0.5).toFixed(2)), 1, MAX_ZOOM))}
-                    className={`w-7 h-7 rounded-full border text-sm flex items-center justify-center transition-colors ${isSpace ? 'border-sky-700/40 bg-slate-900/80 text-sky-300 hover:bg-sky-900/50' : 'border-amber-800/30 bg-[#faf6ed]/90 text-amber-900 hover:bg-amber-100'}`} title="缩小">
-                    −
-                </button>
-                <button onClick={handleLocateCurrent}
-                    className={`w-7 h-7 rounded-full border text-sm flex items-center justify-center transition-colors ${isSpace ? 'border-sky-700/40 bg-slate-900/80 text-sky-300 hover:bg-sky-900/50' : 'border-amber-800/30 bg-[#faf6ed]/90 text-amber-900 hover:bg-amber-100'}`} title={`定位到${currentLocationName || '当前位置'}`}>
-                    ⊙
-                </button>
-                <button onClick={() => { setMapZoom(1); setMapPan({ x: 0, y: 0 }); setMapFocusPoint(null); }}
-                    className={`w-7 h-7 rounded-full border text-sm flex items-center justify-center transition-colors ${isSpace ? 'border-sky-700/40 bg-slate-900/80 text-sky-300 hover:bg-sky-900/50' : 'border-amber-800/30 bg-[#faf6ed]/90 text-amber-900 hover:bg-amber-100'}`} title="重置缩放">
-                    ⌂
-                </button>
-                <button onClick={() => setDragMode(!dragMode)}
-                    className={`w-7 h-7 rounded-full border text-xs flex items-center justify-center transition-colors ${dragMode ? (isSpace ? 'border-sky-400 bg-sky-900/60 text-sky-200' : 'border-amber-600 bg-amber-100 text-amber-800') : (isSpace ? 'border-sky-700/40 bg-slate-900/80 text-sky-300 hover:bg-sky-900/50' : 'border-amber-800/30 bg-[#faf6ed]/90 text-amber-900 hover:bg-amber-100')}`} title={dragMode ? '拖拽中(点击关闭)' : '拖拽地图'}>
-                    ✥
-                </button>
-                <div className={`text-xs text-center font-mono ${isSpace ? 'text-sky-400/60' : 'text-amber-900/50'}`}>{mapZoom.toFixed(1)}x</div>
+                {[
+                    { label: '+', title: '放大', action: () => 缩放(1 / 1.25) },
+                    { label: '−', title: '缩小', action: () => 缩放(1.25) },
+                    {
+                        label: '⊙', title: `定位到${currentLocationName || '当前位置'}`,
+                        action: () => {
+                            const target = byId.get(currentNodeId);
+                            if (target) 飞入(target.box, 24, true);
+                            else onLocateCurrent();
+                        },
+                    },
+                    { label: '⌂', title: '全览（双击地图同效）', action: () => 飞入(WORLD, 0, true) },
+                ].map(button => (
+                    <button key={button.label} onClick={button.action} title={button.title}
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-wuxia-gold/30 bg-[#12161f]/90 text-sm text-wuxia-gold transition-colors hover:bg-wuxia-gold/15">
+                        {button.label}
+                    </button>
+                ))}
+                <div className="text-center font-mono text-xs text-wuxia-gold/60">{(WORLD.w / view.w).toFixed(1)}x</div>
             </div>
 
-            {/* 图例 */}
-            <div className={`absolute left-3 bottom-3 z-10 rounded-lg border px-3 py-2 ${isSpace ? 'border-sky-700/30 bg-slate-900/85' : 'border-amber-800/20 bg-[#faf6ed]/85'}`}>
-                <div className={`mb-1 text-xs font-bold tracking-[0.18em] ${isSpace ? 'text-sky-400/70' : 'text-amber-900/60'}`}>图例</div>
-                <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-sm ${isSpace ? 'text-sky-400/50' : 'text-amber-900/50'}`}>
-                    {isRoom
-                        ? null
-                        : isSpace
-                        ? <span className="inline-flex items-center gap-1.5"><i className="h-0 w-5 border-t border-dashed border-sky-600/40" />星轨</span>
-                        : isContinent
-                        ? <span className="inline-flex items-center gap-1.5"><i className="h-0 w-5 border-t-2 border-amber-700/40" />驿道</span>
-                        : isTown
-                        ? <span className="inline-flex items-center gap-1.5"><i className="h-0 w-5 border-t-2 border-amber-700/50" />街道</span>
-                        : <span className="inline-flex items-center gap-1.5"><i className="h-0 w-5 border-t border-dashed border-amber-800/40" />等高线</span>
-                    }
-                    {isWorld && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-blue-600/30 bg-blue-400/30" />海洋</span>}
-                    {!isSpace && !isWorld && !isContinent && !isTown && !isRoom && showWater && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-blue-600/30 bg-blue-400/20" />水体</span>}
-                    {!isRoom && <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 ${isSpace ? 'bg-sky-400/50' : isContinent ? 'bg-amber-700/50' : isTown ? 'bg-amber-600/50' : 'bg-amber-700/40'}`} style={isContinent || isTown ? {} : { transform: 'rotate(45deg)' }} />{isSpace ? '星球' : isContinent ? '城寨' : isTown ? '建筑' : '地点'}</span>}
-                    {(isTown || isWorld || isContinent) && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-[#40c870] border border-[#208040]" />玩家</span>}
-                    {isTown && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#f06090] border border-[#c03060]" />NPC</span>}
-                    {isRoom && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-amber-700/30 bg-amber-100/50" />房间</span>}
+            {/* 图例：只显示当前地图里实际出现的内容 */}
+            <div className="absolute bottom-3 left-3 z-10 rounded-lg border border-wuxia-gold/20 bg-[#12161f]/90 px-3 py-2">
+                <div className="mb-1 text-xs font-bold tracking-[0.18em] text-wuxia-gold/70">图例</div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-300">
+                    {Array.from(new Set(flat.map(item => item.node.层级)))
+                        .sort((a, b) => (ORDER[a] ?? 9) - (ORDER[b] ?? 9))
+                        .map(layer => (
+                            <span key={layer} className="inline-flex items-center gap-1.5">
+                                <i className="h-2.5 w-2.5 rounded-sm" style={{ background: layer === '区地点' ? '#c89a5c' : FILL[layer] }} />
+                                {层级标签[layer]}
+                            </span>
+                        ))}
+                    {有建筑 && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-amber-600/60 bg-amber-700/40" />场所</span>}
+                    {playerName && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#40c870] ring-1 ring-[#1f7a3f]" />玩家</span>}
+                    {有人物 && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#f06090] ring-1 ring-[#c03060]" />NPC</span>}
                 </div>
             </div>
+
+            {/* 保留视图描述给读屏/调试，不影响画面 */}
+            <span className="sr-only">{viewLocationName || currentLocationName}{viewPathNames?.length ? `：${viewPathNames.join(' > ')}` : ''}{viewDescription ? `，${viewDescription}` : ''}{viewNodeNpcs?.length ? `，在场 ${viewNodeNpcs.length} 人` : ''}{isSpace ? '，星空视图' : ''}</span>
         </div>
     );
 };
