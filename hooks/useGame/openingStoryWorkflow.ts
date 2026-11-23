@@ -1178,8 +1178,28 @@ export const 执行开场剧情生成工作流 = async (
                 ].filter(Boolean).join('\n');
             })()
             : '';
+        // 变量阶段在省次数模式下不再单独请求，开局专属的初始化要求、审计重点与变量世界书规则
+        // 必须一起进协议——否则预取分节会让变量工作流直接解析，这些要求就彻底丢了。
+        const 开局省次数变量补充规则 = 开局省次数环节.includes('variable')
+            ? [
+                '【开局变量初始化要求 · 必须遵守】',
+                '本分节是第 0 回合的前台变量初始化结果：该成立的对象、字段与终态都要用 <命令> 明确落地，不能只写摘要或「无变化」。',
+                开局变量生成附加提示词,
+                构建开局变量生成审计重点({ fandomEnabled: openingRuntimeFandomBundle.enabled }),
+                按功能开关过滤提示词内容(构建世界书注入文本({
+                    books: deps.worldbooks,
+                    scopes: ['variable_calibration'],
+                    environment: openingStatePayload.环境,
+                    social: contextData.社交 || [],
+                    history: [],
+                    // 正文此刻还没生成，世界书只按开局环境/社交注入。
+                    extraTexts: [],
+                    gameConfig: openingGameConfig
+                }).combinedText, openingGameConfig)
+            ].filter(Boolean).join('\n\n')
+            : '';
         const 开局省次数附加协议 = 开局省次数环节.length > 0
-            ? 构建省次数附加输出协议(开局省次数环节, 开局省次数润色补充指令)
+            ? 构建省次数附加输出协议(开局省次数环节, 开局省次数润色补充指令, 开局省次数变量补充规则)
             : '';
         if (开局省次数附加协议) {
             // 附加协议放在消息链末尾；尾部是 assistant 前缀时插到前缀之前，避免破坏续写结构。
