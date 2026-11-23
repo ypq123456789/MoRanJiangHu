@@ -268,7 +268,12 @@ const RegionMap: React.FC<Props> = ({
     }, []);
 
     // 当前所在地点变化时，自动把镜头放到玩家所在区块。
+    // 注意只按 ID 变化触发：父组件每次渲染都会重建 allNodes/人物映射，若把 byId 当依赖
+    // 直接飞入，玩家点开别的区块看详情时镜头会被立刻拉回去。
+    const 上次定位节点 = useRef<string | null>(null);
     useEffect(() => {
+        if (上次定位节点.current === currentNodeId) return;
+        上次定位节点.current = currentNodeId;
         const target = byId.get(currentNodeId);
         if (target) 飞入(target.box, 24, false);
     }, [currentNodeId, byId, 飞入]);
