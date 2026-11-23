@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const generateMemoryRecall = vi.fn(async () => '强回忆:无\n弱回忆:无');
+const generateMemoryRecall = vi.fn(async (..._args: unknown[]) => '强回忆:无\n弱回忆:无');
 vi.mock('../services/ai/text', () => ({
-    generateMemoryRecall: (...args: unknown[]) => generateMemoryRecall(...args)
+    generateMemoryRecall: (..._args: unknown[]) => generateMemoryRecall(..._args)
 }));
 
 import { 执行剧情回忆检索 } from '../hooks/useGame/recallWorkflow';

@@ -316,7 +316,7 @@ type 开场剧情生成依赖 = {
     执行正文润色: (
         response: GameResponse,
         rawSource: string,
-        options?: { manual?: boolean; playerInput?: string; signal?: AbortSignal; allowExpansionForLength?: boolean; minLength?: number; onDelta?: (delta: string, accumulated: string) => void }
+        options?: { manual?: boolean; playerInput?: string; signal?: AbortSignal; allowExpansionForLength?: boolean; minLength?: number; onDelta?: (delta: string, accumulated: string) => void; prefetchedRawText?: string }
     ) => Promise<{ applied: boolean; response: GameResponse; error?: string; rawText?: string }>;
     触发新增NPC自动生图: (npcs: any[]) => void;
     触发主角自动生图?: (player: 角色数据结构) => void | Promise<unknown>;
@@ -1135,6 +1135,27 @@ export const 执行开场剧情生成工作流 = async (
             }
         }
 
+        // 同人运行时提示词包只依赖提示词快照，提前构建：省次数协议在构造变量审计重点时就要读 enabled，
+        // 留在主剧情之后会形成 TDZ 引用（开局只要开启省次数就会抛 ReferenceError）。
+        const openingWorldPrompt = 按功能开关过滤提示词内容(
+            读取提示词内容(openingPromptSnapshot, 'core_world'),
+            openingGameConfig
+        );
+        const openingRealmPromptNormalized = (() => {
+            if (!启用修炼体系) return '';
+            const raw = 读取提示词内容(openingPromptSnapshot, 'core_realm');
+            return raw.includes('开局后此处会被完整替换') ? '' : raw;
+        })();
+        const openingWorldEvolutionPrompt = 按功能开关过滤提示词内容(
+            读取提示词内容(openingPromptSnapshot, 'stat_world_evo') || ((数值_世界演化.内容 || '').trim()),
+            openingGameConfig
+        );
+        const openingRuntimeFandomBundle = 构建同人运行时提示词包({
+            openingConfig: options?.开局配置,
+            worldPrompt: openingWorldPrompt,
+            realmPrompt: openingRealmPromptNormalized
+        });
+
         // ── 省次数模式（开局）──
         // 把文章优化/变量生成/动态世界/规划分析/地图更新并进这次开场主剧情请求，
         // 后续阶段直接解析分节，不再各发一次请求。开关默认跟随总开关，可在设置里单独关掉。
@@ -1198,8 +1219,37 @@ export const 执行开场剧情生成工作流 = async (
                 }).combinedText, openingGameConfig)
             ].filter(Boolean).join('\n\n')
             : '';
+        // 规划阶段在省次数模式下也不单独请求，开局规划初始化要求与 story_plan 世界书规则必须提前进协议。
+        const 开局省次数规划补充规则 = 开局省次数环节.includes('planning')
+            ? (() => {
+                const 女主规划启用 = options?.开局配置?.启用女主剧情规划 !== undefined
+                    ? options.开局配置.启用女主剧情规划 === true
+                    : openingGameConfig.启用女主剧情规划 === true;
+                return [
+                    开局规划初始化附加提示词,
+                    构建开局规划初始化审计重点({
+                        fandomEnabled: openingRuntimeFandomBundle.enabled,
+                        heroineEnabled: 女主规划启用
+                    }),
+                    按功能开关过滤提示词内容(构建世界书注入文本({
+                        books: deps.worldbooks,
+                        scopes: 女主规划启用 ? ['story_plan', 'heroine_plan'] : ['story_plan'],
+                        environment: openingStatePayload.环境,
+                        social: contextData.社交 || [],
+                        world: openingStatePayload.世界,
+                        history: [],
+                        // 正文此刻还没生成，世界书只按开局环境/社交/世界注入。
+                        extraTexts: [],
+                        gameConfig: openingGameConfig
+                    }).combinedText, openingGameConfig),
+                    按功能开关过滤提示词内容(openingRuntimeFandomBundle.同人设定摘要, openingGameConfig),
+                    启用修炼体系 ? openingRuntimeFandomBundle.境界母板补丁 : '',
+                    openingTraditionalChinesePrompt
+                ].filter(Boolean).join('\n\n');
+            })()
+            : '';
         const 开局省次数附加协议 = 开局省次数环节.length > 0
-            ? 构建省次数附加输出协议(开局省次数环节, 开局省次数润色补充指令, 开局省次数变量补充规则)
+            ? 构建省次数附加输出协议(开局省次数环节, 开局省次数润色补充指令, 开局省次数变量补充规则, 开局省次数规划补充规则)
             : '';
         if (开局省次数附加协议) {
             // 附加协议放在消息链末尾；尾部是 assistant 前缀时插到前缀之前，避免破坏续写结构。
@@ -1381,24 +1431,6 @@ export const 执行开场剧情生成工作流 = async (
         let openingBodyText = 提取响应完整正文文本(aiData);
         let openingVariablePlanText = typeof aiData?.t_var_plan === 'string' ? aiData.t_var_plan.trim() : '';
         let openingPlanText = 提取响应规划文本(aiData);
-        const openingWorldPrompt = 按功能开关过滤提示词内容(
-            读取提示词内容(openingPromptSnapshot, 'core_world'),
-            openingGameConfig
-        );
-        const openingRealmPromptNormalized = (() => {
-            if (!启用修炼体系) return '';
-            const raw = 读取提示词内容(openingPromptSnapshot, 'core_realm');
-            return raw.includes('开局后此处会被完整替换') ? '' : raw;
-        })();
-        const openingWorldEvolutionPrompt = 按功能开关过滤提示词内容(
-            读取提示词内容(openingPromptSnapshot, 'stat_world_evo') || ((数值_世界演化.内容 || '').trim()),
-            openingGameConfig
-        );
-        const openingRuntimeFandomBundle = 构建同人运行时提示词包({
-            openingConfig: options?.开局配置,
-            worldPrompt: openingWorldPrompt,
-            realmPrompt: openingRealmPromptNormalized
-        });
         let responseForExecution: GameResponse = {
             ...aiData,
             tavern_commands: Array.isArray(aiData?.tavern_commands) ? [...aiData.tavern_commands] : []
