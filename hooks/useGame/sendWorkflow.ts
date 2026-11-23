@@ -2211,11 +2211,17 @@ export const 执行主剧情发送工作流 = async (
         // 省次数模式：从这一次请求的原始输出里拆出各阶段结果；缺分节时对应阶段自动降级回独立请求。
         let 省次数分节 = 省次数附加协议 ? 提取省次数分节(aiResult.rawText).sections : {};
         if (省次数附加协议) {
-            recordDiagnosticLog('info', ['省次数模式分节提取', {
-                enabledStages: 省次数启用环节,
-                receivedStages: 省次数启用环节.filter(stage => Boolean(省次数分节[stage])),
-                rawTextLength: typeof aiResult.rawText === 'string' ? aiResult.rawText.length : 0
-            }]);
+            const 收到分节 = 省次数启用环节.filter(stage => Boolean(省次数分节[stage]));
+            // 缺分节会让对应阶段退回独立请求，「开了省次数但看起来没省」通常就是这里：
+            // 主剧情没有按协议输出 <省次数附加>，或者输出被 max_tokens 截断。
+            recordDiagnosticLog(收到分节.length === 0 ? 'warn' : 'info', [
+                收到分节.length === 0 ? '省次数模式未收到任何分节，已全部降级为独立请求' : '省次数模式分节提取',
+                {
+                    enabledStages: 省次数启用环节,
+                    receivedStages: 收到分节,
+                    rawTextLength: typeof aiResult.rawText === 'string' ? aiResult.rawText.length : 0
+                }
+            ]);
         }
         let mainLengthShortage = 获取主剧情正文不足信息(aiData, runtimeGameConfig.字数要求);
         const shortBodyOnlyWarn = runtimeGameConfig.字数不足处理方式 === '仅提示';

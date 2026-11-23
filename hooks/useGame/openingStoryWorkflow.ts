@@ -26,7 +26,8 @@ import type {
     世界书结构
 } from '../../types';
 import type { 当前可用接口结构 } from '../../utils/apiConfig';
-import { 获取世界演变接口配置, 获取规划分析接口配置, 获取变量计算接口配置, 获取文章优化接口配置, 获取地图自动更新接口配置, 接口配置是否可用 } from '../../utils/apiConfig';
+import { 获取世界演变接口配置, 获取规划分析接口配置, 获取变量计算接口配置, 获取文章优化接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
+import { 构建省次数附加输出协议, 提取省次数分节, 过滤省次数流式草稿, type 省次数环节 } from '../../utils/singleCallMode';
 import { 核心_开局思维链, 获取开局思维链提示词 } from '../../prompts/core/cotOpening';
 import { 核心_境界体系 } from '../../prompts/core/realm';
 import { 获取开场初始化任务提示词 } from '../../prompts/runtime/opening';
@@ -1134,8 +1135,67 @@ export const 执行开场剧情生成工作流 = async (
             }
         }
 
+        // ── 省次数模式（开局）──
+        // 把文章优化/变量生成/动态世界/规划分析/地图更新并进这次开场主剧情请求，
+        // 后续阶段直接解析分节，不再各发一次请求。开关默认跟随总开关，可在设置里单独关掉。
+        const 省次数总开关开启 = 省次数模式已启用(deps.apiConfig);
+        const 省次数指定接口 = 省次数总开关开启 ? 获取省次数模式接口配置(deps.apiConfig) : null;
+        const 省次数基础可用 = Boolean(
+            省次数总开关开启
+            && deps.apiConfig?.功能模型占位?.省次数模式包含开局 !== false
+            && 省次数指定接口
+            && 接口配置是否可用(省次数指定接口)
+        );
+        const 开局省次数环节: 省次数环节[] = [];
+        if (省次数基础可用) {
+            if (deps.文章优化功能已开启() && 接口配置是否可用(获取文章优化接口配置(deps.apiConfig))) 开局省次数环节.push('polish');
+            if (接口配置是否可用(获取变量计算接口配置(deps.apiConfig))) 开局省次数环节.push('variable');
+            if (deps.apiConfig?.功能模型占位?.世界演变功能启用 !== false
+                && 接口配置是否可用(获取世界演变接口配置(deps.apiConfig))) 开局省次数环节.push('world');
+            if (deps.apiConfig?.功能模型占位?.规划分析功能启用 !== false
+                && 接口配置是否可用(获取规划分析接口配置(deps.apiConfig))) 开局省次数环节.push('planning');
+            if (deps.apiConfig?.功能模型占位?.地图生成功能启用 !== false
+                && 接口配置是否可用(获取地图自动更新接口配置(deps.apiConfig))) 开局省次数环节.push('map');
+        }
+        // 没有任何可合并环节时不要切换到省次数接口，否则只是换了模型、并没有省下请求。
+        const 开局使用省次数模式 = 省次数基础可用 && 开局省次数环节.length > 0;
+        // 润色阶段在省次数模式下不再单独请求，用户自定义提示词与字数/人称约束必须提前写进协议。
+        const 开局省次数润色补充指令 = 开局省次数环节.includes('polish')
+            ? (() => {
+                const 自定义提示词 = typeof deps.apiConfig?.功能模型占位?.文章优化提示词 === 'string'
+                    ? deps.apiConfig.功能模型占位.文章优化提示词.trim()
+                    : '';
+                const 字数要求 = Number(openingGameConfig.字数要求) || 0;
+                const 叙事人称 = openingGameConfig.叙事人称 || '第二人称';
+                return [
+                    自定义提示词 ? `【用户配置的文章优化提示词 · 必须遵守】\n${自定义提示词}` : '',
+                    '【本回合润色硬约束 · 必须遵守】',
+                    字数要求 > 0 ? `- 润色后正文保持在 ${字数要求} 字左右，不得压缩成大纲、摘要或设定说明。` : '',
+                    '- 角色对白必须单独成行并以【角色名】开头；旁白只写动作、环境与心理，不得把对白混进旁白行。',
+                    '- 禁止在【旁白】/【角色名】行用（）或()补充描写；括号信息改写成独立句并入动作链。',
+                    `- 叙事人称固定为${叙事人称}。`,
+                    '- 开局第0回合没有玩家输入，不得替玩家补写关键决策或台词。'
+                ].filter(Boolean).join('\n');
+            })()
+            : '';
+        const 开局省次数附加协议 = 开局省次数环节.length > 0
+            ? 构建省次数附加输出协议(开局省次数环节, 开局省次数润色补充指令)
+            : '';
+        if (开局省次数附加协议) {
+            // 附加协议放在消息链末尾；尾部是 assistant 前缀时插到前缀之前，避免破坏续写结构。
+            const 列表 = [...openingOrderedMessages];
+            const 尾部 = 列表[列表.length - 1];
+            const 协议消息 = { role: 'user' as const, content: 开局省次数附加协议 };
+            openingOrderedMessages = (尾部?.role === 'assistant' && (尾部 as any).prefix === true)
+                ? [...列表.slice(0, -1), 协议消息, 尾部]
+                : [...列表, 协议消息];
+        }
+        const apiForOpeningRequest = 补全开场剧情默认输出预算(
+            开局使用省次数模式
+                ? (省次数指定接口 as 当前可用接口结构)
+                : apiForOpening
+        );
         const openingAutoRetryEnabled = deps.游戏设置启用自动重试(openingGameConfig);
-        const apiForOpeningRequest = 补全开场剧情默认输出预算(apiForOpening);
         openingInputTokens = deps.估算消息Token(openingOrderedMessages, apiForOpeningRequest?.model);
         recordDiagnosticLog('info', ['开局主剧情请求开始', {
             stage: 'opening_story',
@@ -1149,7 +1209,9 @@ export const 执行开场剧情生成工作流 = async (
             validateTagCompleteness: openingGameConfig.启用标签检测完整性 === true,
             enableTagRepair: openingGameConfig.启用标签修复 !== false,
             requireActionOptionsTag: openingGameConfig.启用行动选项 !== false,
-            autoRetryEnabled: openingAutoRetryEnabled
+            autoRetryEnabled: openingAutoRetryEnabled,
+            singleCallMode: 开局使用省次数模式,
+            singleCallStages: 开局省次数环节
         }]);
         const npcNameContext = await buildNpcTemplateNameContext(
             { ...openingStatePayload, ...options?.命令基态, 社交: options?.命令基态?.社交 ?? contextData.社交 ?? [] },
@@ -1194,7 +1256,11 @@ export const 执行开场剧情生成工作流 = async (
                                             item.role === 'assistant' &&
                                             !item.structuredResponse
                                         ) {
-                                            return { ...item, content: accumulated };
+                                            // 省次数模式下只把主剧情正文推给界面，避免附加分节在流式过程中闪现。
+                                            const 可见草稿 = 开局省次数附加协议
+                                                ? 过滤省次数流式草稿(accumulated)
+                                                : accumulated;
+                                            return { ...item, content: 可见草稿 };
                                         }
                                         return item;
                                     }));
@@ -1215,6 +1281,8 @@ export const 执行开场剧情生成工作流 = async (
                             validateTagCompleteness: openingGameConfig.启用标签检测完整性 === true,
                             enableTagRepair: openingGameConfig.启用标签修复 !== false,
                             requireActionOptionsTag: openingGameConfig.启用行动选项 !== false,
+                            // 省次数模式下先剥离 <省次数附加> 块再解析主剧情，避免分节命令污染正文协议。
+                            stripSingleCallSections: Boolean(开局省次数附加协议),
                             prefixMode: openingDeepSeekPrefixMode || openingGLMPrefixMode,
                             disableThinking: (openingGameConfig.DeepSeek策略?.开局Thinking !== true) && (openingGameConfig.GLM策略?.开局Thinking !== true),
                             stripReasoning: (openingGameConfig.DeepSeek策略?.开局Thinking !== true) && (openingGameConfig.GLM策略?.开局Thinking !== true),
@@ -1235,6 +1303,21 @@ export const 执行开场剧情生成工作流 = async (
             }
         });
         let aiData = aiResult.response;
+        // 省次数模式：从这次请求的原始输出里拆出各阶段结果；缺分节时对应阶段自动降级回独立请求。
+        const 开局省次数分节 = 开局省次数附加协议
+            ? 提取省次数分节(aiResult.rawText).sections
+            : {};
+        if (开局省次数附加协议) {
+            const 收到分节 = 开局省次数环节.filter(stage => Boolean(开局省次数分节[stage]));
+            recordDiagnosticLog(收到分节.length === 0 ? 'warn' : 'info', [
+                收到分节.length === 0 ? '开局省次数模式未收到任何分节，已全部降级为独立请求' : '开局省次数模式分节提取',
+                {
+                    enabledStages: 开局省次数环节,
+                    receivedStages: 收到分节,
+                    rawTextLength: typeof aiResult.rawText === 'string' ? aiResult.rawText.length : 0
+                }
+            ]);
+        }
         recordDiagnosticLog('info', ['开局主剧情解析成功', {
             stage: 'opening_story',
             rawTextLength: typeof aiResult.rawText === 'string' ? aiResult.rawText.length : 0,
@@ -1428,6 +1511,7 @@ export const 执行开场剧情生成工作流 = async (
                     signal: controller.signal,
                     allowExpansionForLength: true,
                     minLength: openingGameConfig.字数要求,
+                    prefetchedRawText: 开局省次数分节.polish,
                     onDelta: (_delta: string, accumulated: string) => {
                         设置开局文章优化进度({
                             phase: 'start',
@@ -1546,6 +1630,8 @@ export const 执行开场剧情生成工作流 = async (
                         {
                             playerInput: options?.开局额外要求 || '',
                             parsedResponse: responseForExecution,
+                            // 省次数模式：本阶段结果已随开局主剧情带回，直接解析分节，不再单独请求。
+                            prefetchedRawText: 开局省次数分节.variable,
                             baseState: {
                                 角色: commandBaseState.角色,
                                 环境: commandBaseState.环境,
@@ -1765,7 +1851,9 @@ export const 执行开场剧情生成工作流 = async (
                             构建世界演变COT提示词({ fandom: openingRuntimeFandomBundle.enabled }),
                             openingRuntimeFandomBundle.enabled,
                             openingGameConfig.独立APIGPT模式?.世界演变 === true,
-                            streamOptions
+                            streamOptions,
+                            // 省次数模式：本阶段结果已随开局主剧情带回。
+                            开局省次数分节.world
                         )
                     );
                     // 与游戏内世界演变同源的风险：命令块截断后仍能解析出部分合法命令，
@@ -1920,6 +2008,8 @@ export const 执行开场剧情生成工作流 = async (
                         currentResponse: mapContextResponse,
                         stateBase: mapBaseState,
                         signal: controller.signal,
+                        // 省次数模式：本阶段结果已随开局主剧情带回。
+                        prefetchedRawText: 开局省次数分节.map,
                         onDelta: 开局地图更新非流式输出
                             ? undefined
                             : (_delta: string, accumulated: string) => {
@@ -2104,12 +2194,16 @@ const 开局规划请求参数 = {
                                         });
                                     },
                                     onStreamEnd: streamOptions.onStreamEnd
-                                }
+                                },
+                                // 省次数模式：本阶段结果已随开局主剧情带回。
+                                开局省次数分节.planning
                             ),
                             发起非流式请求: () => textAIService.generatePlanningAnalysis(
                                 开局规划请求参数,
                                 openingPlanningApi,
-                                signal
+                                signal,
+                                undefined,
+                                开局省次数分节.planning
                             ),
                             onFallback: (info) => {
                                 if (info.重试失败) {
