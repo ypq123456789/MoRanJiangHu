@@ -118,6 +118,25 @@ describe('省次数模式 · 分节提取', () => {
         expect(parseStoryRawText(storyText).tavern_commands?.some(cmd => cmd.key === '角色.气血')).not.toBe(true);
     });
 
+    it('空分节代表本回合无变化，必须与「分节缺失」区分开', () => {
+        const raw = [
+            '<正文>【旁白】正文。</正文>',
+            '<省次数附加>',
+            '<润色正文></润色正文>',
+            '<变量校准></变量校准>',
+            '<地图更新>\n</地图更新>',
+            '</省次数附加>'
+        ].join('\n');
+        const { sections } = 提取省次数分节(raw);
+        // 空分节要采信（否则会白跑一次独立请求）。
+        expect(sections.variable).toBe('');
+        expect(sections.map).toBe('');
+        // 润色分节为空等于没有润色结果，采信会把正文清空，必须退回独立请求。
+        expect(sections.polish).toBeUndefined();
+        // 完全没出现的分节仍然是缺失。
+        expect(sections.world).toBeUndefined();
+    });
+
     it('流式草稿只展示主剧情正文', () => {
         const raw = 构造原始输出({ variable: '<命令>set 角色.气血 = 80</命令>' });
         const visible = 过滤省次数流式草稿(raw);

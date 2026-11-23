@@ -693,7 +693,7 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                     <div>
                         <div className="text-sm font-bold text-wuxia-cyan">省次数模式</div>
                         <div className="mt-1 text-[11px] leading-5 text-gray-400">
-                            开启后每个普通回合只发一次请求：正文、润色、变量、世界、规划、地图的结果都从同一次输出里拆分。参与环节按现有开关自动决定；某环节没有带回结果时，自动降级回独立请求。开局流程与剧情回忆检索不在合并范围内。
+                            开启后每个回合只发一次请求：正文、润色、变量、世界、规划、地图的结果都从同一次输出里拆分。参与环节按现有开关自动决定；某环节没有带回结果时，自动降级回独立请求。开局流程与剧情回忆的合并范围见下方选项。
                         </div>
                     </div>
                     <input
@@ -753,6 +753,48 @@ const ApiSettings: React.FC<Props> = ({ settings, onSave }) => {
                                 className="w-full rounded-md border border-gray-700 bg-black/50 p-3 text-sm text-white outline-none transition-all focus:border-wuxia-cyan"
                             />
                         </div>
+                    </div>
+                )}
+                {form.功能模型占位.省次数模式启用 === true && (
+                    <div className="grid gap-2 rounded-md border border-wuxia-cyan/15 bg-black/20 p-3 md:grid-cols-2">
+                        <label className="flex cursor-pointer items-start gap-2 text-xs leading-5 text-gray-300">
+                            <input
+                                type="checkbox"
+                                aria-label="省次数模式包含开局"
+                                checked={form.功能模型占位.省次数模式包含开局 !== false}
+                                onChange={(event) => setForm((prev) => ({
+                                    ...prev,
+                                    功能模型占位: {
+                                        ...prev.功能模型占位,
+                                        省次数模式包含开局: event.target.checked
+                                    }
+                                }))}
+                                className="mt-1 h-4 w-4 shrink-0 accent-cyan-400"
+                            />
+                            <span>
+                                开局流程也合并成一次请求
+                                <span className="block text-[10px] text-gray-500">开启后开局的文章优化、变量、世界、规划、地图都从开局主剧情那一次输出里拆分；关闭则恢复逐阶段请求。</span>
+                            </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2 text-xs leading-5 text-gray-300">
+                            <input
+                                type="checkbox"
+                                aria-label="省次数模式包含剧情回忆"
+                                checked={form.功能模型占位.省次数模式包含剧情回忆 !== false}
+                                onChange={(event) => setForm((prev) => ({
+                                    ...prev,
+                                    功能模型占位: {
+                                        ...prev.功能模型占位,
+                                        省次数模式包含剧情回忆: event.target.checked
+                                    }
+                                }))}
+                                className="mt-1 h-4 w-4 shrink-0 accent-cyan-400"
+                            />
+                            <span>
+                                剧情回忆不再单独调用模型
+                                <span className="block text-[10px] text-gray-500">开启后每回合的回忆检索直接用本地预筛结果，不消耗调用次数；关闭则恢复模型检索。</span>
+                            </span>
+                        </label>
                     </div>
                 )}
             </div>

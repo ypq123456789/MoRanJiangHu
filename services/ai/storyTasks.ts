@@ -349,7 +349,9 @@ export const generatePolishedBody = async (
     /** 省次数模式：主剧情一次请求已经带回润色后的正文，直接复用，不再单独发请求。 */
     prefetchedRawText?: string
 ): Promise<PolishedBodyResult> => {
-    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    // 传入空字符串同样视为「已预取」：省次数协议允许空分节表示本回合无变化，
+    // 采信它才能省掉这一次独立请求；未预取时调用方传的是 undefined。
+    const 使用预取结果 = typeof prefetchedRawText === 'string';
     if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
     const normalizedBody = (bodyText || '').trim();
     if (!normalizedBody) {
@@ -886,7 +888,7 @@ export const generateWorldEvolutionUpdate = async (
     /** 省次数模式：主剧情一次请求已经带回本阶段的原始输出，直接解析，不再单独发请求。 */
     prefetchedRawText?: string
 ): Promise<WorldEvolutionResult> => {
-    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    const 使用预取结果 = typeof prefetchedRawText === 'string';
     if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
 
     const normalizedExtraPrompt = (extraPrompt || '').trim();
@@ -1024,7 +1026,7 @@ export const generateVariableCalibrationUpdate = async (
     /** 省次数模式：主剧情一次请求已经带回本阶段的原始输出，直接解析，不再单独发请求。 */
     prefetchedRawText?: string
 ): Promise<VariableCalibrationResult> => {
-    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    const 使用预取结果 = typeof prefetchedRawText === 'string';
     if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
     if (params.taskMode === 'review') {
         if (!params.reviewContext) throw new Error('变量审查缺少审查上下文');
@@ -2019,7 +2021,7 @@ export const generatePlanningAnalysis = async (
     /** 省次数模式：主剧情一次请求已经带回本阶段的原始输出，直接解析，不再单独发请求。 */
     prefetchedRawText?: string
 ): Promise<PlanningAnalysisResult> => {
-    const 使用预取结果 = typeof prefetchedRawText === 'string' && prefetchedRawText.trim().length > 0;
+    const 使用预取结果 = typeof prefetchedRawText === 'string';
     if (!使用预取结果 && !apiConfig.apiKey) throw new Error('Missing API Key');
     const request = (forceUserTrigger = false) => 请求模型文本(apiConfig, 构建规划分析消息链(params, { forceUserTrigger }), {
         temperature: 0.3,

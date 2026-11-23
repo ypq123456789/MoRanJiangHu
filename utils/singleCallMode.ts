@@ -60,7 +60,9 @@ export const 构建省次数附加输出协议 = (
     /** 润色环节的生效设置：用户自定义提示词 + 字数/人称/对白等运行时硬约束，避免合并后设置失效。 */
     润色补充指令 = '',
     /** 变量环节的校准规则（含用户自定义资源公式等），独立请求原本会注入，合并后必须补上。 */
-    变量补充规则 = ''
+    变量补充规则 = '',
+    /** 规划环节的初始化/世界书规则，独立请求原本会注入，合并后必须补上。 */
+    规划补充规则 = ''
 ): string => {
     const 有效环节 = 省次数环节顺序.filter(item => 启用环节.includes(item));
     if (有效环节.length === 0) return '';
@@ -88,7 +90,9 @@ export const 构建省次数附加输出协议 = (
                 ? `\n【本回合生效的润色设置 · 必须遵守】\n${润色补充指令.trim()}`
                 : item === 'variable' && 变量补充规则.trim()
                     ? `\n【本回合生效的变量校准规则 · 必须遵守】\n${变量补充规则.trim()}`
-                    : '';
+                    : item === 'planning' && 规划补充规则.trim()
+                        ? `\n【本回合生效的规划约束 · 必须遵守】\n${规划补充规则.trim()}`
+                        : '';
             return `${index + 1}. ${环节输出要求[item]}${补充}`;
         }),
         '',
@@ -128,8 +132,17 @@ export const 提取省次数分节 = (rawText: string): 省次数分节提取结
 
     const sections: Partial<Record<省次数环节, string>> = {};
     for (const 环节 of 省次数环节顺序) {
-        const value = 提取同名分节(scope, 省次数分节标签[环节]);
-        if (value) sections[环节] = value;
+        const tag = 省次数分节标签[环节];
+        const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // 空分节（`<地图更新></地图更新>`）是协议明确要求的「本回合无变化」，
+        // 必须与「分节缺失」区分开：缺失才回退独立请求，空分节要直接采信、不再请求。
+        const 有分节 = new RegExp(`<\\s*${escaped}\\s*>[\\s\\S]*?<\\s*\\/\\s*${escaped}\\s*>`, 'i').test(scope);
+        if (!有分节) continue;
+        const value = 提取同名分节(scope, tag);
+        // 润色分节必须带完整正文副本：空分节等于「没有润色结果」，采信会把正文清空，
+        // 这里退回 undefined 让调用方走独立请求。其余环节的空分节是协议允许的「无变化」。
+        if (环节 === 'polish' && !value) continue;
+        sections[环节] = value;
     }
 
     let storyText = text.replace(/<\s*省次数附加\s*>[\s\S]*?<\s*\/\s*省次数附加\s*>/gi, '');
