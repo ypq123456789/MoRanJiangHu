@@ -66,6 +66,7 @@ import {
     是否有效地图层级节点
 } from './storyState';
 import { 构建地图空间场景 } from '../../utils/mapSpatial';
+import { 构建地图上下文提示词 } from '../../utils/mapPromptText';
 import { 构建同人运行时提示词包, 应用境界体系区块替换 } from '../../prompts/runtime/fandom';
 import { 构建女主剧情规划协议 } from '../../prompts/core/heroinePlan';
 import { 构建女主规划专项提示词 } from '../../prompts/core/heroinePlanCot';
@@ -998,22 +999,24 @@ export const 构建系统提示词 = ({
         }));
         return 包装树状上下文('约定列表', orderedAgreements);
     };
-    const 构建地图建筑状态文本 = (payload: any) => {
+    const 构建地图建筑状态文本 = (payload: any, socialList?: any[]) => {
         const source = payload || {};
         const env = 规范化环境信息(source?.环境);
         const layers = Array.isArray(source?.世界?.地图层级)
             ? source.世界.地图层级.filter(是否有效地图层级节点)
             : [];
-        // 仅输出层级链，不输出旧坐标数据
-        const chain: string[] = [env.大地点, env.中地点, env.小地点, env.具体地点].filter(Boolean) as string[];
-        const 层级树 = layers.length > 0
-            ? layers.map((l: any) => `[${l?.层级 || '?'}] ${l?.名称 || ''}`).join(' > ')
-            : '';
+        // 老版本只给扁平层级链，AI 看不到分支与势力，剧情自然和地图脱节。
+        // 现在给完整父子树 + 当前位置链 + 人物落点，让正文/规划引用真实存在的地点。
+        const 地图上下文 = 构建地图上下文提示词(
+            { ...(source?.世界 || {}), 地图层级: layers } as any,
+            env,
+            socialList || source?.社交,
+            { 最大节点数: 48, 描述截断: 24, 最大人物数: 24 }
+        );
         return [
             '【地图与空间锚点（新层级系统）】',
-            `当前地点链: ${chain.join(' > ') || '未知'}`,
-            `地图层级树: ${层级树 || '暂无'}（共 ${layers.length} 个节点）`,
-            '新地图系统已启用，地点节点信息见 世界.地图层级。',
+            `地图节点总数: ${layers.length}`,
+            地图上下文,
         ].join('\n');
     };
     const 构建剧情安排 = (payload: any) => {
@@ -1705,7 +1708,7 @@ export const 构建系统提示词 = ({
         openingConfig,
         cultivationSystemEnabled: 启用修炼体系
     });
-    const contextMapAndBuilding = 构建地图建筑状态文本(statePayload);
+    const contextMapAndBuilding = 构建地图建筑状态文本(statePayload, Array.isArray(socialData) ? socialData : statePayload?.社交);
     const contextCurrencySystem = 构建当前货币系统提示词();
     // 多货币汇率系统：货币参考注入 + 汇率快照
     const 展开货币系统 = 获取展开货币系统(openingConfig?.modeRuntimeProfile);

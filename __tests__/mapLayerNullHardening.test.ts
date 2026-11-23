@@ -61,8 +61,9 @@ describe('地图层级空值防御', () => {
             worldEvolutionEnabled: false
         });
 
-        expect(result.systemPrompt).toContain('[大地点] 九州 > [小地点] 临安城');
-        expect(result.systemPrompt).toContain('（共 2 个节点）');
+        expect(result.systemPrompt).toContain('[大地点·大陆] 九州');
+        expect(result.systemPrompt).toContain('[小地点·城镇] 临安城');
+        expect(result.systemPrompt).toContain('地图节点总数: 2');
         expect(result.systemPrompt).not.toContain('损坏节点');
     });
 });

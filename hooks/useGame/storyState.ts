@@ -143,12 +143,20 @@ const 规范化地图层级名称 = (value: any): any => {
     return 地图层级集合.has(text) ? text : '区地点';
 };
 
+/** 模型常把连接词写进地名（「中州大地的」「青云山脉的区域」），这里去掉尾部的冗余连接词。 */
+const 清洗地图地点名称 = (value: any): string => {
+    const text = 取文本(value).replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    const cleaned = text.replace(/(?:的|之|位于|地处)$/u, '').trim();
+    return cleaned || text;
+};
+
 const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
     const normalized = (Array.isArray(rawLayers) ? rawLayers : [])
         .map((layer) => ({
-            名称: 取文本(layer?.名称 || layer?.name),
+            名称: 清洗地图地点名称(layer?.名称 || layer?.name),
             层级: 规范化地图层级名称(layer?.层级 || layer?.level),
-            父级ID: 取文本(layer?.父级ID || layer?.parentId || layer?.parent || layer?.上级地点),
+            父级ID: 清洗地图地点名称(layer?.父级ID || layer?.parentId || layer?.parent || layer?.上级地点),
             描述: 取文本(layer?.描述 || layer?.description),
             控制势力: 取文本(layer?.控制势力 || layer?.主导势力 || layer?.所属势力 || layer?.controllingFaction),
             势力影响: 取文本(layer?.势力影响 || layer?.势力分布 || layer?.factionInfluence),
@@ -281,13 +289,37 @@ const 标准化势力列表 = (rawFactions: any[]): any[] => {
         });
 };
 
+/**
+ * 把势力的「地盘归属」对齐到地图上真实存在的节点。
+ * 模型经常会写地图里没有的地名（例如「乱石岗」「各郡县」），
+ * 结果势力在地图上找不到落点，面板看起来就是"地图空、势力飘着"。
+ */
+const 对齐势力地盘到地图节点 = (factions: any[], layers: any[]): any[] => {
+    if (!factions.length) return factions;
+    const names = layers.map((layer) => 取文本(layer?.名称)).filter(Boolean);
+    const nameSet = new Set(names);
+    const worldName = 取文本(layers.find((layer) => layer?.层级 === '寰宇')?.名称) || names[0] || '';
+    return factions.map((faction) => {
+        const territory = 取文本(faction?.地盘归属);
+        if (territory && nameSet.has(territory)) return faction;
+        // 模糊匹配：地名互相包含（「青石镇东市」↔「青石镇」）也算命中。
+        const hit = territory
+            ? names.find((name) => name && (territory.includes(name) || name.includes(territory)))
+            : '';
+        return { ...faction, 地盘归属: hit || worldName };
+    });
+};
+
 export const 合并世界基底到开场状态 = <T extends { 世界?: 世界数据结构 }>(
     openingBase: T,
     foundation?: Pick<WorldFoundationResult, 'mapLayers' | 'factions'> | null
 ): T => {
     if (!foundation) return openingBase;
     const mapLayers = 规范化世界基底地图层级(foundation.mapLayers || []);
-    const factions = 规范化世界基底势力列表(foundation.factions || []);
+    const factions = 对齐势力地盘到地图节点(
+        规范化世界基底势力列表(foundation.factions || []),
+        mapLayers
+    );
     if (mapLayers.length <= 0 && factions.length <= 0) return openingBase;
     const currentWorld = openingBase.世界 || 创建开场空白世界();
     return {
@@ -2034,8 +2066,16 @@ export const 规范化世界状态 = (raw?: any): 世界数据结构 => {
                 }))
                 .filter((item) => item.名称 || item.描述)
             : [],
+        // 老存档里也存在「中州大地的」这类把连接词写进地名的数据，加载时统一清洗一次。
+        // 父级在这里已经是 DT-xxx 内部 ID，改名不会断链。
         地图层级: Array.isArray(world?.地图层级)
-            ? world.地图层级.filter(是否有效地图层级节点)
+            ? world.地图层级
+                .filter(是否有效地图层级节点)
+                .map((layer: any) => {
+                    const 清洗后名称 = 清洗地图地点名称(layer?.名称) || 取文本(layer?.名称);
+                    // 名称没变就保留原对象，避免无谓复制破坏引用（老存档诊断依赖它）
+                    return 清洗后名称 === layer?.名称 ? layer : { ...layer, 名称: 清洗后名称 };
+                })
             : [],
         地图建筑: Array.isArray(world?.地图建筑) ? world.地图建筑 : [],
         地图道路: Array.isArray(world?.地图道路) ? world.地图道路 : [],

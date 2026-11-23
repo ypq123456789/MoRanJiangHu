@@ -496,7 +496,8 @@ export const 执行正文润色 = async (
             `- 当前时间: ${环境时间转标准串(currentEnv) || '未知时间'}`,
             `- 当前地点: ${构建完整地点文本(currentEnv) || '未知地点'}`,
             `- 在场角色: ${inSceneNames.length > 0 ? inSceneNames.join('、') : '无明确在场角色'}`,
-            `- 当前主线章节: ${chapterTitle}`
+            `- 当前主线章节: ${chapterTitle}`,
+            '- 地名约束: 润色只改文字表现，不替换地名、不把建筑/据点名改写成城镇名，也不新增地图上不存在的地点。'
         ].join('\n');
     })();
     const polishPerspectiveRule = (() => {

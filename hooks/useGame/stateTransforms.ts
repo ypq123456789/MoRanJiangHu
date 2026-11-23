@@ -955,6 +955,12 @@ const 规范化单个物品 = (rawItem: any, idx: number): any | null => {
         ? item.ID.trim()
         : `itm_auto_${idx}`;
     item.名称 = 名称 || 描述.slice(0, 12);
+    // 历史存档兜底：早期补建装备把「引用值」直接当名称，而引用值可能是 itm_equip_xxx / Item001。
+    // 这里只对「自动补建」的装备生效，改成槽位可读名，避免面板长期显示物品 ID。
+    if (/^(?:itm_|bg_item_|Item\d+$)/i.test(item.名称) && /自动补建/.test(描述)) {
+        const 补建槽位 = 规范化文本(item?.当前装备部位);
+        item.名称 = 补建槽位 ? `${补建槽位}（补建）` : '装备（补建）';
+    }
     item.描述 = 描述;
     item.类型 = 取首个有效文本片段(item?.类型, '杂物');
     item.品质 = 取首个有效文本片段(item?.品质, '凡品');
@@ -1835,9 +1841,12 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
                 (role.装备 as any)[slot] = '无';
                 return;
             }
+            // 引用值是 ID 形态时（模型写了 Item001 / itm_equip_xxx）不能把它当物品名展示，
+            // 否则面板上就是「主武器 Item001」。用槽位兜底成可读名字。
+            const 引用疑似物品ID = /^(?:itm_|bg_item_|Item\d+$)/i.test(normalizedRef);
             const 补建物品 = 规范化单个物品({
                 ID: 生成装备补建物品ID(normalizedRef, slot),
-                名称: normalizedRef,
+                名称: 引用疑似物品ID ? `${slot}（补建）` : normalizedRef,
                 类型: 槽位类型映射[slot],
                 品质: '凡品',
                 描述: `由「${slot}」装备栏引用自动补建（模型未在物品列表写入该装备）。`,
@@ -1978,7 +1987,18 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
             .flat()
             .filter(Boolean);
         // 用背景必投资产替换当前物品列表（不含自动预设丹药和默认货币）。
-        role.物品列表 = 合并同名可堆叠物品([...背景物品, ...背景货币物品]);
+        // 但装备栏正在引用的物品必须保留：模型同一批命令里既 set 了装备、又 push 了对应物品，
+        // 整体替换会把它们冲掉，下一轮就只能按引用名补建出「主武器 Item001 / 耐久 0」这类空壳。
+        const 装备引用值集合 = new Set(
+            Object.values((role as any).装备 || {})
+                .map((value) => 规范化文本(value))
+                .filter((value) => value && value !== '无')
+        );
+        const 被装备引用物品 = (Array.isArray(role.物品列表) ? role.物品列表 : []).filter((item: any) => (
+            装备引用值集合.has(规范化文本(item?.ID))
+            || 装备引用值集合.has(规范化文本(item?.名称))
+        ));
+        role.物品列表 = 合并同名可堆叠物品([...背景物品, ...背景货币物品, ...被装备引用物品]);
         (role as any).已补齐系统丹药预设 = true;
         本轮背景资产已落地 = true;
     } else {

@@ -16,11 +16,11 @@ interface Props {
 }
 
 const 层级标签: Record<string, string> = {
-    '寰宇': '银河',
-    '大地点': '世界',
-    '中地点': '大洲',
+    '寰宇': '界域',
+    '大地点': '大陆',
+    '中地点': '地域',
     '小地点': '城镇',
-    '区地点': '建筑',
+    '区地点': '场所',
     '子地点': '房间',
 };
 
@@ -244,21 +244,33 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                         </button>
                     )}
                     <div className={`flex items-center gap-1 flex-wrap min-w-0 flex-1 leading-tight ${breadcrumb.length > 5 ? 'text-xs' : 'text-sm'}`}>
-                        {breadcrumb.map((node, i) => (
-                            <React.Fragment key={node.ID}>
-                                {i > 0 && <span className="text-gray-600 shrink-0">/</span>}
-                                <button
-                                    onClick={() => setSelectedNode(node)}
-                                    className={`tracking-wider px-1 py-0.5 rounded transition-colors whitespace-nowrap
-                                        ${i === breadcrumb.length - 1
-                                            ? 'text-wuxia-gold font-bold'
-                                            : 'text-gray-400 hover:text-white hover:bg-white/5'
-                                        }`}
-                                >
-                                    {node.名称}
-                                </button>
-                            </React.Fragment>
-                        ))}
+                        {/* 路径过长时折叠前几级：… / 落霞坊市 / 多宝阁分号，悬停省略号看全路径 */}
+                        {breadcrumb.length > 3 && (
+                            <span
+                                className="px-1 text-gray-500 shrink-0 cursor-default"
+                                title={breadcrumb.slice(0, -2).map((node) => node.名称).join(' / ')}
+                            >
+                                …
+                            </span>
+                        )}
+                        {(breadcrumb.length > 3 ? breadcrumb.slice(-2) : breadcrumb).map((node, i) => {
+                            const isLast = i === (breadcrumb.length > 3 ? 1 : breadcrumb.length - 1);
+                            return (
+                                <React.Fragment key={node.ID}>
+                                    {(i > 0 || breadcrumb.length > 3) && <span className="text-gray-600 shrink-0">/</span>}
+                                    <button
+                                        onClick={() => setSelectedNode(node)}
+                                        className={`tracking-wider px-1 py-0.5 rounded transition-colors whitespace-nowrap
+                                            ${isLast
+                                                ? 'text-wuxia-gold font-bold'
+                                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                            }`}
+                                    >
+                                        {node.名称}
+                                    </button>
+                                </React.Fragment>
+                            );
+                        })}
                     </div>
                     {onRegenerateMap && (
                         <button
@@ -278,6 +290,9 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                 <div className="flex-1 min-h-0 p-3">
                     <RegionMap
                         nodes={childNodes}
+                        allNodes={tree.根节点 ? [tree.根节点] : []}
+                        selectedNodeId={selectedNode?.ID}
+                        playerName={playerName}
                         currentNodeId={tree.当前节点?.ID || ''}
                         currentLocationName={tree.当前节点?.名称 || ''}
                         onSelect={setSelectedNode}
@@ -337,7 +352,7 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                         {selectedNode ? (
                             <>
                                 <div className="text-xs tracking-widest text-gray-500 mb-1">{层级标签[selectedNode.层级]} · {selectedNode.子节点.length} 个子区域</div>
-                                <div className="text-sm font-bold text-gray-200 mb-1">{(selectedNode as any).名称 || (selectedNode as any).鍚嶇О || ''}</div>
+                                <div className="text-sm font-bold text-gray-200 mb-1">{(selectedNode as any).名称 || ''}</div>
                                 {(selectedNode.控制势力 || selectedNode.势力影响 || (selectedNode.势力标签 && selectedNode.势力标签.length > 0)) && (
                                     <div className="mb-2 rounded border border-amber-400/20 bg-amber-400/5 px-2 py-1.5 text-sm text-amber-100/90">
                                         {selectedNode.控制势力 && <div><span className="text-amber-300">主导势力：</span>{selectedNode.控制势力}</div>}
@@ -351,8 +366,8 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                                         )}
                                     </div>
                                 )}
-                                {((selectedNode as any).描述 || (selectedNode as any).鎻忚堪) ? (
-                                    <div className="text-sm text-gray-400 leading-relaxed">{(selectedNode as any).描述 || (selectedNode as any).鎻忚堪}</div>
+                                {((selectedNode as any).描述) ? (
+                                    <div className="text-sm text-gray-400 leading-relaxed">{(selectedNode as any).描述}</div>
                                 ) : (
                                     <div className="text-sm text-gray-600">暂无描述</div>
                                 )}
@@ -361,7 +376,7 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const name = String((selectedNode as any).名称 || selectedNode.鍚嶇О || '').trim();
+                                                const name = String((selectedNode as any).名称 || '').trim();
                                                 if (name) onInsertCommand(`前往【${name}】`);
                                             }}
                                             className="rounded-lg border border-wuxia-gold/30 bg-wuxia-gold/10 px-3 py-1.5 text-sm font-bold text-wuxia-gold hover:bg-wuxia-gold/20"
@@ -371,8 +386,8 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const name = String((selectedNode as any).名称 || selectedNode.鍚嶇О || '').trim();
-                                                const desc = String((selectedNode as any).描述 || selectedNode.鎻忚堪 || '').trim();
+                                                const name = String((selectedNode as any).名称 || '').trim();
+                                                const desc = String((selectedNode as any).描述 || '').trim();
                                                 if (name) onInsertCommand(`查看【${name}】详情${desc ? `：${desc}` : ''}`);
                                             }}
                                             className="rounded-lg border border-gray-700 bg-black/40 px-3 py-1.5 text-sm text-gray-300 hover:border-gray-500 hover:text-white"

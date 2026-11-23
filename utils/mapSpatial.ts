@@ -2016,49 +2016,44 @@ const 按层级补齐道路 = (
     return roads;
 };
 
+const 层级深度权重: Record<string, number> = {
+    寰宇: 0,
+    大地点: 1,
+    中地点: 2,
+    小地点: 3,
+    区地点: 4,
+    子地点: 5
+};
+
 const 通过路径匹配层级 = (
     layers: 地图层级结构[],
     pathText: string,
     fallbackName = ''
 ): 地图层级结构 | null => {
     const normalizedPath = 归一化地图文本(pathText);
-    if (!normalizedPath && !fallbackName) return null;
-
-    const specific = layers.find((layer) => (
-        (layer.层级 === '区地点' || layer.层级 === '子地点')
-        && (
-            normalizedPath.includes(归一化地图文本(layer.名称))
-            || 层级名称命中(layer.名称, fallbackName)
-        )
-    ));
-    if (specific) return specific;
-
-    const small = layers.find((layer) => (
-        layer.层级 === '小地点'
-        && (
-            normalizedPath.includes(归一化地图文本(layer.名称))
-            || 层级名称命中(layer.名称, fallbackName)
-        )
-    ));
-    if (small) return small;
-
-    const mid = layers.find((layer) => (
-        layer.层级 === '中地点'
-        && (
-            normalizedPath.includes(归一化地图文本(layer.名称))
-            || 层级名称命中(layer.名称, fallbackName)
-        )
-    ));
-    if (mid) return mid;
-
-    const big = layers.find((layer) => (
-        layer.层级 === '大地点'
-        && (
-            normalizedPath.includes(归一化地图文本(layer.名称))
-            || 层级名称命中(layer.名称, fallbackName)
-        )
-    ));
-    return big || null;
+    const segments = String(pathText || '')
+        .split(/[>＞/／·・,，;；|]+/u)
+        .map((item) => 归一化地图文本(item))
+        .filter(Boolean);
+    // 只认「位置路径里真实出现过的节点」，并在多个命中里取最深的那个。
+    // 旧实现从最细层级往上找、且用双向包含兜底，会把 NPC 错挂到同级兄弟节点：
+    // 位置写「落霞坊市 / 外围街巷」，人却被画进隔壁「天炉灵门杂役院」。
+    const matched = layers.filter((layer) => {
+        const name = 归一化地图文本(layer.名称);
+        if (!name) return false;
+        return segments.includes(name) || Boolean(normalizedPath && normalizedPath.includes(name));
+    });
+    if (matched.length > 0) {
+        return matched.reduce((best, item) => (
+            (层级深度权重[item.层级] ?? 0) > (层级深度权重[best.层级] ?? 0) ? item : best
+        ));
+    }
+    // 路径为空或完全对不上时才用 fallbackName，且要求名称精确相等，不做跨节点模糊。
+    const fallback = 归一化地图文本(fallbackName);
+    if (!fallback) return null;
+    return layers
+        .filter((layer) => 归一化地图文本(layer.名称) === fallback)
+        .sort((a, b) => (层级深度权重[b.层级] ?? 0) - (层级深度权重[a.层级] ?? 0))[0] || null;
 };
 
 const 匹配位置建筑 = (
