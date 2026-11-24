@@ -55,6 +55,8 @@ type 图片资源条目 = {
     createdAt: number;
 };
 
+type 删除墓碑 = { key: string; deletedAt: number };
+
 type 云端设置包 = {
     format: typeof 云端设置格式;
     version: number;
@@ -62,6 +64,7 @@ type 云端设置包 = {
     savedAt: string;
     settings: 设置条目[];
     assets: 图片资源条目[];
+    deletions?: 删除墓碑[];
 };
 
 type 同步状态 = {
@@ -93,6 +96,42 @@ const 写入同步状态 = (session: 云端游玩账号, next: 同步状态): vo
     } catch {
         // 本地状态写入失败不影响同步本身
     }
+};
+
+const 墓碑存储键 = (session: 云端游玩账号): string => `${同步状态键前缀}deletions.${session.userId || session.username}`;
+const 墓碑保留天数 = 30;
+
+const 读取本地墓碑 = (session: 云端游玩账号): 删除墓碑[] => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(墓碑存储键(session)) || '[]');
+        if (!Array.isArray(parsed)) return [];
+        const cutoff = Date.now() - 墓碑保留天数 * 24 * 60 * 60 * 1000;
+        return parsed
+            .filter((item: any) => 读取字符串(item?.key) && 安全数字(item?.deletedAt, 0) > cutoff)
+            .map((item: any) => ({ key: 读取字符串(item.key), deletedAt: 安全数字(item.deletedAt, 0) }));
+    } catch {
+        return [];
+    }
+};
+
+const 写入本地墓碑 = (session: 云端游玩账号, deletions: 删除墓碑[]): void => {
+    try {
+        const merged = new Map<string, number>();
+        [...读取本地墓碑(session), ...deletions].forEach((item) => {
+            if (item.key) merged.set(item.key, Math.max(merged.get(item.key) || 0, item.deletedAt));
+        });
+        localStorage.setItem(墓碑存储键(session), JSON.stringify(
+            Array.from(merged.entries()).map(([key, deletedAt]) => ({ key, deletedAt }))
+        ));
+    } catch {
+        // ignore
+    }
+};
+
+const 记录删除墓碑 = (key: string): void => {
+    const session = 读取云端游玩会话();
+    if (!session || !key) return;
+    写入本地墓碑(session, [{ key, deletedAt: Date.now() }]);
 };
 
 const base64编码 = (bytes: Uint8Array): string => {
@@ -128,7 +167,7 @@ const 收集图片资源引用ID = (value: unknown, refs: Set<string>, seen: Wea
 };
 
 /** 简易非加密哈希，仅用于判断本地设置快照是否变化，避免重复上传。 */
-const 快照哈希 = (value: string): string => {
+const 快照哈希文本 = (value: string): string => {
     let hash = 0x811c9dc5;
     for (let index = 0; index < value.length; index += 1) {
         hash ^= value.charCodeAt(index);
@@ -165,14 +204,29 @@ const 规范化设置包 = (raw: any, session: 云端游玩账号): 云端设置
             createdAt: Math.max(0, 安全数字(item?.createdAt, Date.now()))
         });
     }
+    const rawDeletions = Array.isArray(raw.deletions) ? raw.deletions : [];
+    const deletions: 删除墓碑[] = rawDeletions
+        .map((item: any) => ({ key: 读取字符串(item?.key), deletedAt: 安全数字(item?.deletedAt, 0) }))
+        .filter((item: 删除墓碑) => Boolean(item.key) && item.deletedAt > 0);
+
     return {
         format: 云端设置格式,
         version: 云端设置版本,
         userId: 读取字符串(raw.userId) || session.userId,
         savedAt: 读取字符串(raw.savedAt) || new Date().toISOString(),
         settings,
-        assets
+        assets,
+        deletions
     };
+};
+
+const 快照哈希 = (pack: 云端设置包): string => {
+    // savedAt 每次构建都会变，不能进入哈希，否则永远无法跳过无变化的上传。
+    return 快照哈希文本(JSON.stringify({
+        settings: pack.settings.map((item) => [item.key, item.value, item.updatedAt]),
+        assets: pack.assets.map((item) => [item.id, item.dataUrl, item.createdAt]),
+        deletions: (pack.deletions || []).map((item) => [item.key, item.deletedAt])
+    }));
 };
 
 const 构建本地设置包 = async (session: 云端游玩账号): Promise<{ pack: 云端设置包; plain: string }> => {
@@ -201,7 +255,8 @@ const 构建本地设置包 = async (session: 云端游玩账号): Promise<{ pac
         userId: session.userId,
         savedAt: new Date().toISOString(),
         settings,
-        assets
+        assets,
+        deletions: 读取本地墓碑(session)
     };
     return { pack, plain: JSON.stringify(pack) };
 };
@@ -218,7 +273,7 @@ const 解密为设置包 = async (payload: string, session: 云端游玩账号):
     return 规范化设置包(parsed, session);
 };
 
-const 合并设置包到本地 = async (pack: 云端设置包): Promise<{ changed: number; assetCount: number }> => {
+const 合并设置包到本地 = async (session: 云端游玩账号, pack: 云端设置包): Promise<{ changed: number; assetCount: number }> => {
     const localManifest = await dbService.获取设置管理清单();
     const localTimes = new Map<string, number>();
     localManifest.forEach((item) => {
@@ -226,6 +281,18 @@ const 合并设置包到本地 = async (pack: 云端设置包): Promise<{ change
     });
 
     let changed = 0;
+    // 先应用删除墓碑：本地该键的更新时间早于删除时间才删，避免覆盖删除后重建的新值。
+    const remoteDeletions = pack.deletions || [];
+    for (const deletion of remoteDeletions) {
+        const localTime = localTimes.get(deletion.key);
+        if (localTime === undefined || localTime < deletion.deletedAt) {
+            await dbService.静默删除设置(deletion.key);
+            localTimes.delete(deletion.key);
+            changed += 1;
+        }
+    }
+    if (remoteDeletions.length > 0) 写入本地墓碑(session, remoteDeletions);
+
     for (const item of pack.settings) {
         const localTime = localTimes.get(item.key);
         const localExists = localTimes.has(item.key);
@@ -246,7 +313,7 @@ const 上传设置到云端 = async (
     try {
         onProgress?.({ stage: 'collect', message: '正在整理本机设置...' });
         const { pack, plain } = await 构建本地设置包(session);
-        const hash = 快照哈希(plain);
+        const hash = 快照哈希(pack);
         if (读取同步状态(session).lastUploadHash === hash) {
             onProgress?.({ stage: 'done', message: '设置无变化，已跳过上传', settingCount: pack.settings.length, assetCount: pack.assets.length });
             return { ok: true, settingCount: pack.settings.length, assetCount: pack.assets.length };
@@ -289,7 +356,7 @@ const 下载并合并云端设置 = async (
         const pack = await 解密为设置包(读取字符串(payload.payload), session);
         if (!pack) throw new Error('云端设置包格式无效。');
         if (!options?.silent) onProgress?.({ stage: 'merge', message: '正在合并云端设置...', settingCount: pack.settings.length, assetCount: pack.assets.length });
-        const { changed, assetCount } = await 合并设置包到本地(pack);
+        const { changed, assetCount } = await 合并设置包到本地(session, pack);
         写入同步状态(session, { lastDownloadAt: new Date().toISOString() });
         if (!options?.silent) {
             onProgress?.({
@@ -332,6 +399,10 @@ export const 上传本机设置 = async (
 ): Promise<云端设置同步结果> => {
     const session = 读取云端游玩会话();
     if (!session) return { ok: false, error: '尚未登录云端游玩账号' };
+    // 🔴 上传前必须先合并云端：否则离线期间其它设备新增/修改的设置会被本机整包覆盖。
+    // 静默合并且用 静默保存设置，不会触发自动上传造成回环。
+    const pull = await 下载并合并云端设置(session, onProgress, { silent: true });
+    if (!pull.ok) return { ok: false, direction: 'download', error: pull.error };
     const result = await 上传设置到云端(session, onProgress);
     return {
         ok: result.ok,
@@ -395,7 +466,10 @@ export const 启动云端设置自动同步 = (): (() => void) => {
     if (typeof window === 'undefined') return () => undefined;
     if (已启动) return () => undefined;
     已启动 = true;
-    取消订阅设置变更 = dbService.订阅设置变更(() => 安排自动上传());
+    取消订阅设置变更 = dbService.订阅设置变更((change) => {
+        if (change.type === 'delete') 记录删除墓碑(change.key);
+        安排自动上传();
+    });
     document.addEventListener('visibilitychange', 处理页面可见);
     // 启动时拉取一次云端设置（静默），确保多端设置一致
     void 拉取云端设置(undefined, { silent: true }).catch(() => undefined);

@@ -2973,6 +2973,18 @@ export const 静默保存设置 = async (key: string, value: any, updatedAt = Da
     });
 };
 
+/** 静默删除：仅删库，不触发设置变更订阅（云端删除墓碑回填专用）。 */
+export const 静默删除设置 = async (key: string): Promise<void> => {
+    const db = await 初始化数据库();
+    await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        const request = store.delete(key);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+};
+
 export const 读取设置 = async (key: string): Promise<any> => {
     const db = await 初始化数据库();
     return new Promise((resolve, reject) => {

@@ -41,6 +41,7 @@ import {
 import * as dbService from '../../../services/dbService';
 import {
     同步云端设置,
+    启动云端设置自动同步,
     停止云端设置自动同步,
     type 云端设置同步进度
 } from '../../../services/cloudSettingsSync';
@@ -301,6 +302,8 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                 setSettingsSyncProgress(progress);
                 setMessage(`设置同步：${progress.message}`);
             });
+            // 退出登录时会停止自动同步；重新登录/注册后必须显式重启，否则后续设置变更不会自动上传。
+            启动云端设置自动同步();
             setMessage(settingsResult.ok
                 ? `${mode === 'register' ? '注册成功' : '登录成功'}，设置已同步（${settingsResult.settingCount ?? 0} 项）。`
                 : `登录成功，但设置同步失败：${settingsResult.error || '未知错误'}，稍后将自动重试。`);
