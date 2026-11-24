@@ -2954,6 +2954,17 @@ export const 保存设置 = async (key: string, value: any): Promise<void> => {
     });
 };
 
+/** 一致性设置快照：key/value/updatedAt 出自同一只读事务，供云端同步打包使用。 */
+export const 读取设置一致性快照 = async (): Promise<Array<{ key: string; value: any; updatedAt: number; category?: string }>> => {
+    const records = await 读取全部设置记录();
+    return records.map((item) => ({
+        key: item.key,
+        value: item.value,
+        updatedAt: Number.isFinite(item.updatedAt) ? Number(item.updatedAt) : 0,
+        category: item.category
+    }));
+};
+
 /** 静默保存：仅写库，不触发设置变更订阅（云端设置回填专用，避免同步回环）。 */
 export const 静默保存设置 = async (key: string, value: any, updatedAt = Date.now()): Promise<void> => {
     const db = await 初始化数据库();
@@ -2982,6 +2993,39 @@ export const 静默删除设置 = async (key: string): Promise<void> => {
         const request = store.delete(key);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
+    });
+};
+
+/** 条件静默保存：仅当现存记录 updatedAt 严格小于 minUpdatedAt 时写入，读比写在同一事务内完成。 */
+export const 条件静默保存设置 = async (
+    key: string,
+    value: any,
+    minUpdatedAt: number
+): Promise<boolean> => {
+    const db = await 初始化数据库();
+    const def = 获取设置项定义(key);
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        const getRequest = store.get(key);
+        getRequest.onsuccess = () => {
+            const existing = getRequest.result;
+            const existingTime = Number.isFinite(existing?.updatedAt) ? Number(existing.updatedAt) : -1;
+            if (existing && existingTime >= minUpdatedAt) {
+                resolve(false);
+                return;
+            }
+            store.put({
+                key,
+                value,
+                version: 设置记录版本,
+                updatedAt: minUpdatedAt,
+                category: def?.category || 'unknown'
+            });
+            resolve(true);
+        };
+        getRequest.onerror = () => reject(getRequest.error);
+        transaction.onerror = () => reject(transaction.error);
     });
 };
 

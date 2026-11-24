@@ -71,6 +71,7 @@ type 同步状态 = {
     lastUploadAt?: string;
     lastDownloadAt?: string;
     lastUploadHash?: string;
+    pendingUpload?: boolean;
 };
 
 const 文本编码器 = new TextEncoder();
@@ -132,6 +133,22 @@ const 记录删除墓碑 = (key: string): void => {
     const session = 读取云端游玩会话();
     if (!session || !key) return;
     写入本地墓碑(session, [{ key, deletedAt: Date.now() }]);
+};
+
+/** 云端回填独立通道：useGameState 据此刷新内存状态，不经过 订阅设置变更，避免自动上传回环。 */
+type 云端回填监听器 = (keys: string[]) => void;
+const 云端回填监听器 = new Set<云端回填监听器>();
+
+export const 订阅云端设置回填 = (listener: 云端回填监听器): (() => void) => {
+    云端回填监听器.add(listener);
+    return () => { 云端回填监听器.delete(listener); };
+};
+
+const 通知云端设置回填 = (keys: string[]): void => {
+    if (keys.length === 0) return;
+    云端回填监听器.forEach((fn) => {
+        try { fn(keys); } catch (error) { console.warn('云端设置回填通知失败:', error); }
+    });
 };
 
 const base64编码 = (bytes: Uint8Array): string => {
@@ -230,23 +247,18 @@ const 快照哈希 = (pack: 云端设置包): string => {
 };
 
 const 构建本地设置包 = async (session: 云端游玩账号): Promise<{ pack: 云端设置包; plain: string }> => {
-    const manifest = await dbService.获取设置管理清单();
+    // 🔴 同一只读事务读取 key/value/updatedAt，避免值与时间戳来自不同时刻。
+    const snapshot = await dbService.读取设置一致性快照();
     const settings: 设置条目[] = [];
     const assetIds = new Set<string>();
-    for (const item of manifest) {
+    for (const item of snapshot) {
         if (!item.key) continue;
-        let value: unknown = null;
-        try {
-            value = await dbService.读取设置(item.key);
-        } catch {
-            continue;
-        }
         settings.push({
             key: item.key,
-            value,
+            value: item.value,
             updatedAt: Math.max(0, 安全数字(item.updatedAt, 0))
         });
-        收集图片资源引用ID(value, assetIds);
+        收集图片资源引用ID(item.value, assetIds);
     }
     const assets = await dbService.读取图片资源原始列表(Array.from(assetIds));
     const pack: 云端设置包 = {
@@ -273,7 +285,7 @@ const 解密为设置包 = async (payload: string, session: 云端游玩账号):
     return 规范化设置包(parsed, session);
 };
 
-const 合并设置包到本地 = async (session: 云端游玩账号, pack: 云端设置包): Promise<{ changed: number; assetCount: number }> => {
+const 合并设置包到本地 = async (session: 云端游玩账号, pack: 云端设置包): Promise<{ changed: number; assetCount: number; changedKeys: string[] }> => {
     const localManifest = await dbService.获取设置管理清单();
     const localTimes = new Map<string, number>();
     localManifest.forEach((item) => {
@@ -281,6 +293,7 @@ const 合并设置包到本地 = async (session: 云端游玩账号, pack: 云�
     });
 
     let changed = 0;
+    const changedKeys: string[] = [];
     // 先应用删除墓碑：本地该键的更新时间早于删除时间才删，避免覆盖删除后重建的新值。
     const remoteDeletions = pack.deletions || [];
     for (const deletion of remoteDeletions) {
@@ -289,30 +302,46 @@ const 合并设置包到本地 = async (session: 云端游玩账号, pack: 云�
             await dbService.静默删除设置(deletion.key);
             localTimes.delete(deletion.key);
             changed += 1;
+            changedKeys.push(deletion.key);
         }
     }
     if (remoteDeletions.length > 0) 写入本地墓碑(session, remoteDeletions);
+
+    // 🔴 先写图片资源再写设置：设置引用的资源必须已存在；同 ID 资源只接受较新 createdAt，
+    //    避免本地已更新的图片被云端旧包覆盖。
+    const localAssets = await dbService.读取图片资源原始列表(pack.assets.map((item) => item.id));
+    const localAssetTimes = new Map(localAssets.map((item) => [item.id, item.createdAt]));
+    const assetsToWrite = pack.assets.filter((item) => {
+        const localTime = localAssetTimes.get(item.id);
+        return localTime === undefined || localTime < item.createdAt;
+    });
+    const assetCount = await dbService.写入图片资源原始列表(assetsToWrite);
 
     for (const item of pack.settings) {
         const localTime = localTimes.get(item.key);
         const localExists = localTimes.has(item.key);
         // 本地更新或相同 => 保留本地，避免覆盖另一端刚改的内容
         if (localExists && localTime !== undefined && localTime >= item.updatedAt) continue;
-        await dbService.静默保存设置(item.key, item.value, item.updatedAt);
-        changed += 1;
+        // 🔴 读比写在同一 readwrite 事务内，避免 await 期间本地被并发保存后仍被旧值覆盖
+        const applied = await dbService.条件静默保存设置(item.key, item.value, item.updatedAt);
+        if (applied) {
+            changed += 1;
+            changedKeys.push(item.key);
+        }
     }
 
-    const assetCount = await dbService.写入图片资源原始列表(pack.assets);
-    return { changed, assetCount };
+    return { changed, assetCount, changedKeys: Array.from(new Set(changedKeys)) };
 };
 
 const 上传设置到云端 = async (
     session: 云端游玩账号,
     onProgress?: (progress: 云端设置同步进度) => void
 ): Promise<{ ok: boolean; settingCount: number; assetCount: number; error?: string }> => {
+    const generation = 生命周期代次;
     try {
         onProgress?.({ stage: 'collect', message: '正在整理本机设置...' });
         const { pack, plain } = await 构建本地设置包(session);
+        if (!任务仍有效(generation, session)) return { ok: false, settingCount: 0, assetCount: 0, error: '账号已切换，本次上传已取消' };
         const hash = 快照哈希(pack);
         if (读取同步状态(session).lastUploadHash === hash) {
             onProgress?.({ stage: 'done', message: '设置无变化，已跳过上传', settingCount: pack.settings.length, assetCount: pack.assets.length });
@@ -326,13 +355,15 @@ const 上传设置到云端 = async (
             password: session.password,
             payload
         });
+        if (!任务仍有效(generation, session)) return { ok: false, settingCount: 0, assetCount: 0, error: '账号已切换，本次上传已取消' };
         const now = new Date().toISOString();
-        写入同步状态(session, { lastUploadAt: now, lastUploadHash: hash });
+        写入同步状态(session, { lastUploadAt: now, lastUploadHash: hash, pendingUpload: false });
         onProgress?.({ stage: 'done', message: '设置已同步到云端', settingCount: pack.settings.length, assetCount: pack.assets.length });
         return { ok: true, settingCount: pack.settings.length, assetCount: pack.assets.length };
     } catch (error: any) {
         const message = error?.message || String(error);
-        onProgress?.({ stage: 'error', message: `设置上传失败：${message}` });
+        if (任务仍有效(generation, session)) 写入同步状态(session, { pendingUpload: true });
+        onProgress?.({ stage: 'error', message: `设置上传失败：${message}，将在恢复网络后重试` });
         return { ok: false, settingCount: 0, assetCount: 0, error: message };
     }
 };
@@ -342,6 +373,7 @@ const 下载并合并云端设置 = async (
     onProgress?: (progress: 云端设置同步进度) => void,
     options?: { silent?: boolean }
 ): Promise<{ ok: boolean; exists: boolean; changed: number; assetCount: number; settingCount: number; error?: string }> => {
+    const generation = 生命周期代次;
     try {
         if (!options?.silent) onProgress?.({ stage: 'download', message: '正在读取云端设置...' });
         const payload = await callCloudPlayApi('settings-download', {
@@ -355,8 +387,10 @@ const 下载并合并云端设置 = async (
         if (!options?.silent) onProgress?.({ stage: 'decrypt', message: '正在解密云端设置...' });
         const pack = await 解密为设置包(读取字符串(payload.payload), session);
         if (!pack) throw new Error('云端设置包格式无效。');
+        if (!任务仍有效(generation, session)) return { ok: false, exists: false, changed: 0, assetCount: 0, settingCount: 0, error: '账号已切换，本次下载已取消' };
         if (!options?.silent) onProgress?.({ stage: 'merge', message: '正在合并云端设置...', settingCount: pack.settings.length, assetCount: pack.assets.length });
-        const { changed, assetCount } = await 合并设置包到本地(session, pack);
+        const { changed, assetCount, changedKeys } = await 合并设置包到本地(session, pack);
+        通知云端设置回填(changedKeys);
         写入同步状态(session, { lastDownloadAt: new Date().toISOString() });
         if (!options?.silent) {
             onProgress?.({
@@ -435,6 +469,15 @@ let 自动上传定时器: ReturnType<typeof setTimeout> | null = null;
 let 上次前台同步 = 0;
 let 取消订阅设置变更: (() => void) | null = null;
 let 已启动 = false;
+let 生命周期代次 = 0;
+const 当前会话标识 = (session: 云端游玩账号): string => session.userId || session.username;
+
+const 任务仍有效 = (generation: number, session: 云端游玩账号): boolean => {
+    const live = 读取云端游玩会话();
+    return generation === 生命周期代次
+        && Boolean(live)
+        && 当前会话标识(session) === 当前会话标识(live!);
+};
 
 const 安排自动上传 = (): void => {
     if (!读取云端游玩会话()) return;
@@ -453,8 +496,10 @@ const 处理页面可见 = (): void => {
     上次前台同步 = now;
     void 拉取云端设置(undefined, { silent: true })
         .then((result) => {
-            if (result.ok && result.changed && result.changed > 0) {
-                // 云端有更新：把合并后的最新设置回传，保证其它设备也能看到本端保留的项
+            const session = 读取云端游玩会话();
+            const pending = session ? 读取同步状态(session).pendingUpload === true : false;
+            if ((result.ok && result.changed && result.changed > 0) || pending) {
+                // 云端有更新，或上次上传失败：把合并后的最新设置回传
                 void 上传本机设置().catch(() => undefined);
             }
         })
@@ -471,8 +516,15 @@ export const 启动云端设置自动同步 = (): (() => void) => {
         安排自动上传();
     });
     document.addEventListener('visibilitychange', 处理页面可见);
-    // 启动时拉取一次云端设置（静默），确保多端设置一致
-    void 拉取云端设置(undefined, { silent: true }).catch(() => undefined);
+    // 启动时拉取一次云端设置（静默），确保多端设置一致；有待上传任务时立即补传
+    void 拉取云端设置(undefined, { silent: true })
+        .then(() => {
+            const session = 读取云端游玩会话();
+            if (session && 读取同步状态(session).pendingUpload === true) {
+                void 上传本机设置().catch(() => undefined);
+            }
+        })
+        .catch(() => undefined);
     return () => {
         if (自动上传定时器) clearTimeout(自动上传定时器);
         自动上传定时器 = null;
@@ -485,6 +537,8 @@ export const 启动云端设置自动同步 = (): (() => void) => {
 
 /** 退出登录时调用：停止监听并清空本地同步状态。 */
 export const 停止云端设置自动同步 = (): void => {
+    // 递增代次，使正在等待的旧账号下载/上传在恢复后失效，不能写入或上传。
+    生命周期代次 += 1;
     if (自动上传定时器) clearTimeout(自动上传定时器);
     自动上传定时器 = null;
     取消订阅设置变更?.();

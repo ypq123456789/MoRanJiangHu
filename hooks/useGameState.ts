@@ -47,6 +47,7 @@ import {
     创建空门派状态
 } from './useGame/storyState';
 import { isNativeCapacitorEnvironment } from '../utils/nativeRuntime';
+import { 订阅云端设置回填 } from '../services/cloudSettingsSync';
 
 const 加载默认提示词 = async (): Promise<提示词结构[]> => {
     const mod = await import('../prompts');
@@ -360,6 +361,58 @@ export const useGameState = () => {
             }
         };
         init();
+    }, []);
+
+    // 云端设置回填到 IndexedDB 后，同步刷新内存状态；独立于 订阅设置变更，不触发自动上传回环。
+    useEffect(() => {
+        const 刷新 = async (keys: string[]) => {
+            const 关注 = new Set(keys);
+            try {
+                if (关注.has(设置键.应用主题)) {
+                    const value = await dbService.读取设置(设置键.应用主题);
+                    if (value && THEMES[value as ThemePreset]) setCurrentTheme(value as ThemePreset);
+                }
+                if (关注.has(设置键.API配置)) {
+                    const value = await dbService.读取设置(设置键.API配置);
+                    if (value) {
+                        const normalized = 规范化接口设置(value);
+                        setApiConfig(normalized);
+                        写入接口设置本地镜像(normalized);
+                    }
+                }
+                if (关注.has(设置键.提示词池)) {
+                    const value = await dbService.读取设置(设置键.提示词池);
+                    if (Array.isArray(value)) { setPrompts(value as 提示词结构[]); setPromptsReady(true); }
+                }
+                if (关注.has(设置键.节日配置)) {
+                    const value = await dbService.读取设置(设置键.节日配置);
+                    if (Array.isArray(value)) setFestivals(value as 节日结构[]);
+                }
+                if (关注.has(设置键.视觉设置)) {
+                    const value = await dbService.读取设置(设置键.视觉设置);
+                    if (value) setVisualConfig(规范化视觉设置(value as Partial<视觉设置结构>));
+                }
+                if (关注.has(设置键.图片管理设置)) {
+                    const value = await dbService.读取设置(设置键.图片管理设置);
+                    if (value) setImageManagerConfig(规范化图片管理设置(value as Partial<图片管理设置结构>));
+                }
+                if (关注.has(设置键.游戏设置)) {
+                    const value = await dbService.读取设置(设置键.游戏设置);
+                    if (value) {
+                        const normalized = 规范化游戏设置(value as Partial<游戏设置结构>);
+                        写入APK自动更新禁用镜像(normalized.禁用APK自动更新 === true);
+                        setGameConfig(normalized);
+                    }
+                }
+                if (关注.has(设置键.记忆设置)) {
+                    const value = await dbService.读取设置(设置键.记忆设置);
+                    if (value) setMemoryConfig(规范化记忆配置(value as Partial<记忆配置结构>));
+                }
+            } catch (error) {
+                console.error('刷新云端回填设置失败:', error);
+            }
+        };
+        return 订阅云端设置回填((keys) => { void 刷新(keys); });
     }, []);
 
     useEffect(() => {

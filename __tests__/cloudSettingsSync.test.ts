@@ -33,6 +33,18 @@ vi.mock('../services/dbService', () => ({
     静默删除设置: async (key: string) => {
         state.settings.delete(key);
     },
+    条件静默保存设置: async (key: string, value: unknown, minUpdatedAt: number) => {
+        const existing = state.settings.get(key);
+        if (existing && existing.updatedAt >= minUpdatedAt) return false;
+        state.settings.set(key, { value, updatedAt: minUpdatedAt });
+        return true;
+    },
+    读取设置一致性快照: async () => Array.from(state.settings.entries()).map(([key, record]) => ({
+        key,
+        value: record.value,
+        updatedAt: record.updatedAt,
+        category: 'customization'
+    })),
     读取图片资源原始列表: async (ids: string[]) => ids
         .map((id) => state.assets.get(id))
         .filter((item): item is { id: string; dataUrl: string; createdAt: number } => Boolean(item)),

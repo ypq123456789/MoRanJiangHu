@@ -49,14 +49,24 @@ const 创建用户桶 = async (username: string, password: string, userId = 'CP-
     });
 };
 
-const 构建请求 = (action: string, body: unknown): Request => new Request(
-    `https://example.com/api/cloud-play?action=${action}`,
-    {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    }
-);
+const 构建请求 = (action: string, body: unknown): Request => {
+    // 用显式 ReadableStream，确保服务端 readRequestJson 的分块读取路径被真实覆盖
+    const text = JSON.stringify(body);
+    return new Request(
+        `https://example.com/api/cloud-play?action=${action}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode(text));
+                    controller.close();
+                }
+            }),
+            duplex: 'half'
+        } as any
+    );
+};
 
 const 构建环境 = (bucket: ReturnType<typeof 创建桶>) => ({
     CLOUD_PLAY_R2: bucket,
