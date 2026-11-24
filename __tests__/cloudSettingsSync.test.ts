@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
     settings: new Map<string, { value: unknown; updatedAt: number }>(),
     assets: new Map<string, { id: string; dataUrl: string; createdAt: number }>(),
     cloudPayload: '' as string,
+    apiCalls: [] as string[],
     changeListeners: new Set<(change: any) => void>(),
     session: {
         userId: 'CP-test',
@@ -64,6 +65,7 @@ vi.mock('../services/cloudPlayService', () => ({
     加密字节: async (bytes: Uint8Array) => new Uint8Array([0x50, 0x4b, ...bytes]),
     解密字节: async (bytes: Uint8Array) => bytes.slice(2),
     callCloudPlayApi: async (action: string, body: any) => {
+        state.apiCalls.push(action);
         if (action === 'settings-upload') {
             state.cloudPayload = String(body.payload || '');
             return { ok: true };
@@ -103,6 +105,7 @@ describe('云端设置联机同步', () => {
         state.assets.clear();
         state.changeListeners.clear();
         state.cloudPayload = '';
+        state.apiCalls = [];
         const 存储 = new Map<string, string>();
         vi.stubGlobal('localStorage', {
             getItem: (key: string) => 存储.get(key) ?? null,
@@ -180,10 +183,30 @@ describe('云端设置联机同步', () => {
         const { 上传本机设置 } = await import('../services/cloudSettingsSync');
         const first = await 上传本机设置();
         const firstPayload = state.cloudPayload;
+        expect(state.apiCalls).toEqual(['settings-download', 'settings-upload']);
         const second = await 上传本机设置();
         expect(first.ok).toBe(true);
         expect(second.ok).toBe(true);
+        expect(second.skipped).toBe(true);
+        // 指纹预检命中：第二次连网络请求都不发（不拉取、不打包、不加密）
+        expect(state.apiCalls).toEqual(['settings-download', 'settings-upload']);
         expect(state.cloudPayload).toBe(firstPayload);
+    });
+
+    it('本机变更后指纹失效，会重新上传新值', async () => {
+        state.settings.set('api_settings', { value: { activeConfigId: 'x' }, updatedAt: 1000 });
+        const { 上传本机设置 } = await import('../services/cloudSettingsSync');
+        await 上传本机设置();
+        state.settings.set('api_settings', { value: { activeConfigId: 'y' }, updatedAt: 2000 });
+        const second = await 上传本机设置();
+        expect(second.ok).toBe(true);
+        expect(second.skipped).toBeUndefined();
+        expect(state.apiCalls.filter((action) => action === 'settings-upload')).toHaveLength(2);
+        const decoded = JSON.parse(new TextDecoder().decode(
+            Uint8Array.from(atob(state.cloudPayload), (char) => char.charCodeAt(0)).slice(2)
+        ));
+        expect(decoded.settings.find((item: any) => item.key === 'api_settings').value)
+            .toEqual({ activeConfigId: 'y' });
     });
 
     it('同步会一起搬运设置引用的图片资源', async () => {
