@@ -47,6 +47,7 @@ import {
 } from '../../../services/cloudSettingsSync';
 import { 导出ZIP存档文件 } from '../../../services/saveArchiveService';
 import { 创建并记录ObjectURL, 延迟释放并记录ObjectURL } from '../../../utils/objectUrlLifecycle';
+import CloudSettingsSyncPanel from './CloudSettingsSyncPanel';
 import {
     构建对象存储云存档时间树,
     展开对象存储进度线,
@@ -870,6 +871,8 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                             </div>
                         )}
 
+                        {session && <CloudSettingsSyncPanel />}
+
                         <div className="grid gap-4">
                             {objectStorageSaveTrees.length <= 0 ? (
                                 <div className="border border-dashed border-sky-400/25 px-4 py-8 text-center text-sm text-gray-400">
@@ -987,6 +990,8 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                                 </button>
                             </div>
                         </div>
+
+                        <CloudSettingsSyncPanel />
 
                         {uploadProgress && busy === 'copy' && (
                             <div className="border border-emerald-400/25 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-50">
