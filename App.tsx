@@ -47,6 +47,7 @@ import { getDiagnosticLogs, recordDiagnosticLog, subscribeDiagnosticLogs } from 
 import { 获取本地图片图床迁移状态, 启动旧存档谱系迁移, 读取旧存档谱系迁移状态, 读取图片资源兜底地址, 订阅旧存档谱系迁移状态, 订阅本地图片图床迁移状态, 执行延迟上传队列, type 旧存档谱系迁移状态, type 本地图片图床迁移状态 } from './services/dbService';
 import { startOnlinePresenceHeartbeat } from './services/onlinePresence';
 import { 等待云端后台同步完成, 确保本地存档已同步到云端, 确保最新本地存档已同步到云端, 读取云端游玩存储模式 } from './services/cloudPlayService';
+import { 启动云端设置自动同步 } from './services/cloudSettingsSync';
 import './services/diagnosticLog';
 import type { 物品生图结果 } from './types';
 import type { 游戏物品, 物品类型, 物品品质 } from './models/item';
@@ -618,6 +619,7 @@ const App: React.FC = () => {
         };
     }, []);
     React.useEffect(() => startOnlinePresenceHeartbeat(), []);
+    React.useEffect(() => 启动云端设置自动同步(), []);
     React.useEffect(() => {
         const handleImageError = (event: Event) => {
             const target = event.target;

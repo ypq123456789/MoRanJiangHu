@@ -21,6 +21,7 @@ type CloudPlayUser = {
     clientSalt: string;
     manifestUrl?: string;
     manifestUpdatedAt?: string;
+    settingsUpdatedAt?: string;
 };
 
 const jsonResponse = (payload: unknown, status = 200): Response => (
@@ -102,13 +103,39 @@ const sanitizePassword = (value: unknown): string => {
     return password;
 };
 
-const readRequestJson = async (request: Request): Promise<any> => {
-    const text = await request.text();
-    if (text.length > 1024 * 1024) throw new Error('请求内容过大。');
+/** 按实际 UTF-8 字节数分块读取请求体，超限立即取消，避免无上限缓冲。 */
+const readRequestJson = async (request: Request, maxBytes = 1024 * 1024): Promise<any> => {
+    const reader = request.body?.getReader();
+    if (!reader) return {};
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let totalBytes = 0;
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            totalBytes += value.byteLength;
+            if (totalBytes > maxBytes) {
+                await reader.cancel().catch(() => undefined);
+                throw new Error('请求内容过大。');
+            }
+            chunks.push(decoder.decode(value, { stream: true }));
+        }
+        chunks.push(decoder.decode());
+    } finally {
+        // releaseLock() 返回 void（非 Promise）；超时取消后锁可能已释放，吞掉同步异常即可。
+        try { reader.releaseLock(); } catch { /* ignore */ }
+    }
+    const text = chunks.join('');
     return text ? JSON.parse(text) : {};
 };
 
 const buildUserKey = (env: any, usernameKey: string): string => `${getPrefix(env)}/users/${usernameKey}.json`;
+const buildSettingsKey = (env: any, usernameKey: string): string => `${getPrefix(env)}/users/${usernameKey}/settings.json`;
+
+const CLOUD_SETTINGS_FORMAT = 'moranjianghu-cloud-play-settings';
+const CLOUD_SETTINGS_VERSION = 1;
+const MAX_SETTINGS_PAYLOAD_BYTES = 24 * 1024 * 1024;
 
 const buildPasswordHash = async (usernameKey: string, password: string, salt: string): Promise<string> => (
     hmacHex(salt, `${usernameKey}\n${password}`)
@@ -120,6 +147,7 @@ const toPublicUser = (user: CloudPlayUser) => ({
     clientSalt: user.clientSalt,
     manifestUrl: user.manifestUrl || '',
     manifestUpdatedAt: user.manifestUpdatedAt || '',
+    settingsUpdatedAt: user.settingsUpdatedAt || '',
     updatedAt: user.updatedAt
 });
 
@@ -144,7 +172,10 @@ export async function onRequestPost({ request, env }: any): Promise<Response> {
         if (!bucket) return jsonResponse({ ok: false, error: '云端游玩存储未配置。' }, 500);
         const url = new URL(request.url);
         const action = readString(url.searchParams.get('action')) || 'login';
-        const body = await readRequestJson(request);
+        const body = await readRequestJson(
+            request,
+            action === 'settings-upload' ? MAX_SETTINGS_PAYLOAD_BYTES + 4096 : 1024 * 1024
+        );
 
         if (action === 'register') {
             const username = sanitizeUsername(body?.username);
@@ -174,6 +205,53 @@ export async function onRequestPost({ request, env }: any): Promise<Response> {
         if (action === 'login') {
             const user = await authenticate(env, body?.username, body?.password);
             return jsonResponse({ ok: true, user: toPublicUser(user) });
+        }
+
+        if (action === 'settings-upload') {
+            const user = await authenticate(env, body?.username, body?.password);
+            const payload = typeof body?.payload === 'string' ? body.payload : '';
+            if (!payload) throw new Error('设置内容为空。');
+            if (payload.length > MAX_SETTINGS_PAYLOAD_BYTES) throw new Error('设置内容过大，无法同步。');
+            const now = new Date().toISOString();
+            const record = {
+                format: CLOUD_SETTINGS_FORMAT,
+                version: CLOUD_SETTINGS_VERSION,
+                userId: user.userId,
+                updatedAt: now,
+                payload
+            };
+            await bucket.put(buildSettingsKey(env, user.usernameKey), JSON.stringify(record), {
+                httpMetadata: { contentType: 'application/json; charset=utf-8' }
+            });
+            // 🔴 只补写设置元数据字段：重新读取最新用户记录再 patch，避免覆盖并发写入的 manifestUrl。
+            const userKey = buildUserKey(env, user.usernameKey);
+            const latestObject = await bucket.get(userKey);
+            const latest: CloudPlayUser | null = latestObject
+                ? await latestObject.json().catch(() => null) as CloudPlayUser | null
+                : null;
+            if (latest?.passwordSalt && latest?.passwordHash) {
+                const patched: CloudPlayUser = { ...latest, settingsUpdatedAt: now, updatedAt: now };
+                await bucket.put(userKey, JSON.stringify(patched, null, 2), {
+                    httpMetadata: { contentType: 'application/json; charset=utf-8' }
+                });
+            }
+            return jsonResponse({ ok: true, settingsUpdatedAt: now });
+        }
+
+        if (action === 'settings-download') {
+            const user = await authenticate(env, body?.username, body?.password);
+            const object = await bucket.get(buildSettingsKey(env, user.usernameKey));
+            if (!object) return jsonResponse({ ok: true, exists: false });
+            const record: any = await object.json().catch(() => null);
+            if (!record || record.format !== CLOUD_SETTINGS_FORMAT || typeof record.payload !== 'string') {
+                return jsonResponse({ ok: true, exists: false });
+            }
+            return jsonResponse({
+                ok: true,
+                exists: true,
+                payload: record.payload,
+                updatedAt: readString(record.updatedAt)
+            });
         }
 
         if (action === 'update-manifest') {

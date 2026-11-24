@@ -80,6 +80,21 @@ export const 订阅延迟上传队列 = (listener: (pending: number) => void): (
     return () => { 延迟上传监听器.delete(listener); };
 };
 
+/** 设置变更订阅：云端设置联机同步据此做防抖上传。仅通知 key，不阻塞保存。 */
+export type 设置变更记录 = { key: string; type: 'save' | 'delete'; updatedAt: number };
+const 设置变更监听器 = new Set<(change: 设置变更记录) => void>();
+
+export const 订阅设置变更 = (listener: (change: 设置变更记录) => void): (() => void) => {
+    设置变更监听器.add(listener);
+    return () => { 设置变更监听器.delete(listener); };
+};
+
+const 通知设置变更 = (change: 设置变更记录): void => {
+    设置变更监听器.forEach((fn) => {
+        try { fn(change); } catch (error) { console.warn('设置变更监听失败:', error); }
+    });
+};
+
 const 通知延迟上传监听器 = () => {
     const count = 延迟上传队列.length;
     延迟上传监听器.forEach((fn) => { try { fn(count); } catch { /* */ } });
@@ -960,6 +975,57 @@ export const 保存图片资源 = async (dataUrl: string, preferredIdOrOptions?:
 export const 保存图片资源并返回同步地址 = async (dataUrl: string, preferredId?: string): Promise<string> => (
     保存图片资源(dataUrl, { preferredId, returnRemote: true })
 );
+
+/** 批量读取图片资源原始记录（云端设置联机同步专用）。 */
+export const 读取图片资源原始列表 = async (ids: string[]): Promise<Array<{ id: string; dataUrl: string; createdAt: number }>> => {
+    const unique = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+    if (unique.length === 0) return [];
+    const db = await 初始化数据库();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([IMAGE_ASSETS_STORE], 'readonly');
+        const store = transaction.objectStore(IMAGE_ASSETS_STORE);
+        const tasks = unique.map((id) => new Promise<{ id: string; dataUrl: string; createdAt: number } | null>((taskResolve, taskReject) => {
+            const request = store.get(id);
+            request.onsuccess = () => {
+                const dataUrl = typeof request.result?.dataUrl === 'string' ? request.result.dataUrl : '';
+                if (!dataUrl) { taskResolve(null); return; }
+                taskResolve({
+                    id,
+                    dataUrl,
+                    createdAt: Number.isFinite(request.result?.createdAt) ? Number(request.result.createdAt) : Date.now()
+                });
+            };
+            request.onerror = () => taskReject(request.error);
+        }));
+        Promise.all(tasks).then((items) => resolve(items.filter((item): item is { id: string; dataUrl: string; createdAt: number } => Boolean(item))), reject);
+    });
+};
+
+/** 批量写入图片资源原始记录（云端设置回填专用，不触发图床延迟上传）。 */
+export const 写入图片资源原始列表 = async (assets: Array<{ id: string; dataUrl: string; createdAt?: number }>): Promise<number> => {
+    const valid = assets.filter((asset) => asset && typeof asset.id === 'string' && asset.id.trim() && typeof asset.dataUrl === 'string' && asset.dataUrl.trim());
+    if (valid.length === 0) return 0;
+    const db = await 初始化数据库();
+    await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction([IMAGE_ASSETS_STORE], 'readwrite');
+        const store = transaction.objectStore(IMAGE_ASSETS_STORE);
+        valid.forEach((asset) => {
+            store.put({
+                id: asset.id.trim(),
+                dataUrl: asset.dataUrl.trim(),
+                createdAt: Number.isFinite(asset.createdAt) ? Number(asset.createdAt) : Date.now()
+            });
+        });
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+    });
+    valid.forEach((asset) => {
+        const dataUrl = asset.dataUrl.trim();
+        const signature = 生成图片资源签名(dataUrl);
+        if (signature) 图片资源签名缓存.set(signature, 创建图片资源引用(asset.id.trim()));
+    });
+    return valid.length;
+};
 
 export const 读取图片资源 = async (refOrId: string): Promise<string> => {
     const id = 解析图片资源引用ID(refOrId) || (typeof refOrId === 'string' ? refOrId.trim() : '');
@@ -2869,6 +2935,7 @@ export const 保存设置 = async (key: string, value: any): Promise<void> => {
         ? normalizeNaturalProseSettings(value)
         : await 外置化图片字段(value);
     const def = 获取设置项定义(key);
+    const updatedAt = Date.now();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
         const store = transaction.objectStore(SETTINGS_STORE);
@@ -2876,11 +2943,89 @@ export const 保存设置 = async (key: string, value: any): Promise<void> => {
             key,
             value: persistedValue,
             version: 设置记录版本,
-            updatedAt: Date.now(),
+            updatedAt,
+            category: def?.category || 'unknown'
+        });
+        request.onsuccess = () => {
+            通知设置变更({ key, type: 'save', updatedAt });
+            resolve();
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
+/** 一致性设置快照：key/value/updatedAt 出自同一只读事务，供云端同步打包使用。 */
+export const 读取设置一致性快照 = async (): Promise<Array<{ key: string; value: any; updatedAt: number; category?: string }>> => {
+    const records = await 读取全部设置记录();
+    return records.map((item) => ({
+        key: item.key,
+        value: item.value,
+        updatedAt: Number.isFinite(item.updatedAt) ? Number(item.updatedAt) : 0,
+        category: item.category
+    }));
+};
+
+/** 静默保存：仅写库，不触发设置变更订阅（云端设置回填专用，避免同步回环）。 */
+export const 静默保存设置 = async (key: string, value: any, updatedAt = Date.now()): Promise<void> => {
+    const db = await 初始化数据库();
+    const def = 获取设置项定义(key);
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        const request = store.put({
+            key,
+            value,
+            version: 设置记录版本,
+            updatedAt,
             category: def?.category || 'unknown'
         });
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
+    });
+};
+
+/** 静默删除：仅删库，不触发设置变更订阅（云端删除墓碑回填专用）。 */
+export const 静默删除设置 = async (key: string): Promise<void> => {
+    const db = await 初始化数据库();
+    await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        const request = store.delete(key);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+};
+
+/** 条件静默保存：仅当现存记录 updatedAt 严格小于 minUpdatedAt 时写入，读比写在同一事务内完成。 */
+export const 条件静默保存设置 = async (
+    key: string,
+    value: any,
+    minUpdatedAt: number
+): Promise<boolean> => {
+    const db = await 初始化数据库();
+    const def = 获取设置项定义(key);
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        const getRequest = store.get(key);
+        getRequest.onsuccess = () => {
+            const existing = getRequest.result;
+            const existingTime = Number.isFinite(existing?.updatedAt) ? Number(existing.updatedAt) : -1;
+            if (existing && existingTime >= minUpdatedAt) {
+                resolve(false);
+                return;
+            }
+            store.put({
+                key,
+                value,
+                version: 设置记录版本,
+                updatedAt: minUpdatedAt,
+                category: def?.category || 'unknown'
+            });
+            resolve(true);
+        };
+        getRequest.onerror = () => reject(getRequest.error);
+        transaction.onerror = () => reject(transaction.error);
     });
 };
 
@@ -3000,7 +3145,10 @@ export const 删除设置 = async (key: string): Promise<void> => {
         const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
         const store = transaction.objectStore(SETTINGS_STORE);
         const request = store.delete(key);
-        request.onsuccess = () => resolve();
+        request.onsuccess = () => {
+            通知设置变更({ key, type: 'delete', updatedAt: Date.now() });
+            resolve();
+        };
         request.onerror = () => reject(request.error);
     });
     await 清理未引用图片资源();
@@ -3013,7 +3161,11 @@ export const 批量删除设置 = async (keys: string[]): Promise<void> => {
         const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
         const store = transaction.objectStore(SETTINGS_STORE);
         keys.forEach((key) => store.delete(key));
-        transaction.oncomplete = () => resolve();
+        transaction.oncomplete = () => {
+            const updatedAt = Date.now();
+            keys.forEach((key) => 通知设置变更({ key, type: 'delete', updatedAt }));
+            resolve();
+        };
         transaction.onerror = () => reject(transaction.error);
     });
     await 清理未引用图片资源();
