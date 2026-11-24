@@ -608,8 +608,8 @@ export const 同步云端设置 = async (
     session: 云端游玩账号,
     onProgress?: (progress: 云端设置同步进度) => void
 ): Promise<云端设置同步结果> => {
-    if (同步循环进行中) return { ok: false, direction: 'both', error: '已有同步任务进行中，请稍后再试' };
-    同步循环进行中 = true;
+    const 持锁代次 = 获取同步循环锁();
+    if (持锁代次 === null) return { ok: false, direction: 'both', error: '已有同步任务进行中，请稍后再试' };
     更新同步状态({ running: true, direction: 'both', lastError: undefined });
     try {
         const download = await 下载并合并云端设置(session, onProgress);
@@ -624,14 +624,9 @@ export const 同步云端设置 = async (
             changed: download.changed
         };
     } finally {
-        同步循环进行中 = false;
-        更新同步状态({ running: false });
-        // 与 上传本机设置 相同：完整同步期间若有新变更被单飞跳过，退出时补排一次上传，
+        // 完整同步期间若有新变更被单飞跳过，退出时补排一次上传；
         // 否则本轮上传成功清掉 pendingUpload 后，新值要等到下一次变更才会被传上去。
-        if (同步循环有等待变更) {
-            同步循环有等待变更 = false;
-            安排自动上传();
-        }
+        释放同步循环锁(持锁代次);
     }
 };
 
@@ -650,7 +645,8 @@ export const 上传本机设置 = async (
         写入同步状态(session, { pendingUpload: true });
         return { ok: true, direction: 'upload', skipped: true };
     }
-    同步循环进行中 = true;
+    const 持锁代次 = 获取同步循环锁();
+    if (持锁代次 === null) return { ok: true, direction: 'upload', skipped: true };
     更新同步状态({ running: true, direction: 'upload', lastError: undefined });
     try {
         // 🔴 指纹预检：不读取图片正文、不整包 stringify，无变化直接返回
@@ -674,12 +670,7 @@ export const 上传本机设置 = async (
             error: result.error
         };
     } finally {
-        同步循环进行中 = false;
-        更新同步状态({ running: false });
-        if (同步循环有等待变更) {
-            同步循环有等待变更 = false;
-            安排自动上传();
-        }
+        释放同步循环锁(持锁代次);
     }
 };
 
@@ -691,7 +682,8 @@ export const 拉取云端设置 = async (
     const session = 读取云端游玩会话();
     if (!session) return { ok: false, error: '尚未登录云端游玩账号' };
     if (同步循环进行中) return { ok: true, direction: 'download', skipped: true };
-    同步循环进行中 = true;
+    const 持锁代次 = 获取同步循环锁();
+    if (持锁代次 === null) return { ok: true, direction: 'download', skipped: true };
     更新同步状态({ running: true, direction: 'download', lastError: undefined });
     try {
         const result = await 下载并合并云端设置(session, onProgress, options);
@@ -704,8 +696,8 @@ export const 拉取云端设置 = async (
             error: result.error
         };
     } finally {
-        同步循环进行中 = false;
-        更新同步状态({ running: false });
+        // 与其它入口统一：释放锁时若循环期间有被单飞跳过的新变更，同样补排自动上传。
+        释放同步循环锁(持锁代次);
     }
 };
 
@@ -720,8 +712,28 @@ let 生命周期代次 = 0;
 let 同步循环进行中 = false;
 /** 循环进行中出现的新变更；循环结束后自动再排一次队。 */
 let 同步循环有等待变更 = false;
+/** 锁所有权代次：只有持锁任务自己（且生命周期代次未变）才能释放锁。 */
+let 同步循环持锁代次 = -1;
 let 上次自动上传完成时间 = 0;
 const 当前会话标识 = (session: 云端游玩账号): string => session.userId || session.username;
+
+const 获取同步循环锁 = (): number | null => {
+    if (同步循环进行中) return null;
+    同步循环进行中 = true;
+    同步循环持锁代次 = 生命周期代次;
+    return 同步循环持锁代次;
+};
+
+const 释放同步循环锁 = (持锁代次: number): void => {
+    // 代次不匹配说明期间发生过退出登录（强制释放过锁），旧循环不得触碰新循环的锁。
+    if (生命周期代次 !== 持锁代次 || 同步循环持锁代次 !== 持锁代次) return;
+    同步循环进行中 = false;
+    更新同步状态({ running: false });
+    if (同步循环有等待变更) {
+        同步循环有等待变更 = false;
+        安排自动上传();
+    }
+};
 
 const 任务仍有效 = (generation: number, session: 云端游玩账号): boolean => {
     const live = 读取云端游玩会话();
@@ -813,6 +825,12 @@ export const 启动云端设置自动同步 = (): (() => void) => {
 export const 停止云端设置自动同步 = (): void => {
     // 递增代次，使正在等待的旧账号下载/上传在恢复后失效，不能写入或上传。
     生命周期代次 += 1;
+    // 🔴 强制释放同步锁：旧账号的在途网络请求可能长期不返回（callCloudPlayApi 无超时），
+    // 不释放会让新账号的登录同步一直拿到"已有同步任务进行中"。旧循环恢复后因代次不匹配，
+    // 其 finally 不会重复释放、也不会用旧会话补排上传。
+    同步循环进行中 = false;
+    同步循环持锁代次 = -1;
+    同步循环有等待变更 = false;
     if (自动上传定时器) clearTimeout(自动上传定时器);
     自动上传定时器 = null;
     取消订阅设置变更?.();
