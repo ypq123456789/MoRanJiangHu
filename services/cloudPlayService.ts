@@ -553,7 +553,7 @@ const 导入加密密钥 = async (session: 云端游玩账号): Promise<CryptoKe
     );
 };
 
-const 加密字节 = async (bytes: Uint8Array, session: 云端游玩账号): Promise<Uint8Array> => {
+export const 加密字节 = async (bytes: Uint8Array, session: 云端游玩账号): Promise<Uint8Array> => {
     const iv = randomBytes(12);
     const key = await 导入加密密钥(session);
     const encrypted = arrayBufferToBytes(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
@@ -569,7 +569,7 @@ const 加密字节 = async (bytes: Uint8Array, session: 云端游玩账号): Pro
     return TEXT_ENCODER.encode(JSON.stringify(payload));
 };
 
-const 解密字节 = async (payloadBytes: Uint8Array, session: 云端游玩账号): Promise<Uint8Array> => {
+export const 解密字节 = async (payloadBytes: Uint8Array, session: 云端游玩账号): Promise<Uint8Array> => {
     const payload = JSON.parse(TEXT_DECODER.decode(payloadBytes));
     if (payload?.format !== 'moranjianghu-cloud-play-encrypted') throw new Error('云端存档包格式不受支持。');
     const iv = base64ToBytes(readString(payload.iv));
@@ -578,7 +578,7 @@ const 解密字节 = async (payloadBytes: Uint8Array, session: 云端游玩账�
     return arrayBufferToBytes(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data));
 };
 
-const callCloudPlayApi = async (action: string, body: Record<string, unknown>): Promise<any> => {
+export const callCloudPlayApi = async (action: string, body: Record<string, unknown>): Promise<any> => {
     const response = await fetch(`${buildImageHostProxyUrl(CLOUD_PLAY_API_PATH)}?action=${encodeURIComponent(action)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=utf-8' },

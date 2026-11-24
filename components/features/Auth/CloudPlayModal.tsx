@@ -39,6 +39,11 @@ import {
     type 对象存储同步配置
 } from '../../../services/objectStorageSync';
 import * as dbService from '../../../services/dbService';
+import {
+    同步云端设置,
+    停止云端设置自动同步,
+    type 云端设置同步进度
+} from '../../../services/cloudSettingsSync';
 import { 导出ZIP存档文件 } from '../../../services/saveArchiveService';
 import { 创建并记录ObjectURL, 延迟释放并记录ObjectURL } from '../../../utils/objectUrlLifecycle';
 import {
@@ -181,6 +186,7 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
     const [uploadProgress, setUploadProgress] = React.useState<云端上传进度 | null>(null);
     const [objectUploadProgress, setObjectUploadProgress] = React.useState<对象存储同步进度 | null>(null);
     const [downloadProgress, setDownloadProgress] = React.useState<云端下载进度 | null>(null);
+    const [settingsSyncProgress, setSettingsSyncProgress] = React.useState<云端设置同步进度 | null>(null);
     const [selectedCloudSeriesKey, setSelectedCloudSeriesKey] = React.useState<string | null>(null);
     const [selectedObjectSeriesKey, setSelectedObjectSeriesKey] = React.useState<string | null>(null);
     const cloudSaveTrees = React.useMemo(() => buildCloudSaveTrees(manifest?.saves || []), [manifest]);
@@ -290,7 +296,14 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
             setStorageMode('tg');
             setUsername('');
             setPassword('');
-            setMessage(mode === 'register' ? '注册成功，已进入云端游玩。' : '登录成功。');
+            setMessage(mode === 'register' ? '注册成功，正在同步设置...' : '登录成功，正在同步设置...');
+            const settingsResult = await 同步云端设置(nextSession, (progress) => {
+                setSettingsSyncProgress(progress);
+                setMessage(`设置同步：${progress.message}`);
+            });
+            setMessage(settingsResult.ok
+                ? `${mode === 'register' ? '注册成功' : '登录成功'}，设置已同步（${settingsResult.settingCount ?? 0} 项）。`
+                : `登录成功，但设置同步失败：${settingsResult.error || '未知错误'}，稍后将自动重试。`);
             await refreshManifest(nextSession);
         } catch (error: any) {
             setMessage(`${mode === 'register' ? '注册' : '登录'}失败：${error?.message || '未知错误'}`);
@@ -300,11 +313,30 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
     };
 
     const handleLogout = () => {
+        停止云端设置自动同步();
         清除云端游玩会话();
         清除对象存储云端游玩模式();
         setSession(null);
         setManifest(null);
+        setSettingsSyncProgress(null);
         setMessage('已退出云端游玩。');
+    };
+
+    const handleSyncSettings = async () => {
+        if (!session) return;
+        setBusy('settings-sync');
+        setMessage('');
+        try {
+            const result = await 同步云端设置(session, (progress) => {
+                setSettingsSyncProgress(progress);
+                setMessage(`设置同步：${progress.message}`);
+            });
+            setMessage(result.ok
+                ? `设置同步完成：共 ${result.settingCount ?? 0} 项，云端恢复 ${result.changed ?? 0} 项。`
+                : `设置同步失败：${result.error || '未知错误'}`);
+        } finally {
+            setBusy('');
+        }
     };
 
     const handleStartNewCloudSave = React.useCallback(() => {
@@ -938,6 +970,9 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                                 <button type="button" disabled={busy === 'refresh'} onClick={() => { void refreshManifest(); }} className="border border-sky-400/35 px-3 py-2 text-xs text-sky-100 hover:bg-sky-500/10 disabled:opacity-50">
                                     刷新云存档
                                 </button>
+                                <button type="button" disabled={busy === 'settings-sync'} onClick={() => { void handleSyncSettings(); }} className="border border-violet-400/35 px-3 py-2 text-xs text-violet-100 hover:bg-violet-500/10 disabled:opacity-50">
+                                    {busy === 'settings-sync' ? '设置同步中...' : '同步全部设置'}
+                                </button>
                                 <button type="button" disabled={busy === 'copy'} onClick={() => { void handleCopyLocal(); }} className="border border-emerald-400/35 px-3 py-2 text-xs text-emerald-100 hover:bg-emerald-500/10 disabled:opacity-50">
                                     本地一键复制到云端
                                 </button>
@@ -1055,6 +1090,13 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                 )}
             </div>
 
+            {settingsSyncProgress && busy === 'settings-sync' && (
+                <div className="border-t border-violet-400/15 bg-violet-950/20 px-5 py-2 text-xs text-violet-100">
+                    设置同步：{settingsSyncProgress.message}
+                    {settingsSyncProgress.settingCount ? ` · ${settingsSyncProgress.settingCount} 项设置` : ''}
+                    {settingsSyncProgress.assetCount ? ` · ${settingsSyncProgress.assetCount} 张图片` : ''}
+                </div>
+            )}
             {message && (
                 <div className="border-t border-wuxia-gold/15 bg-black/50 px-5 py-3 text-sm text-gray-200">
                     {message}
