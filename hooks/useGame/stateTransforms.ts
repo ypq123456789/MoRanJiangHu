@@ -28,6 +28,7 @@ import { 确保角色金钱BaseAmount, 规范化角色金钱, 题材货币字段
 import { normalizeStateCommandKey } from '../../utils/stateHelpers';
 import type { 境界配置 } from '../../utils/realmConfig';
 import { NPC调试日志已启用 } from '../../utils/debugFlags';
+import { 整理NPC简介文本 } from '../../utils/npcBioText';
 
 const 深拷贝 = <T,>(data: T): T => JSON.parse(JSON.stringify(data)) as T;
 
@@ -1797,10 +1798,15 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
 
     let deduped: any[] = [];
     const seenIds = new Set<string>();
+    // 历史补建物品的名称会从「Item001」迁移成「槽位（补建）」，装备栏可能仍按旧名引用它。
+    // 先记下迁移前的名称，避免解析装备时找不到原物品又补建出一个重复对象。
+    const 旧名称到物品ID = new Map<string, string>();
     sourceList.forEach((item: any, idx: number) => {
         if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, '堆叠数量') && 规范化整数(item?.堆叠数量, 1) <= 0) return;
         const normalizedItem = 规范化单个物品(item, idx);
         if (!normalizedItem) return;
+        const 原名 = typeof item?.名称 === 'string' ? item.名称.trim() : '';
+        if (原名 && 原名 !== normalizedItem.名称) 旧名称到物品ID.set(原名, normalizedItem.ID);
         const id = normalizedItem.ID;
         if (seenIds.has(id)) return;
         seenIds.add(id);
@@ -1821,9 +1827,17 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
     const itemById = new Map<string, any>(deduped.map((item) => [item.ID, item]));
 
     const findItemByRef = (idOrName: string): any | undefined => {
-        return itemById.get(idOrName) || deduped.find((item) => item?.名称 === idOrName);
+        const byId = itemById.get(idOrName);
+        if (byId) return byId;
+        const byName = deduped.find((item) => item?.名称 === idOrName);
+        if (byName) return byName;
+        // 名称迁移兜底：历史补建物品的旧 ID 名仍可能被装备栏引用。
+        const 迁移ID = 旧名称到物品ID.get(idOrName);
+        return 迁移ID ? itemById.get(迁移ID) : undefined;
     };
     const equippedByItemId = new Map<string, 装备槽位>();
+    // 同一个缺失引用（例如两个槽位都写 Item001）只补建一次，后续槽位复用同一物品。
+    const 补建引用映射 = new Map<string, string>();
     装备槽位列表.forEach((slot) => {
         const rawRef = (role.装备 as any)[slot];
         const normalizedRef = typeof rawRef === 'string' ? rawRef.trim() : '';
@@ -1834,6 +1848,18 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
         (role.装备 as any)[slot] = normalizedRef;
         const matched = findItemByRef(normalizedRef);
         if (!matched?.ID) {
+            const 已补建ID = 补建引用映射.get(normalizedRef);
+            if (已补建ID) {
+                // 复用本轮已补建的物品，让它进入已有的「同物品不能占两个槽位」保护。
+                (role.装备 as any)[slot] = 已补建ID;
+                const occupiedSlot = equippedByItemId.get(已补建ID);
+                if (occupiedSlot && occupiedSlot !== slot) {
+                    (role.装备 as any)[slot] = '无';
+                    return;
+                }
+                equippedByItemId.set(已补建ID, slot);
+                return;
+            }
             // 默认契约：缺失物品对象的装备引用不补建占位装备（见 __tests__/equipmentFallback.test.ts）。
             // 仅当调用方显式要求（开局首轮初始化）才补建一条最小可用物品，避免玩家看到
             // 「变量面板里生成了装备、身上和背包却都空」。
@@ -1859,6 +1885,7 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
             }
             deduped.push(补建物品);
             itemById.set(补建物品.ID, 补建物品);
+            补建引用映射.set(normalizedRef, 补建物品.ID);
             (role.装备 as any)[slot] = 补建物品.ID;
             equippedByItemId.set(补建物品.ID, slot);
             return;
@@ -3647,10 +3674,21 @@ const 规范化NPC关系状态 = (npc: any): string => {
 
 const 规范化NPC简介 = (npc: any, identity: string): string => {
     const raw = 规范化文本(npc?.简介);
-    if (raw && !/^(暂无简介|未知|不详|待补充)$/u.test(raw)) return raw;
+    // 模型偶发把同一句经历连写两遍；落库时先剔除完全重复的段落/句子，
+    // 展示端再兜一层，避免老存档里的重复文本一直留在界面上。
+    if (raw && !/^(暂无简介|未知|不详|待补充)$/u.test(raw)) return 整理NPC简介文本(raw) || raw;
     const name = 规范化文本(npc?.姓名);
     const realm = 规范化文本(npc?.境界);
     return [name, identity, realm && !/^未知/.test(realm) ? realm : ''].filter(Boolean).join('，') || '本回合登场人物，后续由变量生成继续补档。';
+};
+
+/** 叙事名称只在与真实姓名不同时才有意义；相同/空值一律不落库，老存档自然回退到姓名。 */
+const 规范化NPC叙事名称 = (npc: any, realName: string): string | undefined => {
+    const raw = 规范化文本(npc?.叙事名称 ?? npc?.叙事称呼);
+    const real = 规范化文本(realName);
+    if (!raw || !real || raw === real) return undefined;
+    if (/^(未知|不详|无|暂无|待补充)$/u.test(raw)) return undefined;
+    return raw;
 };
 
 const 标准化单个NPC = (rawNpc: any, fallbackIndex: number): any => {
@@ -3756,6 +3794,7 @@ const 标准化单个NPC = (rawNpc: any, fallbackIndex: number): any => {
     const 推断身份 = 规范化NPC身份(npc);
     const 推断关系状态 = 规范化NPC关系状态(npc);
     const 推断简介 = 规范化NPC简介(npc, 推断身份);
+    const 叙事名称 = 规范化NPC叙事名称(npc, 取首个非空文本(npc?.姓名));
     const 名器档案 = 标准化名器档案(npc?.名器档案, npc, {
         forceFemaleMajor: 推断性别 === '女' && npc?.是否主要角色 === true
     });
@@ -3803,6 +3842,7 @@ const 标准化单个NPC = (rawNpc: any, fallbackIndex: number): any => {
         ...npc其他字段,
         id: 取首个非空文本(npc?.id, `npc_${fallbackIndex}`) || `npc_${fallbackIndex}`,
         姓名: 取首个非空文本(npc?.姓名, `角色${fallbackIndex}`) || `角色${fallbackIndex}`,
+        叙事名称: 叙事名称 || undefined,
         性别: 推断性别,
         年龄: 推断年龄,
         ...(生日 ? { 生日 } : {}),
@@ -3990,11 +4030,14 @@ const 合并NPC对象 = (leftRaw: any, rightRaw: any, fallbackIndex: number): an
         return '';
     })();
     const mergedIdentity = 取更优文本(取字段文本(left, '身份'), 取字段文本(right, '身份')) || '未知身份';
-    const mergedIntroBase = 合并补充文本(取字段文本(left, '简介'), 取字段文本(right, '简介')) || '暂无简介';
-    const mergedIntro = legacyPlaceholderName
+    // 两份档案合并时简介可能被直接拼接；去重后再落库，避免「人物生平」显示两遍同一句。
+    const mergedIntroBase = 整理NPC简介文本(
+        合并补充文本(取字段文本(left, '简介'), 取字段文本(right, '简介'))
+    ) || '暂无简介';
+    const mergedIntro = 整理NPC简介文本(legacyPlaceholderName
         && ![mergedIdentity, mergedIntroBase].some((text) => 归一化键(text).includes(归一化键(legacyPlaceholderName)))
         ? `${mergedIntroBase}（曾以“${legacyPlaceholderName}”指称。）`
-        : mergedIntroBase;
+        : mergedIntroBase) || mergedIntroBase;
     const mergedGender = 重算合并后NPC性别(leftRaw, rightRaw);
     const mergedIsMajor = Boolean(left?.是否主要角色) || Boolean(right?.是否主要角色);
     const mergedArtifactArchive = 标准化名器档案(

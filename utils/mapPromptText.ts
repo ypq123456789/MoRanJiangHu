@@ -27,6 +27,8 @@ const 截断 = (text: string, max: number): string => (
     text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text
 );
 
+const 归一化名称 = (value: string): string => String(value || '').replace(/\s+/g, '').toLowerCase();
+
 interface 提示节点 {
     ID: string;
     名称: string;
@@ -88,6 +90,8 @@ export const 收集地图提示节点 = (world?: 世界数据结构 | null): 提
 export interface 地图提示文本选项 {
     最大节点数?: number;
     描述截断?: number;
+    /** 当前地点链上的名称：即使超过节点预算也必须连同祖先一起列出 */
+    必留名称?: string[];
 }
 
 /** 缩进树文本：给 AI 看的是层级、父子、势力与叙事核心，不是坐标或网格。 */
@@ -97,13 +101,46 @@ export const 构建地图地点树文本 = (world?: 世界数据结构 | null, o
 
     const 最大节点数 = Math.max(1, options.最大节点数 ?? 60);
     const 描述截断 = Math.max(8, options.描述截断 ?? 28);
+    // 当前地点链必须与【当前地点链】保持一致：即使超出节点预算，
+    // 当前地点及其祖先仍要在树文本中可见，否则模型会收到互相矛盾的约束。
+    const 必留名称 = (options.必留名称 || []).map(value => 归一化名称(取文本(value))).filter(Boolean);
+    const 必留节点 = new Set<string>();
+    if (必留名称.length > 0) {
+        const 全部: 提示节点[] = [];
+        const collect = (list: 提示节点[]) => list.forEach(node => { 全部.push(node); collect(node.子节点); });
+        collect(roots);
+        const byId = new Map(全部.map(node => [node.ID, node]));
+        const byName = new Map<string, 提示节点>();
+        全部.forEach(node => {
+            const key = 归一化名称(node.名称);
+            if (key && !byName.has(key)) byName.set(key, node);
+        });
+        const 标记祖先 = (node: 提示节点) => {
+            const seen = new Set<string>();
+            let cursor: 提示节点 | undefined = node;
+            while (cursor && !seen.has(cursor.ID)) {
+                seen.add(cursor.ID);
+                必留节点.add(cursor.ID);
+                const ref = 归一化名称(cursor.父级ID);
+                cursor = byId.get(cursor.父级ID) || (ref ? byName.get(ref) : undefined);
+            }
+        };
+        全部.filter(node => 必留名称.includes(归一化名称(node.名称))).forEach(标记祖先);
+    }
+
     const lines: string[] = [];
     let 已列 = 0;
     let 另有 = 0;
+    const 统计未列 = (node: 提示节点): number => {
+        let count = 必留节点.has(node.ID) ? 0 : 1;
+        node.子节点.forEach(child => { count += 统计未列(child); });
+        return count;
+    };
 
     const walk = (node: 提示节点, prefix: string, isLast: boolean) => {
-        if (已列 >= 最大节点数) { 另有 += 1 + node.子节点.length; return; }
-        已列 += 1;
+        const 保留 = 必留节点.has(node.ID);
+        if (!保留 && 已列 >= 最大节点数) { 另有 += 统计未列(node); return; }
+        if (!保留) 已列 += 1;
         const 势力 = [node.控制势力 && `控制:${node.控制势力}`, node.势力影响 && `影响:${node.势力影响}`].filter(Boolean).join('，');
         const 节点描述 = 截断(node.描述, 描述截断);
         const 备注 = [node.叙事核心 && `叙事核心:${截断(node.叙事核心, 描述截断)}`, 节点描述].filter(Boolean).join('；');
@@ -114,7 +151,7 @@ export const 构建地图地点树文本 = (world?: 世界数据结构 | null, o
     };
 
     roots.forEach((root, index) => walk(root, '', index === roots.length - 1));
-    if (另有 > 0) lines.push(`… 另有 ${另有} 个节点未列出，写剧情时不要臆造它们的名称。`);
+    if (另有 > 0) lines.push(`… 另有 ${另有} 个节点未列出；这些名称不在本树文本中，写剧情时优先使用上面已列出的地点。`);
     return lines.join('\n');
 };
 
@@ -130,10 +167,10 @@ export const 构建地图上下文提示词 = (
     options: 地图上下文选项 = {}
 ): string => {
     const 最大人物数 = Math.max(5, options.最大人物数 ?? 30);
-    const 当前地点链 = [env?.大地点, env?.中地点, env?.小地点, env?.具体地点]
+    const 当前链名称 = [env?.大地点, env?.中地点, env?.小地点, env?.具体地点]
         .map(value => 取文本(value))
-        .filter(Boolean)
-        .join(' > ') || '未知';
+        .filter(Boolean);
+    const 当前地点链 = 当前链名称.join(' > ') || '未知';
 
     const 人物行 = (Array.isArray(socialList) ? socialList : [])
         .slice(0, 最大人物数)
@@ -152,8 +189,12 @@ export const 构建地图上下文提示词 = (
         .join('\n') || '暂无';
 
     return [
-        '【地图地点树（权威数据；写剧情只能引用这里已有的地点名称）】',
-        构建地图地点树文本(world, options),
+        '【地图地点树（权威数据；已收录地点必须沿用这里的原名，新地点按下方规则处理）】',
+        构建地图地点树文本(world, {
+            最大节点数: options.最大节点数,
+            描述截断: options.描述截断,
+            必留名称: 当前链名称,
+        }),
         '',
         `【当前地点链】${当前地点链}`,
         '',
@@ -161,7 +202,7 @@ export const 构建地图上下文提示词 = (
         人物行,
         '',
         '【地图与剧情结合规则】',
-        '- 剧情、规划、对白、传闻、追缉、商路都要引用地点树里的真实名称与层级，不要凭空造一个同名不同层的地点。',
+        '- 剧情、规划、对白、传闻、追缉、商路引用已收录地点时，必须沿用地点树里的真实名称与层级，不要凭空造一个同名不同层的地点；未收录的新地点按下方新地点规则处理。',
         '- 引用地点时利用该节点的「控制势力 / 影响 / 叙事核心」写具体压力：谁在把守、什么资源紧张、什么传闻正在扩散、上层矛盾如何落到当前城镇。',
         '- 人物跨地点移动时，在社交状态里同步写 `当前位置 / 位置路径 / 具体地点`；同一个人物只能有一个最细落点。',
         '- 剧情可以自然探索到新地点：正文允许首次出现新地名（探索本来就是发现过程），但已收录地点必须用地点树里的原名，新地点名称同样要符合层级命名契约，并在本回合响应后由地图更新阶段登记进 `世界.地图层级`，后续回合沿用登记名。',

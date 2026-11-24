@@ -161,7 +161,8 @@ export interface 名器档案条目 {
 
 export interface NPC结构 {
     id: string;
-    姓名: string;
+    姓名: string; // 真实姓名：档案真值，正文默认不直接暴露
+    叙事名称?: string; // 正文使用的称呼（如「少年」「白衣剑客」）；与真实姓名不同时道友录默认打码
     曾用名?: string[];
     性别: NPC性别;
     年龄: number;

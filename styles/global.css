@@ -2925,3 +2925,113 @@ html[data-theme="day"] .settings-nav-item-idle:hover,
 html[data-theme="day"] .settings-nav-item-idle:focus-visible {
   color: #4a3410;
 }
+
+/* ---------------------------------------------------------------------------
+ * 连续地图（RegionMap）双主题色板。
+ * SVG 的 fill/stroke 若写成内联常量色，day 主题只能覆盖 DOM 背景，覆盖不到
+ * presentation attribute，白天就会剩下深底 + 金黄块 + 浅金字，字糊成一团。
+ * 这里把绘图色抽成 CSS 变量，交给 html[data-theme="day"] 覆盖：
+ * 默认（夜）= 墨底浅字 + 深描边；day = 纸白底 + 墨色字 + 浅描边。
+ * ------------------------------------------------------------------------- */
+.moran-map-surface {
+  --mm-bg: #0a0d14;
+  --mm-border: rgba(190, 158, 92, 0.24);
+  --mm-canvas: rgba(28, 34, 44, 0.92);
+  --mm-canvas-stroke: rgba(190, 158, 92, 0.22);
+
+  --mm-fill-0: rgba(96, 132, 180, 0.18);
+  --mm-fill-1: rgba(104, 150, 116, 0.20);
+  --mm-fill-2: rgba(170, 140, 85, 0.20);
+  --mm-fill-3: rgba(196, 160, 100, 0.24);
+  --mm-fill-4: url(#map-bld-normal);
+  --mm-fill-5: rgba(232, 206, 160, 0.26);
+
+  --mm-stroke-0: rgba(140, 180, 230, 0.34);
+  --mm-stroke-1: rgba(130, 180, 140, 0.38);
+  --mm-stroke-2: rgba(200, 170, 110, 0.40);
+  --mm-stroke-3: rgba(200, 165, 105, 0.38);
+  --mm-stroke-4: rgba(214, 180, 126, 0.55);
+  --mm-stroke-5: rgba(224, 200, 158, 0.45);
+
+  --mm-bld-top: #e9d7af;
+  --mm-bld-bottom: #b99560;
+  --mm-bld-current-top: #efb266;
+  --mm-bld-current-bottom: #b96b20;
+  --mm-eave: rgba(74, 46, 18, 0.35);
+  --mm-door: rgba(64, 36, 14, 0.45);
+
+  --mm-label: rgba(250, 240, 220, 0.94);
+  --mm-label-current: #ffe0a8;
+  --mm-label-stroke: rgba(8, 11, 18, 0.9);
+  --mm-subtitle: rgba(236, 212, 170, 0.78);
+  --mm-subtitle-stroke: rgba(8, 11, 18, 0.85);
+  --mm-parent: rgba(248, 230, 196, 0.92);
+  --mm-parent-current: #ffd48a;
+  --mm-select: rgba(255, 196, 96, 0.95);
+
+  --mm-halo: rgba(250, 244, 230, 0.95);
+  --mm-marker-stroke: rgba(12, 16, 22, 0.8);
+  --mm-marker-player: #40c870;
+  --mm-marker-npc: #f06090;
+  --mm-marker-aggregate: #c9b98f;
+  --mm-marker-name-player: #86efac;
+  --mm-marker-name-npc: #f9a8d4;
+  --mm-marker-name-stroke: rgba(8, 11, 18, 0.92);
+
+  --mm-legend-block: #c89a5c;
+}
+
+html[data-theme="day"] .moran-map-surface {
+  --mm-bg: #f7f3e8;
+  --mm-border: rgba(120, 96, 52, 0.38);
+  --mm-canvas: #fffdf6;
+  --mm-canvas-stroke: rgba(120, 96, 52, 0.30);
+
+  --mm-fill-0: rgba(74, 110, 158, 0.14);
+  --mm-fill-1: rgba(62, 128, 80, 0.16);
+  --mm-fill-2: rgba(168, 122, 44, 0.16);
+  --mm-fill-3: rgba(186, 142, 56, 0.20);
+  --mm-fill-4: url(#map-bld-normal);
+  --mm-fill-5: rgba(206, 170, 106, 0.28);
+
+  --mm-stroke-0: rgba(74, 110, 158, 0.45);
+  --mm-stroke-1: rgba(62, 128, 80, 0.48);
+  --mm-stroke-2: rgba(150, 108, 36, 0.50);
+  --mm-stroke-3: rgba(150, 108, 36, 0.50);
+  --mm-stroke-4: rgba(140, 98, 40, 0.55);
+  --mm-stroke-5: rgba(160, 120, 56, 0.52);
+
+  --mm-bld-top: #f3ead4;
+  --mm-bld-bottom: #dcc59a;
+  --mm-bld-current-top: #f0d29a;
+  --mm-bld-current-bottom: #cf9a4e;
+  --mm-eave: rgba(110, 78, 32, 0.42);
+  --mm-door: rgba(110, 78, 32, 0.55);
+
+  --mm-label: #2f2617;
+  --mm-label-current: #7c3d06;
+  --mm-label-stroke: rgba(255, 253, 246, 0.92);
+  --mm-subtitle: #5c4a2c;
+  --mm-subtitle-stroke: rgba(255, 253, 246, 0.9);
+  --mm-parent: #3d321e;
+  --mm-parent-current: #8a4a0c;
+  --mm-select: #b45309;
+
+  --mm-halo: rgba(255, 253, 246, 0.95);
+  --mm-marker-stroke: rgba(70, 52, 24, 0.72);
+  --mm-marker-player: #15803d;
+  --mm-marker-npc: #be185d;
+  --mm-marker-aggregate: #8a7440;
+  --mm-marker-name-player: #166534;
+  --mm-marker-name-npc: #9d174d;
+  --mm-marker-name-stroke: rgba(255, 253, 246, 0.95);
+
+  --mm-legend-block: #d9bd8e;
+}
+
+/* 道友录真实姓名的剧透打码：独立 class，避开 social-private-value 在白天被强制 filter:none 的规则 */
+.npc-real-name-mosaic {
+  filter: blur(5px) !important;
+  -webkit-user-select: none;
+  user-select: none;
+}

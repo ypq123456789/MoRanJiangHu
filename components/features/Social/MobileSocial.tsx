@@ -9,6 +9,9 @@ import { IconBeads, IconHeart, IconMars, IconScroll } from '../../ui/Icons';
 import type { OpeningConfig } from '../../../types';
 import { 获取题材界面文案 } from '../../../utils/resourceLabels';
 import { NPC是否扶她, NPC是否男性或男娘 } from '../../../utils/npcGenderFlags';
+import { 整理NPC简介文本 } from '../../../utils/npcBioText';
+import { 取NPC稳定键 } from '../../../utils/npcNarrativeName';
+import NpcRevealableName from './NpcRevealableName';
 
 interface Props {
     socialList: NPC结构[];
@@ -119,6 +122,14 @@ const MobileSocial: React.FC<Props> = ({
     const 显示境界 = cultivationSystemEnabled !== false;
     const [香闺展示模式, set香闺展示模式] = useState<Record<string, 'text' | 'image'>>({});
     const [showFullBackground, setShowFullBackground] = useState<boolean>(false);
+    const [剧透真实名集合, set剧透真实名集合] = useState<Set<string>>(() => new Set());
+    const 切换真实名揭示 = (npcId: string) => {
+        set剧透真实名集合((prev) => {
+            const next = new Set(prev);
+            if (next.has(npcId)) next.delete(npcId); else next.add(npcId);
+            return next;
+        });
+    };
     const 界面文案 = 获取题材界面文案(openingConfig?.题材模式, openingConfig?.modeRuntimeProfile);
     const 组织名称 = String(playerSect?.名称 || '').trim();
     const 当前组织为末世营地 = /末日|丧尸|营地|避难|安全点|据点|车队|搜救|后勤|巡逻|物资|燃油|口粮|弹药|尸群/u.test(JSON.stringify(playerSect || {}));
@@ -969,8 +980,12 @@ const MobileSocial: React.FC<Props> = ({
                                                     text-[1.3rem] 控名字字号
                                                     truncate 控超长省略
                                                     leading-none 压紧行高 */}
-                                                <div className={`min-w-0 shrink truncate font-serif font-bold text-[1.3rem] leading-none ${selectedId === npc.id ? 'text-wuxia-gold drop-shadow-sm' : 'text-gray-100'}`}>
-                                                    {npc.姓名}
+                                                <div className={`min-w-0 shrink font-serif font-bold text-[1.3rem] leading-none ${selectedId === npc.id ? 'text-wuxia-gold drop-shadow-sm' : 'text-gray-100'}`}>
+                                                    <NpcRevealableName
+                                                        npc={npc}
+                                                        revealed={剧透真实名集合.has(取NPC稳定键(npc))}
+                                                        onToggleReveal={切换真实名揭示}
+                                                    />
                                                 </div>
                                                 {/* 好感度小框：
                                                     px-1.5 py-0.5 控框大小
@@ -1333,8 +1348,12 @@ const MobileSocial: React.FC<Props> = ({
                                                     {/* 详情名字：
                                                         text-[1.5rem] 控名字字号
                                                         tracking-[0.04em] 控字间距 */}
-                                                    <h2 className="truncate font-serif text-[1.5rem] font-black leading-none tracking-[0.04em]" style={标题文字样式}>
-                                                        {currentNPC.姓名}
+                                                    <h2 className="font-serif text-[1.5rem] font-black leading-none tracking-[0.04em]" style={标题文字样式}>
+                                                        <NpcRevealableName
+                                                            npc={currentNPC}
+                                                            revealed={剧透真实名集合.has(取NPC稳定键(currentNPC))}
+                                                            onToggleReveal={切换真实名揭示}
+                                                        />
                                                     </h2>
                                                 </div>
                                                 {/* 关系框 + 好感框这一行：
@@ -1414,7 +1433,7 @@ const MobileSocial: React.FC<Props> = ({
                                         人设档案
                                     </h4>
                                     <p className="text-gray-300 font-serif leading-relaxed text-xs relative z-10">
-                                        {currentNPC.简介 || "暂无详细生平记录。"}
+                                        {整理NPC简介文本(currentNPC.简介) || "暂无详细生平记录。"}
                                     </p>
                                 </div>
 

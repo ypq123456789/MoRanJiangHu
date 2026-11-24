@@ -2067,16 +2067,32 @@ export const 规范化世界状态 = (raw?: any): 世界数据结构 => {
                 .filter((item) => item.名称 || item.描述)
             : [],
         // 老存档里也存在「中州大地的」这类把连接词写进地名的数据，加载时统一清洗一次。
-        // 父级在这里已经是 DT-xxx 内部 ID，改名不会断链。
-        地图层级: Array.isArray(world?.地图层级)
-            ? world.地图层级
-                .filter(是否有效地图层级节点)
-                .map((layer: any) => {
-                    const 清洗后名称 = 清洗地图地点名称(layer?.名称) || 取文本(layer?.名称);
-                    // 名称没变就保留原对象，避免无谓复制破坏引用（老存档诊断依赖它）
-                    return 清洗后名称 === layer?.名称 ? layer : { ...layer, 名称: 清洗后名称 };
-                })
-            : [],
+        // 注意：子节点的父级ID 可能是父节点旧名称，父节点改名后必须同步改写，否则会断链。
+        地图层级: (() => {
+            const layers = Array.isArray(world?.地图层级)
+                ? world.地图层级.filter(是否有效地图层级节点)
+                : [];
+            const cleaned = layers.map((layer: any) => {
+                const 清洗后名称 = 清洗地图地点名称(layer?.名称) || 取文本(layer?.名称);
+                // 名称没变就保留原对象，避免无谓复制破坏引用（老存档诊断依赖它）
+                return 清洗后名称 === layer?.名称 ? layer : { ...layer, 名称: 清洗后名称 };
+            });
+            // 老存档的子节点可能用「父节点名称」当父级ID。父节点一旦被清洗改名，
+            // 这些引用就会断链（地图提示词树与连续地图都会把子节点当成根节点）。
+            const 旧名到新引用 = new Map<string, string>();
+            layers.forEach((layer: any, index: number) => {
+                const 旧名 = 取文本(layer?.名称);
+                const 新节点 = cleaned[index];
+                if (旧名 && 旧名 !== 新节点?.名称) {
+                    旧名到新引用.set(旧名, 取文本(新节点?.ID) || 取文本(新节点?.名称) || 旧名);
+                }
+            });
+            if (旧名到新引用.size === 0) return cleaned;
+            return cleaned.map((layer: any) => {
+                const 新引用 = 旧名到新引用.get(取文本(layer?.父级ID));
+                return 新引用 ? { ...layer, 父级ID: 新引用 } : layer;
+            });
+        })(),
         地图建筑: Array.isArray(world?.地图建筑) ? world.地图建筑 : [],
         地图道路: Array.isArray(world?.地图道路) ? world.地图道路 : [],
         地图人物: Array.isArray(world?.地图人物) ? world.地图人物 : [],

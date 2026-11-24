@@ -83,6 +83,8 @@ export const 提取NPC生图基础数据 = (npc: any, options?: 生图基础数�
 
     return 清理空字段({
         姓名: typeof npc?.姓名 === 'string' ? npc.姓名.trim() : undefined,
+        // 正文只准写叙事名称；AI 必须能在这块档案里看到它，否则提示词约束会落空。
+        叙事名称: typeof npc?.叙事名称 === 'string' ? npc.叙事名称.trim() || undefined : undefined,
         性别: typeof npc?.性别 === 'string' ? npc.性别.trim() : undefined,
         年龄: typeof npc?.年龄 === 'number' ? npc.年龄 : undefined,
         真实年龄: typeof npc?.年龄 === 'number' ? npc.年龄 : undefined,
@@ -570,6 +572,7 @@ export const 构建NPC上下文 = (
             索引: index,
             id: typeof npc?.id === 'string' ? npc.id : `npc_${index}`,
             姓名: typeof npc?.姓名 === 'string' ? npc.姓名 : `角色${index}`,
+            叙事名称: typeof npc?.叙事名称 === 'string' ? npc.叙事名称.trim() || undefined : undefined,
             性别: typeof npc?.性别 === 'string' ? npc.性别 : '未知',
             ...(启用修炼体系 ? {
                 境界: typeof npc?.境界 === 'string' ? npc.境界 : '未知境界',

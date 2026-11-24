@@ -137,6 +137,9 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
     const tree = useMemo(() => 构建地点树(world, env), [world, env]);
     const [selectedNode, setSelectedNode] = useState<地点树节点 | null>(() => 获取索引选中节点(tree.当前节点, tree.节点映射));
     const [regenerating, setRegenerating] = useState(false);
+    // 长路径默认折叠，省略号本身是可聚焦的展开按钮，键盘也能打开被折叠的祖先。
+    const [展开面包屑, set展开面包屑] = useState(false);
+    useEffect(() => { set展开面包屑(false); }, [selectedNode?.ID]);
 
     // 诊断：检查数据是否到达
     const layerCount = Array.isArray((world as any)?.地图层级) ? (world as any).地图层级.length : 0;
@@ -225,6 +228,9 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
         return people;
     }, [selectedNodeNpcs, playerName, selectedNode, tree.当前节点, breadcrumb, env]);
 
+    const 折叠面包屑 = breadcrumb.length > 3 && !展开面包屑;
+    const 显示链 = 折叠面包屑 ? breadcrumb.slice(-2) : breadcrumb;
+    const 被折叠名 = breadcrumb.slice(0, -2).map(node => node.名称).join(' / ');
     const rightPanelWidth = compact ? 'min-h-0' : 'w-[320px]';
 
     return (
@@ -244,20 +250,31 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                         </button>
                     )}
                     <div className={`flex items-center gap-1 flex-wrap min-w-0 flex-1 leading-tight ${breadcrumb.length > 5 ? 'text-xs' : 'text-sm'}`}>
-                        {/* 路径过长时折叠前几级：… / 落霞坊市 / 多宝阁分号，悬停省略号看全路径 */}
-                        {breadcrumb.length > 3 && (
-                            <span
-                                className="px-1 text-gray-500 shrink-0 cursor-default"
-                                title={breadcrumb.slice(0, -2).map((node) => node.名称).join(' / ')}
-                            >
+                        {/* 路径过长时折叠前几级，但省略号必须是可点击、可聚焦的按钮：
+                            展开后被折叠的祖先仍可逐个选中，键盘用户也能 Tab 到它。 */}
+                        {折叠面包屑 && (
+                            <button type="button"
+                                className="px-1 text-gray-400 shrink-0 rounded hover:text-white hover:bg-white/5 focus:outline-none focus-visible:ring-1 focus-visible:ring-wuxia-gold/60"
+                                title={`展开完整路径：${被折叠名}`}
+                                aria-label={`展开完整路径：${被折叠名}`}
+                                aria-expanded={false}
+                                onClick={() => set展开面包屑(true)}>
                                 …
-                            </span>
+                            </button>
                         )}
-                        {(breadcrumb.length > 3 ? breadcrumb.slice(-2) : breadcrumb).map((node, i) => {
-                            const isLast = i === (breadcrumb.length > 3 ? 1 : breadcrumb.length - 1);
+                        {!折叠面包屑 && breadcrumb.length > 3 && (
+                            <button type="button"
+                                className="px-1 text-gray-500 shrink-0 rounded hover:text-white hover:bg-white/5 focus:outline-none focus-visible:ring-1 focus-visible:ring-wuxia-gold/60"
+                                title="收起路径" aria-label="收起路径" aria-expanded={true}
+                                onClick={() => set展开面包屑(false)}>
+                                ⋯
+                            </button>
+                        )}
+                        {显示链.map((node, i) => {
+                            const isLast = i === 显示链.length - 1;
                             return (
                                 <React.Fragment key={node.ID}>
-                                    {(i > 0 || breadcrumb.length > 3) && <span className="text-gray-600 shrink-0">/</span>}
+                                    {(i > 0 || 折叠面包屑) && <span className="text-gray-600 shrink-0">/</span>}
                                     <button
                                         onClick={() => setSelectedNode(node)}
                                         className={`tracking-wider px-1 py-0.5 rounded transition-colors whitespace-nowrap
