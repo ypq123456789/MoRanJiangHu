@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/react';
 import RegionMap from '../components/features/Map/RegionMap';
 import LocationBrowser from '../components/features/Map/LocationBrowser';
@@ -18,6 +18,14 @@ beforeAll(() => {
     (Element.prototype as any).setPointerCapture = function () {};
     (Element.prototype as any).hasPointerCapture = function () { return false; };
     (Element.prototype as any).releasePointerCapture = function () {};
+});
+
+// React scheduler 通过 setImmediate 派发收尾工作；本文件多次 render RegionMap，
+// 多文件并发时若不等队列排空，回调会在 jsdom 环境销毁后访问 window，触发
+// unhandled error 并让整轮 CI 失败。这里在 teardown 前把同一队列刷干净。
+afterAll(async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
 });
 
 const mk = (id: string, name: string, level: any, parent = '', children: any[] = [], extra: any = {}): any => ({
