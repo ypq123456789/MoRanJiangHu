@@ -342,6 +342,50 @@ describe('地图空间道路规划', () => {
     });
 });
 
+describe('当前层级严格匹配', () => {
+    const 构造世界 = (): any => ({
+        地图层级: [
+            {
+                ID: 'town_qingshi', 名称: '青石镇', 层级: '小地点',
+                网格宽度: 24, 网格高度: 18, 锚点坐标: { x: 0, y: 0 }, 归属: {},
+            },
+            {
+                ID: 'room_wangjiang', 名称: '望江楼', 层级: '子地点', 父级ID: 'town_qingshi',
+                网格宽度: 12, 网格高度: 12, 锚点坐标: { x: 0, y: 0 }, 归属: {},
+            },
+        ],
+        地图建筑: [{
+            ID: 'bld_wangjiang', 名称: '望江楼', 所在层级ID: 'room_wangjiang',
+            四角坐标: [{ x: 2, y: 2 }, { x: 10, y: 2 }, { x: 10, y: 10 }, { x: 2, y: 10 }],
+        }],
+        地图道路: [],
+        地图人物: [],
+    });
+
+    it('「望江楼外」不误判为子地点「望江楼」，回退到所在城镇', () => {
+        const scene = 构建已补齐地图空间场景(构造世界(), {
+            小地点: '青石镇', 具体地点: '望江楼外',
+        } as any);
+        expect(scene.当前层级?.ID).toBe('town_qingshi');
+        expect(scene.命中建筑ID列表).toEqual([]);
+    });
+
+    it('精确写「望江楼」仍判进子地点并命中建筑', () => {
+        const scene = 构建已补齐地图空间场景(构造世界(), {
+            小地点: '青石镇', 具体地点: '望江楼',
+        } as any);
+        expect(scene.当前层级?.ID).toBe('room_wangjiang');
+        expect(scene.命中建筑ID列表).toContain('bld_wangjiang');
+    });
+
+    it('完整路径片段仍能命中子地点', () => {
+        const scene = 构建已补齐地图空间场景(构造世界(), {
+            小地点: '青石镇', 具体地点: '青石镇 > 望江楼',
+        } as any);
+        expect(scene.当前层级?.ID).toBe('room_wangjiang');
+    });
+});
+
 
 describe('本批 bugfix 回归 - 地图 NPC 社交一致、建筑内部无道路、野外单主路', () => {
     it('荒庙内部这类"庙"字层级被判为室内，不生成道路，且仅由墙/门/房间构成', () => {

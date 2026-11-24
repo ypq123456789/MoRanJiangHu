@@ -11,6 +11,9 @@ import type { OpeningConfig } from '../../../types';
 import { 获取题材界面文案, 获取题材资源文案 } from '../../../utils/resourceLabels';
 import { IconBeads, IconHeart, IconMars, IconScroll, IconSparkles } from '../../ui/Icons';
 import { NPC是否扶她, NPC是否男性或男娘 } from '../../../utils/npcGenderFlags';
+import { 整理NPC简介文本 } from '../../../utils/npcBioText';
+import { 取NPC稳定键 } from '../../../utils/npcNarrativeName';
+import NpcRevealableName from './NpcRevealableName';
 
 interface Props {
     socialList: NPC结构[];
@@ -106,6 +109,14 @@ const SocialModal: React.FC<Props> = ({
     );
     const [香闺展示模式, set香闺展示模式] = useState<Record<string, 'text' | 'image'>>({});
     const [showFullBackground, setShowFullBackground] = useState(false);
+    const [剧透真实名集合, set剧透真实名集合] = useState<Set<string>>(() => new Set());
+    const 切换真实名揭示 = (npcId: string) => {
+        set剧透真实名集合((prev) => {
+            const next = new Set(prev);
+            if (next.has(npcId)) next.delete(npcId); else next.add(npcId);
+            return next;
+        });
+    };
     const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null);
     const [imageViewerZoom, setImageViewerZoom] = useState(1);
     const [imageRetryTarget, setImageRetryTarget] = useState<NPC结构 | null>(null);
@@ -857,8 +868,12 @@ const SocialModal: React.FC<Props> = ({
                                 </div>
 
                                 <div className="flex-1 min-w-0 overflow-hidden">
-                                    <div className={`social-roster-card__name font-serif font-bold text-base truncate ${isSelected ? 'text-wuxia-gold drop-shadow-sm' : 'text-gray-200'}`}>
-                                        {npc.姓名}
+                                    <div className={`social-roster-card__name font-serif font-bold text-base ${isSelected ? 'text-wuxia-gold drop-shadow-sm' : 'text-gray-200'}`}>
+                                        <NpcRevealableName
+                                            npc={npc}
+                                            revealed={剧透真实名集合.has(取NPC稳定键(npc))}
+                                            onToggleReveal={切换真实名揭示}
+                                        />
                                     </div>
                                     <div className="social-roster-card__meta text-[10px] text-gray-500 flex items-center gap-1 mt-0.5 min-w-0 overflow-hidden">
                                         {显示境界 && npc.境界 && (
@@ -1008,7 +1023,13 @@ const SocialModal: React.FC<Props> = ({
 
                                         <div className="flex flex-col justify-center">
                                             <div className="flex items-end gap-4 mb-2">
-                                                <h2 className="text-4xl font-black font-serif text-wuxia-gold drop-shadow-[0_0_8px_rgba(212,175,55,0.4)] tracking-wider">{currentNPC.姓名}</h2>
+                                                <h2 className="text-4xl font-black font-serif text-wuxia-gold drop-shadow-[0_0_8px_rgba(212,175,55,0.4)] tracking-wider">
+                                                    <NpcRevealableName
+                                                        npc={currentNPC}
+                                                        revealed={剧透真实名集合.has(取NPC稳定键(currentNPC))}
+                                                        onToggleReveal={切换真实名揭示}
+                                                    />
+                                                </h2>
                                                 <span className={`text-sm px-2 py-0.5 rounded border border-white/10 font-serif tracking-widest ${currentNPC.性别 === '女' ? 'bg-pink-900/20 text-pink-300' : 'bg-blue-900/20 text-blue-300'}`}>
                                                     {currentNPC.性别} | {currentNPC.年龄}岁
                                                 </span>
@@ -1156,7 +1177,7 @@ const SocialModal: React.FC<Props> = ({
                                                 人物生平
                                             </h4>
                                             <p className="text-gray-300 font-serif leading-relaxed text-sm relative z-10">
-                                                {currentNPC.简介 || "暂无详细生平记录。"}
+                                                {整理NPC简介文本(currentNPC.简介) || "暂无详细生平记录。"}
                                             </p>
                                         </div>
 

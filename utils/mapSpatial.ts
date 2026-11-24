@@ -287,6 +287,22 @@ const 层级名称命中 = (left: unknown, right: unknown): boolean => {
     return a === b || a.includes(b) || b.includes(a);
 };
 
+/**
+ * 当前层级判定用的严格命中：只认名称精确相等，或位置文本按路径分隔符切出的完整片段。
+ * 这里不能用双向 includes —— 「望江楼外」是楼外区域，不等于「望江楼」这个房间节点。
+ */
+const 严格层级名称命中 = (left: unknown, right: unknown): boolean => {
+    const name = 归一化地图文本(left);
+    const target = 归一化地图文本(right);
+    if (!name || !target) return false;
+    if (name === target) return true;
+    return String(right || '')
+        .split(/[>＞/／·・,，;；|]+/u)
+        .map((item) => 归一化地图文本(item))
+        .filter(Boolean)
+        .includes(name);
+};
+
 const 构建层级唯一键 = (
     层级: 地图层级类型,
     归属: 地点归属结构,
@@ -1120,11 +1136,12 @@ const 匹配层级名称 = (layer: 地图层级结构, env?: Partial<环境信�
 const 查找最佳名称层级 = (
     layers: 地图层级结构[],
     layerType: 地图层级类型,
-    targetName: unknown
+    targetName: unknown,
+    strict = false
 ): 地图层级结构 | null => {
     const target = 归一化地图文本(targetName);
     if (!target) return null;
-    const candidates = layers.filter((layer) => layer.层级 === layerType && 层级名称命中(layer.名称, targetName));
+    const candidates = layers.filter((layer) => layer.层级 === layerType && (strict ? 严格层级名称命中(layer.名称, targetName) : 层级名称命中(layer.名称, targetName)));
     if (candidates.length === 0) return null;
     return candidates
         .map((layer) => {
@@ -2036,17 +2053,29 @@ const 通过路径匹配层级 = (
         .map((item) => 归一化地图文本(item))
         .filter(Boolean);
     // 只认「位置路径里真实出现过的节点」，并在多个命中里取最深的那个。
-    // 旧实现从最细层级往上找、且用双向包含兜底，会把 NPC 错挂到同级兄弟节点：
-    // 位置写「落霞坊市 / 外围街巷」，人却被画进隔壁「天炉灵门杂役院」。
-    const matched = layers.filter((layer) => {
+    // 完整片段的精确匹配优先于子串匹配；子串回退不能让「被更长命中名称包含」的
+    // 短名称胜出（例如路径「青石镇 > 望江楼外」不能选中子地点「望江楼」）。
+    const 最深 = (list: 地图层级结构[]): 地图层级结构 => list.reduce((best, item) => (
+        (层级深度权重[item.层级] ?? 0) > (层级深度权重[best.层级] ?? 0) ? item : best
+    ));
+    const exact = layers.filter((layer) => {
         const name = 归一化地图文本(layer.名称);
-        if (!name) return false;
-        return segments.includes(name) || Boolean(normalizedPath && normalizedPath.includes(name));
+        return Boolean(name && segments.includes(name));
     });
-    if (matched.length > 0) {
-        return matched.reduce((best, item) => (
-            (层级深度权重[item.层级] ?? 0) > (层级深度权重[best.层级] ?? 0) ? item : best
-        ));
+    if (exact.length > 0) return 最深(exact);
+    const substring = layers.filter((layer) => {
+        const name = 归一化地图文本(layer.名称);
+        return Boolean(name && name.length >= 2 && normalizedPath && normalizedPath.includes(name));
+    });
+    if (substring.length > 0) {
+        const 非包含命中 = substring.filter(candidate => {
+            const name = 归一化地图文本(candidate.名称);
+            return !substring.some(other => {
+                const otherName = 归一化地图文本(other.名称);
+                return other !== candidate && otherName.length > name.length && otherName.includes(name);
+            });
+        });
+        return 最深(非包含命中.length > 0 ? 非包含命中 : substring);
     }
     // 路径为空或完全对不上时才用 fallbackName，且要求名称精确相等，不做跨节点模糊。
     const fallback = 归一化地图文本(fallbackName);
@@ -2241,15 +2270,15 @@ const 查找当前层级 = (
     const currentPlace = 取文本(env?.具体地点);
 
     const matchedBuildings = currentPlace
-        ? buildings.filter((building) => 层级名称命中(building.名称, currentPlace))
+        ? buildings.filter((building) => 严格层级名称命中(building.名称, currentPlace))
         : [];
 
     if (matchedBuildings.length > 0) {
-        const exactLayer = 查找最佳名称层级(layers, '子地点', env?.具体地点)
-            || 查找最佳名称层级(layers, '区地点', env?.具体地点);
+        const exactLayer = 查找最佳名称层级(layers, '子地点', env?.具体地点, true)
+            || 查找最佳名称层级(layers, '区地点', env?.具体地点, true);
         if (exactLayer) {
             const layerBuildings = buildings.filter((building) => building.所在层级ID === exactLayer.ID);
-            const exactMatchedBuildings = layerBuildings.filter((building) => 层级名称命中(building.名称, currentPlace));
+            const exactMatchedBuildings = layerBuildings.filter((building) => 严格层级名称命中(building.名称, currentPlace));
             return {
                 layer: exactLayer,
                 matchedBuildingIds: exactMatchedBuildings.length > 0
@@ -2261,8 +2290,8 @@ const 查找当前层级 = (
         return { layer, matchedBuildingIds: matchedBuildings.map((item) => item.ID) };
     }
 
-    const exactSpecific = 查找最佳名称层级(layers, '子地点', env?.具体地点)
-        || 查找最佳名称层级(layers, '区地点', env?.具体地点);
+    const exactSpecific = 查找最佳名称层级(layers, '子地点', env?.具体地点, true)
+        || 查找最佳名称层级(layers, '区地点', env?.具体地点, true);
     if (exactSpecific) return { layer: exactSpecific, matchedBuildingIds: [] };
 
     const exactSmall = 查找最佳名称层级(layers, '小地点', env?.小地点);

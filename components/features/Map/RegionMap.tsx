@@ -43,21 +43,23 @@ const ORDER: Record<string, number> = { 寰宇: 0, 大地点: 1, 中地点: 2, �
 const 层级标签: Record<层级名, string> = {
     寰宇: '界域', 大地点: '大陆', 中地点: '地域', 小地点: '城镇', 区地点: '场所', 子地点: '房间',
 };
+// 绘图色全部走 CSS 变量（.moran-map-surface / html[data-theme="day"] 覆盖）。
+// SVG presentation attribute 里的常量色不会被主题规则改到，白天会留下深底金字。
 const FILL: Record<层级名, string> = {
-    寰宇: 'rgba(96,132,180,0.18)',
-    大地点: 'rgba(104,150,116,0.20)',
-    中地点: 'rgba(170,140,85,0.20)',
-    小地点: 'rgba(196,160,100,0.24)',
-    区地点: 'url(#map-bld-normal)',
-    子地点: 'rgba(232,206,160,0.26)',
+    寰宇: 'var(--mm-fill-0)',
+    大地点: 'var(--mm-fill-1)',
+    中地点: 'var(--mm-fill-2)',
+    小地点: 'var(--mm-fill-3)',
+    区地点: 'var(--mm-fill-4)',
+    子地点: 'var(--mm-fill-5)',
 };
 const STROKE: Record<层级名, string> = {
-    寰宇: 'rgba(140,180,230,0.34)',
-    大地点: 'rgba(130,180,140,0.38)',
-    中地点: 'rgba(200,170,110,0.40)',
-    小地点: 'rgba(200,165,105,0.38)',
-    区地点: 'rgba(214,180,126,0.55)',
-    子地点: 'rgba(224,200,158,0.45)',
+    寰宇: 'var(--mm-stroke-0)',
+    大地点: 'var(--mm-stroke-1)',
+    中地点: 'var(--mm-stroke-2)',
+    小地点: 'var(--mm-stroke-3)',
+    区地点: 'var(--mm-stroke-4)',
+    子地点: 'var(--mm-stroke-5)',
 };
 const 目标字号: Record<层级名, number> = {
     寰宇: 18, 大地点: 16, 中地点: 14, 小地点: 13, 区地点: 12, 子地点: 11,
@@ -150,7 +152,7 @@ const RegionMap: React.FC<Props> = ({
     const [view, setView] = useState<视野>({ ...WORLD });
     const viewRef = useRef(view);
     const tweenRef = useRef<number | null>(null);
-    const dragRef = useRef<{ pointerId: number; startX: number; startY: number; from: 视野; moved: boolean } | null>(null);
+    const dragRef = useRef<{ pointerId: number; startX: number; startY: number; from: 视野; moved: boolean; captured: boolean } | null>(null);
     const suppressClickRef = useRef(false);
     const 已外部选中 = useRef<string | null>(null);
 
@@ -181,35 +183,51 @@ const RegionMap: React.FC<Props> = ({
         const 全部 = 源节点.flatMap(root => [root, ...(function collect(node: 地点树节点): 地点树节点[] {
             return (node.子节点 || []).flatMap(child => [child, ...collect(child)]);
         })(root)]);
-        const 深到浅 = [...全部].sort((a, b) => {
-            const depth = (node: 地点树节点) => {
-                let d = 0;
-                let cursor = node;
-                const seen = new Set<string>();
-                while (cursor?.父级ID && !seen.has(cursor.ID) && seen.size < 30) {
-                    seen.add(cursor.ID);
-                    const parent = 全部.find(item => item.ID === cursor.父级ID);
-                    if (!parent) break;
-                    cursor = parent;
-                    d += 1;
-                }
-                return d;
-            };
-            return depth(b) - depth(a);
+        const 归一化 = (value: unknown): string => String(value || '').replace(/\s+/g, '').toLowerCase();
+        // 父级ID 可能是内部 ID，也可能是老存档里的父节点名称，两种都要能回溯祖先链。
+        const 节点索引 = new Map<string, 地点树节点>();
+        全部.forEach(node => { 节点索引.set(node.ID, node); });
+        全部.forEach(node => {
+            const key = 归一化(node.名称);
+            if (key && !节点索引.has(key)) 节点索引.set(key, node);
         });
+        const 取父节点 = (node: 地点树节点): 地点树节点 | undefined => {
+            const ref = String(node.父级ID || '').trim();
+            if (!ref) return undefined;
+            return 节点索引.get(ref) || 节点索引.get(归一化(ref));
+        };
+        const 取祖先名称 = (node: 地点树节点): string[] => {
+            const names: string[] = [];
+            let cursor = 取父节点(node);
+            const seen = new Set<string>([node.ID]);
+            while (cursor && !seen.has(cursor.ID) && seen.size < 30) {
+                seen.add(cursor.ID);
+                const label = 归一化(cursor.名称);
+                if (label) names.push(label);
+                cursor = 取父节点(cursor);
+            }
+            return names;
+        };
+        const 片段命中 = (list: string[], label: string): boolean => list.some(part => (
+            part === label || (part.length >= 2 && part.includes(label))
+        ));
+        const 深到浅 = [...全部].sort((a, b) => 取祖先名称(b).length - 取祖先名称(a).length);
         const 已见 = new Set<string>();
         (Array.isArray(socialList) ? socialList : []).forEach((npc: any) => {
             const name = String(npc?.姓名 || npc?.名称 || '').trim();
             if (!name || 已见.has(name)) return;
             已见.add(name);
             const parts = 提取NPC精确地图位置片段(npc);
+            // 同名叶节点可能挂在不同分支下：只用叶名会选错分支，必须让祖先链
+            // 与位置路径里出现的祖先片段吻合（如「平江府 > 水狼帮大营 > 库房」）。
             let target: 地点树节点 | null = null;
+            let bestScore = -1;
             for (const node of 深到浅) {
-                const nodeName = node.名称.replace(/\s+/g, '').toLowerCase();
-                if (nodeName && parts.some(part => part === nodeName || (part.length >= 2 && part.includes(nodeName)))) {
-                    target = node;
-                    break;
-                }
+                const nodeName = 归一化(node.名称);
+                if (!nodeName || !片段命中(parts, nodeName)) continue;
+                const score = 取祖先名称(node).reduce((sum, label) => sum + (片段命中(parts, label) ? 1 : 0), 0);
+                // 严格大于才替换：同分保留遍历顺序里更深的节点（深到浅）。
+                if (score > bestScore) { bestScore = score; target = node; }
             }
             if (!target && npc?.是否在场 === true) target = 全部.find(node => node.ID === currentNodeId) || null;
             if (target) add(target.ID, { name, player: false });
@@ -224,6 +242,13 @@ const RegionMap: React.FC<Props> = ({
         const roots = 全部节点.filter(root => root && (!root.父级ID || !全部节点.some(node => node.ID === root.父级ID)));
         return 排布地图树(roots, 人物映射);
     }, [allNodes, nodes, 人物映射]);
+
+    const 取消飞入动画 = useCallback(() => {
+        if (tweenRef.current !== null) {
+            cancelAnimationFrame(tweenRef.current);
+            tweenRef.current = null;
+        }
+    }, []);
 
     const 飞入 = useCallback((box: 区块, pad = 22, animate = true) => {
         const from = viewRef.current;
@@ -272,10 +297,13 @@ const RegionMap: React.FC<Props> = ({
     // 直接飞入，玩家点开别的区块看详情时镜头会被立刻拉回去。
     const 上次定位节点 = useRef<string | null>(null);
     useEffect(() => {
-        if (上次定位节点.current === currentNodeId) return;
-        上次定位节点.current = currentNodeId;
+        if (!currentNodeId || 上次定位节点.current === currentNodeId) return;
         const target = byId.get(currentNodeId);
-        if (target) 飞入(target.box, 24, false);
+        // 布局还没建好时先不记为已定位，等 byId 里出现该节点再补一次；
+        // 但只认 ID 变化，父组件重建 allNodes 不会把镜头拉回玩家位置。
+        if (!target) return;
+        上次定位节点.current = currentNodeId;
+        飞入(target.box, 24, false);
     }, [currentNodeId, byId, 飞入]);
 
     // 地点索引/面包屑选中变化时飞入；点地图自身触发的选中不重复飞。
@@ -287,6 +315,7 @@ const RegionMap: React.FC<Props> = ({
     }, [selectedNodeId, byId, 飞入]);
 
     const 缩放 = useCallback((factor: number) => {
+        取消飞入动画();
         const cur = viewRef.current;
         const nw = clamp(cur.w * factor, 70, 1500);
         const nh = nw * (cur.h / cur.w);
@@ -296,7 +325,7 @@ const RegionMap: React.FC<Props> = ({
             w: nw,
             h: nh,
         });
-    }, []);
+    }, [取消飞入动画]);
 
     // 原生 wheel 监听，避免 React 的 passive 监听无法 preventDefault。
     useEffect(() => {
@@ -304,6 +333,15 @@ const RegionMap: React.FC<Props> = ({
         if (!svg) return;
         const onWheel = (event: WheelEvent) => {
             event.preventDefault();
+            // 用户手动缩放即接管镜头：先停掉尚未结束的飞入，否则下一帧会把它覆盖回去。
+            取消飞入动画();
+            // 拖动中滚轮：结束该次拖动手势，避免下一次 pointermove 用按下时的
+            // 视野快照把刚缩放的 w/h 撤销（也不留下未消费的 click 抑制标记）。
+            const drag = dragRef.current;
+            if (drag) {
+                dragRef.current = null;
+                if (svg.hasPointerCapture(drag.pointerId)) svg.releasePointerCapture(drag.pointerId);
+            }
             const rect = svg.getBoundingClientRect();
             const cur = viewRef.current;
             const scale = Math.min(rect.width / cur.w, rect.height / cur.h) || 1;
@@ -325,31 +363,61 @@ const RegionMap: React.FC<Props> = ({
         };
         svg.addEventListener('wheel', onWheel, { passive: false });
         return () => svg.removeEventListener('wheel', onWheel);
-    }, []);
+    }, [取消飞入动画]);
 
     const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
         if (e.button !== 0) return;
-        dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, from: { ...viewRef.current }, moved: false };
-        e.currentTarget.setPointerCapture(e.pointerId);
+        // 新手势不继承上一次手势残留的 click 抑制标记。
+        suppressClickRef.current = false;
+        // 普通点击不能捕获指针：否则浏览器把 click 派发给 svg 而不是区块 rect，
+        // onSelect 永远不会触发。超过拖动阈值后再捕获，拖出画布也能继续平移。
+        dragRef.current = {
+            pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
+            from: { ...viewRef.current }, moved: false, captured: false,
+        };
     };
     const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
         const drag = dragRef.current;
         if (!drag || drag.pointerId !== e.pointerId) return;
         const dx = e.clientX - drag.startX;
         const dy = e.clientY - drag.startY;
-        if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+        if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) {
+            drag.moved = true;
+            // 用户开始拖动即接管镜头，停掉飞入动画。
+            取消飞入动画();
+            if (!drag.captured) {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                drag.captured = true;
+            }
+        }
+        if (!drag.moved) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        const scale = Math.min(rect.width / drag.from.w, rect.height / drag.from.h) || 1;
-        const next: 视野 = { ...drag.from, x: drag.from.x - dx / scale, y: drag.from.y - dy / scale };
+        const cur = viewRef.current;
+        const scale = Math.min(rect.width / cur.w, rect.height / cur.h) || 1;
+        // 宽高取当前视野而非按下时快照，避免拖动中滚轮缩放被下一次移动撤销。
+        const next: 视野 = { ...cur, x: drag.from.x - dx / scale, y: drag.from.y - dy / scale };
         viewRef.current = next;
         setView(next);
     };
     const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
         const drag = dragRef.current;
         if (!drag || drag.pointerId !== e.pointerId) return;
+        // 只有真正拖动过才抑制这次手势尾随的 click；普通点击照常派发到区块。
         if (drag.moved) suppressClickRef.current = true;
         dragRef.current = null;
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+        if (drag.captured && e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+    };
+    const handlePointerCancel = (e: React.PointerEvent<SVGSVGElement>) => {
+        const drag = dragRef.current;
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        // pointercancel 之后不会派发 click，不能留下抑制标记吞掉下一次有效点击。
+        dragRef.current = null;
+        suppressClickRef.current = false;
+        if (drag.captured && e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
     };
 
     const handleSelect = (node: 地点树节点) => {
@@ -369,12 +437,23 @@ const RegionMap: React.FC<Props> = ({
     const 最小可读 = 9.5;
 
     const 有建筑 = flat.some(item => item.node.层级 === '区地点' || item.node.层级 === '子地点');
-    const 有人物 = 人物映射.size > 0;
+    // 图例按「实际画出来的标记」显示：区块太小会跳过人物绘制，此时不应显示玩家/NPC 图例。
+    const 可见人物 = (() => {
+        let player = false;
+        let npc = false;
+        flat.forEach(item => {
+            const markers = 人物映射.get(item.node.ID) || [];
+            if (markers.length === 0) return;
+            if (item.box.w * 画布比例 <= 26 || item.box.h * 画布比例 <= 16) return;
+            markers.forEach(marker => { if (marker.player) player = true; else npc = true; });
+        });
+        return { player, npc };
+    })();
     const isSpace = level === '寰宇';
 
     return (
-        <div ref={wrapRef} className="relative h-full min-h-[400px] w-full overflow-hidden rounded-xl"
-            style={{ background: '#0a0d14', border: '1px solid rgba(190,158,92,0.24)' }}>
+        <div ref={wrapRef} className="relative h-full min-h-[400px] w-full overflow-hidden rounded-xl moran-map-surface"
+            style={{ background: 'var(--mm-bg)', border: '1px solid var(--mm-border)' }}>
             <svg ref={svgRef}
                 className="absolute inset-0 h-full w-full touch-none cursor-grab active:cursor-grabbing"
                 viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
@@ -382,17 +461,17 @@ const RegionMap: React.FC<Props> = ({
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
+                onPointerCancel={handlePointerCancel}
                 onDoubleClick={() => 飞入(WORLD, 0, true)}
             >
                 <defs>
                     <linearGradient id="map-bld-normal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#e9d7af" />
-                        <stop offset="100%" stopColor="#b99560" />
+                        <stop offset="0%" style={{ stopColor: 'var(--mm-bld-top)' }} />
+                        <stop offset="100%" style={{ stopColor: 'var(--mm-bld-bottom)' }} />
                     </linearGradient>
                     <linearGradient id="map-bld-current" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#efb266" />
-                        <stop offset="100%" stopColor="#b96b20" />
+                        <stop offset="0%" style={{ stopColor: 'var(--mm-bld-current-top)' }} />
+                        <stop offset="100%" style={{ stopColor: 'var(--mm-bld-current-bottom)' }} />
                     </linearGradient>
                     <filter id="map-bld-shadow" x="-25%" y="-25%" width="150%" height="150%">
                         <feDropShadow dx="0" dy="0.3" stdDeviation="0.3" floodColor="rgba(0,0,0,0.45)" />
@@ -400,7 +479,7 @@ const RegionMap: React.FC<Props> = ({
                 </defs>
 
                 <rect x={WORLD.x} y={WORLD.y} width={WORLD.w} height={WORLD.h} rx={12}
-                    fill="rgba(28,34,44,0.92)" stroke="rgba(190,158,92,0.22)" strokeWidth={2} pointerEvents="none" />
+                    style={{ fill: 'var(--mm-canvas)', stroke: 'var(--mm-canvas-stroke)' }} strokeWidth={2} pointerEvents="none" />
 
                 {flat.map((item) => {
                     const { node, box } = item;
@@ -414,6 +493,9 @@ const RegionMap: React.FC<Props> = ({
                     const 框高px = h * 画布比例;
                     const 字px = Math.min(目标字号[node.层级] || 11, 框宽px * 0.24, 框高px * 0.34);
                     const nameSize = 字px * px2world;
+                    // 旧实现副标题上限 9px、可读阈值 9.5px，导致控制势力永远不显示。
+                    const 副标题字px = Math.min(10.5, 字px * 0.78, 框高px * 0.2);
+                    const 显示副标题 = Boolean(node.控制势力) && 副标题字px >= 最小可读;
                     // 名称截断按「框在屏幕上能放几个字」算，避免全览时长地名糊成一团
                     const 可容字数 = Math.max(0, Math.floor(框宽px / Math.max(6, 字px * 0.98)));
                     const 叶名 = 可容字数 >= 2
@@ -433,11 +515,13 @@ const RegionMap: React.FC<Props> = ({
                     return (
                         <g key={node.ID}>
                             <rect data-node={node.ID} x={x} y={y} width={w} height={h} rx={radius}
-                                fill={isBuilding ? (isPlayerHere ? 'url(#map-bld-current)' : 'url(#map-bld-normal)') : FILL[node.层级]}
-                                stroke={isPlayerHere || isSelected ? 'rgba(255,196,96,0.95)' : STROKE[node.层级]}
                                 strokeWidth={(isPlayerHere || isSelected ? 1.6 : Math.max(0.8, Math.min(2, w * 0.012)))}
                                 filter={isBuilding ? 'url(#map-bld-shadow)' : undefined}
-                                style={{ cursor: 'pointer' }}
+                                style={{
+                                    cursor: 'pointer',
+                                    fill: isBuilding ? (isPlayerHere ? 'url(#map-bld-current)' : 'url(#map-bld-normal)') : FILL[node.层级],
+                                    stroke: isPlayerHere || isSelected ? 'var(--mm-select)' : STROKE[node.层级],
+                                }}
                                 onClick={() => handleSelect(node)}
                             >
                                 <title>{`${层级标签[node.层级]} · ${node.名称}${node.控制势力 ? `\n主导势力：${node.控制势力}` : ''}${node.描述 ? `\n${node.描述}` : ''}`}</title>
@@ -446,33 +530,36 @@ const RegionMap: React.FC<Props> = ({
                             {isBuilding && 框高px > 10 && (
                                 <g pointerEvents="none">
                                     <line x1={x + 屋檐缩进} y1={y + 屋檐高度} x2={x + w - 屋檐缩进} y2={y + 屋檐高度}
-                                        stroke="rgba(74,46,18,0.35)" strokeWidth={Math.max(0.6 * px2world, 0.6)} />
+                                        style={{ stroke: 'var(--mm-eave)' }} strokeWidth={Math.max(0.6 * px2world, 0.6)} />
                                     {门朝向 === 0 && <rect x={x + w / 2 - 门宽 / 2} y={y + h - 门高} width={门宽} height={门高}
-                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
                                     {门朝向 === 1 && <rect x={x + w - 门高} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
-                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
                                     {门朝向 === 2 && <rect x={x + w / 2 - 门宽 / 2} y={y} width={门宽} height={门高}
-                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
                                     {门朝向 === 3 && <rect x={x} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
-                                        rx={0.4 * px2world} fill="rgba(64,36,14,0.45)" />}
+                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
                                 </g>
                             )}
 
                             {显示名 && !有子节点 && 字px >= 最小可读 && 叶名 && (
                                 <g pointerEvents="none">
-                                    <text x={x + w / 2} y={y + h / 2 - (node.控制势力 ? nameSize * 0.34 : 0)}
+                                    <text x={x + w / 2} y={y + h / 2 - (显示副标题 ? nameSize * 0.34 : 0)}
                                         textAnchor="middle" dominantBaseline="middle"
-                                        fill={isPlayerHere ? '#ffe0a8' : 'rgba(250,240,220,0.94)'}
-                                        stroke="rgba(8,11,18,0.9)" strokeWidth={2 * px2world} paintOrder="stroke"
+                                        style={{
+                                            fill: isPlayerHere ? 'var(--mm-label-current)' : 'var(--mm-label)',
+                                            stroke: 'var(--mm-label-stroke)',
+                                        }}
+                                        strokeWidth={2 * px2world} paintOrder="stroke"
                                         fontSize={nameSize} fontFamily="serif" fontWeight="bold">
                                         {叶名}
                                     </text>
-                                    {node.控制势力 && Math.min(9, 字px * 0.78, 框高px * 0.2) >= 最小可读 && (
+                                    {显示副标题 && (
                                         <text x={x + w / 2} y={y + h / 2 + nameSize * 0.98}
                                             textAnchor="middle" dominantBaseline="middle"
-                                            fill="rgba(236,212,170,0.78)"
-                                            stroke="rgba(8,11,18,0.85)" strokeWidth={1.5 * px2world} paintOrder="stroke"
-                                            fontSize={Math.min(9, 字px * 0.78) * px2world} fontFamily="serif">
+                                            style={{ fill: 'var(--mm-subtitle)', stroke: 'var(--mm-subtitle-stroke)' }}
+                                            strokeWidth={1.5 * px2world} paintOrder="stroke"
+                                            fontSize={副标题字px * px2world} fontFamily="serif">
                                             {node.控制势力}
                                         </text>
                                     )}
@@ -482,7 +569,7 @@ const RegionMap: React.FC<Props> = ({
                             {有子节点 && 框宽px > 60 && 框高px > 40 && 父标签名 && Math.min(10.5, 框宽px * 0.18) >= 最小可读 && (
                                 <text x={x + 6 * px2world} y={y + 9 * px2world}
                                     textAnchor="start" dominantBaseline="middle" pointerEvents="none"
-                                    fill={isPlayerHere ? '#ffd48a' : 'rgba(248,230,196,0.92)'}
+                                    style={{ fill: isPlayerHere ? 'var(--mm-parent-current)' : 'var(--mm-parent)' }}
                                     fontSize={Math.min(10.5, 框宽px * 0.18) * px2world} fontFamily="serif"
                                     fontWeight={isPlayerHere ? 'bold' : 'normal'}>
                                     {父标签名}
@@ -503,7 +590,17 @@ const RegionMap: React.FC<Props> = ({
                     const rpx = Math.min(4.6, 框宽px * 0.055, 框高px * 0.085);
                     const r = Math.max(0.8, rpx * px2world);
                     const 名字px = Math.min(12, 框宽px * 0.22);
-                    const gapPx = clamp(框宽px / markers.length, rpx * 2.6, 46);
+                    // 单行容量按「可用宽度 / 圆点外径」算，超出就收成 +N 聚合标记，
+                    // 避免密集人物把圆点甩到相邻区块上。
+                    const 可用宽px = Math.max(1, 框宽px - rpx * 2 - 4);
+                    const 单行容量 = Math.max(1, Math.floor(可用宽px / (rpx * 2.8)));
+                    const 绘制标记: (人物点 & { aggregate?: boolean })[] = markers.length > 单行容量
+                        ? [
+                            ...markers.slice(0, 单行容量 - 1).map(marker => ({ ...marker })),
+                            { name: `+${markers.length - 单行容量 + 1}`, player: false, aggregate: true },
+                        ]
+                        : markers.map(marker => ({ ...marker }));
+                    const gapPx = Math.min(46, 可用宽px / Math.max(1, 绘制标记.length));
                     const 画名字 = 显示人物名 && 名字px >= 8
                         && gapPx >= (item.子节点.length > 0 ? 22 : 18)
                         && 框高px > (item.子节点.length > 0 ? 60 : 26);
@@ -511,22 +608,27 @@ const RegionMap: React.FC<Props> = ({
                         ? y + Math.max(4, item.track * 0.42)
                         : y + h - Math.max(r * 2.4, 7 * px2world);
                     return (
-                        <g key={`people-${item.node.ID}`} pointerEvents="none">
-                            {markers.map((marker, index) => {
-                                const cx = x + w / 2 + (index - (markers.length - 1) / 2) * gapPx * px2world;
+                        <g key={`people-${item.node.ID}`} data-people-node={item.node.ID} pointerEvents="none">
+                            {绘制标记.map((marker, index) => {
+                                const cx = x + w / 2 + (index - (绘制标记.length - 1) / 2) * gapPx * px2world;
                                 const 名宽px = Math.max(1, 名字文本(marker.name).length) * 名字px * 0.95;
                                 return (
                                     <g key={`${item.node.ID}-${marker.name}`}>
-                                        <circle cx={cx} cy={cy} r={r + 1.1 * px2world} fill="rgba(250,244,230,0.95)" />
+                                        <circle cx={cx} cy={cy} r={r + 1.1 * px2world} style={{ fill: 'var(--mm-halo)' }} />
                                         <circle cx={cx} cy={cy} r={r}
-                                            fill={marker.player ? '#40c870' : '#f06090'}
-                                            stroke={marker.player ? '#1f7a3f' : '#c03060'}
+                                            style={{
+                                                fill: marker.aggregate ? 'var(--mm-marker-aggregate)' : (marker.player ? 'var(--mm-marker-player)' : 'var(--mm-marker-npc)'),
+                                                stroke: 'var(--mm-marker-stroke)',
+                                            }}
                                             strokeWidth={1 * px2world} />
-                                        {画名字 && gapPx >= 名宽px * 1.05 && (
+                                        {画名字 && !marker.aggregate && gapPx >= 名宽px * 1.05 && (
                                             <text x={cx} y={cy + r + 4 * px2world}
                                                 textAnchor="middle" dominantBaseline="middle"
-                                                fill={marker.player ? '#86efac' : '#f9a8d4'}
-                                                stroke="rgba(8,11,18,0.92)" strokeWidth={2 * px2world} paintOrder="stroke"
+                                                style={{
+                                                    fill: marker.player ? 'var(--mm-marker-name-player)' : 'var(--mm-marker-name-npc)',
+                                                    stroke: 'var(--mm-marker-name-stroke)',
+                                                }}
+                                                strokeWidth={2 * px2world} paintOrder="stroke"
                                                 fontSize={名字px * px2world} fontFamily="serif" fontWeight="bold">
                                                 {名字文本(marker.name)}
                                             </text>
@@ -555,7 +657,7 @@ const RegionMap: React.FC<Props> = ({
                     { label: '⌂', title: '全览（双击地图同效）', action: () => 飞入(WORLD, 0, true) },
                 ].map(button => (
                     <button key={button.label} onClick={button.action} title={button.title}
-                        className="flex h-7 w-7 items-center justify-center rounded-full border border-wuxia-gold/30 bg-[#12161f]/90 text-sm text-wuxia-gold transition-colors hover:bg-wuxia-gold/15">
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-wuxia-gold/30 bg-[#12161f]/90 text-sm text-wuxia-gold transition-colors hover:bg-wuxia-gold/15 [html[data-theme='day']_&]:border-amber-800/40">
                         {button.label}
                     </button>
                 ))}
@@ -563,20 +665,20 @@ const RegionMap: React.FC<Props> = ({
             </div>
 
             {/* 图例：只显示当前地图里实际出现的内容 */}
-            <div className="absolute bottom-3 left-3 z-10 rounded-lg border border-wuxia-gold/20 bg-[#12161f]/90 px-3 py-2">
+            <div className="absolute bottom-3 left-3 z-10 rounded-lg border border-wuxia-gold/20 bg-[#12161f]/90 px-3 py-2 [html[data-theme='day']_&]:border-amber-800/30">
                 <div className="mb-1 text-xs font-bold tracking-[0.18em] text-wuxia-gold/70">图例</div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-300">
                     {Array.from(new Set(flat.map(item => item.node.层级)))
                         .sort((a, b) => (ORDER[a] ?? 9) - (ORDER[b] ?? 9))
                         .map(layer => (
                             <span key={layer} className="inline-flex items-center gap-1.5">
-                                <i className="h-2.5 w-2.5 rounded-sm" style={{ background: layer === '区地点' ? '#c89a5c' : FILL[layer] }} />
+                                <i className="h-2.5 w-2.5 rounded-sm" style={{ background: layer === '区地点' ? 'var(--mm-legend-block)' : FILL[layer] }} />
                                 {层级标签[layer]}
                             </span>
                         ))}
                     {有建筑 && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-amber-600/60 bg-amber-700/40" />场所</span>}
-                    {playerName && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#40c870] ring-1 ring-[#1f7a3f]" />玩家</span>}
-                    {有人物 && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#f06090] ring-1 ring-[#c03060]" />NPC</span>}
+                    {可见人物.player && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: 'var(--mm-marker-player)', boxShadow: '0 0 0 1px var(--mm-marker-stroke)' }} />玩家</span>}
+                    {可见人物.npc && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: 'var(--mm-marker-npc)', boxShadow: '0 0 0 1px var(--mm-marker-stroke)' }} />NPC</span>}
                 </div>
             </div>
 
