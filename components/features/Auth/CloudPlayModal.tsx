@@ -1028,7 +1028,11 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                         )}
 
                         <div className="grid gap-4">
-                            {cloudSaveTrees.length <= 0 ? (
+                            {busy === 'refresh' && cloudSaveTrees.length <= 0 ? (
+                                <div role="status" aria-live="polite" className="border border-dashed border-sky-400/30 bg-sky-950/10 px-4 py-8 text-center text-sm text-sky-100">
+                                    正在读取云端存档…
+                                </div>
+                            ) : cloudSaveTrees.length <= 0 ? (
                                 <div className="border border-dashed border-wuxia-gold/25 px-4 py-8 text-center text-sm text-gray-400">
                                     暂无云端存档。这里不混入本地存档；可以开启新存档，或先把本地存档复制到云端。
                                     {onStartNewGame && (

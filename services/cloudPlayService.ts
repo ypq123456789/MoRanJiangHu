@@ -160,7 +160,7 @@ const 构建存档系列ID = (save: Partial<存档结构>): string => {
 };
 
 const 读取摘要系列ID = (item: 云端存档摘要): string => (
-    readString(item.seriesId) || readString(item.rootCloudId) || `legacy-${readString(item.title) || 'unknown'}`
+    readString(item.seriesId) || readString(item.rootCloudId) || readString(item.parentCloudId || item.baseCloudId) || item.cloudId
 );
 
 const 读取清单缓存键 = (session: 云端游玩账号): string => `${MANIFEST_CACHE_PREFIX}${session.userId || session.username}`;
@@ -441,9 +441,9 @@ const 规范化云端存档清单 = (manifest: 云端存档清单): 云端存档
         .filter((item) => item && !item.deletedAt)
         .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
     sorted.forEach((raw) => {
-        const seriesId = 读取摘要系列ID(raw);
         const parentCloudId = readString(raw.parentCloudId || raw.baseCloudId);
         const parent = parentCloudId ? byId.get(parentCloudId) : undefined;
+        const seriesId = readString(raw.seriesId) || parent?.seriesId || readString(raw.rootCloudId) || parent?.rootCloudId || raw.cloudId;
         const rootCloudId = readString(raw.rootCloudId) || parent?.rootCloudId || parent?.cloudId || raw.cloudId;
         byId.set(raw.cloudId, {
             ...raw,
