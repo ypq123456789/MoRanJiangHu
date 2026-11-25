@@ -193,22 +193,33 @@ export const 读取缓存云端存档清单 = (session: 云端游玩账号): 云
 const randomBytes = (length: number): Uint8Array => crypto.getRandomValues(new Uint8Array(length));
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
-    let binary = '';
-    const chunkSize = 0x8000;
+    if (bytes.length === 0) return '';
+    // 24576 = 3 * 8192：3 的整数倍保证非末块独立 btoa 无 '=' 填充，避免拼接超大中间字符串或触发 Blink btoa 上限
+    const chunkSize = 24576;
+    const parts: string[] = [];
     for (let index = 0; index < bytes.length; index += chunkSize) {
-        const chunk = bytes.subarray(index, index + chunkSize);
-        binary += String.fromCharCode(...chunk);
+        const chunk = bytes.subarray(index, Math.min(index + chunkSize, bytes.length));
+        parts.push(btoa(String.fromCharCode.apply(null, chunk as unknown as number[])));
     }
-    return btoa(binary);
+    return parts.join('');
 };
 
 const base64ToBytes = (value: string): Uint8Array => {
-    const binary = atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
+    const normalized = value.replace(/\s+/g, '');
+    if (!normalized) return new Uint8Array(0);
+    const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
+    const totalBytes = Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+    const bytes = new Uint8Array(totalBytes);
+    const chunkChars = 32768; // 4 * 8192
+    let writeOffset = 0;
+    for (let offset = 0; offset < normalized.length; offset += chunkChars) {
+        const binary = atob(normalized.slice(offset, offset + chunkChars));
+        for (let index = 0; index < binary.length; index += 1) {
+            bytes[writeOffset] = binary.charCodeAt(index);
+            writeOffset += 1;
+        }
     }
-    return bytes;
+    return writeOffset === bytes.length ? bytes : bytes.subarray(0, writeOffset);
 };
 
 const arrayBufferToBytes = (buffer: ArrayBuffer): Uint8Array => new Uint8Array(buffer);
@@ -557,16 +568,10 @@ export const 加密字节 = async (bytes: Uint8Array, session: 云端游玩账�
     const iv = randomBytes(12);
     const key = await 导入加密密钥(session);
     const encrypted = arrayBufferToBytes(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
-    const payload = {
-        format: 'moranjianghu-cloud-play-encrypted',
-        version: 1,
-        algorithm: 'AES-GCM',
-        kdf: 'PBKDF2-SHA256',
-        iterations: PBKDF2_ITERATIONS,
-        iv: bytesToBase64(iv),
-        data: bytesToBase64(encrypted)
-    };
-    return TEXT_ENCODER.encode(JSON.stringify(payload));
+    const ivB64 = bytesToBase64(iv);
+    const dataB64 = bytesToBase64(encrypted);
+    const json = `{"format":"moranjianghu-cloud-play-encrypted","version":1,"algorithm":"AES-GCM","kdf":"PBKDF2-SHA256","iterations":${PBKDF2_ITERATIONS},"iv":"${ivB64}","data":"${dataB64}"}`;
+    return TEXT_ENCODER.encode(json);
 };
 
 export const 解密字节 = async (payloadBytes: Uint8Array, session: 云端游玩账号): Promise<Uint8Array> => {

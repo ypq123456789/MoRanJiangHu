@@ -976,6 +976,31 @@ export const 保存图片资源并返回同步地址 = async (dataUrl: string, p
     保存图片资源(dataUrl, { preferredId, returnRemote: true })
 );
 
+/** 读取单条图片资源原始记录：供云端设置同步逐项按预算读取，避免一次性把多张大图/音频载入内存。 */
+export const 读取单条图片资源原始记录 = async (id: string): Promise<{ id: string; dataUrl: string; createdAt: number } | null> => {
+    const normalized = String(id || '').trim();
+    if (!normalized) return null;
+    const db = await 初始化数据库();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([IMAGE_ASSETS_STORE], 'readonly');
+        const store = transaction.objectStore(IMAGE_ASSETS_STORE);
+        const request = store.get(normalized);
+        request.onsuccess = () => {
+            const dataUrl = typeof request.result?.dataUrl === 'string' ? request.result.dataUrl : '';
+            if (!dataUrl) {
+                resolve(null);
+                return;
+            }
+            resolve({
+                id: normalized,
+                dataUrl,
+                createdAt: Number.isFinite(request.result?.createdAt) ? Number(request.result.createdAt) : Date.now()
+            });
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
 /** 批量读取图片资源原始记录（云端设置联机同步专用）。 */
 export const 读取图片资源原始列表 = async (ids: string[]): Promise<Array<{ id: string; dataUrl: string; createdAt: number }>> => {
     const unique = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
@@ -2954,6 +2979,71 @@ export const 保存设置 = async (key: string, value: any): Promise<void> => {
     });
 };
 
+/** 仅读取全部设置键名（不反序列化 value）：避免小说拆分等超大本地数据在扫描阶段被一次性载入堆内存。 */
+export const 读取设置键列表 = async (): Promise<string[]> => {
+    const db = await 初始化数据库();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readonly');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        if (typeof store.getAllKeys === 'function') {
+            const request = store.getAllKeys();
+            request.onsuccess = () => {
+                const rawKeys = Array.isArray(request.result) ? request.result : [];
+                resolve(
+                    rawKeys
+                        .filter((key): key is string => typeof key === 'string')
+                        .map((key) => key.trim())
+                        .filter(Boolean)
+                );
+            };
+            request.onerror = () => reject(request.error);
+            return;
+        }
+        const keys: string[] = [];
+        const cursorReq = store.openKeyCursor();
+        cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result;
+            if (!cursor) {
+                resolve(keys);
+                return;
+            }
+            if (typeof cursor.key === 'string' && cursor.key.trim()) {
+                keys.push(cursor.key.trim());
+            }
+            cursor.continue();
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+    });
+};
+
+/** 按键读取单条设置记录（含 updatedAt），供云端同步逐项读取并在超限时立即释放引用。 */
+export const 读取单条设置记录 = async (
+    key: string
+): Promise<{ key: string; value: any; updatedAt: number; category?: string } | null> => {
+    const normalized = typeof key === 'string' ? key.trim() : '';
+    if (!normalized) return null;
+    const db = await 初始化数据库();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readonly');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        const request = store.get(normalized);
+        request.onsuccess = () => {
+            const record = request.result;
+            if (!record || typeof record.key !== 'string') {
+                resolve(null);
+                return;
+            }
+            resolve({
+                key: record.key.trim(),
+                value: record.value,
+                updatedAt: Number.isFinite(record.updatedAt) ? Number(record.updatedAt) : 0,
+                category: typeof record.category === 'string' ? record.category : undefined
+            });
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
 /** 一致性设置快照：key/value/updatedAt 出自同一只读事务，供云端同步打包使用。 */
 export const 读取设置一致性快照 = async (): Promise<Array<{ key: string; value: any; updatedAt: number; category?: string }>> => {
     const records = await 读取全部设置记录();
@@ -2996,6 +3086,44 @@ export const 静默删除设置 = async (key: string): Promise<void> => {
     });
 };
 
+/** 条件静默删除：仅当现存记录不存在或 updatedAt 严格小于 maxUpdatedAt 时删除，无需全表扫描。 */
+export const 条件静默删除设置 = async (
+    key: string,
+    maxUpdatedAt: number
+): Promise<boolean> => {
+    const normalized = typeof key === 'string' ? key.trim() : '';
+    if (!normalized) return false;
+    const db = await 初始化数据库();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
+        const store = transaction.objectStore(SETTINGS_STORE);
+        let deleted = false;
+        let settled = false;
+        const getRequest = store.get(normalized);
+        getRequest.onsuccess = () => {
+            const existing = getRequest.result;
+            if (!existing) {
+                settled = true;
+                resolve(false);
+                return;
+            }
+            const existingTime = Number.isFinite(existing?.updatedAt) ? Number(existing.updatedAt) : 0;
+            if (existingTime >= maxUpdatedAt) {
+                settled = true;
+                resolve(false);
+                return;
+            }
+            deleted = true;
+            store.delete(normalized);
+        };
+        getRequest.onerror = () => reject(getRequest.error);
+        transaction.oncomplete = () => {
+            if (!settled) resolve(deleted);
+        };
+        transaction.onerror = () => reject(transaction.error);
+    });
+};
+
 /** 条件静默保存：仅当现存记录 updatedAt 严格小于 minUpdatedAt 时写入，读比写在同一事务内完成。 */
 export const 条件静默保存设置 = async (
     key: string,
@@ -3007,14 +3135,18 @@ export const 条件静默保存设置 = async (
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([SETTINGS_STORE], 'readwrite');
         const store = transaction.objectStore(SETTINGS_STORE);
+        let written = false;
+        let settled = false;
         const getRequest = store.get(key);
         getRequest.onsuccess = () => {
             const existing = getRequest.result;
             const existingTime = Number.isFinite(existing?.updatedAt) ? Number(existing.updatedAt) : -1;
             if (existing && existingTime >= minUpdatedAt) {
+                settled = true;
                 resolve(false);
                 return;
             }
+            written = true;
             store.put({
                 key,
                 value,
@@ -3022,9 +3154,11 @@ export const 条件静默保存设置 = async (
                 updatedAt: minUpdatedAt,
                 category: def?.category || 'unknown'
             });
-            resolve(true);
         };
         getRequest.onerror = () => reject(getRequest.error);
+        transaction.oncomplete = () => {
+            if (!settled) resolve(written);
+        };
         transaction.onerror = () => reject(transaction.error);
     });
 };

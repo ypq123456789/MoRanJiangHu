@@ -118,7 +118,7 @@ const CloudSettingsSyncPanel: React.FC<{ compact?: boolean }> = ({ compact = fal
             // 轻量上报：不读存档快照，避免多存档用户内存过载。
             const result = await submitLightweightDiagnosticReport('panel manual');
             setDiagMessage(result
-                ? `已上传（ID: ${result.id.slice(-12)}），请告诉 WorkBuddy 这个 ID。`
+                ? `已上传（ID: ${result.id.slice(-12)}），请将该 ID 发给维护人员定位。`
                 : '暂无可上报的诊断日志，请先触发一次同步。');
         } catch (error: any) {
             setDiagMessage(`上传失败：${error?.message || String(error)}`);
@@ -144,7 +144,7 @@ const CloudSettingsSyncPanel: React.FC<{ compact?: boolean }> = ({ compact = fal
             </div>
 
             <div className="mt-2 text-xs text-gray-400">
-                登录后所有设置（含自定义开局预设、图片资源）自动加密同步到云端账号；后台同步无需手动操作。
+                登录后常规设置与自定义开局预设、小体积图片资源自动加密同步；小说原文拆分等超大本机数据不随设置上传，避免占用浏览器内存。
             </div>
 
             <div className="mt-3 space-y-2">
@@ -174,6 +174,14 @@ const CloudSettingsSyncPanel: React.FC<{ compact?: boolean }> = ({ compact = fal
                         value={<span className="text-sm font-normal">{格式化时间(status.lastDownloadAt)}</span>}
                         tone={status.lastDownloadAt ? 'good' : 'normal'}
                     />
+                </div>
+            )}
+
+            {(status.skippedOversizedCount || 0) > 0 && (
+                <div className="mt-3 rounded border border-amber-900/40 bg-amber-950/15 px-3 py-2 text-xs text-amber-200/90 break-words">
+                    已自动跳过 {status.skippedOversizedCount} 项超大本机资源
+                    {status.skippedOversizedKeys && status.skippedOversizedKeys.length > 0 ? `（${status.skippedOversizedKeys.join('、')}）` : ''}
+                    ，其余开局预设与常规设置已正常同步。
                 </div>
             )}
 

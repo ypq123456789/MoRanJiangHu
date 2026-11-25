@@ -5,6 +5,8 @@ const state = vi.hoisted(() => ({
     assets: new Map<string, { id: string; dataUrl: string; createdAt: number }>(),
     cloudPayload: '' as string,
     apiCalls: [] as string[],
+    readSettingCalls: [] as string[],
+    getAllSnapshotCalls: 0,
     changeListeners: new Set<(change: any) => void>(),
     session: {
         userId: 'CP-test',
@@ -15,18 +17,28 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../services/dbService', () => ({
-    获取设置管理清单: async () => Array.from(state.settings.entries()).map(([key, record]) => ({
-        key,
-        label: key,
-        category: 'customization',
-        categoryLabel: '',
-        description: '',
-        size: 0,
-        summary: '',
-        updatedAt: record.updatedAt,
-        internal: false,
-        known: true
-    })),
+    获取设置管理清单: async () => {
+        state.getAllSnapshotCalls += 1;
+        return Array.from(state.settings.entries()).map(([key, record]) => ({
+            key,
+            label: key,
+            category: 'customization',
+            categoryLabel: '',
+            description: '',
+            size: 0,
+            summary: '',
+            updatedAt: record.updatedAt,
+            internal: false,
+            known: true
+        }));
+    },
+    读取设置键列表: async () => Array.from(state.settings.keys()),
+    读取单条设置记录: async (key: string) => {
+        state.readSettingCalls.push(key);
+        const record = state.settings.get(key);
+        if (!record) return null;
+        return { key, value: record.value, updatedAt: record.updatedAt, category: 'customization' };
+    },
     读取设置: async (key: string) => state.settings.get(key)?.value ?? null,
     静默保存设置: async (key: string, value: unknown, updatedAt: number) => {
         state.settings.set(key, { value, updatedAt });
@@ -34,18 +46,28 @@ vi.mock('../services/dbService', () => ({
     静默删除设置: async (key: string) => {
         state.settings.delete(key);
     },
+    条件静默删除设置: async (key: string, maxUpdatedAt: number) => {
+        const existing = state.settings.get(key);
+        if (!existing || existing.updatedAt >= maxUpdatedAt) return false;
+        state.settings.delete(key);
+        return true;
+    },
     条件静默保存设置: async (key: string, value: unknown, minUpdatedAt: number) => {
         const existing = state.settings.get(key);
         if (existing && existing.updatedAt >= minUpdatedAt) return false;
         state.settings.set(key, { value, updatedAt: minUpdatedAt });
         return true;
     },
-    读取设置一致性快照: async () => Array.from(state.settings.entries()).map(([key, record]) => ({
-        key,
-        value: record.value,
-        updatedAt: record.updatedAt,
-        category: 'customization'
-    })),
+    读取设置一致性快照: async () => {
+        state.getAllSnapshotCalls += 1;
+        return Array.from(state.settings.entries()).map(([key, record]) => ({
+            key,
+            value: record.value,
+            updatedAt: record.updatedAt,
+            category: 'customization'
+        }));
+    },
+    读取单条图片资源原始记录: async (id: string) => state.assets.get(id) ?? null,
     读取图片资源原始列表: async (ids: string[]) => ids
         .map((id) => state.assets.get(id))
         .filter((item): item is { id: string; dataUrl: string; createdAt: number } => Boolean(item)),
@@ -106,6 +128,8 @@ describe('云端设置联机同步', () => {
         state.changeListeners.clear();
         state.cloudPayload = '';
         state.apiCalls = [];
+        state.readSettingCalls = [];
+        state.getAllSnapshotCalls = 0;
         const 存储 = new Map<string, string>();
         vi.stubGlobal('localStorage', {
             getItem: (key: string) => 存储.get(key) ?? null,
@@ -247,5 +271,93 @@ describe('云端设置联机同步', () => {
         await 拉取云端设置();
 
         expect(state.assets.get('asset-1')?.dataUrl).toBe('data:image/png;base64,AAAA');
+    });
+
+    it('反序列化前排除小说拆分与NPC备份等超大本机键，绝不触发全表 getAll 或读取排除键内容', async () => {
+        state.settings.set('new_game_custom_start_presets', {
+            value: [{ id: 'preset_4', 名称: '4' }],
+            updatedAt: 1000
+        });
+        state.settings.set('novel_decomposition_datasets', {
+            value: { huge: '巨量小说原文' },
+            updatedAt: 2000
+        });
+        state.settings.set('novel_decomposition_tasks', {
+            value: { hugeTask: '拆分任务快照' },
+            updatedAt: 2001
+        });
+        state.settings.set('npc_variable_backups', {
+            value: [{ id: 'b1' }],
+            updatedAt: 2002
+        });
+        state.settings.set('image_asset_migration_v2', {
+            value: true,
+            updatedAt: 2003
+        });
+
+        const { 同步云端设置 } = await import('../services/cloudSettingsSync');
+        const result = await 同步云端设置(state.session);
+
+        expect(result.ok).toBe(true);
+        expect(state.getAllSnapshotCalls).toBe(0);
+        expect(state.readSettingCalls).toContain('new_game_custom_start_presets');
+        expect(state.readSettingCalls).not.toContain('novel_decomposition_datasets');
+        expect(state.readSettingCalls).not.toContain('novel_decomposition_tasks');
+        expect(state.readSettingCalls).not.toContain('npc_variable_backups');
+        expect(state.readSettingCalls).not.toContain('image_asset_migration_v2');
+    });
+
+    it('单项超预算或含音频大资源时仅跳过超大项，核心开局预设方案4仍正常同步', async () => {
+        state.settings.set('new_game_custom_start_presets', {
+            value: [{ id: 'preset_4', 名称: '4' }],
+            updatedAt: 1000
+        });
+        state.settings.set('extra_worldbooks', {
+            value: '超'.repeat(1_600_000), // ~4.8MB UTF-8 > 单条 4MB 上限
+            updatedAt: 1001
+        });
+        state.settings.set('music_tracks', {
+            value: [{ id: 'm1', url: 'wuxia-asset://audio-big' }, { id: 'm2', cover: 'wuxia-asset://img-small' }],
+            updatedAt: 1002
+        });
+        state.assets.set('audio-big', {
+            id: 'audio-big',
+            dataUrl: 'data:audio/mpeg;base64,BBBBBBBB',
+            createdAt: 100
+        });
+        state.assets.set('img-small', {
+            id: 'img-small',
+            dataUrl: 'data:image/png;base64,CCCC',
+            createdAt: 101
+        });
+
+        const { 同步云端设置 } = await import('../services/cloudSettingsSync');
+        const result = await 同步云端设置(state.session);
+
+        expect(result.ok).toBe(true);
+        expect(result.skippedKeys).toContain('extra_worldbooks');
+        expect(result.assetCount).toBe(1);
+
+        const decoded = JSON.parse(new TextDecoder().decode(
+            Uint8Array.from(atob(state.cloudPayload), (char) => char.charCodeAt(0)).slice(2)
+        ));
+        expect(decoded.settings.map((s: any) => s.key)).toContain('new_game_custom_start_presets');
+        expect(decoded.settings.map((s: any) => s.key)).not.toContain('extra_worldbooks');
+        expect(decoded.assets.map((a: any) => a.id)).toEqual(['img-small']);
+    });
+
+    it('24KB 分块 Base64 编解码在跨块与非 3 字节整数倍长度下精确可逆', async () => {
+        const { base64编码, base64解码 } = await import('../services/cloudSettingsSync');
+        const original = new Uint8Array(70_003); // 跨 3 个 24576 块且末尾余 1 字节
+        for (let i = 0; i < original.length; i += 1) {
+            original[i] = (i * 131 + 17) & 0xff;
+        }
+        const encoded = base64编码(original);
+        // 中间不能出现非末尾 '=' 填充
+        expect(encoded.slice(0, -2)).not.toContain('=');
+        const roundtrip = base64解码(encoded);
+        expect(roundtrip.length).toBe(original.length);
+        expect(Array.from(roundtrip.subarray(0, 64))).toEqual(Array.from(original.subarray(0, 64)));
+        expect(Array.from(roundtrip.subarray(-64))).toEqual(Array.from(original.subarray(-64)));
     });
 });

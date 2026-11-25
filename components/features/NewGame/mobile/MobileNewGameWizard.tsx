@@ -13,6 +13,7 @@ import NewGameDiyTools from '../NewGameDiyTools';
 import GeneratedGenderSelector from '../GeneratedGenderSelector';
 import NewGameCurrencySystemSetup from '../NewGameCurrencySystemSetup';
 import * as dbService from '../../../../services/dbService';
+import { 订阅云端设置回填 } from '../../../../services/cloudSettingsSync';
 import { 读取小说拆分数据集列表 } from '../../../../services/novelDecompositionStore';
 import { 合并去重开局预设方案, 标准化开局预设方案, 生成自定义开局预设ID, 自定义开局预设存储键, 构建开局运行时快照, 构建预设表单恢复结果, 构建预设直开恢复结果, 获取快速重开运行时恢复参数 } from '../../../../utils/customNewGamePresets';
 import {
@@ -1392,6 +1393,31 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
             }
         };
         加载自定义建角配置();
+        const 取消订阅云端回填 = 订阅云端设置回填((keys) => {
+            const changed = new Set(keys);
+            if (changed.has(自定义天赋存储键)) {
+                void dbService.读取设置(自定义天赋存储键).then((savedTalents) => {
+                    设置自定义天赋列表(Array.isArray(savedTalents) ? 合并去重天赋(savedTalents as 天赋结构[]) : []);
+                }).catch(() => undefined);
+            }
+            if (changed.has(自定义背景存储键)) {
+                void dbService.读取设置(自定义背景存储键).then((savedBackgrounds) => {
+                    设置自定义背景列表(Array.isArray(savedBackgrounds) ? 合并去重背景(savedBackgrounds as 背景结构[]) : []);
+                }).catch(() => undefined);
+            }
+            if (changed.has(自定义开局预设存储键)) {
+                void dbService.读取设置(自定义开局预设存储键).then((savedStartPresets) => {
+                    设置自定义开局预设列表(
+                        Array.isArray(savedStartPresets)
+                            ? 合并去重开局预设方案(savedStartPresets.map((item) => 标准化开局预设方案(item)).filter(Boolean) as 开局预设方案结构[])
+                            : []
+                    );
+                }).catch(() => undefined);
+            }
+        });
+        return () => {
+            取消订阅云端回填();
+        };
     }, []);
 
     useEffect(() => {
