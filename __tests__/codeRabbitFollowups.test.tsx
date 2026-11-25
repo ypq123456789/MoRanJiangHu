@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render } from '@testing-library/react';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import RegionMap from '../components/features/Map/RegionMap';
 import LocationBrowser from '../components/features/Map/LocationBrowser';
 import { 规范化角色物品容器映射 } from '../hooks/useGame/stateTransforms';
@@ -23,7 +23,13 @@ beforeAll(() => {
 // React scheduler 通过 setImmediate 派发收尾工作；本文件多次 render RegionMap，
 // 多文件并发时若不等队列排空，回调会在 jsdom 环境销毁后访问 window，触发
 // unhandled error 并让整轮 CI 失败。这里在 teardown 前把同一队列刷干净。
+afterEach(async () => {
+    cleanup();
+    await new Promise(resolve => setImmediate(resolve));
+});
+
 afterAll(async () => {
+    cleanup();
     await new Promise(resolve => setImmediate(resolve));
     await new Promise(resolve => setImmediate(resolve));
 });
