@@ -6,6 +6,7 @@ import {
     拉取云端设置,
     type 云端设置同步状态
 } from '../../../services/cloudSettingsSync';
+import { getDiagnosticReportQuota, submitDiagnosticReport } from '../../../services/diagnosticReport';
 
 /**
  * 云端设置同步状态面板
@@ -76,7 +77,8 @@ const 统计项: React.FC<{ label: string; value: React.ReactNode; tone?: 'norma
 
 const CloudSettingsSyncPanel: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
     const [status, setStatus] = React.useState<云端设置同步状态>(() => 读取云端设置同步状态());
-    const [manualBusy, setManualBusy] = React.useState<'' | 'sync' | 'pull'>('');
+    const [manualBusy, setManualBusy] = React.useState<'' | 'sync' | 'pull' | 'diag'>('');
+    const [diagMessage, setDiagMessage] = React.useState('');
 
     React.useEffect(() => 订阅云端设置同步状态((next) => setStatus(next)), []);
 
@@ -103,6 +105,25 @@ const CloudSettingsSyncPanel: React.FC<{ compact?: boolean }> = ({ compact = fal
             await 拉取云端设置();
         } catch (error: any) {
             console.warn('手动拉取云端设置失败:', error);
+        } finally {
+            setManualBusy('');
+        }
+    };
+
+    const handleDiagnosticReport = async () => {
+        if (running) return;
+        setManualBusy('diag');
+        setDiagMessage('正在上传诊断日志...');
+        try {
+            const quota = getDiagnosticReportQuota();
+            if (quota.remaining <= 0) {
+                setDiagMessage('今日诊断上报次数已用完，请明天再试。');
+                return;
+            }
+            const result = await submitDiagnosticReport();
+            setDiagMessage(`已上传（ID: ${result.id.slice(-12)}），请告诉 WorkBuddy 这个 ID。`);
+        } catch (error: any) {
+            setDiagMessage(`上传失败：${error?.message || String(error)}`);
         } finally {
             setManualBusy('');
         }
@@ -181,7 +202,18 @@ const CloudSettingsSyncPanel: React.FC<{ compact?: boolean }> = ({ compact = fal
                 >
                     {manualBusy === 'pull' ? '拉取中...' : '从云端拉取'}
                 </button>
+                <button
+                    type="button"
+                    disabled={running}
+                    onClick={() => { void handleDiagnosticReport(); }}
+                    className="border border-amber-400/35 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+                >
+                    {manualBusy === 'diag' ? '上传中...' : '上传诊断日志'}
+                </button>
             </div>
+            {diagMessage && (
+                <div className="mt-2 break-words text-[11px] text-amber-200/90">{diagMessage}</div>
+            )}
         </div>
     );
 };

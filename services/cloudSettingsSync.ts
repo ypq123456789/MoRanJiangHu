@@ -1,4 +1,6 @@
 import * as dbService from './dbService';
+import { recordDiagnosticLog } from './diagnosticLog';
+import { submitDiagnosticReport } from './diagnosticReport';
 import {
     读取云端游玩会话,
     加密字节,
@@ -257,10 +259,16 @@ const 通知云端设置回填 = (keys: string[]): void => {
 // ── 编解码工具 ──────────────────────────────────────────────────────
 
 const base64编码 = (bytes: Uint8Array): string => {
+    // 🔴 不用 String.fromCharCode(...chunk)：Android WebView 对超长展开参数有栈/参数上限，
+    // 某些版本会静默返回空串或抛错，导致「设置上传失败：加密结果为空」（老板 APK 症状）。
+    // 改用固定 8KB 小循环 + String.fromCharCode 逐字节，兼容低端机与老 WebView。
     let binary = '';
-    const chunkSize = 0x8000;
-    for (let index = 0; index < bytes.length; index += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    const step = 8192;
+    for (let index = 0; index < bytes.length; index += step) {
+        let part = '';
+        const end = Math.min(index + step, bytes.length);
+        for (let offset = index; offset < end; offset += 1) part += String.fromCharCode(bytes[offset]);
+        binary += part;
     }
     return btoa(binary);
 };
@@ -290,6 +298,29 @@ const 收集图片资源引用ID = (value: unknown, refs: Set<string>, seen: Wea
 
 /** 云端包损坏（密钥变更 / 旧版残留 / 半截数据）：可自愈——以本机设置为准覆盖上传。 */
 class 云端设置包损坏错误 extends Error {}
+
+// ── 同步诊断埋点（远程可查，仅记录体积/阶段/错误，绝不记录密码或设置正文） ──
+
+const 诊断去重键 = 'moranjianghu.cloudSettingsSync.diagnosticReported';
+const 记录同步诊断 = (stage: string, detail: Record<string, unknown>): void => {
+    recordDiagnosticLog('info', [`[cloud-settings-sync] ${stage}`, detail]);
+};
+
+/** 同步失败时自动上报一次诊断（同一错误只报一次），便于远程定位用户侧问题。 */
+const 上报同步失败诊断 = (stage: string, error: unknown, detail: Record<string, unknown>): void => {
+    const reason = error instanceof Error ? error.message : String(error);
+    const dedupe = `${stage}:${reason}`;
+    try {
+        const last = localStorage.getItem(诊断去重键) || '';
+        if (last === dedupe) return;
+        localStorage.setItem(诊断去重键, dedupe);
+    } catch { /* 存储失败仍尝试上报 */ }
+    recordDiagnosticLog('error', [
+        `[cloud-settings-sync] ${stage} 失败`,
+        { reason, ...detail }
+    ]);
+    void submitDiagnosticReport().catch(() => undefined);
+};
 
 /** 简易非加密哈希，仅用于判断本地设置快照是否变化，避免重复上传。 */
 const 快照哈希文本 = (value: string): string => {
@@ -409,6 +440,7 @@ const 构建本地设置包 = async (session: 云端游玩账号): Promise<{ pac
     const scan = await 扫描设置指纹();
     const fingerprint = 组合本地指纹(session, scan);
     const assets = await dbService.读取图片资源原始列表(Array.from(scan.assetIds));
+    const deletions = 读取本地墓碑(session);
     const pack: 云端设置包 = {
         format: 云端设置格式,
         version: 云端设置版本,
@@ -416,14 +448,17 @@ const 构建本地设置包 = async (session: 云端游玩账号): Promise<{ pac
         savedAt: new Date().toISOString(),
         settings: scan.settings,
         assets,
-        deletions: 读取本地墓碑(session)
+        deletions
     };
+    记录同步诊断('collect', {
+        settings: scan.settings.length,
+        settingKeys: scan.settings.map((item) => item.key).slice(0, 40),
+        assetRefs: scan.assetIds.size,
+        assetsLoaded: assets.length,
+        assetChars: assets.reduce((sum, item) => sum + item.dataUrl.length, 0),
+        deletions: deletions.length
+    });
     return { pack, fingerprint };
-};
-
-const 打包为密文 = async (plain: string, session: 云端游玩账号): Promise<string> => {
-    const encrypted = await 加密字节(文本编码器.encode(plain), session);
-    return base64编码(encrypted);
 };
 
 const 解密为设置包 = async (payload: string, session: 云端游玩账号): Promise<云端设置包 | null> => {
@@ -520,11 +555,53 @@ const 上传设置到云端 = async (
             assetCount: pack.assets.length
         });
         onProgress?.({ stage: 'encrypt', message: '正在加密设置数据...', settingCount: pack.settings.length, assetCount: pack.assets.length });
+        // 🔴 会话缺密码/盐时，Android WebView 的 crypto.subtle 可能产出空密文；提前拦截并提示重新登录。
+        if (!session?.password || !session?.clientSalt) {
+            throw new Error('云端账号会话缺少加密凭据，请退出后重新登录云端账号再同步。');
+        }
         // 整包 JSON 只在这里构造一次；加密完立刻释放引用，缩短大字符串存活时间。
         let plain = JSON.stringify(pack);
-        const payload = await 打包为密文(plain, session);
+        const plainChars = plain.length;
+        const plainBytes = 文本编码器.encode(plain);
+        let encryptedBytes: Uint8Array = new Uint8Array(0);
+        let encryptError = '';
+        try {
+            encryptedBytes = await 加密字节(plainBytes, session);
+        } catch (error: any) {
+            encryptError = error?.message || String(error);
+        }
+        let payload = encryptedBytes.length > 0 ? base64编码(encryptedBytes) : '';
+        const firstBase64Length = payload.length;
+        if (!payload && encryptedBytes.length > 0) {
+            // WebView 个别版本 btoa 对大字符串可能返回空：降级用分块 btoa 再试一次。
+            try {
+                const chunks: string[] = [];
+                for (let offset = 0; offset < encryptedBytes.length; offset += 4096) {
+                    chunks.push(btoa(String.fromCharCode(...encryptedBytes.subarray(offset, offset + 4096))));
+                }
+                payload = chunks.join('');
+            } catch (error: any) {
+                encryptError = `${encryptError} | chunk-btoa: ${error?.message || String(error)}`;
+            }
+        }
         plain = '';
-        if (!payload) throw new Error('本机设置加密结果为空，已中止上传（未损坏云端数据）。');
+        // 🔴 完整加密链路埋点：明文/密文/编码各阶段字节数，能直接定位是哪一步出错。
+        记录同步诊断('encrypt', {
+            plainChars,
+            plainBytes: plainBytes.length,
+            encryptedBytes: encryptedBytes.length,
+            firstBase64Length,
+            finalBase64Length: payload.length,
+            encryptError,
+            saltChars: session.clientSalt.length,
+            passwordChars: session.password.length,
+            cryptoAvailable: typeof crypto !== 'undefined' && Boolean(crypto.subtle)
+        });
+        if (!payload) {
+            throw new Error(
+                `本机设置加密结果为空，已中止上传（未损坏云端数据）。诊断：明文 ${plainBytes.length} 字节 / 密文 ${encryptedBytes.length} 字节 / 编码 ${firstBase64Length} 字符 / 错误 ${encryptError || '无'}`
+            );
+        }
         更新同步状态({ stage: 'upload', message: '正在上传设置到云端...' });
         onProgress?.({ stage: 'upload', message: '正在上传设置到云端...', settingCount: pack.settings.length, assetCount: pack.assets.length });
         await callCloudPlayApi('settings-upload', {
@@ -554,6 +631,12 @@ const 上传设置到云端 = async (
         if (任务仍有效(generation, session)) 写入同步状态(session, { pendingUpload: true });
         更新同步状态({ stage: 'error', message: `设置上传失败：${message}，将在恢复网络后重试`, lastError: message });
         onProgress?.({ stage: 'error', message: `设置上传失败：${message}，将在恢复网络后重试` });
+        上报同步失败诊断('upload', error, {
+            message,
+            payloadChars: 0,
+            account: session.username,
+            cryptoAvailable: typeof crypto !== 'undefined' && Boolean(crypto.subtle)
+        });
         return { ok: false, settingCount: 0, assetCount: 0, error: message };
     }
 };
@@ -624,6 +707,7 @@ const 下载并合并云端设置 = async (
         }
         更新同步状态({ stage: 'error', message: `设置下载失败：${message}`, lastError: message });
         if (!options?.silent) onProgress?.({ stage: 'error', message: `设置下载失败：${message}` });
+        上报同步失败诊断('download', error, { message, account: session.username });
         return { ok: false, exists: false, changed: 0, assetCount: 0, settingCount: 0, error: message };
     }
 };
