@@ -606,12 +606,14 @@ const 下载并合并云端设置 = async (
     } catch (error: any) {
         const message = error?.message || String(error);
         if (error instanceof 云端设置包损坏错误) {
+            // 🔴 账号已切换时不能当「可自愈坏包」处理，否则上层会继续用旧 session 触发上传。
+            if (!任务仍有效(generation, session)) {
+                return { ok: false, exists: false, changed: 0, assetCount: 0, settingCount: 0, error: '账号已切换，本次下载已取消' };
+            }
             // 🔴 坏包自愈：视为「云端暂无可用设置」，让上层把本机设置覆盖上传，
             // 否则旧账号会永久卡在下载失败，设置再也同步不上去（v1.0.714 老板账号即此症状）。
             // 同时清掉上传指纹/哈希，避免预检误判「无变化」而跳过这次覆盖上传。
-            if (任务仍有效(generation, session)) {
-                写入同步状态(session, { lastUploadHash: '', lastUploadFingerprint: '', pendingUpload: true });
-            }
+            写入同步状态(session, { lastUploadHash: '', lastUploadFingerprint: '', pendingUpload: true });
             更新同步状态({
                 stage: 'done',
                 message: '云端设置数据损坏，将以本机设置为准重新上传',

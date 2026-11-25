@@ -101,7 +101,14 @@ const sync = page.getByRole('button', { name: '立即同步' }).first();
 if (await sync.count()) {
     console.log('=== 点「立即同步」 ===');
     await sync.click({ timeout: 5000 }).catch((e) => console.log('点击失败', e.message.slice(0, 200)));
-    await page.waitForTimeout(4000);
+    // 同步是异步的：等待面板状态徽章离开「整理设置/加密中/上传中/拉取云端」等中间态，
+    // 或至少等到出现 settings-upload 响应，再结束采集，避免打印未完成的中间状态。
+    const settled = await page.waitForFunction(() => {
+        const text = document.body.innerText || '';
+        return /已完成|失败|已跳过同步/.test(text);
+    }, undefined, { timeout: 30000 }).then(() => true).catch(() => false);
+    if (!settled) console.log('提示：30 秒内同步未进入终态');
+    await page.waitForTimeout(800);
     console.log('=== 点同步后请求 ===');
     reqs.slice(-10).forEach((r) => console.log(JSON.stringify(r)));
     console.log('=== 面板文本 ===');

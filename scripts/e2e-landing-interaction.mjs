@@ -65,7 +65,11 @@ console.log('=== 更新日志遮罩 ===');
 const backdrop = page.locator('.release-notes-backdrop');
 const hasBackdrop = await backdrop.count() > 0;
 console.log('  遮罩出现:', hasBackdrop);
-if (hasBackdrop) {
+// 线上必须弹更新日志（抑制键未预置）；本地静态服务器无 runtimeReleaseInfo 接口，允许不弹。
+const isLocal = /127\.0\.0\.1|localhost/.test(target);
+if (!hasBackdrop && !isLocal) {
+    assert(false, '线上首次打开应弹出更新日志遮罩');
+} else if (hasBackdrop) {
     // 点遮罩空白处（不是面板内部）应能关闭
     await backdrop.click({ position: { x: 8, y: 8 }, timeout: 5000 }).catch((e) => {
         console.log('  遮罩点击异常:', e.message.split('\n')[0]);
@@ -91,11 +95,9 @@ const hasChoice = /踏入江湖|重入江湖/.test(bodyText);
 assert(hasChoice, '点击后出现本地游玩选择界面（踏入江湖/重入江湖）');
 
 console.log('=== 控制台错误 ===');
-// 本地静态服务器没有 Worker API，资源 404 不计为页面缺陷；线上环境则计入。
-const isLocal = /127\.0\.0\.1|localhost/.test(target);
-// 本地静态服务器缺 Worker/CORS 配置，所有 [console.error] 资源类报错都属环境限制；
-// 真正的 JS 异常以 [pageerror] 为准（线上/本地都必须为 0）。
-const realErrors = errors.filter((e) => e.startsWith('[pageerror]') || !isLocal);
+// 只忽略已确认的本地资源错误特征（缺 Worker API / CORS）；其它 console.error 一律保留。
+const LOCAL_RESOURCE_ERROR = /Failed to load resource.*(404|405|501|ERR_FAILED)|WebSocket connection.*\/api\/.*failed|CORS policy: Response to preflight|Access to fetch at .*\/release-info\.json/;
+const realErrors = errors.filter((e) => !(isLocal && LOCAL_RESOURCE_ERROR.test(e)));
 assert(realErrors.length === 0, `无页面错误${realErrors.length ? '：' + realErrors[0].slice(0, 200) : ''}`);
 
 await browser.close();
