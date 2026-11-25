@@ -87,6 +87,35 @@ const ReleaseNotesModal: React.FC<Props> = ({
     onOpenGithub,
     releaseInfo = RELEASE_INFO
 }) => {
+    // 🔴 Esc 关闭 + 焦点管理：Hook 必须在 early return 之前注册（React Hooks 规则）。
+    // 打开时把焦点移入弹窗，Tab 限制在弹窗内，避免键盘用户 Tab 到遮罩后面的控件。
+    const panelRef = React.useRef<HTMLDivElement>(null);
+    React.useEffect(() => {
+        if (!open) return;
+        const previousFocus = document.activeElement as HTMLElement | null;
+        panelRef.current?.focus();
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+            if (event.key !== 'Tab' || !panelRef.current) return;
+            const focusables = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            ));
+            if (focusables.length === 0) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault(); last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault(); first.focus();
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            previousFocus?.focus?.();
+        };
+    }, [open, onClose]);
+
     if (!open) return null;
 
     const normalizedHistory = buildNormalizedHistory(releaseInfo);
@@ -95,8 +124,18 @@ const ReleaseNotesModal: React.FC<Props> = ({
     const history = normalizedHistory.slice(1);
 
     return (
-        <div className="release-notes-backdrop fixed inset-0 z-[410] flex items-center justify-center bg-black/82 px-4 py-6 backdrop-blur-md animate-fadeIn">
-            <div className="release-notes-panel relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-wuxia-gold/25 bg-[radial-gradient(circle_at_top,rgba(198,153,74,0.14),transparent_30%),linear-gradient(180deg,rgba(20,17,15,0.98),rgba(8,8,8,0.98))] shadow-[0_30px_120px_rgba(0,0,0,0.72)]">
+        <div
+            className="release-notes-backdrop fixed inset-0 z-[410] flex items-center justify-center bg-black/82 px-4 py-6 backdrop-blur-md animate-fadeIn"
+            role="dialog"
+            aria-modal="true"
+            aria-label="更新日志"
+            onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+        >
+            <div
+                ref={panelRef}
+                tabIndex={-1}
+                className="release-notes-panel relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-wuxia-gold/25 bg-[radial-gradient(circle_at_top,rgba(198,153,74,0.14),transparent_30%),linear-gradient(180deg,rgba(20,17,15,0.98),rgba(8,8,8,0.98))] shadow-[0_30px_120px_rgba(0,0,0,0.72)]"
+            >
                 <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-wuxia-gold/45 to-transparent" />
 
                 <div className="flex items-start justify-between gap-4 border-b border-wuxia-gold/10 px-5 py-5 md:px-7">
