@@ -1564,8 +1564,8 @@ export const RELEASE_INFO = {
     ],
     "notes": "修复更新日志弹窗遮罩拦截点击的问题：现在点弹窗外空白处或按 Esc 都能关闭，不会再出现「按钮点不动」的错觉。\n云端设置同步增加坏数据自愈：云端旧设置损坏时会自动以本机设置重建，不再卡在上传失败。\n新增网页端真实交互测试，持续验证首页按钮可点击、更新日志可关闭与页面内存占用。",
     "releasePublishedAt": "2026-11-25T19:43:49+08:00",
-    "apkSize": 6057735,
-    "apkSha256": "55adce6baa81a103afc84d240627b6db741e880d8c02b2c4dfd3cfc10d5dbf02"
+    "apkSize": 6058454,
+    "apkSha256": "4f4bbc88173ecfc98596a8eb38fcde85115e7cf4038287a236c0166d6d4e451b"
 } as const;
 
 export type ReleaseInfo = typeof RELEASE_INFO;
