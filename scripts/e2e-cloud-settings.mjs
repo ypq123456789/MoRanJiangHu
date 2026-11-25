@@ -20,10 +20,28 @@ page.on('console', (m) => {
 });
 
 const reqs = [];
+// 🔴 绝不能把请求体原文写进日志：登录/同步请求含明文密码，诊断输出会被保存或分享。
+// 只记录动作和长度；如果确实要看结构，先把 password / payload 等敏感字段遮盖掉。
+const 脱敏请求体 = (raw) => {
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+            if ('password' in parsed) parsed.password = '***';
+            if ('payload' in parsed) parsed.payload = typeof parsed.payload === 'string' ? `[密文 ${parsed.payload.length} 字符]` : '***';
+        }
+        return JSON.stringify(parsed);
+    } catch {
+        return '[非 JSON 请求体，已省略]';
+    }
+};
 page.on('request', (r) => {
     if (r.url().includes('/api/cloud-play')) {
         const body = r.postData() || '';
-        reqs.push({ action: new URL(r.url()).searchParams.get('action'), len: body.length, head: body.slice(0, 300) });
+        reqs.push({
+            action: new URL(r.url()).searchParams.get('action'),
+            len: body.length,
+            head: 脱敏请求体(body).slice(0, 300)
+        });
     }
 });
 page.on('response', async (r) => {
