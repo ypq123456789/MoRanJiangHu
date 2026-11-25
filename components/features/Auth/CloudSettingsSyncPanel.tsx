@@ -6,7 +6,7 @@ import {
     拉取云端设置,
     type 云端设置同步状态
 } from '../../../services/cloudSettingsSync';
-import { getDiagnosticReportQuota, submitDiagnosticReport } from '../../../services/diagnosticReport';
+import { submitLightweightDiagnosticReport } from '../../../services/diagnosticReport';
 
 /**
  * 云端设置同步状态面板
@@ -115,13 +115,11 @@ const CloudSettingsSyncPanel: React.FC<{ compact?: boolean }> = ({ compact = fal
         setManualBusy('diag');
         setDiagMessage('正在上传诊断日志...');
         try {
-            const quota = getDiagnosticReportQuota();
-            if (quota.remaining <= 0) {
-                setDiagMessage('今日诊断上报次数已用完，请明天再试。');
-                return;
-            }
-            const result = await submitDiagnosticReport();
-            setDiagMessage(`已上传（ID: ${result.id.slice(-12)}），请告诉 WorkBuddy 这个 ID。`);
+            // 轻量上报：不读存档快照，避免多存档用户内存过载。
+            const result = await submitLightweightDiagnosticReport('panel manual');
+            setDiagMessage(result
+                ? `已上传（ID: ${result.id.slice(-12)}），请告诉 WorkBuddy 这个 ID。`
+                : '暂无可上报的诊断日志，请先触发一次同步。');
         } catch (error: any) {
             setDiagMessage(`上传失败：${error?.message || String(error)}`);
         } finally {

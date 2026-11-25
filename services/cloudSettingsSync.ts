@@ -1,6 +1,6 @@
 import * as dbService from './dbService';
 import { recordDiagnosticLog } from './diagnosticLog';
-import { submitDiagnosticReport } from './diagnosticReport';
+import { submitLightweightDiagnosticReport } from './diagnosticReport';
 import {
     读取云端游玩会话,
     加密字节,
@@ -319,7 +319,9 @@ const 上报同步失败诊断 = (stage: string, error: unknown, detail: Record<
         `[cloud-settings-sync] ${stage} 失败`,
         { reason, ...detail }
     ]);
-    void submitDiagnosticReport().catch(() => undefined);
+    // 🔴 必须走轻量上报：常规的 submitDiagnosticReport 会读取全部存档生成快照，
+    // 多存档用户（几十上百个）会被一次性读进内存直接卡死/崩溃。
+    void submitLightweightDiagnosticReport(`cloud-settings-sync ${stage}`).catch(() => undefined);
 };
 
 /** 简易非加密哈希，仅用于判断本地设置快照是否变化，避免重复上传。 */

@@ -163,7 +163,7 @@ const countByLevel = (logs: DiagnosticLogEntry[]) => logs.reduce<Record<string, 
 
 const buildReportPayload = async (
     logs: DiagnosticLogEntry[],
-    options?: { autoUpload?: boolean; triggerReason?: string }
+    options?: { autoUpload?: boolean; triggerReason?: string; lightweight?: boolean }
 ) => {
     const currentRelease = await getCurrentAppRelease().catch(() => ({
         versionCode: RELEASE_INFO.versionCode,
@@ -199,7 +199,11 @@ const buildReportPayload = async (
             latestError: logs.find((entry) => entry.level === 'error') || null
         },
         logs: logs.slice(0, 200),
-        debugContext: await buildDiagnosticDebugContext()
+        // 🔴 lightweight 模式跳过 buildDiagnosticDebugContext：桌面端它会 读取存档列表()
+        // 一次性把全部存档读进内存（多存档用户会内存过载卡死）。自动/错误上报必须走轻量模式。
+        debugContext: options?.lightweight
+            ? { schemaVersion: 1, lightweight: true, notes: ['轻量上报：不含存档快照，避免多存档用户内存过载。'] }
+            : await buildDiagnosticDebugContext()
     };
 };
 
@@ -224,6 +228,30 @@ export const submitDiagnosticReport = async (entries?: DiagnosticLogEntry[]): Pr
         createdAt: String(payload.createdAt || ''),
         expiresAt: String(payload.expiresAt || ''),
         remainingToday: Math.max(0, Number(payload.remainingToday ?? (DAILY_LIMIT - nextState.count)) || 0)
+    };
+};
+
+/**
+ * 🔴 轻量诊断上报：只带最近 30 条日志，**不读取存档快照**。
+ * 供自动/错误上报使用，避免多存档用户（几十个存档）被 buildDiagnosticDebugContext 一次性读爆内存。
+ * 不计入每日手动上报配额，但保留服务端 Retention / 大小限制。
+ */
+export const submitLightweightDiagnosticReport = async (
+    triggerReason = ''
+): Promise<DiagnosticReportResult | null> => {
+    const logs = getDiagnosticLogs().slice(0, 30);
+    if (!logs.length) return null;
+    const payload = await submitDiagnosticPayload(await buildReportPayload(logs, {
+        lightweight: true,
+        autoUpload: true,
+        triggerReason
+    }), { autoUpload: true }).catch(() => null);
+    if (!payload?.ok || !payload?.id) return null;
+    return {
+        id: String(payload.id),
+        createdAt: String(payload.createdAt || ''),
+        expiresAt: String(payload.expiresAt || ''),
+        remainingToday: Number(payload.remainingToday ?? 0) || 0
     };
 };
 

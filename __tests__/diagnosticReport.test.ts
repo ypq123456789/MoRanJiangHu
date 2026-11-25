@@ -252,4 +252,30 @@ describe('diagnosticReport', () => {
         expect((snapshot.saves[0] as any).summary.id).toBe(latestAuto.id);
         expect(snapshot.notes.join('\n')).toContain('移动端');
     });
+
+    it('轻量上报不会读取存档列表（避免多存档用户内存过载）', async () => {
+        const dbService = await import('../services/dbService');
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+            ok: true,
+            id: 'diag_light',
+            createdAt: '2026-11-25T20:00:00+08:00',
+            expiresAt: '2026-12-25T20:00:00+08:00',
+            remainingToday: 10
+        }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const { recordDiagnosticLog } = await import('../services/diagnosticLog');
+        const { submitLightweightDiagnosticReport } = await import('../services/diagnosticReport');
+        recordDiagnosticLog('error', '[cloud-settings-sync] 测试错误', { detail: 'x' });
+        const result = await submitLightweightDiagnosticReport('test');
+
+        expect(result?.id).toBe('diag_light');
+        expect(dbService.读取存档列表).not.toHaveBeenCalled();
+        const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body || '{}'));
+        expect(body.debugContext).toMatchObject({ lightweight: true });
+        expect(body.logs.length).toBeLessThanOrEqual(30);
+    });
 });
