@@ -185,6 +185,7 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
     const [manifest, setManifest] = React.useState<云端存档清单 | null>(null);
     const [manifestLoading, setManifestLoading] = React.useState(false);
     const [manifestLoaded, setManifestLoaded] = React.useState(false);
+    const [objectStorageRefreshing, setObjectStorageRefreshing] = React.useState(false);
     const [busy, setBusy] = React.useState('');
     const [message, setMessage] = React.useState('');
     const [uploadProgress, setUploadProgress] = React.useState<云端上传进度 | null>(null);
@@ -492,6 +493,7 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
 
     const handleRefreshObjectStorage = async () => {
         if (!objectStorageConfig) return;
+        setObjectStorageRefreshing(true);
         setBusy('object-refresh');
         setMessage('正在刷新对象存储云端存档...');
         try {
@@ -502,6 +504,7 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
         } catch (error: any) {
             setMessage(`刷新对象存储失败：${error?.message || '未知错误'}`);
         } finally {
+            setObjectStorageRefreshing(false);
             setBusy('');
         }
     };
@@ -850,8 +853,8 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                                         开启新存档
                                     </button>
                                 )}
-                                <button type="button" disabled={busy === 'object-refresh'} onClick={() => { void handleRefreshObjectStorage(); }} className="border border-sky-400/35 px-3 py-2 text-xs text-sky-100 hover:bg-sky-500/10 disabled:opacity-50">
-                                    刷新云存档
+                                <button type="button" disabled={objectStorageRefreshing} onClick={() => { void handleRefreshObjectStorage(); }} className="border border-sky-400/35 px-3 py-2 text-xs text-sky-100 hover:bg-sky-500/10 disabled:opacity-50">
+                                    {objectStorageRefreshing ? '刷新中...' : '刷新云存档'}
                                 </button>
                                 <button type="button" disabled={busy === 'object-copy'} onClick={() => { void handleCopyLocalToObjectStorage(); }} className="border border-emerald-400/35 px-3 py-2 text-xs text-emerald-100 hover:bg-emerald-500/10 disabled:opacity-50">
                                     本地一键复制到对象存储
@@ -885,7 +888,11 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                         {session && <CloudSettingsSyncPanel />}
 
                         <div className="grid gap-4">
-                            {objectStorageSaveTrees.length <= 0 ? (
+                            {objectStorageRefreshing && objectStorageSaveTrees.length <= 0 ? (
+                                <div role="status" aria-live="polite" className="border border-dashed border-sky-400/30 bg-sky-950/10 px-4 py-8 text-center text-sm text-sky-100">
+                                    正在读取对象存储云端存档…
+                                </div>
+                            ) : objectStorageSaveTrees.length <= 0 ? (
                                 <div className="border border-dashed border-sky-400/25 px-4 py-8 text-center text-sm text-gray-400">
                                     对象存储云端暂无存档。这里不混入本地存档；可以开启新存档，或先把本地存档复制到对象存储。
                                     {onStartNewGame && (
