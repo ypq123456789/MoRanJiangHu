@@ -436,27 +436,38 @@ const 历史记录是否前缀 = (base: unknown[], next: unknown[]): boolean => 
 };
 
 const 规范化云端存档清单 = (manifest: 云端存档清单): 云端存档清单 => {
-    const byId = new Map<string, 云端存档摘要>();
     const sorted = [...manifest.saves]
         .filter((item) => item && !item.deletedAt)
         .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
-    sorted.forEach((raw) => {
+    const rawById = new Map(sorted.map((item) => [item.cloudId, item]));
+    const byId = new Map<string, 云端存档摘要>();
+    const resolving = new Set<string>();
+    const resolve = (raw: 云端存档摘要): 云端存档摘要 => {
+        const resolved = byId.get(raw.cloudId);
+        if (resolved) return resolved;
+        if (resolving.has(raw.cloudId)) return raw;
+        resolving.add(raw.cloudId);
         const parentCloudId = readString(raw.parentCloudId || raw.baseCloudId);
-        const parent = parentCloudId ? byId.get(parentCloudId) : undefined;
+        const rawParent = parentCloudId ? rawById.get(parentCloudId) : undefined;
+        const parent = rawParent ? resolve(rawParent) : undefined;
         const seriesId = readString(raw.seriesId) || parent?.seriesId || readString(raw.rootCloudId) || parent?.rootCloudId || raw.cloudId;
         const rootCloudId = readString(raw.rootCloudId) || parent?.rootCloudId || parent?.cloudId || raw.cloudId;
-        byId.set(raw.cloudId, {
+        const normalized = {
             ...raw,
             seriesId,
-            parentCloudId: parent?.cloudId || '',
-            baseCloudId: parent?.cloudId || raw.baseCloudId,
+            parentCloudId: rawParent?.cloudId || '',
+            baseCloudId: rawParent?.cloudId || raw.baseCloudId,
             rootCloudId,
             depth: parent ? Number(parent.depth || 0) + 1 : 0
-        });
-    });
+        };
+        resolving.delete(raw.cloudId);
+        byId.set(raw.cloudId, normalized);
+        return normalized;
+    };
+    sorted.forEach(resolve);
     return {
         ...manifest,
-        saves: [...byId.values()].sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))
+        saves: sorted.map((item) => byId.get(item.cloudId)!).sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))
     };
 };
 

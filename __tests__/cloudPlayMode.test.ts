@@ -110,6 +110,24 @@ describe('云端游玩存储模式', () => {
         expect(manifest.saves.map((item) => item.rootCloudId)).toEqual(['old-a', 'old-b']);
     });
 
+    it('子节点时间早于父节点时仍沿父节点归入同一系列', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+            format: 'moranjianghu-cloud-play',
+            saves: [
+                { cloudId: 'child', title: '杨培强', timestamp: 1, parentCloudId: 'parent' },
+                { cloudId: 'parent', title: '杨培强', timestamp: 2 }
+            ]
+        }), { status: 200 })));
+        const service = await import('../services/cloudPlayService');
+        const manifest = await service.读取云端存档清单({
+            userId: 'u1', username: 'test', password: 'pw', clientSalt: 'salt',
+            manifestUrl: 'https://image.example/manifest.json'
+        });
+        const byId = new Map(manifest.saves.map((item) => [item.cloudId, item]));
+        expect(byId.get('child')?.seriesId).toBe(byId.get('parent')?.seriesId);
+        expect(byId.get('child')?.rootCloudId).toBe('parent');
+    });
+
     it('从云端游玩开启新存档时会覆盖旧的本地游玩标记并恢复 TG 同步', async () => {
         const service = await import('../services/cloudPlayService');
         localStorage.setItem('moranjianghu.cloudPlay.session.v1', JSON.stringify({

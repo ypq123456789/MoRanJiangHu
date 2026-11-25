@@ -183,6 +183,8 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
     const [username, setUsername] = React.useState('');
     const [password, setPassword] = React.useState('');
     const [manifest, setManifest] = React.useState<云端存档清单 | null>(null);
+    const [manifestLoading, setManifestLoading] = React.useState(false);
+    const [manifestLoaded, setManifestLoaded] = React.useState(false);
     const [busy, setBusy] = React.useState('');
     const [message, setMessage] = React.useState('');
     const [uploadProgress, setUploadProgress] = React.useState<云端上传进度 | null>(null);
@@ -207,25 +209,34 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
     );
 
     const manifestRef = React.useRef<云端存档清单 | null>(null);
+    const manifestRequestIdRef = React.useRef(0);
     React.useEffect(() => {
         manifestRef.current = manifest;
     }, [manifest]);
 
     const refreshManifest = React.useCallback(async (targetSession = session) => {
         if (!targetSession) return;
-        setBusy('refresh');
+        const requestId = manifestRequestIdRef.current + 1;
+        manifestRequestIdRef.current = requestId;
+        setManifestLoading(true);
+        setManifestLoaded(false);
         try {
             const next = await 读取云端存档清单(targetSession);
+            if (requestId !== manifestRequestIdRef.current) return;
             setManifest(next);
             setMessage(next.saves.length > 0 ? `已读取 ${next.saves.length} 个云端存档。` : '当前云端还没有存档。');
         } catch (error: any) {
+            if (requestId !== manifestRequestIdRef.current) return;
             const cached = manifestRef.current || 读取缓存云端存档清单(targetSession);
             if (cached) setManifest(cached);
             setMessage(cached
                 ? `读取云端存档失败：${error?.message || '未知错误'}。已保留上次成功读取的 ${cached.saves.length} 个云端存档，稍后可重试刷新。`
                 : `读取云端存档失败：${error?.message || '未知错误'}`);
         } finally {
-            setBusy('');
+            if (requestId === manifestRequestIdRef.current) {
+                setManifestLoading(false);
+                setManifestLoaded(true);
+            }
         }
     }, [session]);
 
@@ -973,7 +984,7 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                                         开启新存档
                                     </button>
                                 )}
-                                <button type="button" disabled={busy === 'refresh'} onClick={() => { void refreshManifest(); }} className="border border-sky-400/35 px-3 py-2 text-xs text-sky-100 hover:bg-sky-500/10 disabled:opacity-50">
+                                <button type="button" disabled={manifestLoading} onClick={() => { void refreshManifest(); }} className="border border-sky-400/35 px-3 py-2 text-xs text-sky-100 hover:bg-sky-500/10 disabled:opacity-50">
                                     刷新云存档
                                 </button>
                                 <button type="button" disabled={busy === 'settings-sync'} onClick={() => { void handleSyncSettings(); }} className="border border-violet-400/35 px-3 py-2 text-xs text-violet-100 hover:bg-violet-500/10 disabled:opacity-50">
@@ -1028,7 +1039,7 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                         )}
 
                         <div className="grid gap-4">
-                            {busy === 'refresh' && cloudSaveTrees.length <= 0 ? (
+                            {(manifestLoading || (!manifestLoaded && Boolean(session) && riskAccepted && storageMode === 'tg')) && cloudSaveTrees.length <= 0 ? (
                                 <div role="status" aria-live="polite" className="border border-dashed border-sky-400/30 bg-sky-950/10 px-4 py-8 text-center text-sm text-sky-100">
                                     正在读取云端存档…
                                 </div>
