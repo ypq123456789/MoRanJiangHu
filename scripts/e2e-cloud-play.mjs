@@ -24,7 +24,7 @@ try {
         username: 'e2e-user',
         password: 'e2e-password',
         clientSalt: 'e2e-salt',
-        manifestUrl: '',
+        manifestUrl: 'https://e2e.example/manifest.json',
         manifestUpdatedAt: ''
       }
     }));
@@ -50,6 +50,38 @@ try {
   const restoredSessionInObjectMode = await page.evaluate(() => JSON.parse(localStorage.getItem('moranjianghu.cloudPlay.session.v1') || 'null'));
   if (restoredSessionInObjectMode?.session?.username !== 'e2e-user') {
     throw new Error('切换到对象存储后不应清除 TG 图床登录态。');
+  }
+
+  await page.route('https://e2e.example/manifest.json', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({
+        format: 'moranjianghu-cloud-play',
+        saves: [
+          { cloudId: 'same-name-a', title: '杨培强', timestamp: 2 },
+          { cloudId: 'same-name-b', title: '杨培强', timestamp: 1 }
+        ]
+      })
+    });
+  });
+  await page.evaluate(() => {
+    localStorage.setItem('moranjianghu.cloudPlay.riskAcknowledged.v1', 'true');
+    localStorage.removeItem('moranjianghu.cloudPlay.objectStorageMode.v1');
+  });
+  await page.reload({ waitUntil: 'load' });
+  const releaseCloseBeforeManifestCheck = page.getByRole('button', { name: '关闭更新日志' });
+  if (await releaseCloseBeforeManifestCheck.count()) await releaseCloseBeforeManifestCheck.click();
+  await page.getByRole('button', { name: '云端游玩' }).click();
+  await page.getByRole('status').filter({ hasText: '正在读取云端存档' }).waitFor({ timeout: 10000 });
+  if (await page.getByText('暂无云端存档').count()) {
+    throw new Error('云端清单读取完成前错误显示了空存档状态。');
+  }
+  await page.getByText('时间树 1 个节点', { exact: false }).nth(1).waitFor({ timeout: 10000 });
+  if (await page.getByText('时间树 1 个节点', { exact: false }).count() !== 2) {
+    throw new Error('同名但互不相关的旧云端存档没有显示为两个独立系列。');
   }
 
   await page.evaluate(() => {
