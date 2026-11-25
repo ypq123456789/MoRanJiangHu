@@ -193,6 +193,24 @@ describe('云端设置联机同步', () => {
         expect(state.cloudPayload).toBe(firstPayload);
     });
 
+    it('云端坏包会自愈：以本机设置覆盖重传，不再卡死在下载失败', async () => {
+        state.settings.set('api_settings', { value: { activeConfigId: 'local' }, updatedAt: 1000 });
+        // 云端包存在但 payload 是坏 base64（旧版残留 / 换密码），解密必然失败
+        state.cloudPayload = btoa('not-a-valid-encrypted-package');
+        const { 同步云端设置 } = await import('../services/cloudSettingsSync');
+        const result = await 同步云端设置(state.session);
+
+        expect(result.ok).toBe(true);
+        expect(state.apiCalls).toContain('settings-download');
+        expect(state.apiCalls).toContain('settings-upload');
+        // 云端已被本机设置覆盖：解码上传包能读到本机值
+        const decoded = JSON.parse(new TextDecoder().decode(
+            Uint8Array.from(atob(state.cloudPayload), (char) => char.charCodeAt(0)).slice(2)
+        ));
+        expect(decoded.settings.find((item: any) => item.key === 'api_settings').value)
+            .toEqual({ activeConfigId: 'local' });
+    });
+
     it('本机变更后指纹失效，会重新上传新值', async () => {
         state.settings.set('api_settings', { value: { activeConfigId: 'x' }, updatedAt: 1000 });
         const { 上传本机设置 } = await import('../services/cloudSettingsSync');

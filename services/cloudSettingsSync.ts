@@ -288,6 +288,9 @@ const 收集图片资源引用ID = (value: unknown, refs: Set<string>, seen: Wea
     Object.values(value as Record<string, unknown>).forEach((child) => 收集图片资源引用ID(child, refs, seen));
 };
 
+/** 云端包损坏（密钥变更 / 旧版残留 / 半截数据）：可自愈——以本机设置为准覆盖上传。 */
+class 云端设置包损坏错误 extends Error {}
+
 /** 简易非加密哈希，仅用于判断本地设置快照是否变化，避免重复上传。 */
 const 快照哈希文本 = (value: string): string => {
     let hash = 0x811c9dc5;
@@ -424,10 +427,16 @@ const 打包为密文 = async (plain: string, session: 云端游玩账号): Prom
 };
 
 const 解密为设置包 = async (payload: string, session: 云端游玩账号): Promise<云端设置包 | null> => {
-    const encryptedBytes = base64解码(payload);
-    const plainBytes = await 解密字节(encryptedBytes, session);
-    const parsed = JSON.parse(文本解码器.decode(plainBytes));
-    return 规范化设置包(parsed, session);
+    try {
+        const encryptedBytes = base64解码(payload);
+        const plainBytes = await 解密字节(encryptedBytes, session);
+        const parsed = JSON.parse(文本解码器.decode(plainBytes));
+        return 规范化设置包(parsed, session);
+    } catch (error: any) {
+        // 🔴 坏包（换密码 / 旧版残留 / 传输半截）单独归类，允许上层用本机设置覆盖重传，
+        // 不能让同步永久卡死在「下载失败」而永远传不上去。
+        throw new 云端设置包损坏错误(`云端设置包无法解密：${error?.message || String(error)}`);
+    }
 };
 
 const 合并设置包到本地 = async (session: 云端游玩账号, pack: 云端设置包): Promise<{ changed: number; assetCount: number; changedKeys: string[] }> => {
@@ -515,6 +524,7 @@ const 上传设置到云端 = async (
         let plain = JSON.stringify(pack);
         const payload = await 打包为密文(plain, session);
         plain = '';
+        if (!payload) throw new Error('本机设置加密结果为空，已中止上传（未损坏云端数据）。');
         更新同步状态({ stage: 'upload', message: '正在上传设置到云端...' });
         onProgress?.({ stage: 'upload', message: '正在上传设置到云端...', settingCount: pack.settings.length, assetCount: pack.assets.length });
         await callCloudPlayApi('settings-upload', {
@@ -554,7 +564,7 @@ const 下载并合并云端设置 = async (
     session: 云端游玩账号,
     onProgress?: (progress: 云端设置同步进度) => void,
     options?: { silent?: boolean }
-): Promise<{ ok: boolean; exists: boolean; changed: number; assetCount: number; settingCount: number; error?: string }> => {
+): Promise<{ ok: boolean; exists: boolean; changed: number; assetCount: number; settingCount: number; corrupt?: boolean; error?: string }> => {
     const generation = 生命周期代次;
     const emit = (progress: 云端设置同步进度): void => {
         更新同步状态({
@@ -579,7 +589,7 @@ const 下载并合并云端设置 = async (
         }
         emit({ stage: 'decrypt', message: '正在解密云端设置...' });
         const pack = await 解密为设置包(读取字符串(payload.payload), session);
-        if (!pack) throw new Error('云端设置包格式无效。');
+        if (!pack) throw new 云端设置包损坏错误('云端设置包格式无效。');
         if (!任务仍有效(generation, session)) return { ok: false, exists: false, changed: 0, assetCount: 0, settingCount: 0, error: '账号已切换，本次下载已取消' };
         emit({ stage: 'merge', message: '正在合并云端设置...', settingCount: pack.settings.length, assetCount: pack.assets.length });
         const { changed, assetCount, changedKeys } = await 合并设置包到本地(session, pack);
@@ -595,6 +605,21 @@ const 下载并合并云端设置 = async (
         return { ok: true, exists: true, changed, assetCount, settingCount: pack.settings.length };
     } catch (error: any) {
         const message = error?.message || String(error);
+        if (error instanceof 云端设置包损坏错误) {
+            // 🔴 坏包自愈：视为「云端暂无可用设置」，让上层把本机设置覆盖上传，
+            // 否则旧账号会永久卡在下载失败，设置再也同步不上去（v1.0.714 老板账号即此症状）。
+            // 同时清掉上传指纹/哈希，避免预检误判「无变化」而跳过这次覆盖上传。
+            if (任务仍有效(generation, session)) {
+                写入同步状态(session, { lastUploadHash: '', lastUploadFingerprint: '', pendingUpload: true });
+            }
+            更新同步状态({
+                stage: 'done',
+                message: '云端设置数据损坏，将以本机设置为准重新上传',
+                lastError: undefined
+            });
+            if (!options?.silent) onProgress?.({ stage: 'done', message: '云端设置数据损坏，将以本机设置为准重新上传' });
+            return { ok: true, exists: false, changed: 0, assetCount: 0, settingCount: 0, corrupt: true };
+        }
         更新同步状态({ stage: 'error', message: `设置下载失败：${message}`, lastError: message });
         if (!options?.silent) onProgress?.({ stage: 'error', message: `设置下载失败：${message}` });
         return { ok: false, exists: false, changed: 0, assetCount: 0, settingCount: 0, error: message };
