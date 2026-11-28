@@ -1017,6 +1017,36 @@ type 增量提取器 = ((payload: any) => string) & {
     drainActivity?: () => boolean;
 };
 
+const 提取思维链增量文本 = (delta: any): string => {
+    const raw = delta?.reasoning_content
+        ?? delta?.reasoning
+        ?? delta?.reasoning_text
+        ?? delta?.thinking
+        ?? delta?.thinking_content
+        ?? delta?.reasoning_details
+        ?? null;
+    if (raw === null || raw === undefined) return '';
+    if (typeof raw === 'string') return raw;
+    if (Array.isArray(raw)) {
+        return raw
+            .map((item: any) => {
+                if (typeof item === 'string') return item;
+                if (typeof item?.text === 'string') return item.text;
+                if (typeof item?.thinking === 'string') return item.thinking;
+                if (typeof item?.content === 'string') return item.content;
+                return '';
+            })
+            .filter(Boolean)
+            .join('');
+    }
+    if (typeof raw === 'object') {
+        if (typeof raw.text === 'string') return raw.text;
+        if (typeof raw.thinking === 'string') return raw.thinking;
+        if (typeof raw.content === 'string') return raw.content;
+    }
+    return '';
+};
+
 const 创建OpenAI流增量提取器 = (options?: { includeReasoning?: boolean }): 增量提取器 => {
     const includeReasoning = options?.includeReasoning === true;
     let inReasoningPhase = false;
@@ -1026,30 +1056,28 @@ const 创建OpenAI流增量提取器 = (options?: { includeReasoning?: boolean }
 
     const extract = ((payload: any): string => {
         const delta = payload?.choices?.[0]?.delta;
-        const reasoningContent = delta?.reasoning_content ?? delta?.reasoning ?? delta?.reasoning_text ?? null;
-        const hasReasoningContent = reasoningContent !== null && reasoningContent !== undefined;
+        const reasoningText = 提取思维链增量文本(delta);
         const hasActualContent = typeof delta?.content === 'string' && delta.content.length > 0;
 
-        if (hasReasoningContent) {
-            const reasoningText = typeof reasoningContent === 'string' ? reasoningContent : '';
+        if (reasoningText.length > 0) {
             if (!includeReasoning) {
                 // [修复] 思考型模型会在输出正文前先流式推送一段思维链。此前这里直接返回空串，
                 // 而 emitDelta 对空串直接 return，onDelta 永不触发，上游的流式活动计时器
                 // 就一直不重置；思考耗时一旦超过「等待首次响应超时」阈值（主剧情默认 90s），
                 // 请求会被误判为超时并中止重试——玩家侧的体感就是“思考越久越容易失败”。
                 // 这里仅记录活动标记，不把思维链混进正文。
-                if (reasoningText) pendingActivity = true;
-                return '';
+                pendingActivity = true;
+                return hasActualContent ? delta.content : '';
             }
-            if (!inReasoningPhase && reasoningText) {
-                inReasoningPhase = true;
-                needsClosingTag = true;
-                return `<think>${reasoningText}`;
+            const prefix = inReasoningPhase ? '' : '<think>';
+            if (hasActualContent) {
+                inReasoningPhase = false;
+                needsClosingTag = false;
+                return `${prefix}${reasoningText}</think>${delta.content}`;
             }
-            if (inReasoningPhase && reasoningText) {
-                return reasoningText;
-            }
-            return '';
+            inReasoningPhase = true;
+            needsClosingTag = true;
+            return `${prefix}${reasoningText}`;
         }
 
         if (inReasoningPhase && hasActualContent) {

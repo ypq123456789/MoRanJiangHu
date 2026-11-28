@@ -735,10 +735,58 @@ const 空清单 = (session: 云端游玩账号): 云端存档清单 => ({
     saves: []
 });
 
+export const 刷新云端游玩会话 = async (session: 云端游玩账号): Promise<云端游玩账号> => {
+    if (!readString(session?.username) || !session?.password) return session;
+    try {
+        const payload = await callCloudPlayApi('login', {
+            username: session.username,
+            password: session.password
+        });
+        const user = payload?.user as Partial<ApiUser> | undefined;
+        if (!user?.userId) return session;
+        const nextSession: 云端游玩账号 = {
+            ...session,
+            ...user,
+            password: session.password,
+            manifestUrl: readString(user.manifestUrl) || readString(session.manifestUrl),
+            manifestUpdatedAt: readString(user.manifestUpdatedAt) || readString(session.manifestUpdatedAt)
+        };
+        if (
+            nextSession.manifestUrl !== session.manifestUrl
+            || nextSession.manifestUpdatedAt !== session.manifestUpdatedAt
+            || Boolean(读取云端游玩会话())
+        ) {
+            保存会话(nextSession);
+        }
+        return nextSession;
+    } catch {
+        return session;
+    }
+};
+
 export const 读取云端存档清单 = async (session: 云端游玩账号): Promise<云端存档清单> => {
     const manifestUrl = readString(session.manifestUrl);
     if (!manifestUrl) return 空清单(session);
-    const response = await fetch(manifestUrl, { cache: 'no-store' });
+    const downloadUrl = buildCloudSaveDownloadUrl(manifestUrl);
+    const maxAttempts = 3;
+    let response: Response | null = null;
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            const candidate = await fetch(downloadUrl, { cache: 'no-store' });
+            response = candidate;
+            if (candidate.ok) break;
+            if (attempt >= maxAttempts || !isRetryableDownloadFailure(candidate.status)) break;
+        } catch (error) {
+            lastError = error;
+            const message = error instanceof Error ? error.message : String(error || '');
+            if (attempt >= maxAttempts || !isRetryableDownloadFailure(0, message)) break;
+        }
+        await sleep(Math.min(3000, 400 * attempt * attempt));
+    }
+    if (!response) {
+        throw lastError instanceof Error ? lastError : new Error('读取云端存档清单失败：无响应');
+    }
     if (!response.ok) throw new Error(`读取云端存档清单失败：HTTP ${response.status}`);
     const payload = await response.json();
     if (payload?.format !== 'moranjianghu-cloud-play' || !Array.isArray(payload?.saves)) {
@@ -957,14 +1005,16 @@ export const 后台同步存档到云端 = (save: 存档结构): void => {
         return;
     }
     if (mode !== 'tg') return;
-    const session = 读取云端游玩会话();
-    if (!session) return;
+    const initialSession = 读取云端游玩会话();
+    if (!initialSession) return;
     if (Date.now() < tg图床后台同步冷却到) return;
     后台同步队列 = 后台同步队列
         .catch(() => undefined)
         .then(async () => {
             if (Date.now() < tg图床后台同步冷却到) return;
-            const result = await 上传单个存档到云端(session, save);
+            const currentSession = 读取云端游玩会话() || initialSession;
+            const activeSession = await 刷新云端游玩会话(currentSession);
+            const result = await 上传单个存档到云端(activeSession, save);
             if (result.session) 保存会话(result.session);
         })
         .catch((error) => {

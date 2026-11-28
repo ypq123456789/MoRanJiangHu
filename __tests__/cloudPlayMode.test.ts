@@ -275,4 +275,54 @@ describe('云端游玩存储模式', () => {
         expect(JSON.stringify(pack)).not.toContain('LOCAL_AVATAR');
         expect(dbService.保存图片资源并返回同步地址).not.toHaveBeenCalled();
     });
+
+    it('读取云端存档清单会走图床下载代理并在 500 时自动重试', async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response('upstream error', { status: 500 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                format: 'moranjianghu-cloud-play',
+                saves: [{ cloudId: 'c1', title: '林远', timestamp: 100 }]
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const service = await import('../services/cloudPlayService');
+        const manifest = await service.读取云端存档清单({
+            userId: 'u1',
+            username: 'test',
+            password: 'pw',
+            clientSalt: 'salt',
+            manifestUrl: 'https://image1.bacon159.pp.ua/file/manifest-abc.json'
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(String(fetchMock.mock.calls[0][0])).toBe('/api/image-host/download?type=file&url=https%3A%2F%2Fimage1.bacon159.pp.ua%2Ffile%2Fmanifest-abc.json');
+        expect(manifest.saves).toHaveLength(1);
+        expect(manifest.saves[0].title).toBe('林远');
+    });
+
+    it('刷新云端游玩会话会从服务端同步最新 manifestUrl 并保留本地回退', async () => {
+        const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+            ok: true,
+            user: {
+                userId: 'u1',
+                username: 'test',
+                clientSalt: 'salt',
+                manifestUrl: 'https://image1.bacon159.pp.ua/file/new-manifest.json',
+                manifestUpdatedAt: '2026-11-28T05:00:00.000Z'
+            }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const service = await import('../services/cloudPlayService');
+        const refreshed = await service.刷新云端游玩会话({
+            userId: 'u1',
+            username: 'test',
+            password: 'pw',
+            clientSalt: 'salt',
+            manifestUrl: ''
+        });
+
+        expect(refreshed.manifestUrl).toBe('https://image1.bacon159.pp.ua/file/new-manifest.json');
+        expect(refreshed.manifestUpdatedAt).toBe('2026-11-28T05:00:00.000Z');
+    });
 });
