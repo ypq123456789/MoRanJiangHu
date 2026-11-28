@@ -135,6 +135,25 @@ const createOpeningState = () => ({
 });
 
 describe('saveCoordinator opening save recovery', () => {
+    it('读入旧档时从配置与确切的初始伙伴标签恢复队伍身份，保留人物 ID 与离场状态', async () => {
+        const deps = createDeps();
+        const save = {
+            ...createOpeningState(), id: 'old-clash', 角色数据: { 姓名: '陆青' },
+            openingConfig: { 初始伙伴: { 姓名: '沈青萝', enabled: true } },
+            社交: [
+                { id: 'CAST-1', 姓名: '沈青萝', 关系: '私下还在观察主角', 是否队友: false, 是否在场: false },
+                { id: 'NPC-2', 姓名: '同门人', 来源: '初始伙伴', 是否在场: true },
+                { id: 'NPC-3', 姓名: '持剑女子', 关系状态: '初始同伴', 是否在场: true },
+                { id: 'NPC-5', 姓名: '小舟', 分组: '初始同伴', 是否在场: true },
+                { id: 'NPC-4', 姓名: '掌柜', 是否主要角色: true, 是否在场: true, 关系: '认识主角的初始伙伴' }
+            ]
+        };
+        await 执行读取存档(save as any, deps as any);
+        const social = deps.设置社交.mock.calls[0][0];
+        expect(social.filter((entry: any) => entry.是否队友).map((entry: any) => entry.姓名)).toEqual(['沈青萝', '同门人', '持剑女子', '小舟']);
+        expect(social[0]).toMatchObject({ id: 'CAST-1', 来源: '开局伙伴', 是否在场: false });
+        expect(social).toHaveLength(5);
+    });
     it('手动保存开局完成状态时，不把仍未刷新的开局占位历史写成坏档', () => {
         const save = 创建存档数据(
             'manual',

@@ -41,6 +41,7 @@ import { 分析世界到期触发 } from './worldEvolutionUtils';
 import { 按世界演变分流净化响应 } from './storyResponseGuards';
 import type { 响应命令处理状态 } from './responseCommandProcessor';
 import { 同步在场NPC当前位置 } from './responseCommandProcessor';
+import { 补录环境所在房间 } from '../../utils/locationTree';
 import { 执行变量模型校准工作流 } from './variableModelWorkflow';
 import { 合并变量校准结果到响应 as 合并变量生成结果到响应 } from './variableCalibrationMerge';
 import type { 自动存档快照结构 } from './saveCoordinator';
@@ -2401,7 +2402,7 @@ export const 执行主剧情发送工作流 = async (
                                 });
                             } else {
                                 options?.onVariableGenerationProgress?.({
-                                    phase: 'skipped',
+                                    phase: 'done',
                                     text: '变量生成完成，本回合未产生额外变量更新。',
                                     rawText: varRes?.rawText || ''
                                 });
@@ -2517,6 +2518,7 @@ export const 执行主剧情发送工作流 = async (
                     }
 
                     finalSocialV2 = 同步在场NPC当前位置(finalSocialV2, finalEnvV2);
+                    finalWorldV2 = 补录环境所在房间(finalWorldV2, finalEnvV2);
                     const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;
 
                     deps.设置角色?.(finalRoleV2);

@@ -47,6 +47,24 @@ export const 读取伙伴列表 = (openingConfig?: OpeningConfig) => {
         .filter((item) => item.partner && item.partner.enabled !== false && item.name);
 };
 
+// 旧档的开局伙伴标签可能在来源、身份、分组或关系字段中；剧情描述不作为入队凭据。
+export const 有开局伙伴身份标记 = (npc: Partial<NPC结构> & { 关系?: unknown; 分组?: unknown }): boolean => (
+    npc.保留开局伙伴设定属性 === true
+    || [npc.来源, npc.身份, npc.关系状态, npc.关系, npc.分组, npc.境界]
+        .some((value) => /^(?:初始|开局)(?:伙伴|同伴)$/u.test(取文本(value)))
+);
+
+export const 恢复开局伙伴队伍身份 = (social: NPC结构[], config?: OpeningConfig, playerName?: string): NPC结构[] => {
+    const configured = new Set(读取伙伴列表(config).map(({ name }) => 规范化文本键(name)));
+    const player = 规范化文本键(playerName);
+    return social.map((npc) => {
+        const name = 规范化文本键(npc?.姓名);
+        if (!name || name === player || (!configured.has(name) && !有开局伙伴身份标记(npc))) return npc;
+        if (npc.是否队友 && npc.来源 === '开局伙伴') return npc;
+        return { ...npc, 是否队友: true, 来源: '开局伙伴' };
+    });
+};
+
 const 读取伙伴 = (openingConfig?: OpeningConfig) => 读取伙伴列表(openingConfig)[0] || null;
 
 const 生成单个开局伙伴ID = (

@@ -239,12 +239,13 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         }
     });
 
-    test('Full 2.0 flow: WorldGen -> Opening -> Turn 1 -> StoryModal clues -> Zero Battle/Auction UI', async ({ page }) => {
+    test('Full 2.0 flow: WorldGen -> Opening -> Turn 1 -> StoryModal clues -> Zero Battle/Auction UI', async ({ page }, testInfo) => {
         test.setTimeout(120000);
         const pageErrors = [];
         const capturedCalls = [];
         page.on('pageerror', (err) => { console.log('[PAGEERROR]', err.message); pageErrors.push(err.message); });
         page.on('console', (msg) => {
+            if (msg.type() === 'error' || /cannot (?:contain a nested|be a descendant)|validateDOMNesting/i.test(msg.text())) pageErrors.push(msg.text());
             if (msg.type() === 'error' || msg.type() === 'warning' || msg.text().includes('2.0')) {
                 console.log(`[CONSOLE:${msg.type()}]`, msg.text());
             }
@@ -253,6 +254,13 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         await page.addInitScript(() => {
             localStorage.setItem('moranjianghu.releaseNotesSuppressDate', new Date().toISOString().slice(0, 10));
         });
+        // 产物测试使用本地构建的版本信息和静态服务，测试期间不依赖线上公告或在线人数。
+        await page.route('**/release-info.json*', route => route.fulfill({
+            path: path.resolve('dist/release-info.json'),
+            contentType: 'application/json',
+            headers: { 'access-control-allow-origin': '*' }
+        }));
+        await page.routeWebSocket('**/api/admin/online*', () => {});
 
         await page.route('**/v1/chat/completions', async (route) => {
             const body = route.request().postDataJSON();
@@ -277,11 +285,19 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
                 }
                 capturedCalls.push('world_bible_v2');
                 replyText = buildWorldBibleMockResponse();
+            } else if (joined.includes('【变量生成COT】')) {
+                capturedCalls.push('variable');
+                replyText = '<thinking>核对正文</thinking><说明>状态一致</说明><命令>无</命令>';
+            } else if (joined.includes('【已有地图层级】') && joined.includes('【自动更新规则】')) {
+                capturedCalls.push('map');
+                replyText = '<thinking>对照地图核对当前房间</thinking><说明>房间已记录</说明><命令>无</命令>';
             } else if (joined.includes('只输出合法 JSON（包裹在 <导演更新JSON>')) {
                 const isTurn0 = joined.includes('开局初始化') || capturedCalls.filter((c) => c === 'director_post').length === 0;
                 capturedCalls.push('director_post');
                 replyText = '<导演更新JSON>' + JSON.stringify({
-                    环境变更: { 推进分钟数: isTurn0 ? 0 : 15, 小地点: '云州破庙', 具体地点: '云州西郊破庙' },
+                    环境变更: { 推进分钟数: isTurn0 ? 0 : 15, 小地点: '云州破庙区', 具体地点: '破庙供桌殿' },
+                    社交人物更新: isTurn0 ? [{ 姓名: '顾霜晚', 交易资产初见: { 依据: '顾霜晚把钱袋摊开，只有十九枚铜钱。', 余额Base: 19 } }] : [],
+                    主角变化: isTurn0 ? {} : { 获得物品: [{ 名称: '兽药', 类型: '材料', 数量: 1 }] },
                     伏笔迁移: [
                         isTurn0
                             ? { id: 'FS-001', nextStatus: '已埋设', 落点描述: '供桌青砖缝里露出一枚沾泥青铜碎钥' }
@@ -304,6 +320,7 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
                     '<thinking>构建2.0开局紧张雨夜氛围，埋下FS-001载体</thinking>',
                     '<正文>',
                     '檐角雨水连成细线砸在青石台阶上。你握紧袖中半块温润玉扣，目光落在供桌青砖缝里露出的一枚沾泥青铜碎钥。',
+                    '顾霜晚把钱袋摊开，只有十九枚铜钱。',
                     '【顾霜晚】“这庙里潮气重，阁下还是莫要乱翻旧物的好。”',
                     '</正文>',
                     '<短期记忆>林秋水于云州破庙避雨，瞥见青铜碎钥，同行女子顾霜晚开口提醒。</短期记忆>',
@@ -317,7 +334,7 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
             } else {
                 capturedCalls.push('turn1_normal_v2');
                 const fillerParagraphs = [
-                    '林秋水指节微曲，趁火堆噼啪炸响的一瞬探手将碎钥收入袖底。庙外泥地里传来整齐的靴声，领头差役腰间赫然悬着同款制式铜牌，在湿冷夜风里泛着暗沉铁光。雨水顺着残破飞檐急急滴落，打在门槛青石上溅起细碎水花，将门外火把映出的几道影子拉得忽长忽短，仿佛几柄随时准备出鞘的窄刀贴着门板游移。你放轻呼吸，指尖隔着粗布衣袖缓缓摩挲那半块碎钥的冰凉缺口，只觉其边缘锯齿竟像是刻意锉磨而成，绝非寻常匠铺流出的民间锁具。',
+                    '林秋水收起一包兽药。林秋水指节微曲，趁火堆噼啪炸响的一瞬探手将碎钥收入袖底。庙外泥地里传来整齐的靴声，领头差役腰间赫然悬着同款制式铜牌，在湿冷夜风里泛着暗沉铁光。雨水顺着残破飞檐急急滴落，打在门槛青石上溅起细碎水花，将门外火把映出的几道影子拉得忽长忽短，仿佛几柄随时准备出鞘的窄刀贴着门板游移。你放轻呼吸，指尖隔着粗布衣袖缓缓摩挲那半块碎钥的冰凉缺口，只觉其边缘锯齿竟像是刻意锉磨而成，绝非寻常匠铺流出的民间锁具。',
                     '供桌另一侧的阴影里，顾霜晚不知何时已收回半步，右手搭在腰间短刃的鲨鱼皮柄上，目光穿过火堆跳跃的烟柱斜睨向门隙。火光把她眉骨底下那一寸淡色疤痕映得格外分明，湿透的斗篷下摆正一滴一滴往干草堆里渗着雨水，空气中弥漫着潮湿霉味与松烟辛辣。庙门外传来的甲叶轻响愈发清晰，先是两个人绕着荒庙外墙慢步巡查，靴底踩碎积水里的枯叶发出沙沙声响，紧接着又有低沉的传令声隔着雨幕飘了进来，言辞简短急促，像是在核对渡口与南门两条水陆暗哨的换防时辰。',
                     '你借着起身添柴的动作将残火压暗三分，眼角余光留意到门坎外多了一盏防风油灯的晕光。领头那名老差役似乎并未急着推门，反而停在石阶下俯身检查刚刚被雨水冲淡的车辙印痕，口中含糊地嘟囔着几句盐帮夜行规矩与巡防文书的错漏。就在这时，庙梁栖息的寒鸦受火烟惊扰扑棱棱振翅掠出缺瓦，引得外头差役齐刷刷抬眼喝问一句是谁在里面避雨，整座荒庙的气机登时绷紧如拉满的硬弓。',
                     '顾霜晚朝你微不可察地摇了摇头，唇瓣几乎未动，却已压低声线把外头布防的虚实传了过来。她肩头微沉，左脚脚尖悄悄踩实了砖缝一块松动石板，显然早已算好了破窗或硬拼的两条退路。庙外长街尽头隐隐传来三更梆子敲响的沉闷回音，紧接着又是几声急促哨响穿过重重雨帘，仿佛西市老渡口那边当真发生了什么足以惊动全城盐铁暗桩的大动静。',
@@ -342,6 +359,8 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
                 ].join('\n');
             }
             console.log('[ROUTE_MATCHED]', capturedCalls[capturedCalls.length - 1]);
+            const checkTag = joined.match(/原样输出校验标记 (\[CTXCHK:[a-z0-9]+\])/u)?.[1];
+            if (checkTag) replyText += '\n' + checkTag;
 
             if (body?.stream) {
                 await route.fulfill({
@@ -380,11 +399,11 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
                 主剧情使用模型: 'mock-flash',
                 世界演变功能启用: false,
                 规划分析功能启用: false,
-                地图生成功能启用: false,
                 文生图功能启用: false
             }
         };
         await putSetting(page, 'api_settings', apiSettings);
+        await putSetting(page, 'app_theme', 'day');
         await page.evaluate((s) => {
             localStorage.setItem('moranjianghu.apiConfig.localMirror.v1', JSON.stringify(s));
         }, apiSettings);
@@ -404,13 +423,18 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
                 await nameInput.fill('林秋水');
             }
             if (i === 2) {
+                const partnerSwitch = page.getByText('启用开局伙伴', { exact: true }).locator('../..').getByRole('button');
+                await expect(partnerSwitch).toBeVisible();
+                if ((await partnerSwitch.innerText()).includes('已关闭')) await partnerSwitch.click();
+                await expect(partnerSwitch).toHaveText(/已启用/);
                 const partnerInput = page.getByPlaceholder(/同伴名号|同伴姓名/).first();
-                if (await partnerInput.count() && await partnerInput.isVisible().catch(() => false)) {
-                    await partnerInput.fill('顾霜晚');
-                }
+                await expect(partnerInput).toBeVisible();
+                await partnerInput.fill('顾霜晚');
+                await page.getByRole('button', { name: /^保存当前(伙伴)?$/ }).click();
             }
         }
 
+        await expect(page.getByText(/伙伴名单[:：]/)).toContainText('顾霜晚');
         const finishBtn = page.getByRole('button', { name: /开启世界推演|一键生成/ }).first();
         await expect(finishBtn).toBeVisible({ timeout: 10000 });
         await finishBtn.click();
@@ -429,6 +453,42 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
 
         // Wait until director post-turn finishes and send Turn 1 via action option button
         await expect.poll(() => capturedCalls.filter((c) => c === 'director_post').length, { timeout: 15000 }).toBeGreaterThanOrEqual(1);
+        await expect.poll(() => capturedCalls.filter(c => c === 'map').length, { timeout: 15000 }).toBe(1);
+        expect(capturedCalls.filter(c => c === 'variable')).toHaveLength(1);
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'day');
+        const worldButton = page.getByRole('button', { name: '世界', exact: true });
+        if (!(await worldButton.isVisible())) await page.getByText('江湖舆图', { exact: true }).first().click();
+        await worldButton.click();
+        await page.getByRole('button', { name: /世界总纲/ }).click();
+        await expect(page.getByText(/九州疆域辽阔/).first()).toBeVisible();
+        await expect(page.getByText('云州下城码头', { exact: false }).first()).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath('worldview-day.png'), animations: 'disabled' });
+        await page.getByRole('button', { name: '关闭世界' }).click();
+
+        await page.getByRole('button', { name: '地图', exact: true }).click();
+        const map = page.locator('svg:has([data-node="DT-026"])');
+        const room = map.locator('[data-node="DT-026"]');
+        await expect(map.locator('[data-people-node="DT-026"]')).toContainText('林秋水');
+        await expect(map.locator('[data-people-node="DT-026"]')).toContainText('顾霜晚');
+        await expect.poll(async () => {
+            const bounds = await room.boundingBox();
+            return bounds ? Math.min(bounds.width, bounds.height) : 0;
+        }).toBeGreaterThan(80);
+        const viewWidth = () => map.evaluate(svg => svg.viewBox.baseVal.width);
+        const initialWidth = await viewWidth();
+        await page.getByTitle('放大', { exact: true }).click();
+        await expect.poll(viewWidth).toBeLessThan(initialWidth);
+        const roomBounds = await room.boundingBox();
+        const playerLabel = await map.locator('[data-people-node="DT-026"] text').filter({ hasText: '林秋水' }).boundingBox();
+        expect(playerLabel.y + playerLabel.height).toBeLessThan(roomBounds.y + roomBounds.height - 3);
+        await page.getByTitle('放大', { exact: true }).click();
+        await expect.poll(async () => 1000 / await viewWidth()).toBeGreaterThan(14.3);
+        await page.screenshot({ path: testInfo.outputPath('room-day.png'), animations: 'disabled' });
+        await page.getByTitle('关闭', { exact: true }).filter({ visible: true }).click();
+        await page.getByRole('button', { name: /^(队伍|同行)$/ }).click();
+        await expect(page.getByText('TEAM ROSTER', { exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: /顾霜晚/ }).first()).toBeVisible();
+        await page.getByTitle('关闭', { exact: true }).filter({ visible: true }).click();
         const optBtn = page.getByText('俯身捡起青铜碎钥端详其缺口纹路', { exact: false }).first();
         await expect(optBtn).toBeVisible({ timeout: 10000 });
         await optBtn.click({ force: true });
@@ -439,6 +499,8 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         await expect(page.getByText('同款制式铜牌', { exact: false }).first()).toBeVisible({ timeout: 20000 });
         expect(capturedCalls).toContain('turn1_normal_v2');
         await expect.poll(() => capturedCalls.filter((c) => c === 'director_post').length, { timeout: 15000 }).toBeGreaterThanOrEqual(2);
+        await expect.poll(() => capturedCalls.filter(c => c === 'map').length, { timeout: 15000 }).toBe(2);
+        expect(capturedCalls.filter(c => c === 'variable')).toHaveLength(2);
 
         // Open StoryModal ("剧情") - expand 纪事卷宗 accordion in RightPanel if collapsed
         const storyBtn = page.getByRole('button', { name: '剧情', exact: true }).first();
@@ -468,14 +530,40 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
 
         await tradeBtn.click();
         await expect(page.getByText('与在场人物交易', { exact: false }).first()).toBeVisible({ timeout: 5000 });
-        await page.getByRole('button', { name: '关闭', exact: true }).first().click();
+        await expect(page.getByText(/对方当前可付 19 /)).toBeVisible();
+        const confirmPresent = page.getByRole('button', { name: '确认对方此刻就在面前可当面交易' });
+        if (await confirmPresent.isVisible()) await confirmPresent.click();
+        const drug = page.getByText('兽药', { exact: false }).filter({ visible: true }).filter({ hasText: /兽药\s*×1$/ }).last();
+        const offerRow = drug.locator('../..');
+        await offerRow.getByRole('button', { name: '+', exact: true }).click();
+        const receipt = page.getByRole('spinbutton', { name: '我方收取' });
+        await expect(receipt).toBeVisible({ timeout: 5000 });
+        expect(Number(await receipt.inputValue())).toBeGreaterThan(19);
+        await expect(page.getByText(/对方余额不足，尚差/)).toBeVisible();
+        const confirmSale = page.getByRole('button', { name: '确认落账成交' });
+        await expect(confirmSale).toBeDisabled();
+        await receipt.fill('19');
+        await confirmSale.click();
+        await expect(page.getByText(/已成交并落账.*兽药.*19.*好感 \+1/)).toBeVisible();
+        await expect(page.getByText(/对方当前可付 0 /)).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath('trade-day.png') });
+        await page.getByRole('dialog', { name: '情境交易' }).getByRole('button', { name: '关闭', exact: true }).click();
+        const saleNotice = page.getByText('情境交易已暂存', { exact: true });
+        if (await saleNotice.isVisible()) await saleNotice.locator('../..').getByRole('button', { name: '关闭' }).click();
 
         await clashBtn.click();
         await expect(page.getByText('直观战术交锋 · 明牌对阵', { exact: false }).first()).toBeVisible({ timeout: 5000 });
+        await expect(page.getByLabel('己方阵容')).toContainText('顾霜晚');
+        await expect(page.getByLabel('敌方阵容')).toHaveText(/暂无/);
+        await expect(page.getByRole('button', { name: /强攻压招/ })).toHaveCount(0);
+        await page.getByRole('button', { name: '切磋试探', exact: true }).click();
+        await expect(page.getByRole('button', { name: /强攻压招/ })).toHaveCount(0);
+        await page.getByRole('combobox', { name: '切磋对象' }).selectOption({ label: '顾霜晚' });
+        await expect(page.getByLabel('切磋方阵容')).toContainText('顾霜晚');
         await expect(page.getByText('战前明牌诊断与变强指引：', { exact: false }).first()).toBeVisible({ timeout: 5000 });
         await page.getByRole('button', { name: /强攻压招/ }).first().click();
         await expect(page.getByText('出招拆解实录', { exact: false }).first()).toBeVisible({ timeout: 5000 });
-        await page.getByRole('button', { name: '关闭', exact: true }).first().click();
+        await page.getByRole('dialog', { name: '战术交锋' }).getByRole('button', { name: '关闭', exact: true }).click();
 
         // Toggle Tactical Clash plugin off via Settings and confirm the button disappears
         await clashBtn.click();
@@ -491,6 +579,15 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         await page.waitForTimeout(300);
         await expect(page.locator('button', { hasText: /^战斗$/ })).toHaveCount(0);
         await expect(page.locator('button', { hasText: /^拍卖$/ })).toHaveCount(0);
+        const expandMenu = page.getByRole('button', { name: '展开功能栏' });
+        if (await expandMenu.isVisible()) await expandMenu.click();
+        await page.getByRole('button', { name: '世界', exact: true }).click({ timeout: 8000 });
+        await page.getByRole('button', { name: '总纲', exact: true }).click();
+        await expect(page.getByText(/九州疆域辽阔/).first()).toBeVisible();
+        await page.getByRole('button', { name: '关闭世界' }).click();
+        await page.getByRole('button', { name: '地图', exact: true }).click({ timeout: 8000 });
+        await expect(page.locator('[data-people-node="DT-026"]')).toContainText('林秋水');
+        await page.screenshot({ path: testInfo.outputPath('room-mobile-day.png'), animations: 'disabled' });
 
         expect(pageErrors).toEqual([]);
     });

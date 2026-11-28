@@ -258,7 +258,13 @@ export interface 势力互动事件 {
     发生时间?: 游戏时间格式;
 }
 
+export interface 场所交易账本 {
+    余额: number;
+    库存: import('./social').NPC背包物品[];
+}
+
 export interface 世界数据结构 {
+    场所交易账本?: Record<string, 场所交易账本>;
     活跃NPC列表: 活跃NPC结构[];
     待执行事件: 世界待执行事件结构[];
     进行中事件: 世界进行中事件结构[];

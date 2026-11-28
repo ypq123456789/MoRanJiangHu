@@ -3341,7 +3341,6 @@ const App: React.FC = () => {
                                     onOpenNovelDecomposition={() => { void openNovelDecompositionWorkbench(); }}
                                     worldEvolutionEnabled={meta.worldEvolutionEnabled}
                                     worldEvolutionUpdating={meta.worldEvolutionUpdating}
-                                    enableWorldPanel={state.apiConfig?.功能模型占位?.世界演变功能启用 !== false}
                                     enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
                                     enablePlanningPanel={state.apiConfig?.功能模型占位?.规划分析功能启用 !== false}
                                     enableKungfu={启用修炼体系}
@@ -3483,7 +3482,6 @@ const App: React.FC = () => {
                     <MobileQuickMenu
                         activeWindow={activeMobileWindowId}
                         onMenuClick={handleMobileMenuAction}
-                        enableWorldPanel={state.apiConfig?.功能模型占位?.世界演变功能启用 !== false}
                         enableHeroinePlan={safeGameConfig?.启用女主剧情规划 === true}
                         enablePlanningPanel={state.apiConfig?.功能模型占位?.规划分析功能启用 !== false}
                         enableKungfu={启用修炼体系}
@@ -4585,9 +4583,10 @@ const App: React.FC = () => {
                                 directorBible={state.导演圣经}
                                 openingConfig={state.开局配置}
                                 pendingTrades={state.场外交易暂存 || []}
-                                onApplyTrade={({ nextRole, nextSocial, record }) => {
+                                onApplyTrade={({ nextRole, nextSocial, nextWorld, record }) => {
                                     setters.setCharacter(nextRole);
                                     setters.setSocial(nextSocial);
+                                    if (nextWorld) setters.setWorld(nextWorld);
                                     actions.追加场外交易记录(record);
                                     actions.pushNotification({
                                         title: '情境交易已暂存',
@@ -4597,6 +4596,7 @@ const App: React.FC = () => {
                                     void actions.performAutoSave?.({
                                         role: nextRole,
                                         social: nextSocial,
+                                        world: nextWorld ?? state.世界,
                                         场外交易暂存: [...(state.场外交易暂存 || []), record],
                                         force: true
                                     });
@@ -4628,6 +4628,7 @@ const App: React.FC = () => {
                                 role={state.角色}
                                 env={state.环境}
                                 social={state.社交}
+                                battle={state.战斗}
                                 directorBible={state.导演圣经}
                                 pendingClashes={state.场外战果暂存 || []}
                                 onCommitClash={({ nextRole, record }) => {

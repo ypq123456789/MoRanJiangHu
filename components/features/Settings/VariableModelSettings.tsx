@@ -3,7 +3,7 @@ import { 接口设置结构, 单接口配置结构, 功能模型占位配置结�
 import GameButton from '../../ui/GameButton';
 import ToggleSwitch from '../../ui/ToggleSwitch';
 import InlineSelect from '../../ui/InlineSelect';
-import { 构建OpenAI兼容模型列表候选地址, 规范化接口设置 } from '../../../utils/apiConfig';
+import { 构建OpenAI兼容模型列表候选地址, 获取变量计算接口配置, 规范化接口设置 } from '../../../utils/apiConfig';
 import { 构建模型列表请求头, 读取可复用自定义请求头 } from '../../../utils/customRequestHeaders';
 import StageApiModelSelector from './StageApiModelSelector';
 import { 功能模型建议说明 } from './FunctionModelAdviceTip';
@@ -110,7 +110,7 @@ const VariableModelSettings: React.FC<Props> = ({ settings, onSave }) => {
     };
 
     const handleSave = () => {
-        if (独立模型开启 && !(form.功能模型占位.变量计算使用模型 || '').trim()) {
+        if (独立模型开启 && !获取变量计算接口配置(form)?.model) {
             setMessage('已开启变量独立模型，请先获取列表并选择模型。');
             return;
         }

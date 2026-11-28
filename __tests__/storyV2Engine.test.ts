@@ -11,6 +11,8 @@ import { 创建空白导演圣经 } from '../models/directorBible';
 import { 默认游戏设置 } from '../utils/gameSettings';
 import StoryModal from '../components/features/Story/StoryModal';
 import * as chatClient from '../services/ai/chatCompletionClient';
+import { 生成世界与导演圣经V2 } from '../engine/storyV2/worldBibleGenerator';
+import { getDiagnosticLogs } from '../services/diagnosticLog';
 
 vi.mock('../services/ai/chatCompletionClient', async () => {
     const actual = await vi.importActual<any>('../services/ai/chatCompletionClient');
@@ -23,6 +25,46 @@ vi.mock('../services/ai/chatCompletionClient', async () => {
 describe('MoRanJiangHu 2.0 Story Engine', () => {
     beforeEach(() => {
         vi.mocked(chatClient.请求模型文本).mockReset();
+    });
+
+    it.each(['世界观', '世界基底', '导演圣经'])('仅补写未达标的%s，并保留第一轮已验收的内容', async (missingTag) => {
+        const world = '码头盐路贯通南北，过河商旅须先持引到渡口登记。'.repeat(12);
+        const tiers = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'];
+        const nodes = Array.from({ length: 24 }, (_, i) => ({
+            ID: String(i), 名称: `地点${i}`, 层级: tiers[Math.min(i, 5)], 父级ID: i ? String(Math.min(i - 1, 4)) : ''
+        }));
+        const bible = {
+            世界观表层摘要: '官盐漕运贯通九州，各郡凭路引出入。',
+            顶层隐秘秩序: '六家盐商凭旧契与转运司一同控制沿岸的渡引。',
+            核心历史原罪: '十年前盐船沉没时尚有一册副账被船夫带离现场。',
+            空间阶梯: tiers.slice(0, 3).map((层级名称) => ({ 层级名称 })),
+            势力暗账: Array.from({ length: 6 }, (_, i) => ({ 名称: `盐商${i}`, 领袖: `掌柜${i}`, 跨势力账目: [{ 对方势力: '转运司' }, { 对方势力: '船行' }] })),
+            核心卡司: Array.from({ length: 7 }, (_, i) => ({ 姓名: `掌柜${i}`, 所处层级: 1 + i % 3 })),
+            前史导火索: [{ 事件名: '渡口失火' }],
+            主角核心困局: { 最大威胁源: '搜船的差役', 手中唯一筹码或信息差: '半张路引' },
+            宏观分幕大纲: Array.from({ length: 4 }, (_, i) => ({ 标题: `卷${i}` })),
+            伏笔台账: Array.from({ length: 6 }, (_, i) => ({ 表面载体: `旧盐票${i}` }))
+        };
+        const valid: Record<string, string> = { 世界观: world, 世界基底: JSON.stringify({ 地图层级: nodes }), 导演圣经: JSON.stringify(bible) };
+        const damaged: Record<string, string> = {
+            世界观: '旧短稿', 世界基底: JSON.stringify({ 地图层级: nodes.map((n, i) => i ? n : { ...n, 层级: '子地点' }) }), 导演圣经: '{}'
+        };
+        const envelope = (tag: string, body: string) => `<${tag}>${body}</${tag}>`;
+        const requests = vi.mocked(chatClient.请求模型文本)
+            .mockResolvedValueOnce(Object.entries(valid).map(([tag, body]) => envelope(tag, tag === missingTag ? damaged[tag] : body)).join('\n'))
+            .mockResolvedValueOnce(envelope(missingTag, valid[missingTag]));
+        const result = await 生成世界与导演圣经V2({
+            worldConfig: { worldName: '九州' }, charData: { 姓名: '渡客' } as any,
+            apiConfig: { model: 'fixture-model' } as any, openingConfig: {} as any, stream: false
+        });
+        expect(requests).toHaveBeenCalledTimes(2);
+        const repair = requests.mock.calls[1][1].at(-1)?.content || '';
+        expect(repair).toContain(`本次只输出：<${missingTag}>`);
+        expect(result.worldPrompt).toBe(world);
+        expect(result.mapLayers[0].层级).toBe('寰宇');
+        expect(result.directorBible.世界观表层摘要).toBe(bible.世界观表层摘要);
+        const log = getDiagnosticLogs().find((entry) => entry.message === '2.0 开局世界观生成完成');
+        expect(JSON.parse(log?.detail || '{}')).toMatchObject({ model: 'fixture-model', requestCount: 2, elapsedMs: expect.any(Number) });
     });
 
     it('净化2_0酒馆预设 strips A-J quick-reply/summary bloat while keeping writing style', () => {

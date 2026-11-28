@@ -38,7 +38,7 @@ import { buildHistoryDebugSummary, buildSaveDebugSummary, collectLargestStrings,
 import { 清理内嵌图片冗余字段 } from '../../utils/imageAssets';
 import { 计算历史游玩回合数 } from '../../utils/saveTurn';
 import { 修复旧姓名库误改NPC姓名列表 } from '../../utils/npcNameRepair';
-import { 修复开局伙伴社交列表 } from '../../utils/openingCompanion';
+import { 修复开局伙伴社交列表, 恢复开局伙伴队伍身份 } from '../../utils/openingCompanion';
 import { 同步角色与门派状态 } from './storyState';
 import { 规范化场外对话列表 } from './roleChatWorkflow';
 import { 迁移旧版拍卖行寄售资产 } from '../../utils/legacyAuctionMigration';
@@ -910,6 +910,7 @@ export const 执行读取存档 = async (
     if (nameRepairResult.已修复数量 > 0) {
         loadedSocial = nameRepairResult.列表;
     }
+    loadedSocial = 恢复开局伙伴队伍身份(loadedSocial, save.openingConfig, loadedRole.姓名);
     trace('social.prepare.done', {
         trusted: shouldTrustPersistedHeavyFields,
         socialCount: loadedSocial.length,

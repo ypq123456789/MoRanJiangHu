@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { DirectorWorldBible } from '../../../models/directorBible';
 import {
     评估NPC交易资格,
+    计算交易差价,
+    交易回收单价,
     执行情境交易结算,
     提取交易对方库存列表,
     提取主角可交易物品列表,
@@ -15,7 +17,7 @@ import type {
     场外交易记录结构,
     角色数据结构
 } from '../../../types';
-import { 构建角色金钱显示快照, 获取货币显示模式, 计算角色货币底层总值 } from '../../../utils/currencyDisplay';
+import { 获取交易币制, 读取交易钱袋 } from '../../../engine/plugins/tradeCurrency';
 import { 角色对话确认键 } from '../../../utils/roleChatLocation';
 
 interface Props {
@@ -28,7 +30,7 @@ interface Props {
     directorBible?: DirectorWorldBible | null;
     openingConfig?: OpeningConfig | null;
     pendingTrades: 场外交易记录结构[];
-    onApplyTrade: (result: Required<Pick<ExecuteTradeResult, 'nextRole' | 'nextSocial' | 'record'>>) => void;
+    onApplyTrade: (result: Required<Pick<ExecuteTradeResult, 'nextRole' | 'nextSocial' | 'record'>> & Pick<ExecuteTradeResult, 'nextWorld'>) => void;
     onClearTrades: () => void;
     onClose: () => void;
     onOpenSettings?: () => void;
@@ -67,18 +69,22 @@ const TradePluginModal: React.FC<Props> = ({
     const [confirmedLocationKey, setConfirmedLocationKey] = useState('');
     const [offerQtys, setOfferQtys] = useState<Record<string, number>>({});
     const [buyQtys, setBuyQtys] = useState<Record<string, number>>({});
-    const [cashPaidBase, setCashPaidBase] = useState<number>(0);
-    const [cashReceivedBase, setCashReceivedBase] = useState<number>(0);
+    const [cashPaidBase, setCashPaidBase] = useState<number | undefined>(undefined);
+    const [cashReceivedBase, setCashReceivedBase] = useState<number | undefined>(undefined);
     const [barterNote, setBarterNote] = useState('');
+    const [giftConfirmed, setGiftConfirmed] = useState(false);
+    const cartSubmitted = useRef(false);
     const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
     useEffect(() => {
         if (!open) return;
+        setGiftConfirmed(false);
+        cartSubmitted.current = false;
         setFeedback(null);
         setOfferQtys({});
         setBuyQtys({});
-        setCashPaidBase(0);
-        setCashReceivedBase(0);
+        setCashPaidBase(undefined);
+        setCashReceivedBase(undefined);
         setBarterNote('');
         setConfirmedLocationKey('');
         const firstEligible = npcCandidates.find((c) => c.eligibility.eligible) || npcCandidates[0];
@@ -91,36 +97,26 @@ const TradePluginModal: React.FC<Props> = ({
     }, [open]);
 
     const resetCart = () => {
+        setGiftConfirmed(false);
         setOfferQtys({});
         setBuyQtys({});
-        setCashPaidBase(0);
-        setCashReceivedBase(0);
+        setCashPaidBase(undefined);
+        setCashReceivedBase(undefined);
         setBarterNote('');
         setFeedback(null);
     };
 
     const selectedEntry = useMemo(
-        () => npcCandidates.find((c) => String(c.npc.id || c.npc.姓名 || '') === selectedNpcKey) || npcCandidates[0] || null,
+        () => npcCandidates.find((c) => String(c.npc.id || c.npc.姓名 || '') === selectedNpcKey) || null,
         [npcCandidates, selectedNpcKey]
     );
 
-    const playerWallet = useMemo(
-        () => 构建角色金钱显示快照(role?.金钱, openingConfig, role),
-        [role, openingConfig]
-    );
-    const playerBaseMoney = useMemo(
-        () => 计算角色货币底层总值(role?.金钱, openingConfig?.modeRuntimeProfile, 获取货币显示模式(openingConfig, role)),
-        [role, openingConfig]
-    );
-    const playerItems = useMemo(() => 提取主角可交易物品列表(role), [role]);
-
-    const { items: counterpartyItems, purseBase } = useMemo(() => 提取交易对方库存列表({
-        targetType: mode,
-        npc: mode === 'npc' ? selectedEntry?.npc : null,
-        venue: mode === 'venue' ? venueInfo : null,
-        openingConfig,
-        turnSeed: pendingTrades.length + 1
-    }), [mode, selectedEntry, venueInfo, openingConfig, pendingTrades.length]);
+    const currency = useMemo(() => 获取交易币制(openingConfig, role), [openingConfig, role]);
+    const playerBaseMoney = 读取交易钱袋(role.金钱, role.物品列表 || [], currency).balance;
+    const playerItems = useMemo(() => 提取主角可交易物品列表(role, openingConfig), [role, openingConfig]);
+    const { items: counterpartyItems, purseBase, purseKnown } = useMemo(() => 提取交易对方库存列表({
+        targetType: mode, npc: selectedEntry?.npc, venue: venueInfo, world, role, openingConfig
+    }), [mode, selectedEntry, venueInfo, world, role, openingConfig]);
 
     if (!open) return null;
 
@@ -129,7 +125,6 @@ const TradePluginModal: React.FC<Props> = ({
         || Boolean(selectedEntry && (!selectedEntry.eligibility.locationCheck.需要确认 || (npcConfirmKey && confirmedLocationKey === npcConfirmKey)));
 
     const activeMultiplier = mode === 'venue' ? 1.05 : (selectedEntry?.eligibility.priceMultiplier ?? 1);
-    const effectivePurse = mode === 'venue' ? purseBase : (selectedEntry?.eligibility.maxBuyBudgetBase ?? purseBase);
     const canTradeWithCurrentTarget = mode === 'venue'
         ? venueInfo.available
         : Boolean(selectedEntry?.eligibility.eligible && locationConfirmed);
@@ -148,13 +143,33 @@ const TradePluginModal: React.FC<Props> = ({
         }))
         .filter((x) => x.qty > 0);
 
-    const playerOfferValue = Math.max(0, Math.floor(cashPaidBase || 0))
-        + offeredList.reduce((acc, x) => acc + Math.round(x.item.unitPriceBase * 0.7) * x.qty, 0);
-    const counterpartyAskValue = Math.max(0, Math.floor(cashReceivedBase || 0))
-        + boughtList.reduce((acc, x) => acc + Math.round(x.item.unitPriceBase * activeMultiplier) * x.qty, 0);
+    const rows = (list: typeof offeredList) => list.map(({ item, qty }) => ({ ...item, quantity: qty }));
+    const offer = rows(offeredList);
+    const buy = rows(boughtList);
+    const quote = 计算交易差价(offer, buy, activeMultiplier);
+    const pay = cashPaidBase ?? quote.pay;
+    const receive = cashReceivedBase ?? quote.receive;
+    const amount = (value: number) => value + ' ' + currency.label;
+    const concession = quote.sellValue + pay - quote.buyValue - receive;
+    const canGift = mode === 'npc' && canTradeWithCurrentTarget && offer.length > 0 && buy.length === 0 && cashReceivedBase === 0 && pay === 0;
+    const isGift = canGift && giftConfirmed;
+    const invalidReason = !offer.length && !buy.length ? '请先选择要交易的物品。'
+        : (pay || receive) && !currency.cashEnabled ? '当前世界未指定可结算的记账币，请选择等价物品交换。'
+        : receive > purseBase ? (purseKnown ? '对方余额不足' : '对方的钱袋尚未记录可用余额') + '，尚差 ' + amount(receive - purseBase) + '。可降低收款或改选物品。'
+        : pay > playerBaseMoney ? '你的余额不足，尚差 ' + amount(pay - playerBaseMoney) + '。'
+        : !buy.length && !receive && !isGift ? '出售物品需填写正数收款，或选择对方物品交换。'
+        : concession < 0 ? '尚差 ' + amount(-concession) + '，请调整筹码。' : '';
+    const changeQty = (side: 'offer' | 'buy', id: string, quantity: number) => {
+        cartSubmitted.current = false;
+        setGiftConfirmed(false);
+        (side === 'offer' ? setOfferQtys : setBuyQtys)((prev) => ({ ...prev, [id]: quantity }));
+        setCashPaidBase(undefined);
+        setCashReceivedBase(undefined);
+        setFeedback(null);
+    };
 
     const handleConfirmTrade = () => {
-        if (loading || !canTradeWithCurrentTarget) return;
+        if (loading || !canTradeWithCurrentTarget || invalidReason || cartSubmitted.current) return;
         const targetName = mode === 'venue' ? venueInfo.venueName : (selectedEntry?.npc?.姓名 || '对方');
         const res = 执行情境交易结算({
             targetType: mode,
@@ -164,22 +179,14 @@ const TradePluginModal: React.FC<Props> = ({
             role,
             social,
             openingConfig,
-            playerItemsOffered: offeredList.map((x) => ({
-                name: x.item.name,
-                quantity: x.qty,
-                unitPriceBase: x.item.unitPriceBase
-            })),
-            counterpartyItemsBought: boughtList.map((x) => ({
-                name: x.item.name,
-                type: x.item.type,
-                description: x.item.description,
-                quantity: x.qty,
-                unitPriceBase: x.item.unitPriceBase
-            })),
-            playerCashPaidBase: cashPaidBase,
-            playerCashReceivedBase: cashReceivedBase,
+            world,
+            venue: venueInfo,
+            playerItemsOffered: offer,
+            counterpartyItemsBought: buy,
+            playerCashPaidBase: pay,
+            playerCashReceivedBase: receive,
+            confirmedGift: isGift,
             priceMultiplier: activeMultiplier,
-            maxCounterpartyPurseBase: effectivePurse,
             barterNote: barterNote.trim() || undefined
         });
 
@@ -187,14 +194,15 @@ const TradePluginModal: React.FC<Props> = ({
             setFeedback({ type: 'err', text: res.error || '交易未达成。' });
             return;
         }
-        onApplyTrade({ nextRole: res.nextRole, nextSocial: res.nextSocial, record: res.record });
+        cartSubmitted.current = true;
+        onApplyTrade({ nextRole: res.nextRole, nextSocial: res.nextSocial, nextWorld: res.nextWorld, record: res.record });
         resetCart();
         setFeedback({ type: 'ok', text: `已成交并落账：${res.record.成交摘要}` });
     };
 
     return (
         <div className="fixed inset-0 z-[230] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3">
-            <div className="w-full max-w-4xl max-h-[90vh] rounded-2xl border border-wuxia-gold/35 bg-ink-black/95 shadow-[0_20px_60px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
+            <div role="dialog" aria-label="情境交易" className="w-full max-w-4xl max-h-[90vh] rounded-2xl border border-wuxia-gold/35 bg-ink-black/95 shadow-[0_20px_60px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
                 <div className="px-4 py-3 border-b border-gray-800 bg-black/50 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-serif font-bold tracking-wider text-wuxia-gold">情境交易</span>
@@ -243,11 +251,11 @@ const TradePluginModal: React.FC<Props> = ({
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <label className="text-xs text-gray-400">选择在场人物：</label>
                                 <select
-                                    value={selectedNpcKey}
+                                    value={selectedEntry ? selectedNpcKey : ''}
                                     onChange={(e) => { setSelectedNpcKey(e.target.value); resetCart(); setConfirmedLocationKey(''); }}
                                     className="flex-1 min-w-[220px] max-w-sm bg-black/70 border border-gray-700 rounded px-2.5 py-1.5 text-xs text-paper-white outline-none focus:border-wuxia-gold"
                                 >
-                                    {npcCandidates.length === 0 && <option value="">暂无已建档人物</option>}
+                                    {!selectedEntry && <option value="">{npcCandidates.length ? '请选择交易对象' : '暂无已建档人物'}</option>}
                                     {npcCandidates.map(({ npc, eligibility }) => {
                                         const key = String(npc.id || npc.姓名 || '');
                                         return (
@@ -292,7 +300,7 @@ const TradePluginModal: React.FC<Props> = ({
                         <div className="rounded-xl border border-gray-800 bg-black/35 p-3 space-y-3">
                             <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-wuxia-gold">己方随身行囊与货币</span>
-                                <span className="text-[11px] text-amber-200">{playerWallet.显示}</span>
+                                <span className="text-[11px] text-amber-200">我的可用余额 {amount(playerBaseMoney)}</span>
                             </div>
                             <div className="max-h-52 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                                 {playerItems.length === 0 ? (
@@ -306,19 +314,19 @@ const TradePluginModal: React.FC<Props> = ({
                                                     {item.name} <span className="text-gray-500">×{item.quantity}</span>
                                                     {item.equippedLocked && <span className="ml-1 text-[10px] text-amber-400">[已装备不可售]</span>}
                                                 </div>
-                                                <div className="text-[10px] text-gray-500 truncate">估价折现 {Math.round(item.unitPriceBase * 0.7)}/件 · {item.type}</div>
+                                                <div className="text-[10px] text-gray-500 truncate">回收价 {amount(交易回收单价(item.unitPriceBase))}/件 · {item.type}</div>
                                             </div>
                                             {!item.equippedLocked && (
                                                 <div className="flex items-center gap-1 shrink-0">
                                                     <button
                                                         type="button"
-                                                        onClick={() => setOfferQtys((prev) => ({ ...prev, [item.id]: Math.max(0, picked - 1) }))}
+                                                        onClick={() => changeQty('offer', item.id, Math.max(0, picked - 1))}
                                                         className="w-6 h-6 rounded border border-gray-700 text-gray-300 hover:border-wuxia-gold"
                                                     >-</button>
                                                     <span className="w-5 text-center text-amber-200">{picked}</span>
                                                     <button
                                                         type="button"
-                                                        onClick={() => setOfferQtys((prev) => ({ ...prev, [item.id]: Math.min(item.quantity, picked + 1) }))}
+                                                        onClick={() => changeQty('offer', item.id, Math.min(item.quantity, picked + 1))}
                                                         className="w-6 h-6 rounded border border-gray-700 text-gray-300 hover:border-wuxia-gold"
                                                     >+</button>
                                                 </div>
@@ -328,13 +336,13 @@ const TradePluginModal: React.FC<Props> = ({
                                 })}
                             </div>
                             <div className="pt-2 border-t border-gray-800/80 flex items-center justify-between gap-2 text-xs">
-                                <span className="text-gray-400">己方搭付现银（基础单位，上限 {playerBaseMoney}）：</span>
+                                <span className="text-gray-400">我方支付（{currency.label}）</span>
                                 <input
                                     type="number"
                                     min={0}
-                                    max={playerBaseMoney}
-                                    value={cashPaidBase}
-                                    onChange={(e) => setCashPaidBase(Math.max(0, Math.min(playerBaseMoney, Math.floor(Number(e.target.value) || 0))))}
+                                    aria-label="我方支付" disabled={quote.pay <= 0}
+                                    value={pay}
+                                    onChange={(e) => setCashPaidBase(e.target.value === '' ? undefined : Math.max(0, Math.floor(Number(e.target.value))))}
                                     className="w-24 bg-black/70 border border-gray-700 rounded px-2 py-1 text-right text-amber-200 outline-none focus:border-wuxia-gold"
                                 />
                             </div>
@@ -344,7 +352,7 @@ const TradePluginModal: React.FC<Props> = ({
                         <div className="rounded-xl border border-gray-800 bg-black/35 p-3 space-y-3">
                             <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-wuxia-cyan">对方现货与随身钱袋</span>
-                                <span className="text-[11px] text-cyan-200">现银上限 {effectivePurse}</span>
+                                <span className="text-[11px] text-cyan-200">{purseKnown ? '对方当前可付 ' + amount(purseBase) : '对方可付余额尚未记录'}</span>
                             </div>
                             {!canTradeWithCurrentTarget ? (
                                 <div className="text-xs text-gray-500 py-8 text-center">
@@ -353,6 +361,7 @@ const TradePluginModal: React.FC<Props> = ({
                             ) : (
                                 <>
                                     <div className="max-h-52 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                                        {counterpartyItems.length === 0 && <div className="py-4 text-center text-xs text-gray-500">暂无已记录的可交易物品</div>}
                                         {counterpartyItems.map((item) => {
                                             const picked = buyQtys[item.id] || 0;
                                             const askPrice = Math.round(item.unitPriceBase * activeMultiplier);
@@ -360,18 +369,18 @@ const TradePluginModal: React.FC<Props> = ({
                                                 <div key={item.id} className="rounded-lg border border-gray-800/80 bg-black/40 p-2 flex items-center justify-between gap-2 text-xs">
                                                     <div className="min-w-0">
                                                         <div className="text-gray-200 font-medium truncate">{item.name} <span className="text-gray-500">×{item.quantity}</span></div>
-                                                        <div className="text-[10px] text-gray-500 truncate">要价 {askPrice}/件 · {item.description}</div>
+                                                        <div className="text-[10px] text-gray-500 truncate">要价 {amount(askPrice)}/件 · {item.description}</div>
                                                     </div>
                                                     <div className="flex items-center gap-1 shrink-0">
                                                         <button
                                                             type="button"
-                                                            onClick={() => setBuyQtys((prev) => ({ ...prev, [item.id]: Math.max(0, picked - 1) }))}
+                                                            onClick={() => changeQty('buy', item.id, Math.max(0, picked - 1))}
                                                             className="w-6 h-6 rounded border border-gray-700 text-gray-300 hover:border-wuxia-cyan"
                                                         >-</button>
                                                         <span className="w-5 text-center text-cyan-200">{picked}</span>
                                                         <button
                                                             type="button"
-                                                            onClick={() => setBuyQtys((prev) => ({ ...prev, [item.id]: Math.min(item.quantity, picked + 1) }))}
+                                                            onClick={() => changeQty('buy', item.id, Math.min(item.quantity, picked + 1))}
                                                             className="w-6 h-6 rounded border border-gray-700 text-gray-300 hover:border-wuxia-cyan"
                                                         >+</button>
                                                     </div>
@@ -380,16 +389,25 @@ const TradePluginModal: React.FC<Props> = ({
                                         })}
                                     </div>
                                     <div className="pt-2 border-t border-gray-800/80 flex items-center justify-between gap-2 text-xs">
-                                        <span className="text-gray-400">索取折现找零（上限 {effectivePurse}）：</span>
+                                        <span className="text-gray-400">我方收取（{currency.label}，可让利）</span>
                                         <input
                                             type="number"
                                             min={0}
-                                            max={effectivePurse}
-                                            value={cashReceivedBase}
-                                            onChange={(e) => setCashReceivedBase(Math.max(0, Math.min(effectivePurse, Math.floor(Number(e.target.value) || 0))))}
+                                            aria-label="我方收取" disabled={quote.receive <= 0}
+                                            value={receive}
+                                            onChange={(e) => {
+                                                setGiftConfirmed(false);
+                                                setCashReceivedBase(e.target.value === '' ? undefined : Math.max(0, Math.floor(Number(e.target.value))));
+                                            }}
                                             className="w-24 bg-black/70 border border-gray-700 rounded px-2 py-1 text-right text-cyan-200 outline-none focus:border-wuxia-cyan"
                                         />
                                     </div>
+                                    {canGift && (
+                                        <label className="flex items-center gap-2 text-xs text-amber-200">
+                                            <input type="checkbox" checked={giftConfirmed} onChange={(e) => setGiftConfirmed(e.target.checked)} />
+                                            免费赠予{selectedEntry?.npc.姓名}
+                                        </label>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -399,20 +417,20 @@ const TradePluginModal: React.FC<Props> = ({
                     <div className="rounded-xl border border-wuxia-gold/25 bg-black/45 p-3 space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                             <div>
-                                己方总筹码：<span className="text-amber-300 font-bold">{playerOfferValue}</span>
-                                <span className="mx-2 text-gray-600">|</span>
-                                对方总要价：<span className="text-cyan-300 font-bold">{counterpartyAskValue}</span>
-                                <span className="ml-2 text-gray-400">
-                                    ({playerOfferValue >= counterpartyAskValue ? '已满足底价，可立即成交' : `尚差 ${counterpartyAskValue - playerOfferValue} 价值`})
-                                </span>
+                                本次支出 <strong className="text-amber-300">{amount(pay)}</strong>
+                                <span className="mx-2 text-gray-500">/</span>
+                                本次收入 <strong className="text-cyan-300">{amount(receive)}</strong>
+                                <div aria-live="polite" className={invalidReason ? 'mt-1 text-red-300' : 'mt-1 text-gray-300'}>
+                                    {invalidReason || (isGift ? '赠予的物品不收取货款。' : concession > 0 ? '本次让利 ' + amount(concession) : '已按所选货物自动结清差价')}
+                                </div>
                             </div>
                             <button
                                 type="button"
-                                disabled={loading || !canTradeWithCurrentTarget}
+                                disabled={loading || !canTradeWithCurrentTarget || Boolean(invalidReason)}
                                 onClick={handleConfirmTrade}
                                 className="px-4 py-1.5 rounded-lg border border-wuxia-gold bg-wuxia-gold/20 text-xs font-bold text-wuxia-gold hover:bg-wuxia-gold hover:text-ink-black transition-colors disabled:opacity-40"
                             >
-                                确认落账成交
+                                {isGift ? '确认赠予' : '确认落账成交'}
                             </button>
                         </div>
                         <input

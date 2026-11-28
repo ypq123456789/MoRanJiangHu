@@ -207,7 +207,7 @@ const WorldModal: React.FC<Props> = ({
                             <div>{localNotice || worldEvolutionStatus || '系统静默'}</div>
                             <div className="mt-1">{worldEvolutionLastUpdatedAt ? `最近显化：${worldEvolutionLastUpdatedAt}` : '尚无最近显化时间'}</div>
                         </div>
-                        <button onClick={onClose} className="w-10 h-10 rounded-full border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-400">×</button>
+                        <button type="button" aria-label="关闭世界" onClick={onClose} className="w-10 h-10 rounded-full border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-400">×</button>
                     </div>
                 </div>
 

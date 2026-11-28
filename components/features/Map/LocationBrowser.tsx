@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 世界数据结构, 环境信息结构 } from '../../../types';
 import { 构建地点树, type 地点树节点 } from '../../../utils/locationTree';
-import { NPC属于地图视图, NPC位置命中名称 } from '../../../utils/mapNpcLocation';
+import { 构建地图人物标记, type 地图人物标记 } from '../../../utils/mapNpcLocation';
 import RegionMap from './RegionMap';
 
 interface Props {
@@ -42,9 +42,8 @@ const LocationTreeItem: React.FC<{
     playerAncestorIds: Set<string>;
     depth: number;
     onSelect: (node: 地点树节点) => void;
-    socialList?: any[];
-    playerName?: string;
-}> = ({ node, selectedId, playerLocationId, playerAncestorIds, depth, onSelect, socialList = [], playerName = '' }) => {
+    人物映射: Map<string, 地图人物标记[]>;
+}> = ({ node, selectedId, playerLocationId, playerAncestorIds, depth, onSelect, 人物映射 }) => {
     if (depth > 30) return null;
     if (!是否索引可见节点(node)) return null;
     const inPlayerPath = playerAncestorIds.has(node.ID);
@@ -57,19 +56,7 @@ const LocationTreeItem: React.FC<{
     const visibleChildren = node.子节点.filter(c => c.ID !== node.ID && 是否索引可见节点(c));
     const hasChildren = visibleChildren.length > 0;
 
-    // 叶子节点：计算在场NPC
-    const leafNpcs = useMemo(() => {
-        if (hasChildren || socialList.length === 0) return [];
-        const matched = socialList.filter((npc: any) => NPC位置命中名称(npc, node.名称));
-        const safePlayerName = playerName.trim();
-        if (safePlayerName) {
-            const hasPlayer = matched.some((npc: any) => String(npc?.姓名 || npc?.名称 || '').trim() === safePlayerName);
-            if (!hasPlayer && isPlayerLocation) {
-                matched.unshift({ 姓名: safePlayerName, 名称: safePlayerName, 是否玩家本人: true });
-            }
-        }
-        return matched;
-    }, [hasChildren, socialList, node.名称, playerName, isPlayerLocation]);
+    const leafNpcs = hasChildren ? [] : 人物映射.get(node.ID) || [];
 
     return (
         <div>
@@ -102,13 +89,13 @@ const LocationTreeItem: React.FC<{
                 {node.控制势力 && <span className="hidden min-[420px]:inline text-sm text-amber-300/80 ml-1 shrink truncate max-w-[80px]">{node.控制势力}</span>}
                 {leafNpcs.length > 0 && (
                     <span className="ml-auto flex items-center gap-0.5 shrink-0 max-w-[120px] overflow-hidden">
-                        {leafNpcs.slice(0, 3).map((npc: any, i: number) => {
+                        {leafNpcs.slice(0, 3).map((npc) => {
                             const npcColors = ['#d49090','#90b4d4','#90d490','#d4c490','#b490d4','#90d4c4'];
-                            const c = npc?.是否玩家本人 ? '#f0d76a' : npcColors[Math.abs((npc?.姓名 || npc?.名称 || '').length) % npcColors.length];
+                            const c = npc.player ? '#f0d76a' : npcColors[npc.name.length % npcColors.length];
                             return (
-                                <span key={i} className="text-xs px-1 py-0.5 rounded font-bold truncate"
+                                <span key={npc.name} className="text-xs px-1 py-0.5 rounded font-bold truncate"
                                     style={{ background: c, color: '#2a1000', maxWidth: '50px' }}>
-                                    {String(npc?.姓名 || npc?.名称 || '?').slice(0, 3)}
+                                    {npc.name.slice(0, 3)}
                                 </span>
                             );
                         })}
@@ -125,7 +112,7 @@ const LocationTreeItem: React.FC<{
             {expanded && hasChildren && (
                 <div>
                     {visibleChildren.map(child => (
-                        <LocationTreeItem key={child.ID} node={child} selectedId={selectedId} playerLocationId={playerLocationId} playerAncestorIds={playerAncestorIds} depth={depth + 1} onSelect={onSelect} socialList={socialList} playerName={playerName} />
+                        <LocationTreeItem key={child.ID} node={child} selectedId={selectedId} playerLocationId={playerLocationId} playerAncestorIds={playerAncestorIds} depth={depth + 1} onSelect={onSelect} 人物映射={人物映射} />
                     ))}
                 </div>
             )}
@@ -182,51 +169,9 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
         return chain;
     }, [selectedNode, tree]);
 
-    // 选中节点的在场NPC
-    const selectedNodeNpcs = useMemo(() => {
-        if (!selectedNode || socialList.length === 0) return [];
-        const viewPathNames = breadcrumb.map((node) => node.名称);
-        return socialList.filter((npc: any) => {
-            if (NPC位置命中名称(npc, selectedNode.名称)) return true;
-            return NPC属于地图视图(npc, selectedNode.子节点, {
-                env,
-                currentLocationName: tree.当前节点?.名称 || '',
-                viewNodeName: selectedNode.名称,
-                viewPathNames,
-            });
-        });
-    }, [selectedNode, socialList, breadcrumb, env, tree.当前节点]);
-
-    const selectedNodePeople = useMemo(() => {
-        const people = [...selectedNodeNpcs];
-        const safePlayerName = playerName.trim();
-        if (!selectedNode) return people;
-        const currentName = tree.当前节点?.名称 || '';
-        const selectedNames = new Set<string>([
-            selectedNode.名称,
-            ...selectedNode.子节点.map((node) => node.名称),
-            ...breadcrumb.map((node) => node.名称)
-        ].filter(Boolean));
-        const envNames = [env?.具体地点, env?.小地点, env?.中地点, env?.大地点].map((name) => String(name || '').trim()).filter(Boolean);
-        const locationMatches = selectedNames.has(currentName)
-            || envNames.some((name) => selectedNames.has(name))
-            || breadcrumb.some((node) => node.ID === tree.当前节点?.ID)
-            || selectedNode.ID === tree.当前节点?.父级ID;
-        if (!locationMatches) return people;
-
-        const appendUnique = (person: any) => {
-            const name = String(person?.姓名 || person?.名称 || '').trim();
-            if (!name) return;
-            if (people.some((existing: any) => String(existing?.姓名 || existing?.名称 || '').trim() === name)) return;
-            people.push(person);
-        };
-
-        if (safePlayerName) {
-            const hasPlayer = people.some((existing: any) => String(existing?.姓名 || existing?.名称 || '').trim() === safePlayerName);
-            if (!hasPlayer) people.unshift({ 姓名: safePlayerName, 名称: safePlayerName, 是否玩家本人: true });
-        }
-        return people;
-    }, [selectedNodeNpcs, playerName, selectedNode, tree.当前节点, breadcrumb, env]);
+    const roots = useMemo(() => tree.根节点 ? [tree.根节点] : [], [tree]);
+    const 人物映射 = useMemo(() => 构建地图人物标记(roots, tree.当前节点?.ID || '', socialList, playerName),
+        [roots, tree.当前节点, socialList, playerName]);
 
     const 折叠面包屑 = breadcrumb.length > 3 && !展开面包屑;
     const 显示链 = 折叠面包屑 ? breadcrumb.slice(-2) : breadcrumb;
@@ -307,7 +252,8 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                 <div className="flex-1 min-h-0 p-3">
                     <RegionMap
                         nodes={childNodes}
-                        allNodes={tree.根节点 ? [tree.根节点] : []}
+                        allNodes={roots}
+                        peopleByNode={人物映射}
                         selectedNodeId={selectedNode?.ID}
                         playerName={playerName}
                         currentNodeId={tree.当前节点?.ID || ''}
@@ -316,9 +262,7 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                         onLocateCurrent={() => {
                             const cur = tree.当前节点;
                             if (!cur) return;
-                            const parent = cur.父级ID && tree.节点映射.has(cur.父级ID) ? tree.节点映射.get(cur.父级ID)! : null;
-                            if (parent) setSelectedNode(parent);
-                            else setSelectedNode(cur);
+                            setSelectedNode(cur);
                         }}
                         level={currentViewNode?.层级 || '大地点'}
                         socialList={socialList}
@@ -326,7 +270,7 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                         viewLocationName={currentViewNode?.名称 || ''}
                         viewPathNames={breadcrumb.map((node) => node.名称)}
                         viewDescription={currentViewNode?.描述 || ''}
-                        viewNodeNpcs={selectedNodePeople}
+                        viewNodeNpcs={selectedNode ? 人物映射.get(selectedNode.ID) : undefined}
                     />
                 </div>
             </div>
@@ -344,7 +288,7 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
                         {tree.根节点 ? (
-                            <LocationTreeItem node={tree.根节点} selectedId={selectedNode?.ID || ''} playerLocationId={tree.当前节点?.ID || ''} playerAncestorIds={playerAncestorIds} depth={0} onSelect={setSelectedNode} socialList={socialList} playerName={playerName} />
+                            <LocationTreeItem node={tree.根节点} selectedId={selectedNode?.ID || ''} playerLocationId={tree.当前节点?.ID || ''} playerAncestorIds={playerAncestorIds} depth={0} onSelect={setSelectedNode} 人物映射={人物映射} />
                         ) : (
                             <div className="p-4 text-sm text-gray-500 text-center space-y-2">
                                 <div>暂无地点数据</div>

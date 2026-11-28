@@ -1,7 +1,8 @@
 import type { DirectorWorldBible } from '../../models/directorBible';
 import type { 功法结构 } from '../../models/kungfu';
-import type { NPC结构, 场外战果暂存结构, 角色数据结构 } from '../../types';
+import type { NPC结构, 场外战果暂存结构, 战斗状态结构, 角色数据结构 } from '../../types';
 import { 判断角色对话位置, type 角色对话位置判定 } from '../../utils/roleChatLocation';
+import { 有开局伙伴身份标记 } from '../../utils/openingCompanion';
 
 export type TacticalMoveId = 'press' | 'deflect' | 'feint' | 'withdraw';
 
@@ -56,6 +57,28 @@ export interface ClashSessionState {
     finished: boolean;
     outcome?: 场外战果暂存结构['结果'];
     logs: ClashBeatLog[];
+}
+
+export interface ClashFighter {
+    key: string;
+    npcId?: string;
+    profile: CombatantStanceProfile;
+    posture: number;
+    stamina: number;
+    exposed: boolean;
+    leftScene?: boolean;
+}
+
+export interface ClashRoster {
+    allies: ClashFighter[];
+    enemies: ClashFighter[];
+    sparringPartners: ClashFighter[];
+}
+
+export interface TeamClashSession extends ClashSessionState {
+    allies: ClashFighter[];
+    enemies: ClashFighter[];
+    targetKey: string;
 }
 
 const 品质加值表: Record<string, number> = {
@@ -169,7 +192,7 @@ export const 构建主角明牌交锋面板 = (role: 角色数据结构): Combat
 };
 
 export const 构建NPC明牌交锋面板 = (
-    npc: NPC结构,
+    npc: Pick<NPC结构, '姓名'> & Partial<Pick<NPC结构, '境界' | '境界层级' | '当前装备'>>,
     directorBible?: DirectorWorldBible | null
 ): CombatantStanceProfile => {
     const cast = directorBible?.核心卡司?.find((c) => c.姓名 === npc.姓名);
@@ -199,6 +222,56 @@ export const 构建NPC明牌交锋面板 = (
         agilityReasons,
         upgradeTips: []
     };
+};
+
+const 创建参战者 = (key: string, profile: CombatantStanceProfile, npcId?: string): ClashFighter => ({
+    key, npcId, profile, posture: 100, stamina: profile.maxStamina, exposed: false
+});
+
+const 取人物称呼 = (npc: NPC结构) => [npc.姓名, npc.叙事名称, ...(npc.曾用名 || [])].filter(Boolean);
+
+export const 可继续交锋 = (fighter: ClashFighter) => !fighter.leftScene && fighter.posture > 0;
+
+export const 构建战术交锋阵容 = (
+    role: 角色数据结构, social: NPC结构[], env: any,
+    battle?: 战斗状态结构, directorBible?: DirectorWorldBible | null
+): ClashRoster => {
+    const allies = [创建参战者('player', 构建主角明牌交锋面板(role))];
+    const enemies: ClashFighter[] = [];
+    const sparringPartners: ClashFighter[] = [];
+    const battleEnemies = battle?.是否战斗中 ? battle.敌方 || [] : [];
+    const activeEnemies = battleEnemies.filter((enemy) => enemy.名字 && !(enemy.当前血量 <= 0));
+    const battleNames = new Set(activeEnemies.map((enemy) => enemy.名字));
+    const spentNames = new Set(battleEnemies.filter((enemy) => enemy.当前血量 <= 0).map((enemy) => enemy.名字));
+    const socialList = Array.isArray(social) ? social.filter((npc) => npc?.姓名) : [];
+    const socialNames = new Set(socialList.flatMap(取人物称呼));
+    const seen = new Set([role.姓名]);
+    for (const { npc } of 获取可选战术交锋目标(socialList, env)) {
+        if (!npc.姓名 || seen.has(npc.姓名)) continue;
+        seen.add(npc.姓名);
+        const fighter = 创建参战者('npc:' + (npc.id || npc.姓名), 构建NPC明牌交锋面板(npc, directorBible), npc.id);
+        sparringPartners.push(fighter);
+        // 2.0 导演把公开关系写入「关系」，旧档通常使用「关系状态」。
+        const relation = String((npc as NPC结构 & { 关系?: string }).关系 || npc.关系状态 || '').trim();
+        const ally = npc.是否队友 === true || 有开局伙伴身份标记(npc)
+            || /^(?:主角的?)?(?:同伴|队友|同行伙伴|随行伙伴|结伴同行|并肩作战的伙伴)$/u.test(relation);
+        if (ally) {
+            allies.push(fighter);
+            continue;
+        }
+        const hostile = /敌对|仇敌|死敌|宿敌|仇人|敌人|敌手|敌军|追兵|追杀者/u.test(relation)
+            && !/非敌|并非.*敌|不是.*敌|不再.*敌|化敌为友|昔日|曾经|旧日|前敌|解除敌对/u.test(relation);
+        const names = 取人物称呼(npc);
+        if (!names.some((name) => spentNames.has(name)) && (names.some((name) => battleNames.has(name)) || hostile)) enemies.push(fighter);
+    }
+    // 在旧战斗名单上有名、尚无社交档案的临时敌人也能入场。
+    for (const enemy of activeEnemies) {
+        if (seen.has(enemy.名字) || socialNames.has(enemy.名字)) continue;
+        seen.add(enemy.名字);
+        const profile = 构建NPC明牌交锋面板({ 姓名: enemy.名字, 境界: enemy.境界, 境界层级: enemy.境界层级 }, directorBible);
+        enemies.push(创建参战者('battle:' + enemy.名字, profile));
+    }
+    return { allies, enemies, sparringPartners };
 };
 
 const 挑选敌方下一拍征兆 = (beat: number, enemyPosture: number, playerMomentum: number): { move: TacticalMoveId; telegraph: string } => {
@@ -379,16 +452,124 @@ export const 推演交锋一拍 = (
     return next;
 };
 
+export const 创建阵营交锋会话 = (
+    roster: ClashRoster, mode: ClashSessionState['mode'], sparringKey = ''
+): TeamClashSession | null => {
+    const partner = roster.sparringPartners.find((fighter) => fighter.key === sparringKey);
+    const sparring = mode === '切磋试探';
+    const enemies = sparring ? (partner ? [partner] : []) : roster.enemies;
+    if (!enemies.length) return null;
+    const target = enemies[0];
+    return {
+        ...创建战术交锋会话({ targetName: target.profile.name, npcId: target.npcId, mode }),
+        allies: sparring ? roster.allies.slice(0, 1) : roster.allies,
+        enemies, targetKey: target.key
+    };
+};
+
+export const 选定交锋对手 = (session: TeamClashSession, key: string): TeamClashSession => {
+    const target = session.enemies.find((fighter) => fighter.key === key && 可继续交锋(fighter));
+    if (!target || session.finished) return session;
+    const hint = 挑选敌方下一拍征兆(session.beat, target.posture, session.momentum);
+    return {
+        ...session, targetKey: target.key, targetName: target.profile.name, npcId: target.npcId,
+        enemyPosture: target.posture, enemyExposed: target.exposed,
+        nextEnemyTelegraph: hint.telegraph, predictedEnemyBias: hint.move
+    };
+};
+
+export const 同步交锋在场阵容 = (
+    session: TeamClashSession | null, roster: ClashRoster, mode: ClashSessionState['mode'], sparringKey: string
+): TeamClashSession | null => {
+    if (session?.finished) return session;
+    const fresh = 创建阵营交锋会话(roster, mode, sparringKey);
+    if (!fresh || !session) return fresh;
+    const refreshSide = (previous: ClashFighter[], present: ClashFighter[]): ClashFighter[] => {
+        const presentKeys = new Set(present.map((fighter) => fighter.key));
+        const previousKeys = new Set(previous.map((fighter) => fighter.key));
+        const arrivals = present.filter((fighter) => !previousKeys.has(fighter.key));
+        const retained = previous.map((fighter) => {
+            const leftScene = !presentKeys.has(fighter.key);
+            return Boolean(fighter.leftScene) === leftScene ? fighter : { ...fighter, leftScene };
+        });
+        return [...retained, ...arrivals];
+    };
+    // 阵营已经反转时由新局面重新开场，避免同一个人出现在两边。
+    if (fresh.allies.some((ally) => session.enemies.some((enemy) => enemy.key === ally.key))
+        || fresh.enemies.some((enemy) => session.allies.some((ally) => ally.key === enemy.key))) return fresh;
+    const allies = refreshSide(session.allies, fresh.allies);
+    const enemies = refreshSide(session.enemies, fresh.enemies);
+    const actor = allies.find(可继续交锋);
+    const target = enemies.find((fighter) => fighter.key === session.targetKey && 可继续交锋(fighter)) ?? enemies.find(可继续交锋);
+    if (!actor || !target) return null;
+    return 选定交锋对手({ ...session, allies, enemies, playerPosture: actor.posture, playerStamina: actor.stamina }, target.key);
+};
+
+// 本拍开始时仍有架势的支援者各出手一次，优先牵制主对手以外的敌人。
+const 结算支援出招 = (support: ClashFighter[], opponents: ClashFighter[], beat: number): string[] => (
+    support.map((fighter, index) => {
+        const target = opponents[(index + beat - 1) % opponents.length];
+        const damage = Math.max(5, Math.min(22, 10 + fighter.profile.offense - target.profile.defense));
+        target.posture = Math.max(0, target.posture - damage);
+        return `${fighter.profile.name}牵制${target.profile.name}（架势 -${damage}%）`;
+    })
+);
+
+export const 推演阵营交锋一拍 = (session: TeamClashSession, move: TacticalMoveId, useSignature: boolean): TeamClashSession => {
+    if (session.finished) return session;
+    // 复制参战状态，已结算的上一拍和开场阵容都可安全复用。
+    const allies = session.allies.map((fighter) => ({ ...fighter }));
+    const enemies = session.enemies.map((fighter) => ({ ...fighter }));
+    const [actor, ...otherAllies] = allies.filter(可继续交锋);
+    const target = enemies.find((fighter) => fighter.key === session.targetKey && 可继续交锋(fighter));
+    if (!actor || !target) return session;
+    const otherEnemies = enemies.filter((fighter) => fighter !== target && 可继续交锋(fighter));
+    const duel = 推演交锋一拍(
+        { ...session, playerPosture: actor.posture, playerStamina: actor.stamina, logs: [] },
+        move, actor.profile, target.profile, useSignature
+    );
+    const log = duel.logs[0];
+    actor.posture = duel.playerPosture;
+    actor.stamina = duel.playerStamina;
+    target.posture = duel.enemyPosture;
+    target.exposed = duel.enemyExposed;
+
+    const withdrew = log.playerMove === 'withdraw' && duel.finished;
+    const supportNotes = withdrew ? [] : [
+        ...结算支援出招(otherAllies, otherEnemies.length ? otherEnemies : [target], session.beat),
+        ...结算支援出招(otherEnemies, otherAllies.length ? otherAllies : [actor], session.beat)
+    ];
+    const nextActor = allies.find(可继续交锋);
+    const nextEnemy = 可继续交锋(target) ? target : enemies.find(可继续交锋);
+    let outcome = withdrew ? duel.outcome : undefined;
+    if (!nextActor && !nextEnemy) outcome = '僵持罢手';
+    else if (!nextEnemy) outcome = '胜出';
+    else if (!nextActor) outcome = '落败撤离';
+    const summary = [`${actor.profile.name}对${target.profile.name}，${log.summary}`, ...supportNotes].join('；');
+    const next = {
+        ...session, allies, enemies, finished: Boolean(outcome), outcome,
+        beat: outcome ? session.beat : session.beat + 1, momentum: duel.momentum,
+        playerPosture: (nextActor || actor).posture, playerStamina: (nextActor || actor).stamina,
+        enemyPosture: target.posture, enemyExposed: target.exposed,
+        logs: [...session.logs, { ...log, summary }]
+    };
+    return nextEnemy && !outcome ? 选定交锋对手(next, nextEnemy.key) : next;
+};
+
 export const 结算战术交锋结果 = (params: {
-    session: ClashSessionState;
+    session: ClashSessionState | TeamClashSession;
     role: 角色数据结构;
 }): { nextRole: 角色数据结构; record: 场外战果暂存结构 } => {
     const nextRole: 角色数据结构 = JSON.parse(JSON.stringify(params.role));
-    const postureLost = Math.max(0, 100 - params.session.playerPosture);
-    const energyCost = Math.min(25, Math.max(5, Math.round(postureLost * 0.2)));
-    const internalCost = Math.min(25, Math.max(0, params.session.logs.filter((l) => l.usedSignature).length * 8));
-    nextRole.当前精力 = Math.max(5, (Number(nextRole.当前精力) || 50) - energyCost);
-    nextRole.当前内力 = Math.max(0, (Number(nextRole.当前内力) || 40) - internalCost);
+    const teams = 'allies' in params.session ? params.session : undefined;
+    const postureLost = Math.max(0, 100 - (teams?.allies[0].posture ?? params.session.playerPosture));
+    const energy = Math.max(0, Number(nextRole.当前精力 ?? 50));
+    const internal = Math.max(0, Number(nextRole.当前内力 ?? 40));
+    // 延续原有的 5 点精力保底，低于保底的旧档只按现有精力结算。
+    const energyCost = Math.min(Math.max(0, energy - 5), 25, Math.max(5, Math.round(postureLost * 0.2)));
+    const internalCost = Math.min(internal, 25, params.session.logs.filter((l) => l.usedSignature).length * 8);
+    nextRole.当前精力 = energy - energyCost;
+    nextRole.当前内力 = internal - internalCost;
 
     const outcome = params.session.outcome || '僵持罢手';
     const injuryNote = postureLost >= 60
@@ -398,15 +579,21 @@ export const 结算战术交锋结果 = (params: {
             : `全身而退（精力-${energyCost}、内力-${internalCost}）`;
 
     const lastBeatNote = params.session.logs[params.session.logs.length - 1]?.summary || '';
+    const allyNames = teams?.allies.map((fighter) => fighter.profile.name) ?? [];
+    const enemyNames = teams?.enemies.map((fighter) => fighter.profile.name) ?? [params.session.targetName];
+    const opponentLabel = params.session.mode === '切磋试探' ? '切磋方' : '敌方';
+    const sides = teams ? `己方「${allyNames.join('、')}」与${opponentLabel}「${enemyNames.join('、')}」` : `与「${params.session.targetName}」`;
+    const avgPosture = (side: ClashFighter[]) => Math.round(side.reduce((total, fighter) => total + (fighter.leftScene ? 0 : fighter.posture), 0) / side.length);
     const record: 场外战果暂存结构 = {
         id: `clash-${Date.now()}`,
-        对手姓名: params.session.targetName,
-        npcId: params.session.npcId,
+        对手姓名: enemyNames.join('、'),
+        npcId: teams && teams.enemies.length > 1 ? undefined : params.session.npcId,
+        ...(teams ? { 己方阵容: allyNames, 敌方阵容: enemyNames } : {}),
         模式: params.session.mode,
         结果: outcome,
         回合数: params.session.logs.length || 1,
         主角伤势消耗描述: injuryNote,
-        战果摘要: `【战术交锋结果｜${params.session.mode}】与「${params.session.targetName}」交手 ${params.session.logs.length || 1} 拍，结局为「${outcome}」（己方余势 ${params.session.playerPosture}% vs 对手余势 ${params.session.enemyPosture}%；${injuryNote}；收官一拍：${lastBeatNote}）`,
+        战果摘要: `【战术交锋结果｜${params.session.mode}】${sides}交手 ${params.session.logs.length || 1} 拍，结局为「${outcome}」（己方余势 ${teams ? avgPosture(teams.allies) : params.session.playerPosture}% vs 对手余势 ${teams ? avgPosture(teams.enemies) : params.session.enemyPosture}%；${injuryNote}；收官一拍：${lastBeatNote}）`,
         时间: Date.now()
     };
 

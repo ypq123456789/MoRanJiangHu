@@ -6,6 +6,7 @@ import {
 import { 地图层级命名契约, 地图层级命名自检 } from '../../prompts/runtime/mapLayerNaming';
 import { 规范化文本补全消息链, 请求模型文本, type 通用消息 } from '../../services/ai/chatCompletionClient';
 import { 提取首个标签内容 } from '../../services/ai/storyResponseParser';
+import { recordDiagnosticLog } from '../../services/diagnosticLog';
 import type { OpeningConfig, 角色数据结构, 地图层级结构, 游戏设置结构 } from '../../types';
 import type { 当前可用接口结构 } from '../../utils/apiConfig';
 import { parseJsonWithRepair } from '../../utils/jsonRepair';
@@ -268,8 +269,11 @@ export const 生成世界与导演圣经V2 = async (params: {
     signal?: AbortSignal;
     stream?: boolean;
     onDelta?: (delta: string, accumulated: string) => void;
+    onRepair?: (attempt: number, sections: string[]) => void;
 }): Promise<WorldBibleGenerationResult> => {
     const { worldConfig, charData, openingConfig, apiConfig, extraPrompt, signal, stream = true, onDelta } = params;
+    const startedAt = Date.now();
+    let requestCount = 0;
     const enabledPartners = 读取伙伴列表(openingConfig);
     const partnerHint = enabledPartners.length > 0
         ? `初始同伴（共 ${enabledPartners.length} 人）：${enabledPartners.map(({ partner, name }) => `${name}（${partner.性别 || '女'}，${partner.背景名称 || ''}，性格：${partner.性格 || ''}，关系：${partner.关系 || '自幼相识'}）`).join('；')}`
@@ -292,15 +296,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         worldConfig.worldExtraRequirement ? `- 额外要求：${worldConfig.worldExtraRequirement}` : '',
         extraPrompt ? `\n【题材模式/边界系统补充规范】\n${extraPrompt}` : '',
         '',
-        '【必须严格输出以下 3 个顶层标签块】',
-        '<thinking>',
-        '在这里先用极高密度推演：',
-        '1. 本世界顶层的垄断利益链与历史原罪是什么？（类似《道君》商颂破天/离歌补天/八宝立国+九圣霸占狐仙果）',
-        '2. 开局前 7~14 天刚发生了哪 1~2 件已经把各方炸锅的前史大事？这股冲击波怎么在今天直接砸到主角与同伴脸上？',
-        '3. 各势力的实权领袖是谁、内部有什么裂痕、彼此有什么旧怨或暗账？',
-        '4. 跨 1~4 个权力层级的 7~8 个核心人物分别求什么、藏着什么秘密、目前知道什么不知道什么、正在暗中推进什么日程？',
-        '5. 埋哪 6 枚前期看似不起眼、实则勾连上层真相的伏笔（物件/流言/怪癖/旧案/地脉/暗桩）？',
-        '</thinking>',
+        '【输出以下三个顶层标签块】直接从 <世界观> 开始。将前史、各方动机、利益关系与伏笔写入对应的导演圣经字段，省略单独的推演草稿。',
         '',
         '<世界观>',
         '写一份 800~1400 字的【表层世界共识】（纯中文散文分段，不使用 Markdown 标题/符号）。涵盖：世界格局、四级空间与阶层生态、修行/力量境界与代价、当前山雨欲来的社会潜流。只写“世人常识层面的认知”，不剧透底层幕后真相。',
@@ -367,12 +363,10 @@ export const 生成世界与导演圣经V2 = async (params: {
         { role: 'user', content: userPrompt }
     ], { 保留System: true, 合并同角色: false });
 
-    const callGen = async (extraFix?: string): Promise<string> => {
-        const reqMsgs = extraFix
-            ? [...messages, { role: 'user' as const, content: extraFix }]
-            : messages;
+    const callGen = (reqMsgs: 通用消息[], temperature: number): Promise<string> => {
+        requestCount++;
         return 请求模型文本(apiConfig, reqMsgs, {
-            temperature: 0.75,
+            temperature,
             signal,
             streamOptions: stream
                 ? {
@@ -402,7 +396,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         ...评估圣经完整度(candidate.directorBible, enabledPartnerNames)
     ];
 
-    let res = parseBundle(await callGen());
+    let res = parseBundle(await callGen(messages, 0.75));
     let issues = countIssues(res);
     let lastRepairError: unknown = null;
 
@@ -411,73 +405,28 @@ export const 生成世界与导演圣经V2 = async (params: {
         try {
             const needMapRepair = 校验地图树结构(res.mapLayers).length > 0;
             const needWorldPromptRepair = !res.worldPrompt || res.worldPrompt.length < 220;
-            const repairOnlyBible = !needMapRepair && !needWorldPromptRepair;
+            const bibleIssues = 评估圣经完整度(res.directorBible, enabledPartnerNames);
+            const sections = [needWorldPromptRepair && '世界观', needMapRepair && '世界基底', bibleIssues.length > 0 && '导演圣经'].filter((tag): tag is string => typeof tag === 'string');
+            params.onRepair?.(repairAttempt, sections);
             const repairPrompt = [
-                `你的上一版输出未通过第 ${repairAttempt} 次结构完整性验收，存在以下硬性数量/字段缺失：`,
-                ...issues.map((i) => `- ${i}`),
-                '',
-                repairOnlyBible
-                    ? `表层<世界观>与六层<世界基底>均已合格，本次【切勿重写】<thinking>、<世界观> 或 <世界基底>，只需直接输出完整的 <导演圣经>...</导演圣经> JSON（必须补齐 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲）！`
-                    : needMapRepair
-                        ? `请补全并输出完整的 \`<世界基底>\`（至少 ${地图节点下限} 个合规六层树状 \`地图层级\` 节点）以及 \`<导演圣经>\`（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲，严禁只写 1~2 条示例敷衍！）。`
-                        : `请在保留既有合理核心设定的基础上，补全并输出完整的 \`<导演圣经>\` JSON（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲）。`,
-                '',
-                '可延续的核心设定草稿如下（请扩展写全，不要缩水）：',
-                JSON.stringify(res.directorBible)
+                `本次只输出：${sections.map((tag) => `<${tag}>`).join('、')}。使用原协议完整闭合各块，保留已有设定，只修复下列问题。`,
+                ...issues.map((issue) => `- ${issue}`),
+                `上一版表层设定：${res.worldPrompt || res.directorBible.世界观表层摘要}`,
+                needMapRepair ? `待修地图：${JSON.stringify(res.mapLayers.map(({ ID, 名称, 层级, 父级ID, 描述 }) => ({ ID, 名称, 层级, 父级ID, 描述 })))}` : `已定地点：${res.mapLayers.map((n) => n.名称).join('、')}`,
+                bibleIssues.length ? `待修导演圣经：${JSON.stringify(res.directorBible)}` : `已定势力：${res.directorBible.势力暗账.map((f) => f.名称).join('、')}`
             ].join('\n');
-            const repairedRaw = await 请求模型文本(
-                apiConfig,
-                规范化文本补全消息链([
-                    { role: 'system', content: systemPrompt },
-                    ...(repairOnlyBible ? [] : [{ role: 'user' as const, content: userPrompt }]),
-                    { role: 'user', content: repairPrompt }
-                ], { 保留System: true, 合并同角色: false }),
-                {
-                    temperature: 0.55,
-                    signal,
-                    streamOptions: stream
-                        ? {
-                            stream: true,
-                            onDelta: (delta, acc) => onDelta?.(delta, acc)
-                        }
-                        : undefined
-                }
-            );
-            const repBaseBlock = 清理代码块(提取首个标签内容(repairedRaw, '世界基底', { 兼容错误闭合: true }) || '');
-            const repBaseObj = repBaseBlock ? parseJsonWithRepair<any>(repBaseBlock).value : null;
-            const repMapLayers = 规范化地图节点数组(repBaseObj?.地图层级 || repBaseObj?.mapLayers || []);
-
-            const repairedBibleBlock = 清理代码块(提取首个标签内容(repairedRaw, '导演圣经', { 兼容错误闭合: true }) || repairedRaw);
-            const repairedBibleObj = parseJsonWithRepair<any>(repairedBibleBlock).value;
-
-            const repWorldPrompt = 清理代码块(提取首个标签内容(repairedRaw, '世界观', { 兼容错误闭合: true }) || '');
-            const mergedWorldPrompt = repWorldPrompt.length > res.worldPrompt.length ? repWorldPrompt : res.worldPrompt;
-            const repSummary = typeof repairedBibleObj?.世界观表层摘要 === 'string' ? repairedBibleObj.世界观表层摘要.trim() : '';
-            const mergedBible = repairedBibleObj
-                ? 确保核心结构兜底(
-                    规范化导演圣经({
-                        ...repairedBibleObj,
-                        世界观表层摘要: repSummary || mergedWorldPrompt.slice(0, 500)
-                    }),
-                    {
-                        charData,
-                        openingConfig,
-                        worldPrompt: mergedWorldPrompt
-                    }
-                )
-                : res.directorBible;
-
-            const mergedCandidate: WorldBibleGenerationResult = {
-                worldPrompt: mergedWorldPrompt,
-                mapLayers: repMapLayers.length > res.mapLayers.length ? repMapLayers : res.mapLayers,
-                directorBible: mergedBible,
-                rawText: `${res.rawText}\n\n<!-- REPAIRED_BIBLE_${repairAttempt} -->\n${repairedRaw}`
-            };
-            const nextIssues = countIssues(mergedCandidate);
-            if (nextIssues.length <= issues.length) {
-                res = mergedCandidate;
-                issues = nextIssues;
-            }
+            const repairedRaw = await callGen([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `${userPrompt}\n\n【按以下修补任务缩小输出范围】\n${repairPrompt}` }
+            ], 0.55);
+            // 兼容仅修圣经时直接返回 JSON 的渠道。逐块验收，避免用错误块覆盖第一次已通过的内容。
+            const onlyBible = sections.length === 1 && sections[0] === '导演圣经';
+            const repaired = parseBundle(onlyBible && 清理代码块(repairedRaw).startsWith('{') ? `<导演圣经>${repairedRaw}</导演圣经>` : repairedRaw);
+            if (needWorldPromptRepair && repaired.worldPrompt.length > res.worldPrompt.length) res.worldPrompt = repaired.worldPrompt;
+            if (needMapRepair && repaired.mapLayers.length && 校验地图树结构(repaired.mapLayers).length === 0) res.mapLayers = repaired.mapLayers;
+            if (bibleIssues.length && 评估圣经完整度(repaired.directorBible, enabledPartnerNames).length < bibleIssues.length) res.directorBible = repaired.directorBible;
+            res.rawText += `\n\n<!-- REPAIRED_BIBLE_${repairAttempt} -->\n${repairedRaw}`;
+            issues = countIssues(res);
         } catch (err: any) {
             if (err?.name === 'AbortError' || signal?.aborted) {
                 throw err;
@@ -507,6 +456,16 @@ export const 生成世界与导演圣经V2 = async (params: {
         });
     }
 
+    recordDiagnosticLog('info', ['2.0 开局世界观生成完成', {
+        model: apiConfig.model,
+        elapsedMs: Date.now() - startedAt,
+        requestCount,
+        worldPromptLength: res.worldPrompt.length,
+        mapLayerCount: res.mapLayers.length,
+        factionCount: res.directorBible.势力暗账.length,
+        castCount: res.directorBible.核心卡司.length,
+        actCount: res.directorBible.宏观分幕大纲.length
+    }]);
     return res;
 };
 
@@ -540,6 +499,8 @@ export const 从圣经初始化世界势力与社交 = (
             关系: c.人际渊源.find((t) => t.对象 === charData.姓名)?.真实关系与心思 || '同行/交集之人',
             好感度: partnerNameSet.has(c.姓名) ? 60 : 35,
             是否在场: partnerNameSet.has(c.姓名),
+            是否队友: partnerNameSet.has(c.姓名),
+            ...(partnerNameSet.has(c.姓名) ? { 来源: '开局伙伴', 是否主要角色: true, 保留开局伙伴设定属性: true } : {}),
             记忆: []
         }));
 

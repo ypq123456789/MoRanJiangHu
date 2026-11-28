@@ -8,19 +8,15 @@ import type {
     场外交易记录结构,
     角色数据结构
 } from '../../types';
-import {
-    变更角色货币BaseAmount,
-    是否货币类物品,
-    获取货币显示模式,
-    计算角色货币底层总值
-} from '../../utils/currencyDisplay';
-import { 推断单位仙侠 } from '../../utils/realmDisplay';
+import { 是否货币类物品 } from '../../utils/currencyDisplay';
+import { 获取交易币制, 物品交易面额, 读取交易钱袋, 写入交易钱袋 } from './tradeCurrency';
 import { 判断角色对话位置, type 角色对话位置判定 } from '../../utils/roleChatLocation';
 
 export interface TradeVenueInfo {
     available: boolean;
     venueName: string;
     venueType: string;
+    ledgerKey?: string;
     description: string;
 }
 
@@ -30,7 +26,6 @@ export interface NpcTradeEligibility {
     attitudeLabel: string;
     priceMultiplier: number; // Buy from counterparty multiplier; sell rate = base / multiplier
     reason: string;
-    maxBuyBudgetBase: number;
 }
 
 export interface TradableItemView {
@@ -41,6 +36,7 @@ export interface TradableItemView {
     quantity: number;
     unitPriceBase: number;
     equippedLocked: boolean;
+    sourceIndex: number;
     source: 'player' | 'npc' | 'venue';
 }
 
@@ -60,18 +56,9 @@ const 敌对关系正则 = /(敌对|仇敌|死敌|追杀|通缉|绝交|决裂|�
 
 const 取文本 = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
-const 计算稳定哈希 = (seed: string): number => {
-    let hash = 2166136261;
-    for (let i = 0; i < seed.length; i += 1) {
-        hash ^= seed.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
-};
-
 const 估算物品单价Base = (item: { 名称?: string; 类型?: string; 品质?: string; 价值?: unknown; 价格?: unknown }): number => {
     const explicit = Number(item?.价值 ?? item?.价格);
-    if (Number.isFinite(explicit) && explicit > 0) return Math.max(10, Math.floor(explicit));
+    if (Number.isFinite(explicit) && explicit > 0) return Math.max(1, Math.floor(explicit));
     const quality = 取文本(item?.品质);
     if (quality && 品质基价表[quality]) return 品质基价表[quality];
     const hay = `${item?.名称 || ''} ${item?.类型 || ''}`;
@@ -92,12 +79,14 @@ export const 检测当前交易场所 = (
     const mid = 取文本(env?.中地点);
     const areaText = [concrete, district, small, mid].filter(Boolean).join(' · ');
 
+    const ledgerKey = JSON.stringify([env?.大地点, mid, small, district, concrete]);
     const directHit = [concrete, district, small].find((part) => 交易场所正则.test(part));
     if (directHit) {
         const match = directHit.match(交易场所正则);
         const venueType = match?.[1] || '商铺/坊市';
         return {
             available: true,
+            ledgerKey,
             venueName: concrete || small || venueType,
             venueType,
             description: `当前位于「${concrete || small}」（${venueType}），可与掌柜或场内摊位直接交易现货。`
@@ -114,6 +103,7 @@ export const 检测当前交易场所 = (
     if (indirectHit) {
         return {
             available: true,
+            ledgerKey,
             venueName: concrete || small || areaText || indirectHit[1],
             venueType: indirectHit[1],
             description: `当前场景语境已进入「${indirectHit[1]}」交易点，允许查看场所陈列货品并折价买卖。`
@@ -131,21 +121,17 @@ export const 检测当前交易场所 = (
 export const 评估NPC交易资格 = (
     npc: NPC结构,
     env: any,
-    directorBible?: DirectorWorldBible | null
+    _directorBible?: DirectorWorldBible | null
 ): NpcTradeEligibility => {
     const locationCheck = 判断角色对话位置(npc, env);
     const name = 取文本(npc?.姓名) || '对方';
-    const castTier = directorBible?.核心卡司?.find((c) => c.姓名 === name)?.所处层级 || 1;
-    const baseBudget = Math.max(200, castTier * 900 + Math.max(0, Number(npc?.境界层级) || 1) * 400);
-
     if (locationCheck.状态 === 'blocked') {
         return {
             eligible: false,
             locationCheck,
             attitudeLabel: '无法接触',
             priceMultiplier: 1,
-            reason: locationCheck.原因,
-            maxBuyBudgetBase: 0
+            reason: locationCheck.原因
         };
     }
 
@@ -157,8 +143,7 @@ export const 评估NPC交易资格 = (
             locationCheck,
             attitudeLabel: '敌对拒交易',
             priceMultiplier: 1,
-            reason: `${name}与你处于敌对或高度戒备状态（关系：${取文本(npc?.关系状态) || 取文本((npc as any)?.关系) || '敌对'}，好感 ${favor}），拒绝在冲突氛围中与你做买卖！`,
-            maxBuyBudgetBase: 0
+            reason: `${name}与你处于敌对或高度戒备状态（关系：${取文本(npc?.关系状态) || 取文本((npc as any)?.关系) || '敌对'}，好感 ${favor}），拒绝在冲突氛围中与你做买卖！`
         };
     }
 
@@ -168,8 +153,7 @@ export const 评估NPC交易资格 = (
             locationCheck,
             attitudeLabel: '冷淡溢价',
             priceMultiplier: 1.35,
-            reason: `${name}对你尚存疑虑（好感 ${favor}），开价偏高，但可凭等价物或诚意换取。`,
-            maxBuyBudgetBase: baseBudget
+            reason: `${name}对你尚存疑虑（好感 ${favor}），开价偏高，但可凭等价物或诚意换取。`
         };
     }
     if (favor < 40) {
@@ -178,8 +162,7 @@ export const 评估NPC交易资格 = (
             locationCheck,
             attitudeLabel: '市价交易',
             priceMultiplier: 1.1,
-            reason: `${name}与你交情平平，愿按江湖市价银货两讫。`,
-            maxBuyBudgetBase: baseBudget
+            reason: `${name}与你交情平平，愿按江湖市价银货两讫。`
         };
     }
     if (favor < 75) {
@@ -188,8 +171,7 @@ export const 评估NPC交易资格 = (
             locationCheck,
             attitudeLabel: '友好让利',
             priceMultiplier: 0.95,
-            reason: `${name}对你颇有信赖，交易时愿酌情让利。`,
-            maxBuyBudgetBase: Math.round(baseBudget * 1.25)
+            reason: `${name}对你颇有信赖，交易时愿酌情让利。`
         };
     }
     return {
@@ -197,115 +179,69 @@ export const 评估NPC交易资格 = (
         locationCheck,
         attitudeLabel: '倾囊相助',
         priceMultiplier: 0.8,
-        reason: `${name}视你为心腹之人，价格仅象征性折算。`,
-        maxBuyBudgetBase: Math.round(baseBudget * 1.5)
+        reason: `${name}视你为心腹之人，价格仅象征性折算。`
     };
 };
 
-export const 提取主角可交易物品列表 = (role: 角色数据结构): TradableItemView[] => {
-    const equippedValues = new Set(
-        Object.values(role?.装备 || {})
-            .map((v) => 取文本(v))
-            .filter(Boolean)
-    );
-    const items = Array.isArray(role?.物品列表) ? role.物品列表 : [];
-    return items
-        .filter((item: any) => item && !是否货币类物品(item))
-        .map((item: any, idx: number): TradableItemView | null => {
-            const name = 取文本(typeof item === 'string' ? item : item.名称);
-            if (!name) return null;
-            const id = 取文本(item?.ID) || `player-item-${idx}-${name}`;
-            const quantity = Math.max(1, Math.floor(Number(item?.堆叠数量 ?? item?.数量) || 1));
-            const equippedLocked = equippedValues.has(name) || (Boolean(item?.ID) && equippedValues.has(String(item.ID)));
-            return {
-                id,
-                name,
-                type: 取文本(item?.类型) || '杂物',
-                description: 取文本(item?.描述) || '随身携带物件',
-                quantity,
-                unitPriceBase: 估算物品单价Base(item),
-                equippedLocked,
-                source: 'player'
-            };
-        })
-        .filter((x): x is TradableItemView => x !== null);
+const 物品名称 = (item: NPC背包物品 | string) => 取文本(typeof item === 'string' ? item : item?.名称);
+const 物品数量 = (item: NPC背包物品) => Math.max(0, Math.floor(Number(item?.堆叠数量 ?? item?.数量 ?? 1) || 0));
+
+const 交易货单 = (bag: NPC背包物品[], source: TradableItemView['source'], currency: ReturnType<typeof 获取交易币制>, equipped = new Set<string>()): TradableItemView[] =>
+    bag.flatMap((item, index) => {
+        const name = 物品名称(item);
+        const quantity = 物品数量(item);
+        if (!name || !quantity || 是否货币类物品(item) || 物品交易面额(item, currency)) return [];
+        return [{
+            id: 取文本(item.ID) || source + '-' + index + '-' + name,
+            name, quantity, source,
+            type: 取文本(item.类型) || '杂物',
+            description: 取文本(item.描述),
+            unitPriceBase: 估算物品单价Base(item),
+            equippedLocked: equipped.has(name) || equipped.has(item.ID || ''),
+            sourceIndex: index
+        }];
+    });
+
+export const 提取主角可交易物品列表 = (role: 角色数据结构, openingConfig?: OpeningConfig | null) =>
+    交易货单(role?.物品列表 || [], 'player', 获取交易币制(openingConfig, role), new Set(Object.values(role?.装备 || {}).map(取文本)));
+
+export const 首次登记NPC交易资产 = (npc: NPC结构, facts: { 依据?: string; 余额Base?: number; 背包?: NPC背包物品[] } | undefined,
+    story: string, opening?: OpeningConfig | null, role?: 角色数据结构): NPC结构 => {
+    const evidence = 取文本(facts?.依据);
+    if (!evidence || !story.includes(evidence)) return npc;
+    const currency = 获取交易币制(opening, role);
+    const next = { ...npc };
+    if (!Array.isArray(npc.背包) && Array.isArray(facts?.背包)) {
+        next.背包 = facts.背包.filter((item) => 取文本(item?.名称) && evidence.includes(item.名称)
+            && Number.isSafeInteger(item.数量) && item.数量! > 0);
+    }
+    if (currency.cashEnabled && Number.isSafeInteger(facts.余额Base) && facts.余额Base! >= 0
+        && !读取交易钱袋(npc.金钱, next.背包 || [], currency).known) {
+        next.金钱 = 写入交易钱袋(npc.金钱, facts.余额Base!, currency);
+    }
+    return next;
 };
 
-const 按身份生成随身货单 = (
-    npc: NPC结构,
-    seedKey: string,
-    isXianxia: boolean
-): Array<{ name: string; type: string; description: string; quantity: number; unitPriceBase: number }> => {
-    const roleHint = `${npc?.身份 || ''} ${npc?.简介 || ''}`;
-    const pool: Array<{ name: string; type: string; description: string; quantity: number; unitPriceBase: number }> = [];
-    if (/医|药|丹/u.test(roleHint)) {
-        pool.push(
-            { name: isXianxia ? '回春散' : '金疮药', type: '丹药', description: '外伤急用良药', quantity: 2, unitPriceBase: 140 },
-            { name: '解毒丸', type: '丹药', description: '化解常见瘴毒与迷烟', quantity: 1, unitPriceBase: 210 }
-        );
-    } else if (/商|掌柜|行脚|帮/u.test(roleHint)) {
-        pool.push(
-            { name: '行商密引', type: '凭证', description: '可免沿途关卡盘查一次的商路文书', quantity: 1, unitPriceBase: 320 },
-            { name: '干粮水囊', type: '食物', description: '耐放实惠的远行补给', quantity: 2, unitPriceBase: 45 }
-        );
-    } else {
-        pool.push(
-            { name: '随身伤药', type: '药品', description: '常备应急止血药包', quantity: 1, unitPriceBase: 120 },
-            { name: '精钢飞镖', type: '暗器', description: '趁手防身利器', quantity: 3, unitPriceBase: 90 }
-        );
-    }
-    const h = 计算稳定哈希(seedKey);
-    if (h % 2 === 0) {
-        pool.push({
-            name: isXianxia ? '下品聚气符' : '火折与迷香',
-            type: '消耗品',
-            description: '关键时刻能派上用场的随身暗手',
-            quantity: 1,
-            unitPriceBase: 180
-        });
-    }
-    return pool;
-};
-
-export const 提取交易对方库存列表 = (params: {
+interface StockParams {
     targetType: 'npc' | 'venue';
     npc?: NPC结构 | null;
     venue?: TradeVenueInfo | null;
+    world?: Partial<世界数据结构> | null;
     openingConfig?: OpeningConfig | null;
-    turnSeed?: number;
-}): { items: TradableItemView[]; purseBase: number } => {
-    const isXianxia = /仙侠|玄幻/.test(String(params.openingConfig?.题材模式 || ''));
-    if (params.targetType === 'npc' && params.npc) {
-        const npc = params.npc;
-        const bag = Array.isArray(npc.背包) ? npc.背包 : [];
-        const realItems: TradableItemView[] = bag
-            .filter((b: NPC背包物品) => b && 取文本(b.名称))
-            .map((b: NPC背包物品, idx: number) => ({
-                id: `npc-bag-${npc.id || npc.姓名}-${idx}-${b.名称}`,
-                name: b.名称.trim(),
-                type: 取文本(b.类型) || '随身物',
-                description: 取文本(b.描述) || `${npc.姓名}随身携物`,
-                quantity: Math.max(1, Math.floor(Number(b.数量) || 1)),
-                unitPriceBase: 估算物品单价Base({ 名称: b.名称, 类型: b.类型 }),
-                equippedLocked: false,
-                source: 'npc'
-            }));
-        const fallback = realItems.length > 0
-            ? []
-            : 按身份生成随身货单(npc, `${npc.id || npc.姓名}:${params.turnSeed || 1}`, isXianxia).map((x, idx) => ({
-                id: `npc-seeded-${idx}-${x.name}`,
-                name: x.name,
-                type: x.type,
-                description: x.description,
-                quantity: x.quantity,
-                unitPriceBase: x.unitPriceBase,
-                equippedLocked: false,
-                source: 'npc' as const
-            }));
-        const purseBase = Math.max(300, (Number(npc.境界层级) || 1) * 550);
-        return { items: [...realItems, ...fallback], purseBase };
-    }
+    role?: 角色数据结构;
+}
 
+export const 提取交易对方库存列表 = (params: StockParams) => {
+    const currency = 获取交易币制(params.openingConfig, params.role);
+    if (params.targetType === 'npc') {
+        const npc = params.npc;
+        const bag = Array.isArray(npc?.背包) ? npc.背包 : [];
+        const wallet = 读取交易钱袋(npc?.金钱, bag, currency);
+        return { items: 交易货单(bag, 'npc', currency), bag, purseBase: wallet.balance, purseKnown: wallet.known };
+    }
+    const ledger = params.world?.场所交易账本?.[params.venue?.ledgerKey || params.venue?.venueName || ''];
+    if (ledger) return { items: 交易货单(ledger.库存, 'venue', currency), bag: ledger.库存, purseBase: ledger.余额, purseKnown: true };
+    const isXianxia = currency.mode === 'xianxia';
     const vType = params.venue?.venueType || '坊市';
     const rawCatalog: Array<{ name: string; type: string; description: string; quantity: number; unitPriceBase: number }> = /药|丹/.test(vType)
         ? [
@@ -332,15 +268,10 @@ export const 提取交易对方库存列表 = (params: {
                     { name: '江湖通行路引', type: '杂物', description: '应付关卡查验的官印文书', quantity: 1, unitPriceBase: 260 }
                 ];
 
-    return {
-        items: rawCatalog.map((item, idx) => ({
-            id: `venue-${vType}-${idx}-${item.name}`,
-            ...item,
-            equippedLocked: false,
-            source: 'venue'
-        })),
-        purseBase: 2400
-    };
+    const bag = rawCatalog.map((item, index) => ({
+        ID: 'venue-' + index + '-' + item.name, 名称: item.name, 类型: item.type, 描述: item.description, 数量: item.quantity, 价值: item.unitPriceBase
+    }));
+    return { items: 交易货单(bag, 'venue', currency), bag, purseBase: 2400, purseKnown: true };
 };
 
 export interface ExecuteTradeParams {
@@ -351,12 +282,15 @@ export interface ExecuteTradeParams {
     role: 角色数据结构;
     social: NPC结构[];
     openingConfig?: OpeningConfig | null;
-    playerItemsOffered: Array<{ name: string; quantity: number; unitPriceBase: number }>;
-    counterpartyItemsBought: Array<{ name: string; type: string; description: string; quantity: number; unitPriceBase: number }>;
-    playerCashPaidBase: number;
-    playerCashReceivedBase: number;
+    world?: Partial<世界数据结构> | null;
+    venue?: TradeVenueInfo;
+    playerItemsOffered: Array<{ id?: string; name: string; quantity: number; unitPriceBase: number }>;
+    counterpartyItemsBought: Array<{ id?: string; name: string; type: string; description: string; quantity: number; unitPriceBase: number }>;
+    playerCashPaidBase?: number;
+    playerCashReceivedBase?: number;
+    confirmedGift?: boolean;
     priceMultiplier: number;
-    maxCounterpartyPurseBase: number;
+    maxCounterpartyPurseBase?: number; // 旧调用参数；付款能力始终从当前账本读取。
     barterNote?: string;
 }
 
@@ -365,132 +299,128 @@ export interface ExecuteTradeResult {
     error?: string;
     nextRole?: 角色数据结构;
     nextSocial?: NPC结构[];
+    nextWorld?: 世界数据结构;
     record?: 场外交易记录结构;
 }
 
-export const 执行情境交易结算 = (params: ExecuteTradeParams): ExecuteTradeResult => {
-    const mode = 获取货币显示模式(params.openingConfig, params.role);
-    const isXianxia = 推断单位仙侠(params.role) || /仙侠|玄幻/.test(String(params.openingConfig?.题材模式 || ''));
-    const profile = params.openingConfig?.modeRuntimeProfile;
-    const playerMoneyBase = 计算角色货币底层总值(params.role?.金钱, profile, mode);
+export const 交易回收单价 = (value: number) => Math.max(1, Math.round(value * 0.7));
 
-    const paidBase = Math.max(0, Math.floor(Number(params.playerCashPaidBase) || 0));
-    const receivedBase = Math.max(0, Math.floor(Number(params.playerCashReceivedBase) || 0));
-    if (paidBase > playerMoneyBase) {
-        return { ok: false, error: `随身货币不足（当前可用 ${playerMoneyBase} 基础单位，尝试支付 ${paidBase}）。` };
-    }
-    if (receivedBase > params.maxCounterpartyPurseBase) {
-        return { ok: false, error: `${params.targetName} 随身现银上限约 ${params.maxCounterpartyPurseBase}，拿不出更多现银，请改用「以物易物」。` };
-    }
-    if (params.playerItemsOffered.length === 0 && params.counterpartyItemsBought.length === 0 && paidBase === 0 && receivedBase === 0) {
-        return { ok: false, error: '请至少选择一件物品或填写交易金额。' };
-    }
+export const 计算交易差价 = (offered: Array<{ unitPriceBase: number; quantity: number }>, bought: Array<{ unitPriceBase: number; quantity: number }>, multiplier: number) => {
+    const sellValue = offered.reduce((sum, row) => sum + 交易回收单价(row.unitPriceBase) * row.quantity, 0);
+    const buyValue = bought.reduce((sum, row) => sum + Math.max(1, Math.round(row.unitPriceBase * multiplier)) * row.quantity, 0);
+    return { sellValue, buyValue, receive: Math.max(0, sellValue - buyValue), pay: Math.max(0, buyValue - sellValue) };
+};
 
-    // Clone role & check item availability
-    const nextRole: 角色数据结构 = JSON.parse(JSON.stringify(params.role));
-    nextRole.物品列表 = Array.isArray(nextRole.物品列表) ? nextRole.物品列表 : [];
-    const equippedValues = new Set(Object.values(nextRole.装备 || {}).map((v) => 取文本(v)).filter(Boolean));
-
-    let playerOfferValue = paidBase;
-    for (const offer of params.playerItemsOffered) {
-        if (!offer.name || offer.quantity <= 0) continue;
-        const idx = nextRole.物品列表.findIndex((it: any) => 取文本(it?.名称 || it) === offer.name);
-        if (idx < 0) return { ok: false, error: `背包中未找到「${offer.name}」。` };
-        const entry: any = nextRole.物品列表[idx];
-        if (equippedValues.has(offer.name) || (entry?.ID && equippedValues.has(String(entry.ID)))) {
-            return { ok: false, error: `「${offer.name}」正在穿戴中，请先到装备栏卸下再交易。` };
-        }
-        const curQty = Math.max(1, Math.floor(Number(entry?.堆叠数量 ?? entry?.数量) || 1));
-        if (curQty < offer.quantity) {
-            return { ok: false, error: `「${offer.name}」数量不足（仅有 ${curQty}，尝试交出 ${offer.quantity}）。` };
-        }
-        playerOfferValue += Math.round(offer.unitPriceBase * 0.7) * offer.quantity;
-        const left = curQty - offer.quantity;
-        if (left > 0 && typeof entry === 'object') {
-            entry.数量 = left;
-            if ('堆叠数量' in entry) entry.堆叠数量 = left;
-        } else {
-            nextRole.物品列表.splice(idx, 1);
-        }
+const 选择现货 = (picks: ExecuteTradeParams['playerItemsOffered'], goods: TradableItemView[]) => {
+    const selected = new Map<number, TradableItemView>();
+    for (const pick of picks) {
+        const row = goods.find((entry) => pick.id ? entry.id === pick.id : entry.name === pick.name);
+        if (!row || row.equippedLocked || selected.has(row.sourceIndex) ||
+            !Number.isSafeInteger(pick.quantity) || pick.quantity <= 0 || pick.quantity > row.quantity)
+            throw new Error('「' + pick.name + '」库存不足、已装备或已变动，请重新核对货物。');
+        selected.set(row.sourceIndex, { ...row, quantity: pick.quantity });
     }
+    return selected;
+};
 
-    let counterpartyAskValue = receivedBase;
-    for (const buy of params.counterpartyItemsBought) {
-        if (!buy.name || buy.quantity <= 0) continue;
-        counterpartyAskValue += Math.round(buy.unitPriceBase * params.priceMultiplier) * buy.quantity;
-        const existingIdx = nextRole.物品列表.findIndex((it: any) => 取文本(it?.名称) === buy.name);
-        if (existingIdx >= 0) {
-            const target: any = nextRole.物品列表[existingIdx];
-            const curQty = Math.max(1, Math.floor(Number(target?.堆叠数量 ?? target?.数量) || 1));
-            target.数量 = curQty + buy.quantity;
-            if ('堆叠数量' in target) target.堆叠数量 = curQty + buy.quantity;
-        } else {
-            nextRole.物品列表.push({
-                ID: `trade_${Date.now()}_${nextRole.物品列表.length + 1}`,
-                名称: buy.name,
-                类型: (buy.type as 游戏物品['类型']) || '杂物',
-                品质: '良品',
-                描述: buy.description || `购自${params.targetName}`,
-                数量: buy.quantity,
-                堆叠数量: buy.quantity,
-                重量: 1,
-                价值: buy.unitPriceBase
-            } as any);
-        }
-    }
-
-    if (playerOfferValue < counterpartyAskValue) {
-        return {
-            ok: false,
-            error: `出价未达对方心理底线（己方筹码估价 ${playerOfferValue} < 对方要价 ${counterpartyAskValue}，差额 ${counterpartyAskValue - playerOfferValue}）。`
-        };
-    }
-
-    const updatedRole = 变更角色货币BaseAmount(nextRole, receivedBase - paidBase, {
-        runtimeProfile: profile,
-        货币模式: mode,
-        仙侠模式: isXianxia
+const 划拨物品 = (bag: NPC背包物品[], selected: Map<number, TradableItemView>) => {
+    const remaining: NPC背包物品[] = [];
+    const out: NPC背包物品[] = [];
+    bag.forEach((item, index) => {
+        const pick = selected.get(index);
+        if (!pick) { remaining.push(item); return; }
+        const value = typeof item === 'string' ? { 名称: item } : item;
+        out.push({ ...value, 名称: pick.name, 类型: pick.type, 价值: pick.unitPriceBase, 数量: pick.quantity, 堆叠数量: pick.quantity });
+        const left = 物品数量(item) - pick.quantity;
+        if (left > 0) remaining.push({ ...value, 数量: left, 堆叠数量: left });
     });
+    return { remaining, out };
+};
 
-    // Update NPC inventory & slight favor if NPC trade
-    const nextSocial: NPC结构[] = JSON.parse(JSON.stringify(params.social || []));
-    if (params.targetType === 'npc') {
-        const npcIdx = nextSocial.findIndex(
-            (n) => (params.npcId && n.id === params.npcId) || n.姓名 === params.targetName
-        );
-        if (npcIdx >= 0) {
-            const npc = nextSocial[npcIdx];
-            const bag: NPC背包物品[] = Array.isArray(npc.背包) ? [...npc.背包] : [];
-            for (const buy of params.counterpartyItemsBought) {
-                const bi = bag.findIndex((b) => 取文本(b.名称) === buy.name);
-                if (bi >= 0) {
-                    const left = Math.max(0, (Number(bag[bi].数量) || 1) - buy.quantity);
-                    if (left > 0) bag[bi] = { ...bag[bi], 数量: left };
-                    else bag.splice(bi, 1);
-                }
-            }
-            for (const offer of params.playerItemsOffered) {
-                const bi = bag.findIndex((b) => 取文本(b.名称) === offer.name);
-                if (bi >= 0) {
-                    bag[bi] = { ...bag[bi], 数量: (Number(bag[bi].数量) || 1) + offer.quantity };
-                } else {
-                    bag.push({ 名称: offer.name, 数量: offer.quantity, 描述: '交易所得' });
-                }
-            }
-            npc.背包 = bag;
-            npc.好感度 = Math.min(100, (Number(npc.好感度) || 0) + 1);
-        }
+export const 执行情境交易结算 = (params: ExecuteTradeParams): ExecuteTradeResult => {
+    const { role, openingConfig } = params;
+    const npcIdx = params.targetType === 'npc' ? params.social.findIndex((n) =>
+        params.npcId ? n.id === params.npcId : n.姓名 === params.targetName) : -1;
+    const npc = params.social[npcIdx];
+    if (params.targetType === 'npc' && !npc) return { ok: false, error: '交易对象已变动，请重新选择。' };
+    if (params.targetType === 'venue' && !params.venue?.available) return { ok: false, error: '当前没有可结算的柜台。' };
+    const currency = 获取交易币制(openingConfig, role);
+    const stock = 提取交易对方库存列表({ ...params, npc });
+    const playerBag = Array.isArray(role.物品列表) ? role.物品列表 : [];
+    const playerWallet = 读取交易钱袋(role.金钱, playerBag, currency);
+    let offers: Map<number, TradableItemView>, purchases: Map<number, TradableItemView>;
+    try {
+        offers = 选择现货(params.playerItemsOffered, 提取主角可交易物品列表(role, openingConfig));
+        purchases = 选择现货(params.counterpartyItemsBought, stock.items);
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+    if (!offers.size && !purchases.size) return { ok: false, error: '请先选择要交易的物品。' };
+    const quote = 计算交易差价([...offers.values()], [...purchases.values()], params.priceMultiplier);
+    const paidBase = params.playerCashPaidBase ?? quote.pay;
+    const receivedBase = params.playerCashReceivedBase ?? quote.receive;
+    const amount = (value: number) => value + ' ' + currency.label;
+    if (![quote.sellValue, quote.buyValue, paidBase, receivedBase].every((v) => Number.isSafeInteger(v) && v >= 0) || (paidBase > 0 && receivedBase > 0))
+        return { ok: false, error: '请核对本次收付金额。' };
+    if ((paidBase || receivedBase) && !currency.cashEnabled) return { ok: false, error: '当前世界未指定可在此结算的记账币，请选择等价物品交换。' };
+    if (receivedBase > stock.purseBase) return { ok: false,
+        error: params.targetName + (stock.purseKnown ? '当前可付 ' + amount(stock.purseBase) : '的钱袋尚未记录可用余额') + '，尚差 ' + amount(receivedBase - stock.purseBase) + '。可降低收款、改选物品或取消。' };
+    if (paidBase > playerWallet.balance) return { ok: false, error: '你的余额不足，当前可付 ' + amount(playerWallet.balance) + '，尚差 ' + amount(paidBase - playerWallet.balance) + '。' };
+    const isGift = params.confirmedGift === true && params.targetType === 'npc' && offers.size > 0
+        && !purchases.size && paidBase === 0 && params.playerCashReceivedBase === 0;
+    if (params.confirmedGift && !isGift) return { ok: false, error: '赠物只可向选定的人物交付物品，不能同时收付款。' };
+    if (!purchases.size && !receivedBase && !isGift) return { ok: false, error: '出售物品需填写正数收款，或选择对方物品交换。' };
+    const concession = quote.sellValue + paidBase - quote.buyValue - receivedBase;
+    if (concession < 0) return { ok: false, error: '出价不足，尚差 ' + amount(-concession) + '。' };
+    const playerAfter = playerWallet.balance + receivedBase - paidBase;
+    const otherAfter = stock.purseBase + paidBase - receivedBase;
+    if (![playerAfter, otherAfter].every(Number.isSafeInteger)) return { ok: false, error: '交易余额超出可结算范围。' };
+
+    const player = 划拨物品(playerBag, offers);
+    const other = 划拨物品(stock.bag, purchases);
+    const hasCash = paidBase !== receivedBase;
+    let nextPlayerItems = player.remaining;
+    let nextOtherItems = other.remaining;
+    if (hasCash && playerBag.some((item) => 物品交易面额(item, currency))) {
+        nextPlayerItems = nextPlayerItems.filter((item) => !物品交易面额(item, currency));
+        if (playerAfter > 0) nextPlayerItems.push({ 名称: currency.label, 类型: '货币:底层货币', 数量: playerAfter, 堆叠数量: playerAfter });
+    }
+    // 只有实际从旧背包折算进钱袋的实体币才移除。有独立钱袋时支付来自钱袋。
+    if (npc && hasCash && !读取交易钱袋(npc.金钱, [], currency).known) {
+        nextOtherItems = nextOtherItems.filter((item) => !物品交易面额(item, currency));
+    }
+    const stamp = Date.now();
+    const nextRole = { ...role, 物品列表: [...nextPlayerItems, ...other.out.map((item, index) => ({
+        ...item, ID: 'trade_' + stamp + '_' + index, 品质: item.品质 || '凡品'
+    }))] } as 角色数据结构;
+    if (hasCash) nextRole.金钱 = 写入交易钱袋(role.金钱, playerAfter, currency) as 角色数据结构['金钱'];
+    const bag = [...nextOtherItems, ...player.out.map((item) => ({ ...item, ID: undefined }))];
+    let nextWorld: 世界数据结构 | undefined;
+    let nextSocial = params.social;
+    let favorGain = 0;
+    if (npc) {
+        const favor = Number(npc.好感度) || 0;
+        favorGain = concession > 0 && favor < 100 ? 1 : 0;
+        const nextNpc = { ...npc, 背包: bag, 好感度: favor + favorGain };
+        if (hasCash) nextNpc.金钱 = 写入交易钱袋(npc.金钱, otherAfter, currency);
+        nextSocial = [...params.social];
+        nextSocial[npcIdx] = nextNpc;
+    } else {
+        const key = params.venue!.ledgerKey || params.targetName;
+        nextWorld = { ...params.world, 场所交易账本: { ...params.world?.场所交易账本, [key]: { 余额: otherAfter, 库存: bag } } } as 世界数据结构;
     }
 
     const spentText = [
         ...params.playerItemsOffered.map((i) => `${i.name}×${i.quantity}`),
-        ...(paidBase > 0 ? [`货币${paidBase}基础单位`] : [])
+        ...(paidBase > 0 ? [amount(paidBase)] : [])
     ].join('、') || '无';
     const gotText = [
         ...params.counterpartyItemsBought.map((i) => `${i.name}×${i.quantity}`),
-        ...(receivedBase > 0 ? [`货币${receivedBase}基础单位`] : [])
+        ...(receivedBase > 0 ? [amount(receivedBase)] : [])
     ].join('、') || '无';
-    const summary = `【情境交易成交｜${params.locationLabel}】向「${params.targetName}」交出[${spentText}]，换得[${gotText}]${params.barterNote ? `（交涉附言：${params.barterNote}）` : ''}`;
+    const exchange = isGift
+        ? `将[${spentText}]免费赠予「${params.targetName}」`
+        : `向「${params.targetName}」交出[${spentText}]，换得[${gotText}]`;
+    const favorNote = favorGain ? (isGift ? '，好感 +1' : '，让利 ' + amount(concession) + '，好感 +1') : '';
+    const summary = `【情境交易成交｜${params.locationLabel}】${exchange}${favorNote}${params.barterNote ? `（交涉附言：${params.barterNote}）` : ''}`;
 
     const record: 场外交易记录结构 = {
         id: `trade-${Date.now()}`,
@@ -506,13 +436,13 @@ export const 执行情境交易结算 = (params: ExecuteTradeParams): ExecuteTra
         时间: Date.now()
     };
 
-    return { ok: true, nextRole: updatedRole, nextSocial, record };
+    return { ok: true, nextRole, nextSocial, nextWorld, record };
 };
 
 export const 构建场外交易注入块 = (records?: 场外交易记录结构[] | null): string => {
     if (!Array.isArray(records) || records.length === 0) return '';
     return [
-        '【本回合前置交易既成事实（道具与货币已在面板实时落账，正文必须自然承接，不可推翻或重复扣款）】',
+        '【本回合前置交易既成事实（道具、货币与好感已在面板实时落账，正文必须自然承接，不可重复增减这笔交易的道具、货币或好感）】',
         ...records.map((r) => `- ${r.成交摘要}`)
     ].join('\n');
 };

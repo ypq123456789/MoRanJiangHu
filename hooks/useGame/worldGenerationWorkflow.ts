@@ -628,7 +628,7 @@ export const 执行世界生成工作流 = async (
                 rawText: normalizedManualWorldPrompt
             }
             : useStoryV2WorldGen
-                ? await 执行带超时(useWorldRefinement ? 'AI 细化2.0导演世界圣经' : 'AI 构建2.0导演世界圣经', 世界观阶段超时毫秒, async (signal, 标记活动) => {
+                ? await 执行带超时(useWorldRefinement ? 'AI 细化2.0导演世界圣经' : 'AI 构建2.0导演世界圣经', 世界观阶段超时毫秒, async (signal, 标记活动, 重置为完整预算) => {
                     const extraPromptParts = [
                         fandomPromptBundle.世界观创建补丁,
                         modeNarrativeWorldConstraint,
@@ -638,6 +638,7 @@ export const 执行世界生成工作流 = async (
                         normalizedOpeningExtraPrompt ? `【开局额外要求】\n${normalizedOpeningExtraPrompt}` : '',
                         worldPromptSeed ? `【世界种子底稿】\n${worldPromptSeed.slice(0, 1400)}` : ''
                     ].filter(Boolean).join('\n\n');
+                    let repairLabel = '';
                     const bibleRes = await 生成世界与导演圣经V2({
                         worldConfig: {
                             worldName: worldConfig.worldName,
@@ -654,6 +655,13 @@ export const 执行世界生成工作流 = async (
                         extraPrompt: extraPromptParts || undefined,
                         stream: openingRequestStreaming,
                         signal,
+                        onRepair: (attempt, sections) => {
+                            repairLabel = `第 ${attempt} 次补写${sections.join('、')}`;
+                            worldDeltaReceived = true;
+                            if (openingRequestStreaming) 标记活动();
+                            else 重置为完整预算();
+                            开局流式历史更新器?.更新(`【生成中】${repairLabel}，已通过校验的内容已保留。`, { immediate: true });
+                        },
                         onDelta: openingRequestStreaming
                             ? (_delta, accumulated) => {
                                 标记活动();
@@ -663,6 +671,10 @@ export const 执行世界生成工作流 = async (
                                     return;
                                 }
                                 worldDeltaReceived = true;
+                                if (repairLabel) {
+                                    开局流式历史更新器?.更新(`【生成中】${repairLabel}，本次补写已接收 ${normalized.length} 字符。`);
+                                    return;
+                                }
                                 const preview = 提取流式世界观预览(normalized);
                                 if (preview) {
                                     const footer = preview.closed

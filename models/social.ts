@@ -1,5 +1,6 @@
 
 import type { NPC图片档案 } from './imageGeneration';
+import type { 角色金钱 } from './character';
 import type { CharacterAbilitySystems } from './system';
 
 export type NPC性别 = '男' | '女' | '男娘' | '扶她';
@@ -105,9 +106,13 @@ export interface NPC装备栏 {
 }
 
 export interface NPC背包物品 {
+    ID?: string;
     名称: string;
     类型?: string;
     数量?: number;
+    堆叠数量?: number;
+    价值?: number;
+    品质?: string;
     描述?: string;
 }
 
@@ -239,6 +244,7 @@ export interface NPC结构 {
     // --- 装备、物品与状态（运行时会为所有 NPC 补齐最小结构） ---
     当前装备?: NPC装备栏;
     背包?: NPC背包物品[];
+    金钱?: Partial<角色金钱>;
     BUFF?: NPC状态效果[];
     DEBUFF?: NPC状态效果[];
     技艺?: NPC技艺[];

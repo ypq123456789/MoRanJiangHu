@@ -1,4 +1,5 @@
 import { naturalProseSettingsService } from '../../services/naturalProseSettingsService';
+import { 补录环境所在房间 } from '../../utils/locationTree';
 import { buildNpcTemplateNameContext } from '../../services/npcTemplateNameContext';
 import { 校验响应未命中模板姓名黑名单 } from './sendWorkflow';
 import * as textAIService from '../../services/ai/text';
@@ -1318,7 +1319,7 @@ export const 执行开场剧情生成工作流 = async (
                         });
                     } else {
                         设置开局变量生成进度({
-                            phase: 'skipped',
+                            phase: 'done',
                             text: '开局变量生成完成，本次未产生额外变量命令。',
                             rawText: typeof openingVariableResult?.rawText === 'string' ? openingVariableResult.rawText : ''
                         });
@@ -1423,6 +1424,7 @@ export const 执行开场剧情生成工作流 = async (
 
             // 所有开局阶段落盘后统一同步在场 NPC 的当前位置到最底层子地点/房间
             finalSocial = 同步在场NPC当前位置(finalSocial, finalEnv);
+            finalWorld = 补录环境所在房间(finalWorld, finalEnv);
             修补开局角色姓名占位(finalRole, normalizedOpeningRole);
             const finalGameTime = 环境时间转标准串(finalEnv) || initialGameTime;
             finalStory = deps.规范化剧情状态(finalStory, finalEnv);

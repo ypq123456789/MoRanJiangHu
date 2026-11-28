@@ -187,14 +187,15 @@ const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
     };
     const nameToId = new Map<string, string>();
     const rawIdToNewId = new Map<string, string>();
-    normalized.forEach((layer) => {
-        const assignedId = nameToId.get(layer.名称) || nextId();
+    const assignedIds = normalized.map((layer) => {
+        const assignedId = nextId();
         if (!nameToId.has(layer.名称)) nameToId.set(layer.名称, assignedId);
         if (layer.原始ID && !rawIdToNewId.has(layer.原始ID)) rawIdToNewId.set(layer.原始ID, assignedId);
+        return assignedId;
     });
 
-    return normalized.map((layer) => ({
-        ID: nameToId.get(layer.名称) || nextId(),
+    return normalized.map((layer, index) => ({
+        ID: assignedIds[index],
         名称: layer.名称,
         层级: layer.层级,
         父级ID: layer.父级ID
@@ -332,8 +333,8 @@ export const 合并世界基底到开场状态 = <T extends { 世界?: 世界数
     );
     if (mapLayers.length <= 0 && factions.length <= 0) return openingBase;
     const currentWorld = openingBase.世界 || 创建开场空白世界();
-    const initialLoc = mapLayers.length > 0 ? 提取世界基底初始落点(mapLayers) : null;
     const currentEnv = openingBase.环境;
+    const initialLoc = mapLayers.length > 0 && !取文本(currentEnv?.具体地点) ? 提取世界基底初始落点(mapLayers, currentEnv) : null;
     const nextEnv = initialLoc && currentEnv && !取文本(currentEnv.具体地点)
         ? {
             ...currentEnv,
@@ -1956,6 +1957,10 @@ export const 是否有效地图层级节点 = (value: unknown): value is Record<
 export const 规范化世界状态 = (raw?: any): 世界数据结构 => {
     const world = raw && typeof raw === 'object' ? raw : {};
     const normalizedWorld: 世界数据结构 = {
+        ...(world.场所交易账本 && typeof world.场所交易账本 === 'object'
+            ? { 场所交易账本: Object.fromEntries(Object.entries(world.场所交易账本).filter(([, ledger]: [string, any]) =>
+                ledger && Number.isSafeInteger(ledger.余额) && ledger.余额 >= 0 && Array.isArray(ledger.库存))) }
+            : {}),
         活跃NPC列表: Array.isArray(world?.活跃NPC列表)
             ? world.活跃NPC列表
                 .map((item: any) => ({

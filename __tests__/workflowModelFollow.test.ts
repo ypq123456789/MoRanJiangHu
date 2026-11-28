@@ -39,6 +39,16 @@ const 构造设置 = (功能模型占位: Record<string, unknown> = {}) => 规�
 });
 
 describe('生成流程图一键套用主剧情模型', () => {
+    it('新配置默认执行变量与地图更新，两个阶段能继承仅在主剧情页指定的模型', () => {
+        const settings = 构造设置({ 主剧情使用模型: 'story-only-model' });
+        settings.configs[0].model = '';
+        expect(settings.功能模型占位.变量计算独立模型开关).toBe(true);
+        expect(settings.功能模型占位.地图生成功能启用).toBe(true);
+        expect(获取变量计算接口配置(settings)?.model).toBe('story-only-model');
+        expect(获取地图自动更新接口配置(settings)?.model).toBe('story-only-model');
+        expect(获取变量计算接口配置(构造设置({ 变量计算独立模型开关: false }))).toBeNull();
+    });
+
     it('把全部生成阶段的渠道与模型对齐到主剧情，并清空独立地址和密钥', () => {
         const result = 套用主剧情模型到生成阶段(构造设置({
             剧情回忆独立模型开关: true,

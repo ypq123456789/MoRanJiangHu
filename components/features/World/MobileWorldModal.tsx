@@ -190,7 +190,7 @@ const MobileWorldModal: React.FC<Props> = ({
                                 </div>
                             )}
                         </div>
-                        <button type="button" onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-700 bg-black/60 text-gray-300">×</button>
+                        <button type="button" aria-label="关闭世界" onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-700 bg-black/60 text-gray-300">×</button>
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-2">

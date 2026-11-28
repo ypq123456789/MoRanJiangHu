@@ -198,6 +198,8 @@ describe('V2 试玩反馈综合修复验证', () => {
         expect(entries[0].message).not.toContain('%s');
         expect(entries[1].message).toContain('<button> cannot contain a nested button.');
         expect(entries[1].message).not.toContain('%s');
+        recordDiagnosticLog('info', ['%c生成中', 'color: blue']);
+        expect(getDiagnosticLogs()[0].message).toBe('生成中');
     });
 
     it('2. 世界基底开局自动锚定最底层房间，且地点树与前缀路径精确落到子地点', () => {
@@ -408,7 +410,8 @@ describe('V2 试玩反馈综合修复验证', () => {
         expect(screen.getByText(/变量生成功能未开启/)).toBeTruthy();
     });
 
-    it('6. 2.0 开局与正常回合均会执行「变量生成」与「地图更新」，写入进度并同步在场 NPC 房间', async () => {
+    it.each([true, false])('6. 2.0 默认执行开局与正常回合的变量和地图，有变量命令=%s 时均完成检查', async (hasVariableCommands) => {
+        vi.clearAllMocks();
         const storyTurnRenderer = await import('../engine/storyV2/storyTurnRenderer');
         const directorPostTurn = await import('../engine/storyV2/directorPostTurn');
         const varWorkflow = await import('../hooks/useGame/variableModelWorkflow');
@@ -455,7 +458,7 @@ describe('V2 试玩反馈综合修复验证', () => {
             offscreenSpillovers: []
         });
         vi.mocked(varWorkflow.执行变量模型校准工作流).mockResolvedValue({
-            commands: [{ action: 'add', key: '角色.金钱.铜钱', value: 15 }],
+            commands: hasVariableCommands ? [{ action: 'add', key: '角色.金钱.铜钱', value: 15 }] : [],
             reports: ['铜钱 +15'],
             rawText: '<命令>add 角色.金钱.铜钱 = 15</命令>',
             model: 'test-var-model'
@@ -473,9 +476,6 @@ describe('V2 试玩反馈综合修复验证', () => {
             configs: [{ id: 'c1', 名称: '主渠道', 供应商: 'openai', baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', model: 'gpt-4o' }],
             功能模型占位: {
                 文章优化独立模型开关: false,
-                变量计算独立模型开关: true,
-                变量计算使用模型: 'gpt-4o-mini',
-                地图生成功能启用: true,
                 地图自动更新独立模型开关: false
             }
         } as any;

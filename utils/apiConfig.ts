@@ -785,7 +785,7 @@ export const 默认功能模型占位: 功能模型占位配置结构 = {
     剧情回忆最早触发回合: 10,
     记忆总结独立模型开关: false,
     世界演变独立模型开关: false,
-    变量计算独立模型开关: false,
+    变量计算独立模型开关: true,
     规划分析独立模型开关: false,
     女主规划独立模型开关: false,
     剧情规划独立模型开关: false,
@@ -1577,7 +1577,7 @@ const 标准化功能模型占位 = (raw: any): 功能模型占位配置结构 =
         剧情回忆最早触发回合: Math.max(1, Number(raw?.剧情回忆最早触发回合) || 10),
         记忆总结独立模型开关: Boolean(raw?.记忆总结独立模型开关),
         世界演变独立模型开关: Boolean(raw?.世界演变独立模型开关),
-        变量计算独立模型开关: Boolean(raw?.变量计算独立模型开关),
+        变量计算独立模型开关: 读取布尔值(raw?.变量计算独立模型开关) ?? true,
         规划分析独立模型开关: 读取布尔值(raw?.规划分析独立模型开关) ?? legacyPlanningEnabled,
         女主规划独立模型开关: Boolean(raw?.女主规划独立模型开关),
         剧情规划独立模型开关: Boolean(raw?.剧情规划独立模型开关),
@@ -2349,7 +2349,7 @@ export const 获取地图生成接口配置 = (settings: 接口设置结构): �
 export const 获取地图自动更新接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {
     const feature = (settings as any)?.功能模型占位;
     const enabled = Boolean(feature?.地图自动更新独立模型开关);
-    if (!enabled) return 获取当前接口配置(settings);
+    if (!enabled) return 获取主剧情接口配置(settings);
     return 构建独立文本接口配置(settings, {
         渠道ID: feature?.地图自动更新渠道ID,
         使用模型: feature?.地图自动更新使用模型,
@@ -2450,19 +2450,19 @@ const 获取手动变量审查接口配置 = (settings: 接口设置结构): 当
 export const 获取变量计算接口配置 = (settings: 接口设置结构, options?: { manualReview?: boolean }): 当前可用接口结构 | null => {
     if (options?.manualReview) return 获取手动变量审查接口配置(settings);
     const feature = (settings as any)?.功能模型占位;
-    const enabled = Boolean(feature?.变量计算独立模型开关);
-    if (!enabled) return null;
+    if (!变量校准功能已启用(settings)) return null;
+    const followMainChannel = !读取字符串(feature?.变量计算渠道ID).trim()
+        || feature.变量计算渠道ID === settings.activeConfigId;
     return 构建独立文本接口配置(settings, {
         渠道ID: feature?.变量计算渠道ID,
-        使用模型: feature?.变量计算使用模型,
+        使用模型: 读取字符串(feature?.变量计算使用模型).trim() || (followMainChannel ? 获取主剧情接口配置(settings)?.model : ''),
         API地址: feature?.变量计算API地址,
         API密钥: feature?.变量计算API密钥
     });
 };
 
 export const 变量校准功能已启用 = (settings: 接口设置结构 | null | undefined): boolean => {
-    const feature = (settings as any)?.功能模型占位;
-    return Boolean(feature?.变量计算独立模型开关);
+    return Boolean(settings) && (读取布尔值(settings?.功能模型占位?.变量计算独立模型开关) ?? true);
 };
 
 export const 获取世界演变接口配置 = (settings: 接口设置结构): 当前可用接口结构 | null => {

@@ -18,6 +18,8 @@ import { 变更角色货币BaseAmount } from '../../utils/currencyDisplay';
 import { 推断单位仙侠 } from '../../utils/realmDisplay';
 import { parseJsonWithRepair } from '../../utils/jsonRepair';
 import type { StoryV2EngineState } from './types';
+import { 首次登记NPC交易资产 } from '../plugins/tradePlugin';
+import { 获取交易币制 } from '../plugins/tradeCurrency';
 
 export interface DirectorPostTurnResult {
     nextState: StoryV2EngineState;
@@ -65,6 +67,7 @@ const 构建导演后处理提示词 = (params: {
     playerInput: string;
     storyBody: string;
     shortTerm: string;
+    tradeUnit: string;
 }): string => {
     const { state, turnIndex, playerInput, storyBody, shortTerm } = params;
     const bible = state.directorBible;
@@ -123,6 +126,7 @@ const 构建导演后处理提示词 = (params: {
         '4. **积极触发动态重规划（Dynamic Re-planning）**：只要玩家本回合采取了改变预设战术或局面前提的行动（例如：原本定调“潜入救人”，玩家却反客为主持信当面喝退/敲诈强敌、或提前识破埋伏、或抢先改换阵营、或当前据点围困已打破需要转场进入黑市/下一区域），**必须将 `动态重规划.需要重规划` 设为 `true`**，写清 `重规划原因` 并立刻更新 `修订当前幕核心矛盾` 与 `修订当前幕破局路径`；若第 1 幕的初始局部危局已解决或转折到位，请将 `推进到幕次` 推进到 `2`！',
         '5. **签发下回合导演简报 (`下回合导演简报`)**：为主剧情渲染层指定下一回合精准的舞台焦点、必守悬念、下一枚应顺手埋设或发酵的 `伏笔ID` 及其**只演表象不剧透真相的演出方式**，以及在场人物此时真实的心思与绝不能说漏嘴的保密底线。',
         '',
+        '可选「交易资产初见」：仅当正文明确盘点该人物自己的全部现款或展示真实随身物品，才提供 { "依据": "逐字引用正文", "余额Base": 整数, "背包": [{"名称":"正文中的物品","数量":1}] }。余额以' + params.tradeUnit + '计。未提及余额就省略，不能把某件商品的价格、要价、预算或付掉的一笔钱当余额；不能按身份或境界编造资产。已经在情境交易面板成交的货币、物件和好感不可再次结算。',
         '请只输出 `<thinking>`（可选）与一个合法 `<导演更新JSON>...</导演更新JSON>`（严禁输出额外闲聊）：',
         '{',
         '  "环境变更": { "推进分钟数": 30, "大地点": "", "中地点": "", "小地点": "", "具体地点": "精确到最底层的房间/子地点名称（若在室内切勿只填外层建筑名）", "时间叙述": "" },',
@@ -177,6 +181,7 @@ export const 执行导演后处理V2 = async (params: {
     const shortTerm = (storyResponse.shortTerm || '').trim() || storyBody.slice(0, 140);
 
     const prompt = 构建导演后处理提示词({
+        tradeUnit: 获取交易币制(openingConfig, state.角色).label,
         state,
         turnIndex: state.turnIndex,
         playerInput,
@@ -360,6 +365,10 @@ export const 执行导演后处理V2 = async (params: {
                     简介: upd.核心性格特征 || upd.身份 || '',
                     记忆: newMem ? [`【${nextCanon}】${newMem}`] : []
                 });
+            }
+            if (upd.交易资产初见) {
+                const targetIdx = idx >= 0 ? idx : nextSocial.length - 1;
+                nextSocial[targetIdx] = 首次登记NPC交易资产(nextSocial[targetIdx], upd.交易资产初见, storyBody, openingConfig, nextRole);
             }
             if (castNamesSet.has(name)) {
                 const castObj = nextBible.核心卡司.find((c) => c.姓名 === name);

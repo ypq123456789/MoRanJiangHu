@@ -167,9 +167,6 @@ const 格式化控制台参数 = (values: unknown[]): string[] => {
         return values.map(stringifyValue).filter(Boolean);
     }
     const template = values[0];
-    if (!/%[sdifooO]/i.test(template)) {
-        return values.map(stringifyValue).filter(Boolean);
-    }
     let argIndex = 1;
     const formatted = template.replace(/%([sdifoOc%])/g, (full, spec) => {
         if (spec === '%') return '%';

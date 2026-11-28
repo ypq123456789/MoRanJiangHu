@@ -1404,6 +1404,8 @@ export interface 场外交易记录结构 {
 export interface 场外战果暂存结构 {
     id: string;
     对手姓名: string;
+    己方阵容?: string[];
+    敌方阵容?: string[];
     npcId?: string;
     模式: '切磋试探' | '生死交锋';
     结果: '胜出' | '逼退脱身' | '落败撤离' | '僵持罢手';

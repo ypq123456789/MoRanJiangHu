@@ -1,16 +1,19 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import type { DirectorWorldBible } from '../../../models/directorBible';
 import {
-    创建战术交锋会话,
-    构建NPC明牌交锋面板,
-    构建主角明牌交锋面板,
-    推演交锋一拍,
+    构建战术交锋阵容,
+    创建阵营交锋会话,
+    推演阵营交锋一拍,
+    选定交锋对手,
+    可继续交锋,
+    同步交锋在场阵容,
     结算战术交锋结果,
-    获取可选战术交锋目标,
-    type ClashSessionState,
+    type ClashFighter,
+    type ClashRoster,
+    type TeamClashSession,
     type TacticalMoveId
 } from '../../../engine/plugins/clashPlugin';
-import type { NPC结构, 场外战果暂存结构, 角色数据结构 } from '../../../types';
+import type { NPC结构, 场外战果暂存结构, 战斗状态结构, 角色数据结构 } from '../../../types';
 
 interface Props {
     open: boolean;
@@ -18,6 +21,7 @@ interface Props {
     role: 角色数据结构;
     env: any;
     social: NPC结构[];
+    battle?: 战斗状态结构;
     directorBible?: DirectorWorldBible | null;
     pendingClashes: 场外战果暂存结构[];
     onCommitClash: (payload: { nextRole: 角色数据结构; record: 场外战果暂存结构 }) => void;
@@ -33,71 +37,67 @@ const MOVE_BUTTONS: Array<{ id: TacticalMoveId; title: string; subtitle: string;
     { id: 'withdraw', title: '借势脱身', subtitle: '比拼身法+胜势，撤离或逼停交锋', tone: 'border-emerald-500/45 bg-emerald-950/25 text-emerald-200 hover:border-emerald-400' }
 ];
 
-const TacticalClashModal: React.FC<Props> = ({
-    open,
+const TacticalClashModal: React.FC<Props> = (props) => {
+    const { open, role, social, env, battle, directorBible } = props;
+    const roster = useMemo(() => 构建战术交锋阵容(role, social, env, battle, directorBible), [role, social, env, battle, directorBible]);
+    if (!open) return null;
+    const key = JSON.stringify([role.姓名, env?.大地点, env?.中地点, env?.小地点, env?.具体地点]);
+    return <ClashPanel key={key} {...props} roster={roster} />;
+};
+
+const RosterLine = ({ label, fighters }: { label: string; fighters: ClashFighter[] }) => (
+    <div aria-label={label} className="text-xs text-gray-300">
+        <strong className="text-wuxia-gold">{label}</strong>　{fighters.length
+            ? fighters.map((fighter) => `${fighter.profile.name}（${fighter.leftScene ? '离场' : fighter.posture > 0 ? fighter.posture + '%' : '退场'}）`).join('、')
+            : '暂无'}
+    </div>
+);
+
+const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
     loading,
     role,
-    env,
-    social,
-    directorBible,
+    roster,
     pendingClashes,
     onCommitClash,
     onClearClashes,
     onClose,
     onOpenSettings
 }) => {
-    const candidates = useMemo(() => 获取可选战术交锋目标(social, env), [social, env]);
-    const [selectedKey, setSelectedKey] = useState('');
-    const [mode, setMode] = useState<'切磋试探' | '生死交锋'>('切磋试探');
+    const [mode, setMode] = useState<TeamClashSession['mode']>('生死交锋');
+    const [sparringKey, setSparringKey] = useState('');
     const [useSignature, setUseSignature] = useState(false);
-    const [session, setSession] = useState<ClashSessionState | null>(null);
+    const [encounter, setEncounter] = useState(() => ({ roster, session: 创建阵营交锋会话(roster, '生死交锋') }));
     const [committedMsg, setCommittedMsg] = useState('');
+    const committed = useRef(false);
+    const session = encounter.session;
+    const setSession = (next: TeamClashSession | null) => setEncounter({ roster, session: next });
+    // 参战者移动后先更新本地会话，避免已消失的上一场在新敌人出现时恢复。
+    if (encounter.roster !== roster) setSession(同步交锋在场阵容(session, roster, mode, sparringKey));
 
-    useEffect(() => {
-        if (!open) return;
+    const allies = session?.allies ?? (mode === '切磋试探' ? roster.allies.slice(0, 1) : roster.allies);
+    const enemies = session?.enemies ?? [];
+    const playerProfile = (allies.find(可继续交锋) || allies[0]).profile;
+    const enemyProfile = enemies.find((fighter) => fighter.key === session?.targetKey)?.profile;
+
+    const restartSession = (nextMode: TeamClashSession['mode'], key = '') => {
+        setMode(nextMode);
+        setSparringKey(key);
+        committed.current = false;
         setCommittedMsg('');
         setUseSignature(false);
-        const firstKey = candidates[0] ? String(candidates[0].npc.id || candidates[0].npc.姓名 || '') : '';
-        setSelectedKey(firstKey);
-        if (candidates[0]) {
-            setSession(创建战术交锋会话({
-                targetName: candidates[0].npc.姓名,
-                npcId: candidates[0].npc.id,
-                mode: '切磋试探'
-            }));
-        } else {
-            setSession(null);
-        }
-    }, [open]);
-
-    const playerProfile = useMemo(() => 构建主角明牌交锋面板(role), [role]);
-    const selectedTarget = useMemo(
-        () => candidates.find((c) => String(c.npc.id || c.npc.姓名 || '') === selectedKey) || candidates[0] || null,
-        [candidates, selectedKey]
-    );
-    const enemyProfile = useMemo(
-        () => selectedTarget ? 构建NPC明牌交锋面板(selectedTarget.npc, directorBible) : null,
-        [selectedTarget, directorBible]
-    );
-
-    if (!open) return null;
-
-    const restartSession = (targetName: string, npcId: string | undefined, nextMode: '切磋试探' | '生死交锋') => {
-        setCommittedMsg('');
-        setUseSignature(false);
-        setSession(创建战术交锋会话({ targetName, npcId, mode: nextMode }));
+        setSession(创建阵营交锋会话(roster, nextMode, key));
     };
 
     const handleMove = (moveId: TacticalMoveId) => {
         if (!session || !enemyProfile || session.finished || loading) return;
-        const nextSession = 推演交锋一拍(session, moveId, playerProfile, enemyProfile, useSignature);
-        setSession(nextSession);
+        setSession(推演阵营交锋一拍(session, moveId, useSignature));
         setUseSignature(false);
     };
 
     const handleCommitOutcome = () => {
-        if (!session || !session.finished) return;
+        if (!session || !session.finished || committed.current || loading) return;
         const settled = 结算战术交锋结果({ session, role });
+        committed.current = true;
         onCommitClash(settled);
         setCommittedMsg(`战果已写入待注入队列，并在下次主剧情发送时承接：${settled.record.战果摘要}`);
     };
@@ -112,41 +112,36 @@ const TacticalClashModal: React.FC<Props> = ({
 
     return (
         <div className="fixed inset-0 z-[230] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3">
-            <div className="w-full max-w-4xl max-h-[90vh] rounded-2xl border border-wuxia-gold/35 bg-ink-black/95 shadow-[0_20px_60px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
+            <div role="dialog" aria-label="战术交锋" className="w-full max-w-4xl max-h-[90vh] rounded-2xl border border-wuxia-gold/35 bg-ink-black/95 shadow-[0_20px_60px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
                 <div className="px-4 py-3 border-b border-gray-800 bg-black/50 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-serif font-bold tracking-wider text-wuxia-gold">直观战术交锋 · 明牌对阵</span>
-                        <select
-                            value={selectedKey}
-                            onChange={(e) => {
-                                const k = e.target.value;
-                                setSelectedKey(k);
-                                const found = candidates.find((c) => String(c.npc.id || c.npc.姓名 || '') === k);
-                                if (found) restartSession(found.npc.姓名, found.npc.id, mode);
-                            }}
-                            className="bg-black/70 border border-gray-700 rounded px-2.5 py-1 text-xs text-paper-white outline-none focus:border-wuxia-gold"
-                        >
-                            {candidates.length === 0 && <option value="">（当前没有在场可交手对象）</option>}
-                            {candidates.map(({ npc }) => {
-                                const key = String(npc.id || npc.姓名 || '');
-                                return <option key={key} value={key}>{npc.姓名}（{npc.境界 || '未知'}）</option>;
-                            })}
-                        </select>
                         <div className="flex items-center gap-1">
-                            {(['切磋试探', '生死交锋'] as const).map((m) => (
+                            {(['生死交锋', '切磋试探'] as const).map((m) => (
                                 <button
                                     key={m}
                                     type="button"
-                                    onClick={() => {
-                                        setMode(m);
-                                        if (selectedTarget) restartSession(selectedTarget.npc.姓名, selectedTarget.npc.id, m);
-                                    }}
+                                    aria-pressed={mode === m}
+                                    onClick={() => { if (mode !== m) restartSession(m); }}
                                     className={`px-2 py-1 rounded text-[11px] border ${mode === m ? 'border-wuxia-gold bg-wuxia-gold/20 text-wuxia-gold' : 'border-gray-700 text-gray-400'}`}
                                 >
                                     {m}
                                 </button>
                             ))}
                         </div>
+                        {mode === '切磋试探' ? (
+                            <select aria-label="切磋对象" value={sparringKey} onChange={(e) => restartSession(mode, e.target.value)}
+                                className="bg-black/70 border border-gray-700 rounded px-2.5 py-1 text-xs text-paper-white">
+                                <option value="">选择切磋对象</option>
+                                {roster.sparringPartners.map((fighter) => <option key={fighter.key} value={fighter.key}>{fighter.profile.name}</option>)}
+                            </select>
+                        ) : session && (
+                            <select aria-label="当前交锋目标" value={session.targetKey} disabled={session.finished}
+                                onChange={(e) => setSession(选定交锋对手(session, e.target.value))}
+                                className="bg-black/70 border border-gray-700 rounded px-2.5 py-1 text-xs text-paper-white">
+                                {enemies.map((fighter) => <option key={fighter.key} value={fighter.key} disabled={!可继续交锋(fighter)}>{fighter.profile.name}</option>)}
+                            </select>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         {onOpenSettings && (
@@ -161,9 +156,14 @@ const TacticalClashModal: React.FC<Props> = ({
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                    {!selectedTarget || !enemyProfile || !session ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                        <RosterLine label="己方阵容" fighters={allies} />
+                        <RosterLine label={mode === '切磋试探' ? '切磋方阵容' : '敌方阵容'} fighters={enemies} />
+                    </div>
+                    {!enemyProfile || !session ? (
                         <div className="py-10 text-center text-xs text-gray-400">
-                            当前没有在场的交手人物。请先在主剧情中接触目标人物后再开启明牌交锋。
+                            {mode === '生死交锋' ? '当前没有在场敌手。想与同伴过招，可切换到「切磋试探」。'
+                                : roster.sparringPartners.length ? '请选择一位在场人物进行单人切磋。' : '当前没有在场的切磋对象。'}
                         </div>
                     ) : (
                         <>
@@ -213,7 +213,7 @@ const TacticalClashModal: React.FC<Props> = ({
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                                     <div>
                                         <div className="flex justify-between mb-1">
-                                            <span className="text-amber-200">我方架势：{session.playerPosture}%</span>
+                                            <span className="text-amber-200">{playerProfile.name} 架势：{session.playerPosture}%</span>
                                             <span className="text-gray-400">气力：{session.playerStamina}/{playerProfile.maxStamina} · 胜势 {session.momentum >= 0 ? `+${session.momentum}` : session.momentum}</span>
                                         </div>
                                         <div className="h-2.5 rounded-full bg-gray-800 overflow-hidden">
@@ -275,14 +275,14 @@ const TacticalClashModal: React.FC<Props> = ({
                                         <div className="flex items-center gap-2">
                                             <button
                                                 type="button"
-                                                onClick={() => restartSession(session.targetName, session.npcId, mode)}
+                                                onClick={() => restartSession(mode, sparringKey)}
                                                 className="px-3 py-1 rounded border border-gray-700 text-xs text-gray-300 hover:text-white"
                                             >
                                                 重新演练
                                             </button>
                                             <button
                                                 type="button"
-                                                disabled={Boolean(committedMsg)}
+                                                disabled={Boolean(committedMsg) || loading}
                                                 onClick={handleCommitOutcome}
                                                 className="px-3 py-1 rounded border border-wuxia-gold bg-wuxia-gold/20 text-xs font-bold text-wuxia-gold hover:bg-wuxia-gold hover:text-ink-black disabled:opacity-45"
                                             >
@@ -301,7 +301,7 @@ const TacticalClashModal: React.FC<Props> = ({
 
                             {/* Beat Log */}
                             {session.logs.length > 0 && (
-                                <div className="rounded-xl border border-gray-800 bg-black/35 p-3 space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                                <div aria-label="出招拆解实录" className="rounded-xl border border-gray-800 bg-black/35 p-3 space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
                                     <div className="text-[11px] text-gray-400">出招拆解实录</div>
                                     {session.logs.map((l) => (
                                         <div key={`beat-${l.beat}`} className="text-xs text-gray-200 border-l-2 border-wuxia-gold/40 pl-2 leading-5">

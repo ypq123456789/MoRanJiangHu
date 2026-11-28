@@ -1734,12 +1734,16 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
     const rawMoney = (role as any).金钱 && typeof (role as any).金钱 === 'object' ? (role as any).金钱 : {};
     const 默认货币 = 当前题材默认值().currency;
     (role as any).金钱 = { ...默认货币 };
-    const 兼容货币字段 = new Set(['上层货币', '中层货币', '底层货币', '金元宝', '银子', '铜钱', 'baseAmount', '灵石', '灵玉', '金币', '银币', '铜币', '信用点', '奖励点']);
     Object.entries(rawMoney).forEach(([key, value]) => {
-        if (key in 默认货币 || 兼容货币字段.has(key)) {
+        if ((typeof value === 'number' || (typeof value === 'string' && value.trim())) && Number.isFinite(Number(value))) {
             (role as any).金钱[key] = 规范化货币数值(value);
         }
     });
+    // 先读取存档自身的题材别名，避免补入的默认「铜钱: 0」遮住「下品灵石」等旧档字段。
+    const savedTiers = 规范化角色金钱(rawMoney);
+    for (const [tier, aliases] of Object.entries(题材货币字段别名)) {
+        if ([tier, ...aliases].some((key) => Object.hasOwn(rawMoney, key))) (role as any).金钱[tier] = savedTiers[tier];
+    }
     (role as any).玩家BUFF = 标准化玩家BUFF列表((role as any).玩家BUFF, options);
     const rawBreakthroughs = Array.isArray((role as any).突破条件) ? (role as any).突破条件 : [];
     (role as any).突破条件 = rawBreakthroughs
@@ -2049,6 +2053,10 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
         role.物品列表,
         本轮背景资产已落地 ? 构建零值货币模板(默认货币) : ((role as any).金钱 || {})
     );
+    // 多体系钱袋是独立的单位余额，旧版三层货币汇总仅处理数值字段。
+    if (rawMoney.货币桶 && typeof rawMoney.货币桶 === 'object' && !Array.isArray(rawMoney.货币桶)) {
+        (role as any).金钱.货币桶 = rawMoney.货币桶;
+    }
     role.当前负重 = 清理旧储物字段并重算负重(role.物品列表);
     同步角色储物负重上限(role);
     // 多货币汇率系统：迁移旧单位名到新 ID
@@ -3012,6 +3020,7 @@ const 标准化NPC背包 = (raw: any): Array<{ 名称: string; 类型?: string; 
                 const 名称 = 规范化文本(item?.名称);
                 if (!名称) return null;
                 return {
+                    ...item,
                     名称,
                     类型: 规范化文本(item?.类型, '杂物'),
                     数量: Math.max(1, 规范化整数(item?.数量 ?? item?.堆叠数量, 1)),
