@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/react';
 import NpcRevealableName from '../components/features/Social/NpcRevealableName';
 import { 整理NPC简介文本 } from '../utils/npcBioText';
+import { 查找记录对应NPC } from '../utils/npcNarrativeName';
 import { 规范化社交列表 } from '../hooks/useGame/stateTransforms';
 
 // React scheduler 用 setImmediate；环境销毁前用同一队列把 pending 工作放完，
@@ -34,6 +35,16 @@ describe('NPC 简介去重', () => {
 });
 
 describe('NPC 叙事名称规范化', () => {
+    it('旧档描述按完整姓名匹配，嵌套短名与独立出现的第二个人可区分', () => {
+        const short = { 姓名: '林风' }, long = { 姓名: '林风远' }, peer = { 姓名: '顾七' };
+        for (const social of [[short, long, peer], [peer, long, short]]) {
+            expect(查找记录对应NPC(['旧档人物：林风远'], social)).toBe(long);
+            expect(查找记录对应NPC(['旧档人物：林风'], social)).toBe(short);
+            expect(查找记录对应NPC(['旧档人物：林风远与顾七'], social)).toBeUndefined();
+            expect(查找记录对应NPC(['旧档人物：林风和林风远'], social)).toBeUndefined();
+            expect(查找记录对应NPC(['林'], social)).toBeUndefined();
+        }
+    });
     it('叙事名与真名不同时保留', () => {
         const list = 规范化社交列表([{ id: 'NPC001', 姓名: '李慕白', 叙事名称: '少年', 性别: '男' }]);
         expect(list[0]?.叙事名称).toBe('少年');

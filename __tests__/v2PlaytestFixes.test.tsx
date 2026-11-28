@@ -447,14 +447,14 @@ describe('V2 试玩反馈综合修复验证', () => {
         expect(container.querySelector('[data-raw-response-text]')?.textContent).toBe(line);
     });
 
-    it.each(['标签', 'JSON'])('从%s原文找回含引号和反斜线的相同台词，依说话人定位', (format) => {
+    it.each(['标签', 'JSON', 'JSON 括号说话人'])('从%s原文找回含引号和反斜线的相同台词，依说话人定位', (format) => {
         const words = '“先念 "A" 再看 A\\B。”';
         const records = [
-            { sender: '俞月荷', text: '（低声）' + words },
-            { sender: '杨培强', text: words }
+            { sender: format === 'JSON 括号说话人' ? '【俞月荷】' : '俞月荷', text: '（低声）' + words },
+            { sender: format === 'JSON 括号说话人' ? '[杨培强]' : '杨培强', text: words }
         ];
-        const snippets = records.map(record => format === 'JSON' ? JSON.stringify(record, null, 2) : '【' + record.sender + '】' + record.text);
-        const raw = format === 'JSON' ? JSON.stringify({ logs: records }) : ['<正文>', ...snippets, '</正文>'].join('\n');
+        const snippets = records.map(record => format === '标签' ? '【' + record.sender + '】' + record.text : JSON.stringify(record, null, 2));
+        const raw = format === '标签' ? ['<正文>', ...snippets, '</正文>'].join('\n') : JSON.stringify({ logs: records });
         const { container } = render(<TurnItem turnNumber={1} onSaveEdit={vi.fn()} rawJson={raw} response={{ logs: [
             { sender: '旁白', text: '（低声）' },
             { sender: '俞月荷', text: words },

@@ -103,4 +103,20 @@ describe('场所中的房间与已探明通路', () => {
             expect(result.at(-1)?.value.find((n: any) => n.ID === 'a').连通房间).toEqual(['药房']);
         }
     });
+    it('索引出口命令引用本批临时 ID 时写入最终房间 ID，同时保留房名引用', () => {
+        const original = [venue, room('front', '前厅'), room('yard', '后院')];
+        const add = 'push 世界.地图层级 = ' + JSON.stringify(room('temp-room', '药房'));
+        for (const [assignment, expected] of [
+            ['set 世界.地图层级[1].连通房间 = ["temp-room","后院"]', 'list'],
+            ['push 世界.地图层级[1].连通房间 = "temp-room"', 'single'],
+            ['set 世界.地图层级.1.连通房间.0 = "temp-room"', 'single']
+        ]) {
+            const [newRoom, update] = 解析地图自动更新命令(add + '\n' + assignment, { 地图层级: original });
+            expect(newRoom.value.ID).toMatch(/^DT-/);
+            const refs = expected === 'list' ? update.value : [update.value];
+            expect(refs).toEqual(expected === 'list' ? [newRoom.value.ID, '后院'] : [newRoom.value.ID]);
+            expect(getRoomPassages([{ ...original[1], 连通房间: refs }, original[2], newRoom.value])
+                .map(([, target]) => target.名称)).toContain('药房');
+        }
+    });
 });

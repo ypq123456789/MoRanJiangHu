@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InputArea from '../components/features/Chat/InputArea';
 import LeftPanel from '../components/layout/LeftPanel';
 import StatDelta from '../components/layout/StatDelta';
@@ -32,6 +32,20 @@ describe('桌面行动区', () => {
         fireEvent.click(screen.getByRole('button', { name: '问掌柜' }));
         expect(input.value).toBe(expected);
         expect(props.onSend).not.toHaveBeenCalled();
+    });
+
+    it('发送尚未返回时点击建议，下回合只留下新选的行动', async () => {
+        let finish!: (result: {}) => void;
+        const props = { ...inputProps(), onSend: vi.fn(() => new Promise<{}>(resolve => { finish = resolve; })) };
+        render(<InputArea {...props} />);
+        const input = screen.getByRole('textbox', { name: '行动草稿' }) as HTMLTextAreaElement;
+        fireEvent.change(input, { target: { value: '去山门' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+        fireEvent.click(screen.getByRole('button', { name: '问掌柜' }));
+        fireEvent.click(screen.getByRole('button', { name: '去渡口' }));
+        await act(async () => finish({}));
+        expect(props.onSend).toHaveBeenCalledTimes(1);
+        expect(input.value).toBe('问掌柜\n去渡口');
     });
 
     it('流式开关、Shift+Enter 与 Enter 发送沿用原处理', async () => {

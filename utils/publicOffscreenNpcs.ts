@@ -20,15 +20,32 @@ const 否定牵涉 = /(?:没(?:有)?|未(?:曾)?|并非|不(?:曾|会|再|是|�
 export const 旁白有现场行动 = (line: string, name: string): boolean =>
     line.split(name).slice(1).some(tail => 在场动作.test(tail));
 
+const 拆分行动分句 = (text: string): string[] => {
+    const clauses: string[] = [];
+    for (const clause of text.split(/[，,]/u)) {
+        let start = 0;
+        for (const link of clause.matchAll(/然而|但是|可是|而|但/gu)) {
+            const previous = clause.slice(start, link.index);
+            if (!持续牵涉.test(previous)) continue;
+            clauses.push(previous);
+            start = link.index + link[0].length;
+        }
+        clauses.push(clause.slice(start));
+    }
+    return clauses;
+};
+
 const 有公开证据 = (line: string, name: string, quote?: string): boolean => {
     if (quote && (quote.length <= name.length + 2 || !line.includes(quote) || !textMentionsNpcName(quote, name))) return false;
-    const fragments = quote?.split(/[，,]/u).filter(fragment => textMentionsNpcName(fragment, name));
-    return line.split(/[，,]/u).some(clause => {
+    const fragments = quote ? 拆分行动分句(quote).filter(fragment => textMentionsNpcName(fragment, name)) : undefined;
+    const key = normalizeNpcNameKey(name);
+    return 拆分行动分句(line).some(clause => {
         if (!textMentionsNpcName(clause, name)) return false;
         if (fragments && !fragments.some(fragment => clause.includes(fragment))) return false;
-        const at = normalizeNpcNameKey(clause).indexOf(normalizeNpcNameKey(name));
-        if (at < 0 || /(?:已故|亡故|过世|已逝|已死|先父|先母)(?:的)?$/u.test(clause.slice(0, at))
-            || 纯历史线索.test(clause.slice(at, at + name.length + 12)) || 否定牵涉.test(clause)) return false;
+        const normalized = normalizeNpcNameKey(clause);
+        const at = normalized.indexOf(key);
+        if (at < 0 || /(?:已故|亡故|过世|已逝|已死|先父|先母)(?:的)?$/u.test(normalized.slice(0, at).trimEnd())
+            || 纯历史线索.test(normalized.slice(at, at + key.length + 12)) || 否定牵涉.test(normalized)) return false;
         return !!quote || 持续牵涉.test(clause);
     });
 };

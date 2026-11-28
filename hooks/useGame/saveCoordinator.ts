@@ -895,11 +895,11 @@ export const 执行读取存档 = async (
     });
 
     const saveGameConfig = save.游戏设置 ? deps.规范化游戏设置(save.游戏设置) : undefined;
-    const normalizedEnv = 细化环境所在房间(save.世界, deps.规范化环境信息(save.环境信息 || deps.创建开场空白环境()), save.社交);
+    const savedEnv = deps.规范化环境信息(save.环境信息 || deps.创建开场空白环境());
     trace('normalize.basic.done', {
         hasGameConfig: Boolean(saveGameConfig),
-        envTime: (normalizedEnv as any)?.时间,
-        envLocation: (normalizedEnv as any)?.具体地点
+        envTime: savedEnv?.时间,
+        envLocation: savedEnv?.具体地点
     });
     trace('role.prepare.start', {
         trusted: shouldTrustPersistedHeavyFields,
@@ -909,7 +909,7 @@ export const 执行读取存档 = async (
     let loadedRole = shouldTrustPersistedHeavyFields
         ? ((save.角色数据 || {}) as 角色数据结构)
         : deps.规范化角色物品容器映射(save.角色数据, {
-            当前时间: normalizedEnv,
+            当前时间: savedEnv,
             启用饱腹口渴系统: saveGameConfig?.启用饱腹口渴系统
         });
     trace('role.prepare.done', {
@@ -919,8 +919,6 @@ export const 执行读取存档 = async (
     });
     deps.设置角色(loadedRole);
     trace('role.set.done');
-    deps.设置环境(normalizedEnv);
-    trace('env.set.done');
     trace('social.prepare.start', {
         trusted: shouldTrustPersistedHeavyFields,
         socialCount: Array.isArray(save.社交) ? save.社交.length : 0,
@@ -950,9 +948,13 @@ export const 执行读取存档 = async (
     const openingLogs = save.元数据?.已核对开局局外人物 && !repairedOpeningHistory ? [] : 读取开局公开正文(loadedHistoryForState);
     const recoveredSocial = 补录公开局外人物({ social: socialWithMembership, logs: openingLogs || [],
         playerName: loadedRole.姓名, directorBible: loadedDirectorBible, tasks: save.任务列表 });
-    const loadedSocial = 同步在场NPC当前位置(shouldTrustPersistedHeavyFields
+    const restoredSocial = shouldTrustPersistedHeavyFields
         ? [...socialWithMembership, ...deps.规范化社交列表(recoveredSocial.slice(socialWithMembership.length), { 合并同名: false })]
-        : deps.规范化社交列表(recoveredSocial, { 合并同名: false }), normalizedEnv, save.世界);
+        : deps.规范化社交列表(recoveredSocial, { 合并同名: false });
+    const normalizedEnv = 细化环境所在房间(save.世界, savedEnv, restoredSocial);
+    const loadedSocial = 同步在场NPC当前位置(restoredSocial, normalizedEnv, save.世界);
+    deps.设置环境(normalizedEnv);
+    trace('env.set.done');
     trace('social.prepare.done', {
         trusted: shouldTrustPersistedHeavyFields,
         socialCount: loadedSocial.length,

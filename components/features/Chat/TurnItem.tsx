@@ -5,6 +5,7 @@ import type { 酒馆沙箱动作 } from '../../../models/system';
 import GameButton from '../../ui/GameButton';
 import { 构建区域文字样式 } from '../../../utils/visualSettings';
 import { 剥离外层引号, 规范化可渲染对白日志 } from '../../../utils/dialogueLogNormalizer';
+import { 规范化正文发送者名 } from '../../../utils/dialogueSpeakerGuard';
 import { 提取并清理Judge区块 } from '../../../utils/judgeBlockExtractor';
 import { 拆分判定日志与后续正文, 提取判定日志前缀, 是否判定日志文本 } from '../../../utils/judgmentFormat';
 
@@ -53,7 +54,7 @@ type 原文片段 = { raw: string; text: string; sender: string };
 
 const 标签片段 = (raw: string): 原文片段 => {
     const tag = raw.match(/^(?:【\s*([^】]+?)\s*】|\[\s*([^\]]+?)\s*\])/u);
-    return { raw, text: raw.slice(tag?.[0].length || 0), sender: (tag?.[1] || tag?.[2] || '').trim() };
+    return { raw, text: raw.slice(tag?.[0].length || 0), sender: 规范化正文发送者名(tag?.[1] || tag?.[2] || '') };
 };
 
 const 提取原始回复正文片段 = (raw?: string): 原文片段[] => {
@@ -66,7 +67,7 @@ const 提取原始回复正文片段 = (raw?: string): 原文片段[] => {
                 .flatMap((item: Partial<GameLog> | string | null) => {
                     if (typeof item === 'string' && item.trim()) return [标签片段(item.trim())];
                     if (!item || typeof item !== 'object') return [];
-                    return [{ raw: JSON.stringify(item, null, 2), text: String(item.text ?? ''), sender: String(item.sender ?? '').trim() }];
+                    return [{ raw: JSON.stringify(item, null, 2), text: String(item.text ?? ''), sender: 规范化正文发送者名(String(item.sender ?? '')) }];
                 });
         }
     } catch {
@@ -95,13 +96,14 @@ const 关联原始片段 = (logs: GameLog[], sources: 原文片段[]): GameLog[]
     let offset = 0;
     return logs.map((log, index) => {
         const snippets = new Set<string>();
+        const sender = 规范化正文发送者名(log.sender);
         for (const line of String(log.text || '').split('\n')) {
             const words = 剥离外层引号(line);
             if (!words) continue;
-            const narrator = log.sender === '旁白';
+            const narrator = sender === '旁白';
             for (let i = sourceIndex; i < sources.length; i++) {
                 const source = sources[i];
-                if (!narrator && source.sender && source.sender !== '旁白' && source.sender !== log.sender) continue;
+                if (!narrator && source.sender !== '旁白' && source.sender !== sender) continue;
                 const from = i === sourceIndex ? offset : 0;
                 let phrase = words;
                 let at = source.text.indexOf(phrase, from);

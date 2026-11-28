@@ -203,6 +203,13 @@ export const 查找社交NPC索引 = (socialRaw: unknown, sender: string): numbe
     if (!Array.isArray(socialRaw)) return -1;
     const target = 标准化人物匹配文本(sender);
     if (!target) return -1;
+    const 是主要角色 = (npc: any): boolean => npc?.是否主要角色 === true;
+    const 姓名键 = isMultilingualNpcName(sender) ? normalizeNpcNameKey : 标准化人物匹配文本;
+    const majorByName = socialRaw.findIndex(npc => 是主要角色(npc) && 姓名键(npc.姓名) === target);
+    if (majorByName >= 0) return majorByName;
+    const majorByAlias = socialRaw.findIndex(npc => 是主要角色(npc) && Array.isArray(npc.曾用名)
+        && npc.曾用名.some((name: unknown) => 姓名键(name) === target));
+    if (majorByAlias >= 0) return majorByAlias;
     // 外文 sender 只匹配精确姓名/曾用名，不借身份或简介的子串推断身份。
     if (isMultilingualNpcName(sender)) {
         const key = normalizeNpcNameKey(sender);
@@ -211,25 +218,22 @@ export const 查找社交NPC索引 = (socialRaw: unknown, sender: string): numbe
     }
     const 取姓名候选 = (npc: any): string[] => [npc?.姓名, ...(Array.isArray(npc?.曾用名) ? npc.曾用名 : [])].map(标准化人物匹配文本).filter(Boolean);
     const 取身份候选 = (npc: any): string[] => [npc?.身份, npc?.简介].map(标准化人物匹配文本).filter(Boolean);
-    const 是主要角色 = (npc: any): boolean => npc?.是否主要角色 === true;
     // 中文昵称和身份称谓沿用旧匹配；外文姓名候选不做子串匹配。
     const 常规命中 = (candidates: string[]): boolean => candidates.some(item => item === target || item.includes(target) || target.includes(item));
     const 常规姓名命中 = (candidates: string[]): boolean => candidates.some(item => isMultilingualNpcName(item)
         ? normalizeNpcNameKey(item) === normalizeNpcNameKey(sender)
         : 常规命中([item]));
-    // 主要角色（女一等）姓名只接受精确相等，避免昵称子串串到女一（如“婉儿”⊆“林婉儿”）
-    const 主要角色姓名命中 = (candidates: string[]): boolean => candidates.some((item) => item === target);
     // 主要角色身份/简介匹配：接受"身份包含发送者"（含精确相等，如身份'明月圣女'含'圣女'、或身份恰为'圣女'），
     // 但严禁"发送者包含身份片段"的反向命中（如发送者'丝绸商号掌柜'含女一简介里的'丝绸商号'），否则会误判成女一。
     const 主要角色身份命中 = (candidates: string[]): boolean => candidates.some((item) => item.length > 0 && item.includes(target));
-    // 第一优先：主要角色按姓名精确匹配（跨角色类型优先，避免被非主要角色的模糊包含抢先，也避免昵称/片段串到女一）
-    const majorByName = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && (是主要角色(npc) || 是否仅闻名NPC(npc)) && 主要角色姓名命中(取姓名候选(npc)));
-    if (majorByName >= 0) return majorByName;
-    // 第二优先：非主要角色按原名/身份/简介常规双向匹配
+    // 仅闻名人物可以按本名或曾用名认出，简介中提到的人不能反向命中这份档案。
+    const heardByName = socialRaw.findIndex(npc => 是否仅闻名NPC(npc) && 取姓名候选(npc).includes(target));
+    if (heardByName >= 0) return heardByName;
+    // 非主要角色按原名/身份/简介常规双向匹配
     const nonMajor = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && !是主要角色(npc) && !是否仅闻名NPC(npc)
         && (常规姓名命中(取姓名候选(npc)) || 常规命中(取身份候选(npc))));
     if (nonMajor >= 0) return nonMajor;
-    // 第三优先：主要角色按身份/简介（仅"身份包含发送者"方向，含精确相等）匹配
+    // 最后按主要角色身份/简介（仅"身份包含发送者"方向，含精确相等）匹配
     return socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && 是主要角色(npc) && !是否仅闻名NPC(npc) && 主要角色身份命中(取身份候选(npc)));
 };
 

@@ -33,6 +33,13 @@ describe('variableModelWorkflow inventory commands', () => {
         expect(查找社交NPC索引(list, '周三爷')).toBe(0);
         expect(查找社交NPC索引([...list, { 姓名: '李青' }], '李青')).toBe(1);
     });
+    it.each(['李青', 'Mira Chan'])('主要人物本名 %s 优先于先出现的曾用名', name => {
+        const heard = { 姓名: '周衡', 曾用名: [name], 来源: '正文提及', 关系状态: '已闻其名' };
+        const other = { 姓名: '顾七', 曾用名: [name], 是否主要角色: true };
+        const actual = { 姓名: name, 是否主要角色: true };
+        expect(查找社交NPC索引([heard, other, actual], name)).toBe(2);
+        expect(查找社交NPC索引([heard], name)).toBe(0);
+    });
     it('keeps sub commands returned by the variable model so inventory quantities can be deducted', async () => {
         vi.mocked(textAIService.generateVariableCalibrationUpdate).mockResolvedValueOnce({
             commands: [

@@ -66,6 +66,27 @@ describe.each([规范化对白日志, 规范化可渲染对白日志])('角色�
             { sender: '杨培强', text: '我指的是（放下仇恨）这一层。' }
         ]);
     });
+
+    it('逗号后继续发出指令时保留对白，有实际目光描写时保留旁白', () => {
+        const instruction = '看着他的眼睛，目光不要移开。';
+        const action = '看着他的眼睛，目光始终没有移开。';
+        expect(normalize([{ sender: '俞月荷', text: instruction + '\n' + action }])).toEqual([
+            { sender: '俞月荷', text: instruction },
+            { sender: '旁白', text: '俞月荷' + action }
+        ]);
+    });
+
+    it('带释义的摇头动作拆入旁白，句中解释手势含义的括号保留', () => {
+        const meaning = '你问的手势（摇头，意为拒绝）我见过。';
+        expect(normalize([
+            { sender: '俞月荷', text: '“好。（摇头，意为拒绝）”' },
+            { sender: '杨培强', text: meaning }
+        ])).toEqual([
+            { sender: '俞月荷', text: '“好。”' },
+            { sender: '旁白', text: '（摇头，意为拒绝）' },
+            { sender: '杨培强', text: meaning }
+        ]);
+    });
 });
 
 describe('dialogueLogNormalizer story readability cleanup', () => {

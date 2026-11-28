@@ -165,6 +165,25 @@ describe('saveCoordinator opening save recovery', () => {
             expect(deps.推送通知).not.toHaveBeenCalled();
         } finally { persist.mockRestore(); }
     });
+    it('读入缺少队友标记的开局伙伴后，按其明确位置细化场所并保留开局时间', async () => {
+        const deps = createDeps();
+        const env = { 时间: '0001:01:03:09:10', 小地点: '青萍镇', 具体地点: '泥鳅巷破屋', 天气: { 天气: '微雨' } };
+        const save = {
+            ...createOpeningState(), id: 'old-room', 角色数据: { 姓名: '杨培强' }, 环境信息: env,
+            世界: { 地图层级: [
+                { ID: 'w', 名称: '寰宇', 层级: '寰宇' }, { ID: 't', 名称: '青萍镇', 层级: '小地点', 父级ID: 'w' },
+                { ID: 'v', 名称: '泥鳅巷破屋', 层级: '区地点', 父级ID: 't' }, { ID: 'r', 名称: '暗室', 层级: '子地点', 父级ID: 'v' }
+            ] },
+            openingConfig: { 初始伙伴: { 姓名: '俞月荷', enabled: true } },
+            社交: [{ id: 'cast1', 姓名: '俞月荷', 是否在场: true, 位置路径: '青萍镇 > 泥鳅巷破屋 > 暗室', 当前位置: '暗室' }]
+        };
+        await 执行读取存档(save as any, deps as any);
+        expect(deps.设置环境).toHaveBeenCalledTimes(1);
+        expect(deps.设置环境).toHaveBeenCalledWith({ ...env, 具体地点: '泥鳅巷破屋 > 暗室' });
+        expect(deps.设置社交.mock.calls[0][0]).toContainEqual(expect.objectContaining({
+            id: 'cast1', 是否队友: true, 当前位置: '暗室', 当前地点: '暗室'
+        }));
+    });
     it('读入旧档时从配置与确切的初始伙伴标签恢复队伍身份，保留人物 ID 与离场状态', async () => {
         const deps = { ...createDeps(), 规范化社交列表: (list: any[]) => list.map(npc => ({ 是否队友: false, ...npc })) };
         const save = {

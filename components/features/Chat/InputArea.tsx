@@ -665,6 +665,7 @@ const InputArea: React.FC<Props> = ({
         const normalizedOption = option.trim();
         if (!normalizedOption) return normalizedCurrent;
         if (!normalizedCurrent) return normalizedOption;
+        if (submittedDraft) return `${normalizedCurrent}\n${normalizedOption}`;
         if (/[，,、；;。！？!?\s]$/.test(normalizedCurrent)) {
             return `${normalizedCurrent} ${normalizedOption}`.trim();
         }

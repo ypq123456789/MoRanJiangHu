@@ -181,8 +181,8 @@ describe('世界书注入链路必须收到 gameConfig', () => {
         标题: '联动书',
         启用: true,
         条目: [
-            { id: 'a', 标题: '地理', 内容: '地理内容', 类型: 'world_lore' as const, 作用域: ['main' as const], 注入模式: 'always' as const },
-            { id: 'c', 标题: '境界', 内容: '境界内容', 类型: 'system_rule' as const, 作用域: ['main' as const], 注入模式: 'always' as const, 功能模块: 'cultivation' as const }
+            造条目({ id: 'a', 标题: '地理', 内容: '地理内容', 类型: 'world_lore', 作用域: ['main'] }),
+            造条目({ id: 'c', 标题: '境界', 内容: '境界内容', 类型: 'system_rule', 作用域: ['main'], 功能模块: 'cultivation' })
         ]
     }];
 

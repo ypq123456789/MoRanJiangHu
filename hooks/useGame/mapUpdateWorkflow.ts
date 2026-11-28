@@ -539,13 +539,17 @@ const 解析增量地图结果 = (rawText: string, currentWorld?: any): { comman
         const rawAction = match[1].toLowerCase() as TavernCommand['action'];
         const action = rawAction === 'add' && 整图路径.test(key) ? 'push' : rawAction;
         if (action !== 'push' && action !== 'set' && action !== 'delete') return;
-        const value = action === 'delete' ? undefined : 解析命令值(match[3] || '');
+        let value = action === 'delete' ? undefined : 解析命令值(match[3] || '');
         if (action === 'push' && 整图路径.test(key)) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) return;
             if (取文本(value.名称)) pendingPushes.push(value);
             return;
         }
         flushPushes();
+        if (action !== 'delete' && /地图层级(?:\[\d+\]|\.\d+)\.连通房间(?:\[\d+\]|\.\d+)?$/.test(key)) {
+            const resolveExit = (ref: unknown) => typeof ref === 'string' ? aliases.get(ref.trim()) || ref : ref;
+            value = Array.isArray(value) ? value.map(resolveExit) : resolveExit(value);
+        }
         if (action === 'push' && (!/地图层级(?:\[\d+\]|\.\d+)\.连通房间$/.test(key) || !取文本(value))) return;
         if (整图路径.test(key)) {
             if (action === 'delete' || !Array.isArray(value) || !value.length || !value.every((node) => 取文本(node?.名称))) return;

@@ -30,8 +30,30 @@ export const 查找记录对应NPC = <T extends { id?: string; ID?: string; 姓�
         npc, keys: [npc.id, npc.ID, npc.姓名, npc.名称, npc.叙事名称].map(normalize).filter(Boolean)
     }));
     for (const key of keys) {
-        const exact = entries.find(entry => entry.keys.includes(key));
-        if (exact) return exact.npc;
+        const exact = entries.filter(entry => entry.keys.includes(key));
+        if (exact.length === 1) return exact[0].npc;
     }
-    return entries.find(entry => keys.some(key => entry.keys.some(value => value.includes(key) || key.includes(value))))?.npc;
+    const matches = new Set<T>();
+    for (const text of keys) {
+        const mentions: { npc: T; start: number; end: number }[] = [];
+        for (const entry of entries) {
+            for (const value of entry.keys) {
+                for (let at = text.indexOf(value); at >= 0; at = text.indexOf(value, at + 1)) {
+                    mentions.push({ npc: entry.npc, start: at, end: at + value.length });
+                }
+            }
+        }
+        for (const m of mentions) {
+            // “林风远”中的“林风”是嵌套短名，单独再出现一次的“林风”才指向另一个人。
+            if (!mentions.some(other => other.start <= m.start && other.end >= m.end
+                && (other.start < m.start || other.end > m.end))) matches.add(m.npc);
+        }
+        if (matches.size > 1) return undefined;
+    }
+    if (!matches.size) {
+        for (const entry of entries) {
+            if (keys.some(fragment => entry.keys.some(value => value.includes(fragment)))) matches.add(entry.npc);
+        }
+    }
+    return matches.size === 1 ? matches.values().next().value : undefined;
 };

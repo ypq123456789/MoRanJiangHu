@@ -34,6 +34,25 @@ describe('公开局外人物建档', () => {
         expect(yes[1]).toMatchObject({ 姓名: '王长风', 简介: '李青提到：王长风已派人收账。' });
     });
 
+    it('原文引号和空格不改变死亡证据的定位，引文仍须与原文一致', () => {
+        const line = '旧账写着，  已故的王长风曾指派人收账。';
+        const run = (text: string, quote: string) => 补录公开局外人物({
+            social: [], logs: [{ sender: '旁白', text }], updates: [{ 姓名: '王长风', 依据: quote }]
+        });
+        expect(run(line, line)).toEqual([]);
+        const current = '旧账写着，  王长风与李青保持联系。';
+        expect(run(current, current)).toMatchObject([{ 姓名: '王长风' }]);
+        expect(run(current, current.replace('，  ', '，'))).toEqual([]);
+    });
+    it('同句并列的两人分别按自己的行动采信或排除公开证据', () => {
+        const social = [{ 姓名: '沈青', 关系网变量: [{ 对象姓名: '王长风' }, { 对象姓名: '李青' }] }];
+        for (const text of ['王长风派人收账而李青拒绝交易。', '李青拒绝交易但是王长风派人收账。']) {
+            const results = 补录公开局外人物({ social, logs: [{ sender: '沈青', text }] });
+            expect(results.map(npc => npc.姓名)).toEqual(['沈青', '王长风']);
+        }
+        expect(补录公开局外人物({ social, logs: [{ sender: '沈青', text: '王长风并没有派人收账。' }] })).toBe(social);
+    });
+
     it('两个不同姓名的旧哈希相撞时保留不同稳定 ID', () => {
         const opts = { logs: [{ sender: '李青', text: '王娜晧派人收账，王娟昊派人追缴这笔欠款。' }] };
         const first = 补录公开局外人物({ social: [], ...opts });
