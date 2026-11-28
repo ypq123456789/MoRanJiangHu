@@ -1017,14 +1017,7 @@ type 增量提取器 = ((payload: any) => string) & {
     drainActivity?: () => boolean;
 };
 
-const 提取思维链增量文本 = (delta: any): string => {
-    const raw = delta?.reasoning_content
-        ?? delta?.reasoning
-        ?? delta?.reasoning_text
-        ?? delta?.thinking
-        ?? delta?.thinking_content
-        ?? delta?.reasoning_details
-        ?? null;
+const 提取原始思维值文本 = (raw: unknown): string => {
     if (raw === null || raw === undefined) return '';
     if (typeof raw === 'string') return raw;
     if (Array.isArray(raw)) {
@@ -1040,9 +1033,27 @@ const 提取思维链增量文本 = (delta: any): string => {
             .join('');
     }
     if (typeof raw === 'object') {
-        if (typeof raw.text === 'string') return raw.text;
-        if (typeof raw.thinking === 'string') return raw.thinking;
-        if (typeof raw.content === 'string') return raw.content;
+        const obj = raw as Record<string, unknown>;
+        if (typeof obj.text === 'string') return obj.text;
+        if (typeof obj.thinking === 'string') return obj.thinking;
+        if (typeof obj.content === 'string') return obj.content;
+    }
+    return '';
+};
+
+const 提取思维链增量文本 = (delta: any): string => {
+    if (!delta || typeof delta !== 'object') return '';
+    const candidates = [
+        delta.reasoning_content,
+        delta.reasoning,
+        delta.reasoning_text,
+        delta.thinking,
+        delta.thinking_content,
+        delta.reasoning_details
+    ];
+    for (const candidate of candidates) {
+        const extracted = 提取原始思维值文本(candidate);
+        if (extracted.length > 0) return extracted;
     }
     return '';
 };

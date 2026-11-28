@@ -8,6 +8,8 @@ export interface StartPresetsSectionProps {
     loading: boolean;
     cloudSyncing?: boolean;
     cloudSyncMessage?: string;
+    actionsDisabled?: boolean;
+    actionsDisabledHint?: string;
     onApply: (preset: 开局预设方案结构) => void;
     onStart: (preset: 开局预设方案结构) => void;
     onEdit: (preset: 开局预设方案结构) => void;
@@ -25,6 +27,8 @@ export const StartPresetsSection: React.FC<StartPresetsSectionProps> = ({
     loading,
     cloudSyncing = false,
     cloudSyncMessage,
+    actionsDisabled = false,
+    actionsDisabledHint,
     onApply,
     onStart,
     onEdit,
@@ -69,7 +73,7 @@ export const StartPresetsSection: React.FC<StartPresetsSectionProps> = ({
                     <div
                         role="status"
                         aria-live="polite"
-                        className="rounded-xl border border-wuxia-gold/25 bg-black/35 px-4 py-3 flex items-start gap-2.5"
+                        className="rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 px-4 py-3 flex items-start gap-2.5"
                     >
                         <span className="mt-1 h-2 w-2 rounded-full bg-wuxia-gold animate-pulse shrink-0" />
                         <div className="min-w-0 space-y-1">
@@ -97,51 +101,74 @@ export const StartPresetsSection: React.FC<StartPresetsSectionProps> = ({
                     </div>
                 </div>
             ) : (
-                <div className={isMobile ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-2 gap-3'}>
-                    {presets.map((preset) => (
-                        <div key={preset.id} className="rounded-xl border border-gray-700/80 bg-black/35 p-4 space-y-3">
-                            <div>
-                                <div className="text-base font-serif text-wuxia-gold">{preset.名称}</div>
-                                <div className={`${isMobile ? 'text-[11px]' : 'text-xs'} text-gray-400 mt-1 leading-5 line-clamp-2`}>
-                                    {preset.简介 || '自定义开局方案'}
+                <div className="space-y-3">
+                    {actionsDisabled && (
+                        <div
+                            role="status"
+                            aria-live="polite"
+                            className="rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 px-3 py-2 flex items-center gap-2 text-[11px] text-wuxia-gold"
+                        >
+                            <span className="h-2 w-2 rounded-full bg-wuxia-gold animate-pulse shrink-0" />
+                            <span>{actionsDisabledHint || '正在读取自定义身份与天赋，请稍候…'}</span>
+                        </div>
+                    )}
+                    <div className={isMobile ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-2 gap-3'}>
+                        {presets.map((preset) => (
+                            <div key={preset.id} className="rounded-xl border border-gray-700/80 bg-black/35 p-4 space-y-3">
+                                <div>
+                                    <div className="text-base font-serif text-wuxia-gold">{preset.名称}</div>
+                                    <div className={`${isMobile ? 'text-[11px]' : 'text-xs'} text-gray-400 mt-1 leading-5 line-clamp-2`}>
+                                        {preset.简介 || '自定义开局方案'}
+                                    </div>
+                                </div>
+                                <div className="text-[11px] text-gray-500 leading-5">
+                                    {preset.character.姓名 || '未命名主角'} / {preset.character.性别 || '未设性别'} / {preset.character.背景名称 || '未设背景'}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <GameButton
+                                        onClick={() => onApply(preset)}
+                                        disabled={actionsDisabled}
+                                        variant="secondary"
+                                        className="py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        套用查看
+                                    </GameButton>
+                                    <GameButton
+                                        onClick={() => onStart(preset)}
+                                        disabled={actionsDisabled}
+                                        variant="primary"
+                                        className="py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        以此方案开局
+                                    </GameButton>
+                                </div>
+                                <div className={isMobile ? 'grid grid-cols-3 gap-2 text-[11px]' : 'grid grid-cols-3 gap-2'}>
+                                    <button
+                                        type="button"
+                                        onClick={() => onEdit(preset)}
+                                        className={isMobile ? 'text-wuxia-cyan' : 'text-[11px] text-wuxia-cyan hover:text-white'}
+                                    >
+                                        {isMobile ? '编辑' : '编辑信息'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onOverwrite(preset)}
+                                        disabled={actionsDisabled}
+                                        className={`${isMobile ? 'text-wuxia-gold' : 'text-[11px] text-wuxia-gold hover:text-white'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                                    >
+                                        {isMobile ? '覆盖' : '覆盖保存'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onDelete(preset.id)}
+                                        className={isMobile ? 'text-red-400' : 'text-[11px] text-red-400 hover:text-red-200'}
+                                    >
+                                        删除
+                                    </button>
                                 </div>
                             </div>
-                            <div className="text-[11px] text-gray-500 leading-5">
-                                {preset.character.姓名 || '未命名主角'} / {preset.character.性别 || '未设性别'} / {preset.character.背景名称 || '未设背景'}
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <GameButton onClick={() => onApply(preset)} variant="secondary" className="py-2 text-xs">
-                                    套用查看
-                                </GameButton>
-                                <GameButton onClick={() => onStart(preset)} variant="primary" className="py-2 text-xs">
-                                    以此方案开局
-                                </GameButton>
-                            </div>
-                            <div className={isMobile ? 'grid grid-cols-3 gap-2 text-[11px]' : 'grid grid-cols-3 gap-2'}>
-                                <button
-                                    type="button"
-                                    onClick={() => onEdit(preset)}
-                                    className={isMobile ? 'text-wuxia-cyan' : 'text-[11px] text-wuxia-cyan hover:text-white'}
-                                >
-                                    {isMobile ? '编辑' : '编辑信息'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => onOverwrite(preset)}
-                                    className={isMobile ? 'text-wuxia-gold' : 'text-[11px] text-wuxia-gold hover:text-white'}
-                                >
-                                    {isMobile ? '覆盖' : '覆盖保存'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => onDelete(preset.id)}
-                                    className={isMobile ? 'text-red-400' : 'text-[11px] text-red-400 hover:text-red-200'}
-                                >
-                                    删除
-                                </button>
-                            </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             )}
         </div>

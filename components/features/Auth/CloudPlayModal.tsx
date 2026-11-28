@@ -395,6 +395,7 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
         清除云端游玩会话();
         清除对象存储云端游玩模式();
         manifestRequestIdRef.current += 1;
+        objectRequestIdRef.current += 1;
         setSession(null);
         setManifest(null);
         setManifestLoading(false);

@@ -751,10 +751,15 @@ export const 刷新云端游玩会话 = async (session: 云端游玩账号): Pro
             manifestUrl: readString(user.manifestUrl) || readString(session.manifestUrl),
             manifestUpdatedAt: readString(user.manifestUpdatedAt) || readString(session.manifestUpdatedAt)
         };
+        const latestStoredSession = 读取云端游玩会话();
         if (
-            nextSession.manifestUrl !== session.manifestUrl
-            || nextSession.manifestUpdatedAt !== session.manifestUpdatedAt
-            || Boolean(读取云端游玩会话())
+            latestStoredSession
+            && latestStoredSession.userId === session.userId
+            && latestStoredSession.userId === nextSession.userId
+            && (
+                nextSession.manifestUrl !== latestStoredSession.manifestUrl
+                || nextSession.manifestUpdatedAt !== latestStoredSession.manifestUpdatedAt
+            )
         ) {
             保存会话(nextSession);
         }
@@ -769,26 +774,45 @@ export const 读取云端存档清单 = async (session: 云端游玩账号): Pro
     if (!manifestUrl) return 空清单(session);
     const downloadUrl = buildCloudSaveDownloadUrl(manifestUrl);
     const maxAttempts = 3;
-    let response: Response | null = null;
+    let payload: any = null;
+    let hasPayload = false;
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        let readingBody = false;
         try {
             const candidate = await fetch(downloadUrl, { cache: 'no-store' });
-            response = candidate;
-            if (candidate.ok) break;
-            if (attempt >= maxAttempts || !isRetryableDownloadFailure(candidate.status)) break;
+            if (!candidate.ok) {
+                if (attempt >= maxAttempts || !isRetryableDownloadFailure(candidate.status)) {
+                    throw new Error(`读取云端存档清单失败：HTTP ${candidate.status}`);
+                }
+            } else {
+                readingBody = true;
+                if (typeof candidate.text === 'function') {
+                    const rawText = await candidate.text();
+                    readingBody = false;
+                    payload = JSON.parse(rawText);
+                } else {
+                    payload = await candidate.json();
+                }
+                hasPayload = true;
+                break;
+            }
         } catch (error) {
             lastError = error;
             const message = error instanceof Error ? error.message : String(error || '');
-            if (attempt >= maxAttempts || !isRetryableDownloadFailure(0, message)) break;
+            if (error instanceof Error && /^读取云端存档清单失败：HTTP /.test(error.message)) {
+                throw error;
+            }
+            const retryable = readingBody || isRetryableDownloadFailure(0, message);
+            if (attempt >= maxAttempts || !retryable) {
+                throw error instanceof Error ? error : new Error(`读取云端存档清单失败：${message}`);
+            }
         }
         await sleep(Math.min(3000, 400 * attempt * attempt));
     }
-    if (!response) {
+    if (!hasPayload) {
         throw lastError instanceof Error ? lastError : new Error('读取云端存档清单失败：无响应');
     }
-    if (!response.ok) throw new Error(`读取云端存档清单失败：HTTP ${response.status}`);
-    const payload = await response.json();
     if (payload?.format !== 'moranjianghu-cloud-play' || !Array.isArray(payload?.saves)) {
         throw new Error('云端存档清单格式无效。');
     }
@@ -1012,10 +1036,16 @@ export const 后台同步存档到云端 = (save: 存档结构): void => {
         .catch(() => undefined)
         .then(async () => {
             if (Date.now() < tg图床后台同步冷却到) return;
-            const currentSession = 读取云端游玩会话() || initialSession;
+            const currentSession = 读取云端游玩会话();
+            if (!currentSession || currentSession.userId !== initialSession.userId) return;
             const activeSession = await 刷新云端游玩会话(currentSession);
+            const sessionAfterRefresh = 读取云端游玩会话();
+            if (!sessionAfterRefresh || sessionAfterRefresh.userId !== initialSession.userId) return;
             const result = await 上传单个存档到云端(activeSession, save);
-            if (result.session) 保存会话(result.session);
+            const sessionAfterUpload = 读取云端游玩会话();
+            if (result.session && sessionAfterUpload?.userId === initialSession.userId) {
+                保存会话(result.session);
+            }
         })
         .catch((error) => {
             if (是否TG图床临时不可用(error)) {

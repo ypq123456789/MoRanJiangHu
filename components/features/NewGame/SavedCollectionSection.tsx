@@ -32,8 +32,12 @@ export const SavedCollectionSection: React.FC<SavedCollectionSectionProps> = ({
     const isMobile = variant === 'mobile';
     const message = cloudSyncing ? (cloudSyncText || loadingText) : loadingText;
 
+    const containerSurfaceClass = itemCount <= 0
+        ? 'border-wuxia-gold/25 bg-wuxia-gold/5'
+        : 'border-gray-800 bg-black/25';
+
     return (
-        <div className={`${isMobile ? 'mb-4' : 'mb-5'} rounded-2xl border border-gray-800 bg-black/25 p-4`}>
+        <div className={`${isMobile ? 'mb-4' : 'mb-5'} rounded-2xl border ${containerSurfaceClass} p-4`}>
             <div className="flex items-center justify-between gap-3">
                 <div className={`${isMobile ? 'text-[10px]' : 'text-[11px]'} tracking-[0.25em] text-gray-500 font-mono`}>
                     {title}
@@ -48,9 +52,9 @@ export const SavedCollectionSection: React.FC<SavedCollectionSectionProps> = ({
                 <div
                     role="status"
                     aria-live="polite"
-                    className="mt-3 rounded-xl border border-gray-800 bg-black/30 px-4 py-3 flex items-center gap-2.5 text-xs text-gray-300"
+                    className="mt-3 rounded-xl border border-wuxia-gold/25 bg-wuxia-gold/10 px-4 py-3 flex items-center gap-2.5 text-xs text-wuxia-gold"
                 >
-                    <span className="h-2 w-2 rounded-full bg-wuxia-cyan animate-pulse shrink-0" />
+                    <span className="h-2 w-2 rounded-full bg-wuxia-gold animate-pulse shrink-0" />
                     <span>{message}</span>
                 </div>
             ) : (

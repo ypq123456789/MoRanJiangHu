@@ -456,9 +456,11 @@ test.describe('新建角色加载态、联机存档竞态与世界观流式降�
                 物品生图启用: false
             }
         };
+        const directStartPreset = makePreset('e2e-worldgen-p1', 'E2E直开降级验证方案');
+        directStartPreset.character.背景名称 = '名门之后';
         await seedSettingsInIdb(page, [
             { key: 'api_settings', value: apiSettings, category: 'api' },
-            { key: 'new_game_custom_start_presets', value: [makePreset('e2e-worldgen-p1', 'E2E直开降级验证方案')], category: 'customization' }
+            { key: 'new_game_custom_start_presets', value: [directStartPreset], category: 'customization' }
         ]);
         await page.evaluate((settings) => {
             localStorage.setItem('moranjianghu.apiConfig.localMirror.v1', JSON.stringify(settings));

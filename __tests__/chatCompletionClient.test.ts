@@ -876,4 +876,41 @@ describe('chatCompletionClient Gemini trailing model turn normalization', () => 
         expect(deltaSpy.mock.calls[1]).toEqual(['', '']);
         expect(deltaSpy.mock.calls.at(-1)?.[1]).toBe('正文第一段正文第二段');
     });
+
+    it('does not let empty reasoning_content shadow later thinking deltas', async () => {
+        const sse = [
+            'data: {"choices":[{"delta":{"reasoning_content":"","thinking":"被保留的思考内容"}}]}',
+            '',
+            'data: {"choices":[{"delta":{"reasoning_content":"","content":"最终正文"}}]}',
+            '',
+            'data: [DONE]',
+            ''
+        ].join('\n');
+        vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(sse, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' }
+        }));
+        const hiddenDeltaSpy = vi.fn();
+        const hiddenResult = await 请求模型文本(baseConfig, [{ role: 'user', content: 'ping' }], {
+            temperature: 0.7,
+            signal: undefined,
+            streamOptions: { stream: true, onDelta: hiddenDeltaSpy },
+            errorDetailLimit: 500
+        });
+        expect(hiddenResult).toBe('最终正文');
+        expect(hiddenDeltaSpy.mock.calls[0]).toEqual(['', '']);
+
+        vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(sse, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' }
+        }));
+        const shownResult = await 请求模型文本(baseConfig, [{ role: 'user', content: 'ping' }], {
+            temperature: 0.7,
+            signal: undefined,
+            streamOptions: { stream: true },
+            errorDetailLimit: 500,
+            includeReasoning: true
+        });
+        expect(shownResult).toContain('<think>被保留的思考内容</think>最终正文');
+    });
 });

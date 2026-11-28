@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { 云端设置同步状态 } from '../services/cloudSettingsSync';
 import { 自定义开局预设存储键 } from '../utils/customNewGamePresets';
+import { 设置键 } from '../utils/settingsSchema';
 
 const createDeferred = <T,>() => {
     let resolve!: (value: T) => void;
@@ -288,5 +289,40 @@ describe('NewGame 异步集合与开局预设方案加载状态', () => {
             emptyHint: '正在读取已导入的小说分解数据集，请稍候…'
         });
         expect(获取小说数据集加载文案(false, 0).placeholder).toBe('暂无已导入的小说分解数据');
+    });
+
+    it('在自定义背景或天赋尚未加载完成前禁用套用查看与以此方案开局，加载完成后恢复可点击且加载框不使用黑底', async () => {
+        const bgDeferred = createDeferred<any[]>();
+        const talentDeferred = createDeferred<any[]>();
+        mockControl.readSettingHandlers.set(自定义开局预设存储键, async () => [makeValidPreset('preset-guard', '依赖自定义身份的方案')]);
+        mockControl.readSettingHandlers.set(设置键.自定义背景, () => bgDeferred.promise);
+        mockControl.readSettingHandlers.set(设置键.自定义天赋, () => talentDeferred.promise);
+
+        const { container } = render(<NewGameWizard onComplete={vi.fn()} onCancel={vi.fn()} loading={false} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('依赖自定义身份的方案')).toBeTruthy();
+        });
+
+        const applyBtn = screen.getByRole('button', { name: '套用查看' }) as HTMLButtonElement;
+        const startBtn = screen.getByRole('button', { name: '以此方案开局' }) as HTMLButtonElement;
+        expect(applyBtn.disabled).toBe(true);
+        expect(startBtn.disabled).toBe(true);
+        expect(screen.getByText('正在读取自定义身份与天赋，请稍候…')).toBeTruthy();
+
+        const statusNodes = Array.from(container.querySelectorAll('[role="status"]'));
+        expect(statusNodes.every((el) => !el.className.includes('bg-black/'))).toBe(true);
+
+        await act(async () => {
+            bgDeferred.resolve([]);
+            talentDeferred.resolve([]);
+            await Promise.resolve();
+        });
+
+        await waitFor(() => {
+            expect((screen.getByRole('button', { name: '套用查看' }) as HTMLButtonElement).disabled).toBe(false);
+            expect((screen.getByRole('button', { name: '以此方案开局' }) as HTMLButtonElement).disabled).toBe(false);
+            expect(screen.queryByText('正在读取自定义身份与天赋，请稍候…')).toBeNull();
+        });
     });
 });

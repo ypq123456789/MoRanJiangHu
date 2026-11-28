@@ -736,6 +736,10 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
         };
     };
     const 应用预设到表单 = (preset: 开局预设方案结构, options?: { 保持当前步骤?: boolean }) => {
+        if (自定义背景加载中 || 自定义天赋加载中) {
+            alert("正在读取自定义身份与天赋，请稍候再试。");
+            return;
+        }
         // [修复] 套用预设会整体改写表单，作废进行中的 AI 补全请求，防止过期响应覆盖新表单
         aiFramework请求序号Ref.current += 1;
         setAiFrameworkStatus(prev => prev.type === 'loading' ? { type: 'idle', message: '' } : prev);
@@ -1818,6 +1822,10 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
     };
 
     const handleGenerate = async (preset?: 开局预设方案结构) => {
+        if (preset && (自定义背景加载中 || 自定义天赋加载中)) {
+            alert("正在读取自定义身份与天赋，请稍候再试。");
+            return;
+        }
         const presetRestoreCatalog = preset ? 构建预设恢复候选池(preset) : null;
         const presetRuntime = preset
             ? 构建预设直开恢复结果(preset, {
@@ -1825,6 +1833,21 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                 ...(presetRestoreCatalog || {})
             })
             : null;
+        if (preset && presetRuntime && (presetRuntime.missingBackgroundName || presetRuntime.missingTalentNames.length > 0)) {
+            const 缺失明细 = [
+                presetRuntime.missingBackgroundName ? `身份「${presetRuntime.missingBackgroundName}」` : "",
+                presetRuntime.missingTalentNames.length > 0 ? `天赋「${presetRuntime.missingTalentNames.join("、")}」` : ""
+            ].filter(Boolean).join("、");
+            const continueWithFallback = requestConfirm
+                ? await requestConfirm({
+                    title: "预设条目未匹配",
+                    message: `该开局方案引用的${缺失明细}在当前可用目录中未找到，直接开局将使用默认回退项。是否继续？`,
+                    confirmText: "继续开局",
+                    cancelText: "返回检查"
+                })
+                : confirm(`该开局方案引用的${缺失明细}在当前可用目录中未找到，直接开局将使用默认回退项。是否继续？`);
+            if (!continueWithFallback) return;
+        }
         const effectiveWorldConfig = presetRuntime?.worldConfig || worldConfig;
         const effectiveOpeningConfig = presetRuntime?.openingConfig || 构建有效开局配置();
         const effectiveBackground = presetRuntime?.selectedBackground || selectedBackground;
@@ -2016,6 +2039,8 @@ const MobileNewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, a
                                         presets={自定义开局预设列表}
                                         loading={开局预设加载中}
                                         cloudSyncing={云端设置拉取中}
+                                        actionsDisabled={自定义背景加载中 || 自定义天赋加载中}
+                                        actionsDisabledHint="正在读取自定义身份与天赋，请稍候…"
                                         cloudSyncMessage={云端设置同步状态?.message}
                                         onApply={(preset) => 应用预设到表单(preset)}
                                         onStart={(preset) => { void handleGenerate(preset); }}
