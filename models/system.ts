@@ -1274,6 +1274,8 @@ export interface 游戏设置结构 {
     启用回合结束自动存档: boolean; // Auto save after each completed story turn
     启用正文后暂停后续步骤?: boolean; // 正文（含文章优化）完成后暂停变量/世界/规划/地图，等玩家确认正文后再一键继续；默认关闭（保持原有全自动体验）
     启用2_0剧情引擎?: boolean; // Enable 2.0 Causal Director Story Engine (default enabled when wired)
+    启用情境交易插件?: boolean; // Enable bottom-left contextual trade plugin (default: true)
+    启用战术交锋插件?: boolean; // Enable bottom-left transparent tactical clash plugin (default: true)
     启用回合提示音?: boolean; // Play a short notification sound when a turn completes (default: true)
     启用繁体模式: boolean; // Require AI-generated in-game text to use Traditional Chinese
     启用非流式输出: boolean; // Disable streaming output, use non-streaming request instead
@@ -1385,6 +1387,32 @@ export interface 场外对话消息结构 {
     时间: number; // 现实时间戳 Date.now()
 }
 
+export interface 场外交易记录结构 {
+    id: string;
+    对象类型: 'npc' | 'venue';
+    对象名称: string;
+    npcId?: string;
+    地点: string;
+    玩家支出物品: Array<{ 名称: string; 数量: number }>;
+    玩家获得物品: Array<{ 名称: string; 数量: number }>;
+    玩家支出金钱Base: number;
+    玩家获得金钱Base: number;
+    成交摘要: string;
+    时间: number;
+}
+
+export interface 场外战果暂存结构 {
+    id: string;
+    对手姓名: string;
+    npcId?: string;
+    模式: '切磋试探' | '生死交锋';
+    结果: '胜出' | '逼退脱身' | '落败撤离' | '僵持罢手';
+    回合数: number;
+    主角伤势消耗描述: string;
+    战果摘要: string;
+    时间: number;
+}
+
 export interface 存档元数据结构 {
     schemaVersion?: number;
     历史记录条数?: number;
@@ -1435,6 +1463,10 @@ export interface 存档结构 {
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
     导演圣经?: DirectorWorldBible;
+    上一回合导演圣经?: DirectorWorldBible;
+    世界大事?: string[];
+    场外交易暂存?: 场外交易记录结构[];
+    场外战果暂存?: 场外战果暂存结构[];
     
     // New Settings in Save
     记忆系统?: 记忆系统结构;

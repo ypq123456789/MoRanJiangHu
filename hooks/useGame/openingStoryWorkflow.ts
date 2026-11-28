@@ -225,6 +225,11 @@ type 自动存档快照结构 = {
     fandomStoryPlan?: 同人剧情规划结构;
     fandomHeroinePlan?: 同人女主剧情规划结构;
     directorBible?: DirectorWorldBible;
+    lastTurnDirectorBible?: DirectorWorldBible;
+    worldEvents?: string[];
+    场外对话?: any[];
+    场外交易暂存?: any[];
+    场外战果暂存?: any[];
     memory?: 记忆系统结构;
     openingConfig?: OpeningConfig;
     force?: boolean;
@@ -265,6 +270,7 @@ type 开场剧情生成依赖 = {
     设置同人剧情规划: (value: 同人剧情规划结构 | undefined) => void;
     设置同人女主剧情规划: (value: 同人女主剧情规划结构 | undefined) => void;
     设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
     设置玩家门派: (value: 详细门派结构) => void;
     设置任务列表: (value: any[]) => void;
     设置约定列表: (value: any[]) => void;
@@ -739,6 +745,7 @@ export const 执行开场剧情生成工作流 = async (
             && 接口配置是否可用(获取省次数模式接口配置(deps.apiConfig));
         const useStoryV2Opening = Boolean(
             !openingUseSingleCall
+            && !构建同人运行时提示词包({ openingConfig: options?.开局配置 }).enabled
             && openingGameConfig.启用2_0剧情引擎 !== false
             && (contextData?.导演圣经 || deps.导演圣经 || deps.设置导演圣经)
         );
@@ -807,7 +814,7 @@ export const 执行开场剧情生成工作流 = async (
                 directorApiConfig: 接口配置是否可用(planningApi) ? planningApi : apiForOpening,
                 openingConfig: options?.开局配置 || ({} as OpeningConfig),
                 worldConfig: {
-                    worldName: options?.开局配置?.modeRuntimeProfile?.identity?.displayName || options?.开局配置?.题材模式 || '墨染江湖',
+                    worldName: options?.开局配置?.modeRuntimeProfile?.identity?.displayName || options?.开局配置?.题材模式 || '墨色江湖 2.0',
                     openingExtraRequirement: options?.开局额外要求 || ''
                 },
                 promptPool: promptSnapshot,
@@ -892,6 +899,7 @@ export const 执行开场剧情生成工作流 = async (
             deps.设置剧情规划(finalStoryPlan);
             if (finalHeroinePlan) deps.设置女主剧情规划(finalHeroinePlan);
             deps.设置导演圣经?.(postResult.nextState.directorBible);
+            deps.设置上一回合导演圣经?.(openingDirectorBible);
             deps.setWorldEvents(finalWorldEvents);
             deps.设置任务列表(finalTasks);
             deps.设置游戏初始时间(postResult.nextState.gameInitialTime || finalGameTime);
@@ -955,6 +963,11 @@ export const 执行开场剧情生成工作流 = async (
                 fandomStoryPlan: contextData.同人剧情规划,
                 fandomHeroinePlan: contextData.同人女主剧情规划,
                 directorBible: postResult.nextState.directorBible,
+                lastTurnDirectorBible: openingDirectorBible,
+                worldEvents: finalWorldEvents,
+                场外对话: [],
+                场外交易暂存: [],
+                场外战果暂存: [],
                 memory: finalMemory,
                 openingConfig: options?.开局配置
             });

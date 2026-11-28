@@ -173,8 +173,14 @@ const strArr = (v: unknown): string[] => (
         : []
 );
 const num = (v: unknown, fallback = 0): number => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : fallback;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : fallback;
+    if (typeof v === 'string') {
+        const trimmed = v.trim();
+        if (!trimmed) return fallback;
+        const n = Number(trimmed);
+        return Number.isFinite(n) ? n : fallback;
+    }
+    return fallback;
 };
 
 export const 创建空白导演圣经 = (): DirectorWorldBible => ({
@@ -304,11 +310,27 @@ export const 规范化导演圣经 = (raw: unknown): DirectorWorldBible => {
             })
         : [];
 
+    const usedForeshadowIds = new Set<string>();
+    const allocateForeshadowId = (rawId: unknown): string => {
+        const preferred = str(rawId);
+        if (preferred && !usedForeshadowIds.has(preferred)) {
+            usedForeshadowIds.add(preferred);
+            return preferred;
+        }
+        let seq = 1;
+        while (usedForeshadowIds.has(`FS-${String(seq).padStart(3, '0')}`)) {
+            seq += 1;
+        }
+        const generated = `FS-${String(seq).padStart(3, '0')}`;
+        usedForeshadowIds.add(generated);
+        return generated;
+    };
+
     const 伏笔台账: ForeshadowingItem[] = Array.isArray(src.伏笔台账)
         ? src.伏笔台账
             .filter((x: any) => x && typeof x === 'object' && str(x.表面载体))
-            .map((x: any, idx: number) => ({
-                id: str(x.id, `FS-${String(idx + 1).padStart(3, '0')}`),
+            .map((x: any) => ({
+                id: allocateForeshadowId(x.id),
                 类型: 合法伏笔类型(x.类型),
                 表面载体: str(x.表面载体),
                 底层真相: str(x.底层真相),
@@ -469,6 +491,21 @@ export const 将势力暗账投影为世界势力 = (
     });
 };
 
+export const 净化玩家可见圣经文案 = (text: string, bible?: DirectorWorldBible | null): string => {
+    const trimmed = typeof text === 'string' ? text.trim() : '';
+    if (!trimmed || !bible) return trimmed;
+    const unrecoveredSecrets = (bible.伏笔台账 || [])
+        .filter((f) => f && f.状态 !== '已回收' && typeof f.底层真相 === 'string' && f.底层真相.trim().length >= 4)
+        .map((f) => f.底层真相.trim());
+    let result = trimmed;
+    for (const secret of unrecoveredSecrets) {
+        if (result.includes(secret)) {
+            result = result.split(secret).join('（局势暗流尚待查明）');
+        }
+    }
+    return result;
+};
+
 export const 将导演圣经投影为剧情规划视图 = (
     bible: DirectorWorldBible,
     existingStory: 剧情系统结构,
@@ -496,26 +533,32 @@ export const 将导演圣经投影为剧情规划视图 = (
         .map((f) => `[${f.id}|${f.状态}] ${f.表面载体}`);
 
     const brief = bible.下回合导演简报;
+    const safeActTitle = activeAct ? 净化玩家可见圣经文案(activeAct.标题, bible) : '';
+    const safeActConflict = activeAct ? 净化玩家可见圣经文案(activeAct.核心矛盾, bible) : '';
+    const safeActGoal = activeAct ? 净化玩家可见圣经文案(activeAct.主角目标与破局路径, bible) : '';
 
     const story: 剧情系统结构 = {
         ...existingStory,
         当前章节: {
             ...existingStory.当前章节,
-            标题: activeAct ? `第${activeAct.幕次}幕：${activeAct.标题}` : (existingStory.当前章节?.标题 || '第一幕'),
+            标题: safeActTitle ? `第${activeAct!.幕次}幕：${safeActTitle}` : (existingStory.当前章节?.标题 || '第一幕'),
             当前分解组: activeAct?.幕次 || bible.当前幕次 || 1,
             原著推进状态: '推进中',
             已完成摘要: bible.动态轨迹记录.slice(-6).map((r) => `R${r.回合}: ${r.决策摘要}`),
             当前待解问题: [
-                ...(brief?.必须守住的悬念或冲突 ? [brief.必须守住的悬念或冲突] : []),
+                ...(brief?.必须守住的悬念或冲突 ? [净化玩家可见圣经文案(brief.必须守住的悬念或冲突, bible)] : []),
                 ...activeForeshadowing.slice(0, 4)
             ],
-            原著换章条件: activeAct?.跃迁至下一幕条件 ? [activeAct.跃迁至下一幕条件] : []
+            原著换章条件: activeAct?.跃迁至下一幕条件 ? [净化玩家可见圣经文案(activeAct.跃迁至下一幕条件, bible)] : []
         },
         下一章预告: nextAct
             ? {
-                标题: `第${nextAct.幕次}幕：${nextAct.标题}`,
-                大纲: [nextAct.核心矛盾, nextAct.主角目标与破局路径].filter(Boolean),
-                进入条件: activeAct?.跃迁至下一幕条件 ? [activeAct.跃迁至下一幕条件] : [],
+                标题: `第${nextAct.幕次}幕：${净化玩家可见圣经文案(nextAct.标题, bible)}`,
+                大纲: [
+                    净化玩家可见圣经文案(nextAct.核心矛盾, bible),
+                    净化玩家可见圣经文案(nextAct.主角目标与破局路径, bible)
+                ].filter(Boolean),
+                进入条件: activeAct?.跃迁至下一幕条件 ? [净化玩家可见圣经文案(activeAct.跃迁至下一幕条件, bible)] : [],
                 风险提示: nextAct.关键势力与人物
             }
             : existingStory.下一章预告
@@ -545,8 +588,8 @@ export const 将导演圣经投影为剧情规划视图 = (
     const storyPlan: 剧情规划结构 = {
         ...existingPlan,
         当前章目标: [
-            ...(activeAct ? [activeAct.核心矛盾, activeAct.主角目标与破局路径] : []),
-            ...(brief?.本回合舞台焦点 ? [brief.本回合舞台焦点] : [])
+            ...(activeAct ? [safeActConflict, safeActGoal] : []),
+            ...(brief?.本回合舞台焦点 ? [净化玩家可见圣经文案(brief.本回合舞台焦点, bible)] : [])
         ].filter(Boolean),
         跨章延续事项: bible.伏笔台账
             .filter((f) => f.状态 !== '已回收')
@@ -556,7 +599,13 @@ export const 将导演圣经投影为剧情规划视图 = (
                 延续原因: [f.类型, f.建议回收阶段],
                 当前状态: [f.状态],
                 延续到何时: f.建议回收阶段,
-                后续接续条件: f.触发或回收条件 ? [f.触发或回收条件] : [],
+                后续接续条件: (() => {
+                    if (f.状态 === '未埋设') return [];
+                    const cond = 净化玩家可见圣经文案(f.触发或回收条件 || '', bible);
+                    return cond && !cond.includes('局势暗流尚待查明')
+                        ? [cond]
+                        : [`留心与「${f.表面载体}」相关的异常细节`];
+                })(),
                 终止条件: ['伏笔回收完毕']
             })),
         待触发事件: castAgendasAsEvents.length > 0 ? castAgendasAsEvents : existingPlan.待触发事件

@@ -89,7 +89,10 @@ const buildWorldBibleMockResponse = () => {
         对外公开立场: '维持云州商路与渡口秩序',
         真实诉求与暗中图谋: '暗中争夺十年前沉银案秘钥与密库总账',
         致命弱点或忌讳: '盐票周转亏空且暗桩名单恐遭外泄',
-        跨势力账目: [{ 对方势力: `势力甲乙${((idx + 1) % 6) + 1}门`, 关系: '利益互锁', 具体渊源: '争夺西市渡口税权与秘钥下落' }],
+        跨势力账目: [
+            { 对方势力: `势力甲乙${((idx + 1) % 6) + 1}门`, 关系: '利益互锁', 具体渊源: '争夺西市渡口税权与秘钥下落' },
+            { 对方势力: `势力甲乙${((idx + 2) % 6) + 1}门`, 关系: '宿怨掣肘', 具体渊源: '十年前沉银劫案旧账未清' }
+        ],
         地盘: ['云州西郊', '西市老渡口']
     }));
     const cast = Array.from({ length: 7 }, (_, idx) => ({
@@ -313,10 +316,20 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
                 ].join('\n');
             } else {
                 capturedCalls.push('turn1_normal_v2');
+                const fillerParagraphs = [
+                    '林秋水指节微曲，趁火堆噼啪炸响的一瞬探手将碎钥收入袖底。庙外泥地里传来整齐的靴声，领头差役腰间赫然悬着同款制式铜牌，在湿冷夜风里泛着暗沉铁光。雨水顺着残破飞檐急急滴落，打在门槛青石上溅起细碎水花，将门外火把映出的几道影子拉得忽长忽短，仿佛几柄随时准备出鞘的窄刀贴着门板游移。你放轻呼吸，指尖隔着粗布衣袖缓缓摩挲那半块碎钥的冰凉缺口，只觉其边缘锯齿竟像是刻意锉磨而成，绝非寻常匠铺流出的民间锁具。',
+                    '供桌另一侧的阴影里，顾霜晚不知何时已收回半步，右手搭在腰间短刃的鲨鱼皮柄上，目光穿过火堆跳跃的烟柱斜睨向门隙。火光把她眉骨底下那一寸淡色疤痕映得格外分明，湿透的斗篷下摆正一滴一滴往干草堆里渗着雨水，空气中弥漫着潮湿霉味与松烟辛辣。庙门外传来的甲叶轻响愈发清晰，先是两个人绕着荒庙外墙慢步巡查，靴底踩碎积水里的枯叶发出沙沙声响，紧接着又有低沉的传令声隔着雨幕飘了进来，言辞简短急促，像是在核对渡口与南门两条水陆暗哨的换防时辰。',
+                    '你借着起身添柴的动作将残火压暗三分，眼角余光留意到门坎外多了一盏防风油灯的晕光。领头那名老差役似乎并未急着推门，反而停在石阶下俯身检查刚刚被雨水冲淡的车辙印痕，口中含糊地嘟囔着几句盐帮夜行规矩与巡防文书的错漏。就在这时，庙梁栖息的寒鸦受火烟惊扰扑棱棱振翅掠出缺瓦，引得外头差役齐刷刷抬眼喝问一句是谁在里面避雨，整座荒庙的气机登时绷紧如拉满的硬弓。',
+                    '顾霜晚朝你微不可察地摇了摇头，唇瓣几乎未动，却已压低声线把外头布防的虚实传了过来。她肩头微沉，左脚脚尖悄悄踩实了砖缝一块松动石板，显然早已算好了破窗或硬拼的两条退路。庙外长街尽头隐隐传来三更梆子敲响的沉闷回音，紧接着又是几声急促哨响穿过重重雨帘，仿佛西市老渡口那边当真发生了什么足以惊动全城盐铁暗桩的大动静。',
+                    '火堆最后一截枯枝咔嚓断成两截，火星顺着风势斜斜飘向门缝，照亮了石阶上那排凌乱泥印。你按捺住直接掀开暗袋核对铜印字样的冲动，背脊缓缓贴近冰凉石柱，将浑身真气沉入丹田四肢，只等门外那盏油灯再度逼近三步之内便决定先机出手还是顺势周旋，整个人如蛰伏枯草间的猎鹰般稳住了呼吸节奏。',
+                    '窗棂缝隙灌入的一缕寒风吹得烛焰猛地摇晃，映得破庙四壁斑驳泥塑神像忽明忽暗，残缺泥臂在墙面投下一大片扭曲黑影。你留意到神台底下一块青砖边缘微微翘起，砖缝深处似乎还夹着半张被潮气浸得发皱的旧纸边角，上面隐约可见朱砂印泥的淡红痕迹。顾霜晚同样瞥见了那半片旧纸，但她只是借着整理裙摆袖口的动作顺势挡住火堆反光，将神色藏进更深的阴影里，没有在这个当口贸然俯身去揭开秘密。',
+                    '庙外积水沿着倾颓阶檐汇成一道浑浊细流，咕嘟咕嘟漫过门槛低洼处，把泥地上刚留下的半枚靴印冲得模糊不清。先前提着防风油灯的差役低声同身旁同伴交代了几句什么，随后脚步声逐渐分开成两股，一前一后沿着残破院墙缓慢绕行。你默数着彼此踩泥踏水的间隔拍子，心里迅速推演出这支夜巡队共有四人：门外阶下正中二人守住退路，院墙外侧一人游走放哨，还有一人多半正借着庙檐死角盯紧后窗竹林方向。',
+                    '短暂的对峙令荒庙内的空气仿佛凝成了冰水，连火堆余烬熄灭时的细微滋啦声都显得格外刺耳。你指尖轻轻抵住袖底那枚青铜碎钥的菱角边缘，顺势回忆起临行前账房老先生欲言又止的神态与西市老渡口近年屡屡改期的盐船班次。越是看似严密无漏的夜巡封锁，往往越说明对方真正紧张害怕的物件就在这座破庙方圆数里之内，绝非寻常稽查私盐那般简单。'
+                ].join('\n');
                 replyText = [
                     '<thinking>承接玩家选项与FS-001推进</thinking>',
                     '<正文>',
-                    '林秋水指节微曲，趁火堆噼啪炸响的一瞬探手将碎钥收入袖底。庙外泥地里传来整齐的靴声，领头差役腰间赫然悬着同款制式铜牌。',
+                    fillerParagraphs,
                     '【顾霜晚】“官差封了西市渡口，今夜走水路已是不成。”',
                     '</正文>',
                     '<短期记忆>林秋水暗藏青铜碎钥，发现官差腰牌纹路一致，西市渡口已被封锁。</短期记忆>',
@@ -443,8 +456,37 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         const bodyAll = await page.locator('body').innerText();
         expect(bodyAll).not.toContain('绝密真相_盐库暗门密钥');
 
-        // Also check Mobile Viewport (390x844) quick menu has zero 战斗 / 拍卖 buttons
-        await clickVisible(page, ['关闭']);
+        // Close StoryModal drawer cleanly before interacting with InputArea controls
+        await page.locator('button[aria-label="关闭"]:visible').first().click();
+        await expect(v2ClueSection).toHaveCount(0);
+
+        // Verify bottom-left optional plugins ("情境交易" & "战术交锋") work & honor Settings toggles
+        const tradeBtn = page.getByRole('button', { name: '情境交易', exact: true }).first();
+        const clashBtn = page.getByRole('button', { name: '战术交锋', exact: true }).first();
+        await expect(tradeBtn).toBeVisible({ timeout: 5000 });
+        await expect(clashBtn).toBeVisible({ timeout: 5000 });
+
+        await tradeBtn.click();
+        await expect(page.getByText('与在场人物交易', { exact: false }).first()).toBeVisible({ timeout: 5000 });
+        await page.getByRole('button', { name: '关闭', exact: true }).first().click();
+
+        await clashBtn.click();
+        await expect(page.getByText('直观战术交锋 · 明牌对阵', { exact: false }).first()).toBeVisible({ timeout: 5000 });
+        await expect(page.getByText('战前明牌诊断与变强指引：', { exact: false }).first()).toBeVisible({ timeout: 5000 });
+        await page.getByRole('button', { name: /强攻压招/ }).first().click();
+        await expect(page.getByText('出招拆解实录', { exact: false }).first()).toBeVisible({ timeout: 5000 });
+        await page.getByRole('button', { name: '关闭', exact: true }).first().click();
+
+        // Toggle Tactical Clash plugin off via Settings and confirm the button disappears
+        await clashBtn.click();
+        await page.getByRole('button', { name: '插件设置', exact: true }).first().click();
+        const clashToggle = page.locator('button[aria-label="切换直观战术交锋插件"]:visible').first();
+        await clashToggle.scrollIntoViewIfNeeded();
+        await expect(clashToggle).toBeVisible({ timeout: 5000 });
+        await clashToggle.click({ force: true });
+        await page.getByRole('button', { name: '关闭设置' }).first().click();
+        await expect(page.getByRole('button', { name: '战术交锋', exact: true })).toHaveCount(0);
+
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(300);
         await expect(page.locator('button', { hasText: /^战斗$/ })).toHaveCount(0);

@@ -134,7 +134,15 @@ export const 构建本回合导演简报 = (params: {
         `- 当前幕次：第${activeAct?.幕次 || bible.当前幕次}幕「${activeAct?.标题 || '推进'}」| 主轴：${activeAct?.主角目标与破局路径 || bible.主角核心困局.短中期推进动力}`,
         brief?.本回合舞台焦点 ? `- 本回合舞台焦点：${brief.本回合舞台焦点}` : '',
         brief?.必须守住的悬念或冲突 ? `- 必须守住的核心张力：${brief.必须守住的悬念或冲突}` : '',
-        focusForeshadow ? `- 【本回合重点伏笔 ${focusForeshadow.id}（当前状态：${focusForeshadow.状态}）】：载体「${focusForeshadow.表面载体}」。${brief?.待埋伏笔演出方式 || (focusForeshadow.状态 === '未埋设' ? '本回合找自然契机在动作/细节/闲谈中悄悄露出此表面载体，切忌解释真相！' : `根据玩家行动评估是否继续发酵或触及回收条件「${focusForeshadow.触发或回收条件}」`)}` : '',
+        focusForeshadow ? (() => {
+            const matchedCustomDirection = brief?.待埋或推进伏笔ID === focusForeshadow.id && brief?.待埋伏笔演出方式
+                ? brief.待埋伏笔演出方式
+                : '';
+            const defaultDirection = focusForeshadow.状态 === '未埋设'
+                ? '本回合找自然契机在动作/细节/闲谈中悄悄露出此表面载体，切忌解释真相！'
+                : `根据玩家行动评估是否继续发酵或触及回收条件「${focusForeshadow.触发或回收条件}」`;
+            return `- 【本回合重点伏笔 ${focusForeshadow.id}（当前状态：${focusForeshadow.状态}）】：载体「${focusForeshadow.表面载体}」。${matchedCustomDirection || defaultDirection}`;
+        })() : '',
         imminentSpillovers.length > 0 ? `- 【本回合正在传导至眼前的远端连锁反应】：\n  ${imminentSpillovers.map((x) => `* ${x}`).join('\n  ')}` : '',
         alreadyPlantedReminders.length > 0 ? `- 【前文已埋设线索提醒（保持连贯，不可吃书）】：\n  ${alreadyPlantedReminders.join('\n  ')}` : '',
         brief?.下一拍预计走向 ? `- 后续预埋势头：${brief.下一拍预计走向}` : ''

@@ -126,6 +126,10 @@ type 会话生命周期依赖 = {
     设置同人剧情规划: (value: any) => void;
     设置同人女主剧情规划: (value: any) => void;
     设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    清空场外交易暂存?: () => void;
+    清空场外战果暂存?: () => void;
+    更新会话代次?: () => void;
     设置开局配置: (value: OpeningConfig | undefined) => void;
     设置叙事平静值: (value: 叙事状态结构) => void;
     设置开局文章优化进度: (value: any) => void;
@@ -223,6 +227,10 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
         deps.设置同人剧情规划(undefined);
         deps.设置同人女主剧情规划(undefined);
         deps.设置导演圣经?.(undefined);
+        deps.设置上一回合导演圣经?.(undefined);
+        deps.清空场外交易暂存?.();
+        deps.清空场外战果暂存?.();
+        deps.更新会话代次?.();
         deps.设置开局配置(undefined);
         deps.设置叙事平静值({ 平静计数: 0, 情节事件记录: [] });
         deps.设置开局文章优化进度(null);
@@ -327,6 +335,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 设置同人剧情规划: deps.设置同人剧情规划,
                 设置同人女主剧情规划: deps.设置同人女主剧情规划,
                 设置导演圣经: deps.设置导演圣经,
+                设置上一回合导演圣经: deps.设置上一回合导演圣经,
                 设置玩家门派: deps.设置玩家门派,
                 设置任务列表: deps.设置任务列表,
                 设置约定列表: deps.设置约定列表,
@@ -477,6 +486,10 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
 
     const handleReturnToHome = () => {
         deps.放弃待继续后续步骤?.();
+        deps.更新会话代次?.();
+        deps.清空场外交易暂存?.();
+        deps.清空场外战果暂存?.();
+        deps.设置上一回合导演圣经?.(undefined);
         deps.重置自动存档状态();
         deps.设置最近开局配置(null);
         void deps.清除开局提示词基线();
@@ -540,6 +553,43 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
             if (deps.view !== 'game') {
                 deps.setView('game');
             }
+            const 重置为开局基线导演圣经 = (bible?: DirectorWorldBible): DirectorWorldBible | undefined => {
+                if (!bible) return undefined;
+                const cloned = deps.深拷贝(bible);
+                cloned.当前幕次 = 1;
+                if (Array.isArray(cloned.宏观分幕大纲)) {
+                    cloned.宏观分幕大纲 = cloned.宏观分幕大纲.map((act, index) => ({
+                        ...act,
+                        当前状态: index === 0 ? '推进中' : '未开始'
+                    }));
+                }
+                if (Array.isArray(cloned.伏笔台账)) {
+                    cloned.伏笔台账 = cloned.伏笔台账.map((item) => {
+                        const next = { ...item, 状态: '未埋设' as const };
+                        delete next.埋设回合;
+                        delete next.回收回合;
+                        delete next.埋设落点描述;
+                        delete next.回收落点描述;
+                        return next;
+                    });
+                }
+                if (Array.isArray(cloned.核心卡司)) {
+                    cloned.核心卡司 = cloned.核心卡司.map((member) => ({
+                        ...member,
+                        幕后当前日程: member.幕后当前日程
+                            ? { ...member.幕后当前日程, 已触发影响: [] }
+                            : member.幕后当前日程
+                    }));
+                }
+                cloned.动态轨迹记录 = [];
+                delete cloned.下回合导演简报;
+                return cloned;
+            };
+            const 重置导演圣经 = 重置为开局基线导演圣经(deps.导演圣经);
+            deps.设置上一回合导演圣经?.(undefined);
+            deps.清空场外交易暂存?.();
+            deps.清空场外战果暂存?.();
+            deps.setWorldEvents?.([]);
             const 当前状态开局上下文 = {
                 角色: deps.角色,
                 环境: deps.环境,
@@ -554,7 +604,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 女主剧情规划: deps.女主剧情规划,
                 同人剧情规划: deps.同人剧情规划,
                 同人女主剧情规划: deps.同人女主剧情规划,
-                导演圣经: deps.导演圣经
+                导演圣经: 重置导演圣经
             };
             deps.setLoading(true);
             try {

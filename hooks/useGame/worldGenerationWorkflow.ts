@@ -22,6 +22,18 @@ import { 将导演圣经投影为剧情规划视图, type DirectorWorldBible } f
 import { 合并世界基底到开场状态 } from './storyState';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
 
+const 提取流式世界观预览 = (accumulated: string): string => {
+    const normalized = (accumulated || '').replace(/\r/g, '');
+    const openMatch = normalized.match(/<世界观>/i);
+    if (!openMatch || openMatch.index === undefined) return '';
+    const start = openMatch.index + openMatch[0].length;
+    const closeIdx = normalized.indexOf('</世界观>', start);
+    const body = (closeIdx >= 0 ? normalized.slice(start, closeIdx) : normalized.slice(start)).trim();
+    if (!body) return '';
+    const tail = body.length > 480 ? `...${body.slice(-480)}` : body;
+    return tail.split('\n').slice(-10).join('\n').trim();
+};
+
 type 世界生成选项 = {
     清空前端变量?: boolean;
     // 快速重开/重 roll 标记：提示词池基线的恢复在 sessionLifecycle 包装层完成，此处仅透传
@@ -599,7 +611,9 @@ export const 执行世界生成工作流 = async (
             }
         }
 
-        const useStoryV2WorldGen = Boolean(deps.设置导演圣经) && normalizedGameConfig.启用2_0剧情引擎 !== false;
+        const useStoryV2WorldGen = Boolean(deps.设置导演圣经)
+            && !fandomEnabled
+            && normalizedGameConfig.启用2_0剧情引擎 !== false;
         let generatedDirectorBible: DirectorWorldBible | undefined = undefined;
         let generatedV2InitialSocial: any[] = [];
         const generatedWorldResult = useManualWorldPrompt
@@ -634,6 +648,7 @@ export const 执行世界生成工作流 = async (
                         openingConfig: effectiveOpeningConfig || ({} as OpeningConfig),
                         apiConfig: currentApi,
                         extraPrompt: extraPromptParts || undefined,
+                        stream: openingRequestStreaming,
                         signal,
                         onDelta: openingRequestStreaming
                             ? (_delta, accumulated) => {
@@ -644,11 +659,12 @@ export const 执行世界生成工作流 = async (
                                     return;
                                 }
                                 worldDeltaReceived = true;
-                                const tail = normalized.length > 480
-                                    ? `...${normalized.slice(-480)}`
-                                    : normalized;
-                                const preview = tail.split('\n').slice(-10).join('\n').trim();
-                                开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（流式预览）\n${preview || '...'}\n\n已接收 ${normalized.length} 字符`);
+                                const preview = 提取流式世界观预览(normalized);
+                                if (preview) {
+                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（流式预览）\n${preview}\n\n已接收 ${normalized.length} 字符`);
+                                } else {
+                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（正在推演隐线、势力账本与分幕大纲）\n\n已接收 ${normalized.length} 字符`);
+                                }
                             }
                             : undefined
                     });
@@ -657,7 +673,8 @@ export const 执行世界生成工作流 = async (
                         bibleRes.directorBible,
                         bibleRes.mapLayers,
                         effectiveOpeningConfig || ({} as OpeningConfig),
-                        charData
+                        charData,
+                        normalizedGameConfig
                     );
                     generatedV2InitialSocial = initialSocial;
                     return {

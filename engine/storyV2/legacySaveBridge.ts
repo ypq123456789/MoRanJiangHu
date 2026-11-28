@@ -94,6 +94,8 @@ export const 从状态构建2_0导演圣经 = (params: {
         }));
 
     const actTitle = story?.当前章节?.标题 || '承接变局';
+    const legacyActNum = Number(story?.当前章节?.当前分解组);
+    const resolvedActNum = Number.isInteger(legacyActNum) && legacyActNum >= 1 ? legacyActNum : 1;
     const actGoal = Array.isArray(storyPlan?.当前章目标) && storyPlan.当前章目标.length > 0
         ? storyPlan.当前章目标.join('；')
         : '理清眼前局势并撬动破局筹码';
@@ -127,7 +129,7 @@ export const 从状态构建2_0导演圣经 = (params: {
         },
         宏观分幕大纲: [
             {
-                幕次: 1,
+                幕次: resolvedActNum,
                 标题: actTitle,
                 核心矛盾: problems[0] || actGoal,
                 主角目标与破局路径: actGoal,
@@ -136,19 +138,24 @@ export const 从状态构建2_0导演圣经 = (params: {
                 当前状态: '推进中'
             }
         ],
+        当前幕次: resolvedActNum,
         势力暗账: factionLedgers,
         核心卡司: castProfiles,
-        伏笔台账: (Array.isArray(storyPlan?.跨章延续事项) ? storyPlan.跨章延续事项 : []).slice(0, 4).map((c, idx) => ({
-            id: `FS-${String(idx + 1).padStart(3, '0')}`,
-            类型: '前史旧案',
-            表面载体: c.标题 || `待查线索 ${idx + 1}`,
-            底层真相: (c.后续接续条件 || []).join('；') || '待在后续剧情中揭晓真实因果',
-            知情人: [],
-            盲区人物: [playerName],
-            建议埋设阶段: '当前幕',
-            建议回收阶段: c.延续到何时 || '后续幕次',
-            触发或回收条件: (c.后续接续条件 || []).join('；') || '推进主线深挖',
-            状态: '已埋设'
-        }))
+        伏笔台账: (Array.isArray(storyPlan?.跨章延续事项) ? storyPlan.跨章延续事项 : []).slice(0, 4).map((c, idx) => {
+            const carrier = c.标题 || `待查线索 ${idx + 1}`;
+            const rawSecretHint = (c.后续接续条件 || []).join('；').trim();
+            return {
+                id: `FS-${String(idx + 1).padStart(3, '0')}`,
+                类型: '前史旧案',
+                表面载体: carrier,
+                底层真相: rawSecretHint ? `待在后续剧情中揭晓：${rawSecretHint}` : '待在后续剧情中揭晓真实因果',
+                知情人: [],
+                盲区人物: [playerName],
+                建议埋设阶段: '当前幕',
+                建议回收阶段: c.延续到何时 || '后续幕次',
+                触发或回收条件: `沿着「${carrier}」的线索追查关联人物与异动`,
+                状态: '已埋设'
+            };
+        })
     });
 };

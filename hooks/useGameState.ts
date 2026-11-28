@@ -4,6 +4,8 @@ import {
     环境信息结构, 
     聊天记录结构, 
     场外对话消息结构,
+    场外交易记录结构,
+    场外战果暂存结构,
     接口设置结构,
     提示词结构,
     ThemePreset,
@@ -162,6 +164,7 @@ export const useGameState = () => {
     const [同人剧情规划, 设置同人剧情规划] = useState<同人剧情规划结构 | undefined>(() => 创建空同人剧情规划状态());
     const [同人女主剧情规划, 设置同人女主剧情规划] = useState<同人女主剧情规划结构 | undefined>(() => 创建空同人女主剧情规划状态());
     const [导演圣经, 设置导演圣经] = useState<DirectorWorldBible | undefined>(undefined);
+    const [上一回合导演圣经, 设置上一回合导演圣经] = useState<DirectorWorldBible | undefined>(undefined);
     const [开局配置, 设置开局配置] = useState<OpeningConfig | undefined>(undefined);
     const [游戏初始时间, 设置游戏初始时间] = useState('');
 
@@ -195,6 +198,8 @@ export const useGameState = () => {
 
     const [历史记录, 设置历史记录] = useState<聊天记录结构[]>([]);
     const [场外对话, 设置场外对话] = useState<场外对话消息结构[]>([]);
+    const [场外交易暂存, 设置场外交易暂存] = useState<场外交易记录结构[]>([]);
+    const [场外战果暂存, 设置场外战果暂存] = useState<场外战果暂存结构[]>([]);
     const [loading, setLoading] = useState(false);
     
     const [worldEvents, setWorldEvents] = useState<string[]>([]);
@@ -217,6 +222,8 @@ export const useGameState = () => {
     const [showHeroinePlan, setShowHeroinePlan] = useState(false);
     const [showMemory, setShowMemory] = useState(false);
     const [showRoleChat, setShowRoleChat] = useState(false);
+    const [showTradePlugin, setShowTradePlugin] = useState(false);
+    const [showTacticalClash, setShowTacticalClash] = useState(false);
     
     // Save/Load Modal
     const [showSaveLoad, setShowSaveLoad] = useState<{ show: boolean, mode: 'save' | 'load' }>({ show: false, mode: 'save' });
@@ -476,10 +483,13 @@ export const useGameState = () => {
         同人剧情规划, 设置同人剧情规划,
         同人女主剧情规划, 设置同人女主剧情规划,
         导演圣经, 设置导演圣经,
+        上一回合导演圣经, 设置上一回合导演圣经,
         开局配置, 设置开局配置,
         游戏初始时间, 设置游戏初始时间,
         历史记录, 设置历史记录,
         场外对话, 设置场外对话,
+        场外交易暂存, 设置场外交易暂存,
+        场外战果暂存, 设置场外战果暂存,
         记忆系统, 设置记忆系统, 
         loading, setLoading,
         worldEvents, setWorldEvents,
@@ -500,6 +510,8 @@ export const useGameState = () => {
         showHeroinePlan, setShowHeroinePlan,
         showMemory, setShowMemory,
         showRoleChat, setShowRoleChat,
+        showTradePlugin, setShowTradePlugin,
+        showTacticalClash, setShowTacticalClash,
         showSaveLoad, setShowSaveLoad, // New
         activeTab, setActiveTab,
         

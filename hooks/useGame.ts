@@ -24,6 +24,8 @@ import {
     OpeningConfig,
     NPC结构,
     场外对话消息结构,
+    场外交易记录结构,
+    场外战果暂存结构,
     场景图片档案,
     场景生图任务记录,
     NPC生图任务记录,
@@ -448,10 +450,13 @@ export const useGame = () => {
         同人剧情规划, 设置同人剧情规划,
         同人女主剧情规划, 设置同人女主剧情规划,
         导演圣经, 设置导演圣经,
+        上一回合导演圣经, 设置上一回合导演圣经,
         开局配置, 设置开局配置,
         游戏初始时间, 设置游戏初始时间,
         历史记录, 设置历史记录,
         场外对话, 设置场外对话,
+        场外交易暂存, 设置场外交易暂存,
+        场外战果暂存, 设置场外战果暂存,
         记忆系统, 设置记忆系统,
         loading, setLoading,
         worldEvents, setWorldEvents,
@@ -471,6 +476,8 @@ export const useGame = () => {
         showStory, setShowStory,
         showHeroinePlan, setShowHeroinePlan,
         showRoleChat, setShowRoleChat,
+        showTradePlugin, setShowTradePlugin,
+        showTacticalClash, setShowTacticalClash,
         showMemory, setShowMemory,
         showSaveLoad, setShowSaveLoad,
         activeTab, setActiveTab,
@@ -496,6 +503,36 @@ export const useGame = () => {
     const apiConfigRef = useRef(apiConfig);
     const 社交Ref = useRef<any[]>(Array.isArray(社交) ? 社交 : []);
     const 场外对话Ref = useRef<场外对话消息结构[]>(Array.isArray(场外对话) ? 场外对话 : []);
+    const 场外交易暂存Ref = useRef<场外交易记录结构[]>(Array.isArray(场外交易暂存) ? 场外交易暂存 : []);
+    const 场外战果暂存Ref = useRef<场外战果暂存结构[]>(Array.isArray(场外战果暂存) ? 场外战果暂存 : []);
+    const 会话代次Ref = useRef(0);
+    const 更新会话代次 = () => {
+        会话代次Ref.current += 1;
+    };
+    const 替换场外交易暂存 = (value: 场外交易记录结构[]) => {
+        const next = Array.isArray(value) ? value : [];
+        场外交易暂存Ref.current = next;
+        设置场外交易暂存(next);
+    };
+    const 追加场外交易记录 = (record: 场外交易记录结构) => {
+        替换场外交易暂存([...场外交易暂存Ref.current, record]);
+    };
+    const 清空场外交易暂存 = () => 替换场外交易暂存([]);
+    const 替换场外战果暂存 = (value: 场外战果暂存结构[]) => {
+        const next = Array.isArray(value) ? value : [];
+        场外战果暂存Ref.current = next;
+        设置场外战果暂存(next);
+    };
+    const 追加场外战果记录 = (record: 场外战果暂存结构) => {
+        替换场外战果暂存([...场外战果暂存Ref.current, record]);
+    };
+    const 清空场外战果暂存 = () => 替换场外战果暂存([]);
+    useEffect(() => {
+        场外交易暂存Ref.current = Array.isArray(场外交易暂存) ? 场外交易暂存 : [];
+    }, [场外交易暂存]);
+    useEffect(() => {
+        场外战果暂存Ref.current = Array.isArray(场外战果暂存) ? 场外战果暂存 : [];
+    }, [场外战果暂存]);
     const 角色对话AbortControllerRef = useRef<AbortController | null>(null);
     const 角色对话请求版本Ref = useRef(0);
     const 中止角色对话底层 = (discardResult: boolean) => {
@@ -1016,9 +1053,15 @@ export const useGame = () => {
         设置同人剧情规划(规范化同人剧情规划状态(深拷贝(snapshot.回档前状态.同人剧情规划)));
         设置同人女主剧情规划(规范化同人女主剧情规划状态(深拷贝(snapshot.回档前状态.同人女主剧情规划)));
         设置导演圣经(snapshot.回档前状态.导演圣经 ? 规范化导演圣经(深拷贝(snapshot.回档前状态.导演圣经)) : undefined);
+        设置上一回合导演圣经(undefined);
         应用并同步记忆系统(深拷贝(snapshot.回档前状态.记忆系统));
         设置叙事平静值(深拷贝(snapshot.回档前状态.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }));
         替换场外对话(深拷贝(snapshot.回档前状态.场外对话));
+        替换场外交易暂存(深拷贝(snapshot.回档前状态.场外交易暂存 || []));
+        替换场外战果暂存(深拷贝(snapshot.回档前状态.场外战果暂存 || []));
+        if (Array.isArray(snapshot.回档前状态.世界大事)) {
+            setWorldEvents(深拷贝(snapshot.回档前状态.世界大事));
+        }
         // [修复] 快照携带提示词池/世界书时一并回滚并持久化，
         // 防止上一局 AI 写入的 core_world/core_realm/core_cot 污染重 roll 后的生成
         if (Array.isArray(snapshot.回档前提示词池) && snapshot.回档前提示词池.length > 0) {
@@ -3327,9 +3370,12 @@ export const useGame = () => {
         设置同人剧情规划(openingBase.同人剧情规划);
         设置同人女主剧情规划(openingBase.同人女主剧情规划);
         设置导演圣经((openingBase as any).导演圣经 ? 规范化导演圣经((openingBase as any).导演圣经) : undefined);
+        设置上一回合导演圣经(undefined);
         应用并同步记忆系统(创建空记忆系统(), { 静默总结提示: true });
         设置历史记录([]);
         替换场外对话([]);
+        替换场外交易暂存([]);
+        替换场外战果暂存([]);
         清空变量生成上下文缓存();
         setWorldEvents([]);
     };
@@ -3654,6 +3700,7 @@ export const useGame = () => {
         记忆系统,
         memoryConfig,
         gameConfig,
+        apiConfig,
         prompts,
         内置提示词列表,
         世界书列表,
@@ -3741,6 +3788,13 @@ export const useGame = () => {
         设置任务列表,
         设置约定列表,
         设置社交,
+        设置导演圣经,
+        设置上一回合导演圣经,
+        setWorldEvents,
+        设置剧情规划,
+        设置世界,
+        设置环境,
+        设置角色,
         记录变量生成上下文,
         set聊天区自动滚动抑制令牌,
         获取NPC唯一标识,
@@ -3975,6 +4029,8 @@ export const useGame = () => {
             {
                 历史记录,
                 场外对话: 场外对话Ref.current,
+                场外交易暂存: 场外交易暂存Ref.current,
+                场外战果暂存: 场外战果暂存Ref.current,
                 记忆系统,
                 角色,
                 环境,
@@ -3990,6 +4046,7 @@ export const useGame = () => {
                 同人剧情规划,
                 同人女主剧情规划,
                 导演圣经,
+                上一回合导演圣经,
                 worldEvents,
                 开局配置,
                 游戏初始时间,
@@ -4009,6 +4066,8 @@ export const useGame = () => {
                 abortControllerRef,
                 recallAbortControllerRef,
                 前台发送序号Ref,
+                获取会话代次: () => 会话代次Ref.current,
+                获取最新角色Snapshot: () => 最新回合基线Ref.current?.角色 || 角色,
                 setLoading,
                 set后台队列处理中,
                 注册待继续后续步骤,
@@ -4029,7 +4088,9 @@ export const useGame = () => {
                             女主剧情规划: 深拷贝(latest.女主剧情规划)
                         },
                         历史: 深拷贝(latest.历史记录),
-                        场外对话: 深拷贝(场外对话Ref.current || [])
+                        场外对话: 深拷贝(场外对话Ref.current || []),
+                        场外交易暂存: 深拷贝(场外交易暂存Ref.current || []),
+                        场外战果暂存: 深拷贝(场外战果暂存Ref.current || [])
                     };
                 },
                 setShowSettings,
@@ -4042,6 +4103,7 @@ export const useGame = () => {
                 设置女主剧情规划,
                 设置任务列表,
                 设置导演圣经,
+                设置上一回合导演圣经,
                 setWorldEvents,
                 设置历史记录,
                 设置叙事平静值,
@@ -4050,6 +4112,8 @@ export const useGame = () => {
                 processResponseCommands,
                 performAutoSave,
                 清空场外对话暂存,
+                清空场外交易暂存,
+                清空场外战果暂存,
                 执行NPC变量自动备份: (socialSnapshot, options) => {
                     void 自动备份NPC变量(socialSnapshot, options).catch((error) => {
                         recordDiagnosticLog('warn', ['NPC变量自动备份失败', {
@@ -4143,6 +4207,7 @@ export const useGame = () => {
     const 存档格式版本 = 3;
     const 自动存档最小间隔毫秒 = 30000;
     const 重置读档瞬态状态 = () => {
+        更新会话代次();
         放弃待继续后续步骤();
         自动记忆总结暂停Ref.current = true;
         清空变量生成上下文缓存();
@@ -4179,6 +4244,9 @@ export const useGame = () => {
         深拷贝,
         历史记录,
         场外对话,
+        场外交易暂存: 场外交易暂存Ref.current,
+        场外战果暂存: 场外战果暂存Ref.current,
+        worldEvents,
         角色,
         环境,
         社交,
@@ -4193,6 +4261,7 @@ export const useGame = () => {
         同人剧情规划,
         同人女主剧情规划,
         导演圣经,
+        上一回合导演圣经,
         记忆系统,
         叙事平静值,
         openingConfig: 开局配置,
@@ -4270,11 +4339,16 @@ export const useGame = () => {
         设置同人剧情规划,
         设置同人女主剧情规划,
         设置导演圣经,
+        设置上一回合导演圣经,
+        setWorldEvents,
         设置开局配置,
          设置提示词池: setPrompts,
          设置历史记录,
          设置叙事平静值,
          设置场外对话: 替换场外对话,
+         设置场外交易暂存: 替换场外交易暂存,
+         设置场外战果暂存: 替换场外战果暂存,
+         推送通知: 推送右下角提示,
          清空重Roll快照,
         推入重Roll快照,
         重置自动存档状态,
@@ -4352,6 +4426,10 @@ export const useGame = () => {
         设置同人剧情规划,
         设置同人女主剧情规划,
         设置导演圣经,
+        设置上一回合导演圣经,
+        清空场外交易暂存,
+        清空场外战果暂存,
+        更新会话代次,
         设置开局配置,
         设置叙事平静值,
         设置开局主剧情进度: set开局主剧情进度,
@@ -4736,10 +4814,11 @@ export const useGame = () => {
         },
         setters: {
             setShowSettings, setShowInventory, setShowEquipment, setShowBattle, setShowSocial, setShowTeam, setShowKungfu, setShowSkills, setShowWorld, setShowMap, setShowSect, setShowTask, setShowAgreement, setShowStory, setShowHeroinePlan, setShowMemory, setShowSaveLoad,
-            setShowRoleChat,
+            setShowRoleChat, setShowTradePlugin, setShowTacticalClash,
             setActiveTab, setCurrentTheme,
             setApiConfig, setVisualConfig, setImageManagerConfig, setPrompts,
             setCharacter: 设置角色,
+            setSocial: 同步设置社交,
             setPlayerSect: 设置玩家门派,
             setWorld: 设置世界
         },
@@ -4763,6 +4842,10 @@ export const useGame = () => {
             stopRoleChat: () => 终止当前角色对话(false),
             discardRoleChat: () => 终止当前角色对话(true),
             清空场外对话暂存,
+            追加场外交易记录,
+            清空场外交易暂存,
+            追加场外战果记录,
+            清空场外战果暂存,
             handleRecoverFromParseErrorRaw,
             saveSettings, saveVisualSettings, saveImageManagerSettings, saveGameSettings, saveMemorySettings,
             saveBuiltinPromptEntries,

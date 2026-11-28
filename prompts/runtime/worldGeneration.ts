@@ -5,7 +5,7 @@ import { 解析生效题材配置 } from '../../utils/effectiveTopicProfile';
 import { 地图层级命名契约, 地图层级命名自检 } from './mapLayerNaming';
 
 export const 世界观生成系统提示词 = `
-你是 WuXia 项目的世界观生成器。任务是只生成“世界观设定文本（world_prompt）”。
+你是《墨色江湖 2.0》项目的世界观生成器。任务是只生成“世界观设定文本（world_prompt）”。
 
 【输出要求（必须）】
 1. 输出收束为一个 \`<世界观>...</世界观>\` 标签块，不附加 JSON、Markdown、解释或注释。

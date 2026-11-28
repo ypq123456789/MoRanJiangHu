@@ -5,6 +5,8 @@ import type {
     存档结构,
     聊天记录结构,
     场外对话消息结构,
+    场外交易记录结构,
+    场外战果暂存结构,
     环境信息结构,
     角色数据结构,
     提示词结构,
@@ -39,6 +41,7 @@ import { 修复旧姓名库误改NPC姓名列表 } from '../../utils/npcNameRepa
 import { 修复开局伙伴社交列表 } from '../../utils/openingCompanion';
 import { 同步角色与门派状态 } from './storyState';
 import { 规范化场外对话列表 } from './roleChatWorkflow';
+import { 迁移旧版拍卖行寄售资产 } from '../../utils/legacyAuctionMigration';
 
 const 收集图床图片地址 = (
     value: unknown,
@@ -111,6 +114,9 @@ const 后台缓存当前存档图床图片 = (save: 存档结构): void => {
 export type 自动存档快照结构 = {
     history?: 聊天记录结构[];
     场外对话?: 场外对话消息结构[];
+    场外交易暂存?: 场外交易记录结构[];
+    场外战果暂存?: 场外战果暂存结构[];
+    worldEvents?: string[];
     role?: 角色数据结构;
     env?: 环境信息结构;
     social?: any[];
@@ -125,6 +131,7 @@ export type 自动存档快照结构 = {
     fandomStoryPlan?: 同人剧情规划结构;
     fandomHeroinePlan?: 同人女主剧情规划结构;
     directorBible?: DirectorWorldBible;
+    lastTurnDirectorBible?: DirectorWorldBible;
     memory?: 记忆系统结构;
     openingConfig?: OpeningConfig;
     visualConfig?: 视觉设置结构;
@@ -136,6 +143,9 @@ export type 自动存档快照结构 = {
 type 存档协调当前状态 = {
     历史记录: 聊天记录结构[];
     场外对话?: 场外对话消息结构[];
+    场外交易暂存?: 场外交易记录结构[];
+    场外战果暂存?: 场外战果暂存结构[];
+    worldEvents?: string[];
     角色: 角色数据结构;
     环境: 环境信息结构;
     社交: any[];
@@ -150,6 +160,7 @@ type 存档协调当前状态 = {
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
     导演圣经?: DirectorWorldBible;
+    上一回合导演圣经?: DirectorWorldBible;
     记忆系统: 记忆系统结构;
     叙事平静值?: 叙事状态结构;
     openingConfig?: OpeningConfig;
@@ -253,6 +264,11 @@ type 存档协调依赖 = {
     重置自动存档状态: () => void;
     切换生图存档作用域?: () => void;
     清除开局提示词基线?: () => Promise<void>;
+    setWorldEvents?: (value: string[]) => void;
+    设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    设置场外交易暂存?: (value: 场外交易记录结构[]) => void;
+    设置场外战果暂存?: (value: 场外战果暂存结构[]) => void;
+    推送通知?: (payload: { title: string; message: string; tone?: 'info' | 'success' | 'error' }) => void;
     最近自动存档时间戳Ref: { current: number };
     最近自动存档签名Ref: { current: string };
 };
@@ -594,9 +610,15 @@ const 构建读档后重Roll快照 = (
             女主剧情规划: deps.深拷贝(loaded.heroinePlan),
             同人剧情规划: deps.深拷贝(loaded.fandomStoryPlan),
             同人女主剧情规划: deps.深拷贝(loaded.fandomHeroinePlan),
-            导演圣经: loaded.directorBible ? deps.深拷贝(loaded.directorBible) : undefined,
+            导演圣经: (save as any).上一回合导演圣经
+                ? 规范化导演圣经(deps.深拷贝((save as any).上一回合导演圣经))
+                : (loaded.directorBible ? deps.深拷贝(loaded.directorBible) : undefined),
             记忆系统: deps.深拷贝(deps.规范化记忆系统(loaded.memory)),
-            叙事平静值: deps.深拷贝(loaded.叙事平静值 || { 平静计数: 0, 情节事件记录: [] })
+            叙事平静值: deps.深拷贝(loaded.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }),
+            场外对话: Array.isArray((save as any).场外对话) ? deps.深拷贝((save as any).场外对话) : [],
+            场外交易暂存: Array.isArray((save as any).场外交易暂存) ? deps.深拷贝((save as any).场外交易暂存) : [],
+            场外战果暂存: Array.isArray((save as any).场外战果暂存) ? deps.深拷贝((save as any).场外战果暂存) : [],
+            世界大事: Array.isArray((save as any).世界大事) ? deps.深拷贝((save as any).世界大事) : []
         },
         回档前持久态: {
             视觉设置: deps.深拷贝(loaded.visual),
@@ -705,6 +727,14 @@ export const 创建存档数据 = (
             fandomHeroinePlanSource ? deps.深拷贝(fandomHeroinePlanSource) : undefined
         ),
         导演圣经: directorBibleSource ? 规范化导演圣经(deps.深拷贝(directorBibleSource)) : undefined,
+        上一回合导演圣经: (() => {
+            const lastTurnSource = snapshot?.lastTurnDirectorBible ?? currentState.上一回合导演圣经;
+            return lastTurnSource ? 规范化导演圣经(deps.深拷贝(lastTurnSource)) : undefined;
+        })(),
+        世界大事: (() => {
+            const list = snapshot?.worldEvents ?? currentState.worldEvents;
+            return Array.isArray(list) ? deps.深拷贝(list) : [];
+        })(),
         记忆系统: normalizedMemorySource,
         openingConfig: deps.规范化可选开局配置(deps.深拷贝(openingConfigSource)),
         游戏设置: deps.深拷贝(currentState.gameConfig),
@@ -719,7 +749,17 @@ export const 创建存档数据 = (
             Array.isArray(snapshot?.场外对话)
                 ? snapshot.场外对话
                 : (Array.isArray(currentState.场外对话) ? currentState.场外对话 : [])
-        ))
+        )),
+        场外交易暂存: deps.深拷贝(
+            Array.isArray(snapshot?.场外交易暂存)
+                ? snapshot.场外交易暂存
+                : (Array.isArray(currentState.场外交易暂存) ? currentState.场外交易暂存 : [])
+        ),
+        场外战果暂存: deps.深拷贝(
+            Array.isArray(snapshot?.场外战果暂存)
+                ? snapshot.场外战果暂存
+                : (Array.isArray(currentState.场外战果暂存) ? currentState.场外战果暂存 : [])
+        )
     };
 };
 
@@ -895,13 +935,29 @@ export const 执行读取存档 = async (
     trace('world.set.done', {
         layers: Array.isArray((normalizedWorld as any)?.地图层级) ? (normalizedWorld as any).地图层级.length : 0
     });
-    const loadedBattle = deps.规范化战斗状态(save.战斗 || deps.创建开场空白战斗());
+    const rawLoadedBattle = deps.规范化战斗状态(save.战斗 || deps.创建开场空白战斗());
+    // 2.0 已以左下角「直观战术交锋」替代旧版自动战斗弹窗；旧存档若停留在战斗锁中，读档后解除锁定避免卡死。
+    const loadedBattle = rawLoadedBattle?.是否战斗中 ? deps.创建开场空白战斗() : rawLoadedBattle;
     let loadedSect = deps.规范化门派状态(save.玩家门派 || deps.创建空门派状态());
     const syncedSectState = 同步角色与门派状态({
         角色: loadedRole,
         玩家门派: loadedSect
     });
     loadedRole = syncedSectState.角色;
+    const legacyAuctionMigration = 迁移旧版拍卖行寄售资产({
+        save: save as any,
+        role: loadedRole,
+        openingConfig: deps.规范化可选开局配置((save as any).openingConfig),
+        gameConfig: saveGameConfig
+    });
+    if (legacyAuctionMigration.mutated) {
+        loadedRole = legacyAuctionMigration.nextRole;
+        deps.推送通知?.({
+            title: '旧版拍卖行寄售已退回',
+            message: legacyAuctionMigration.notes.join('；'),
+            tone: 'success'
+        });
+    }
     loadedSect = deps.规范化门派状态(syncedSectState.玩家门派);
     const loadedTasks = 规范化任务列表自动结算(save.任务列表 || []);
     const loadedAgreements = Array.isArray(save.约定列表) ? save.约定列表 : [];
@@ -920,12 +976,18 @@ export const 执行读取存档 = async (
     const loadedFandomStoryPlan = deps.规范化同人剧情规划状态((save as any).同人剧情规划);
     const loadedFandomHeroinePlan = deps.规范化同人女主剧情规划状态((save as any).同人女主剧情规划);
     const loadedDirectorBible = (save as any).导演圣经 ? 规范化导演圣经((save as any).导演圣经) : undefined;
+    const loadedLastTurnDirectorBible = (save as any).上一回合导演圣经 ? 规范化导演圣经((save as any).上一回合导演圣经) : undefined;
+    const loadedWorldEvents = Array.isArray((save as any).世界大事)
+        ? deps.深拷贝((save as any).世界大事).filter((item: any) => typeof item === 'string' && item.trim())
+        : [];
     deps.设置剧情(loadedStory);
     deps.设置剧情规划(loadedStoryPlan);
     deps.设置女主剧情规划(loadedHeroinePlan);
     deps.设置同人剧情规划(loadedFandomStoryPlan);
     deps.设置同人女主剧情规划(loadedFandomHeroinePlan);
     deps.设置导演圣经?.(loadedDirectorBible);
+    deps.设置上一回合导演圣经?.(loadedLastTurnDirectorBible);
+    deps.setWorldEvents?.(loadedWorldEvents);
     deps.设置开局配置(deps.规范化可选开局配置(save.openingConfig));
     trace('storyPlans.set.done');
     const promptSnapshot = save.核心提示词快照 && typeof save.核心提示词快照 === 'object'
@@ -996,6 +1058,8 @@ export const 执行读取存档 = async (
     trace('history.set.done');
     // 场外对话（侧聊暂存）随存档恢复；旧存档没有该字段时按空数组处理（向后兼容）。
     deps.设置场外对话?.(规范化场外对话列表(deps.深拷贝(Array.isArray((save as any).场外对话) ? (save as any).场外对话 : [])));
+    deps.设置场外交易暂存?.(Array.isArray((save as any).场外交易暂存) ? deps.深拷贝((save as any).场外交易暂存) : []);
+    deps.设置场外战果暂存?.(Array.isArray((save as any).场外战果暂存) ? deps.深拷贝((save as any).场外战果暂存) : []);
     deps.应用并同步记忆系统(loadedMemory, { 静默总结提示: true });
     deps.设置叙事平静值(save.叙事平静值 || { 平静计数: 0, 情节事件记录: [] });
     trace('memory.set.done', {

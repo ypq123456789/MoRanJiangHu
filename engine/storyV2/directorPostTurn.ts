@@ -1,5 +1,6 @@
 import {
     将导演圣经投影为剧情规划视图,
+    净化玩家可见圣经文案,
     type DirectorCharacterProfile,
     type DirectorWorldBible,
     type ForeshadowingStatus,
@@ -10,8 +11,10 @@ import { 规范化环境信息, 规范化社交列表 } from '../../hooks/useGam
 import { 标准时间串转结构化, 环境时间转标准串, 结构化时间转标准串 } from '../../hooks/useGame/timeUtils';
 import { 规范化文本补全消息链, 请求模型文本, type 通用消息 } from '../../services/ai/chatCompletionClient';
 import { 提取首个标签内容 } from '../../services/ai/storyResponseParser';
-import type { GameResponse, 世界进行中事件结构 } from '../../types';
+import type { GameResponse, OpeningConfig, 世界进行中事件结构 } from '../../types';
 import type { 当前可用接口结构 } from '../../utils/apiConfig';
+import { 变更角色货币BaseAmount } from '../../utils/currencyDisplay';
+import { 推断单位仙侠 } from '../../utils/realmDisplay';
 import { parseJsonWithRepair } from '../../utils/jsonRepair';
 import type { StoryV2EngineState } from './types';
 
@@ -121,8 +124,8 @@ const 构建导演后处理提示词 = (params: {
         '',
         '请只输出 `<thinking>`（可选）与一个合法 `<导演更新JSON>...</导演更新JSON>`（严禁输出额外闲聊）：',
         '{',
-        '  "环境变更": { "推进分钟数": 30, "小地点": "", "具体地点": "", "时间叙述": "" },',
-        '  "主角变化": { "境界": "", "获得物品": [], "失去物品": [], "状态或伤势变化": "" },',
+        '  "环境变更": { "推进分钟数": 30, "大地点": "", "中地点": "", "小地点": "", "具体地点": "", "时间叙述": "" },',
+        '  "主角变化": { "境界": "", "金钱变化BaseAmount": 0, "获得物品": [{ "名称": "...", "数量": 1 }], "失去物品": [{ "名称": "...", "数量": 1 }], "状态或伤势变化": "" },',
         '  "社交人物更新": [',
         '    { "姓名": "...", "性别": "女|男", "身份": "...", "关系": "...", "好感度变化": 5, "是否在场": true, "核心性格特征": "...", "新增记忆": "一句话客观记录她眼中本回合发生的事（严禁写入幕后剧透）" }',
         '  ],',
@@ -139,7 +142,7 @@ const 构建导演后处理提示词 = (params: {
         '    "需要重规划": false,',
         '    "重规划原因": "",',
         '    "推进到幕次": 1,',
-        '    "修订当前幕核心矛盾": "",',
+        '    "修订当前幕核心矛盾": "仅当玩家破局重塑主轴时填写（须保持玩家视角可读，严禁写入未回收伏笔底层真相）",',
         '    "修订当前幕破局路径": "",',
         '    "因果偏移摘要": "一句话总结本回合对全局走势的推力或偏转"',
         '  },',
@@ -163,11 +166,12 @@ export const 执行导演后处理V2 = async (params: {
     apiConfig: 当前可用接口结构;
     storyResponse: GameResponse;
     playerInput: string;
+    openingConfig?: OpeningConfig;
     signal?: AbortSignal;
     onDelta?: (delta: string, accumulated: string) => void;
 }): Promise<DirectorPostTurnResult> => {
     const t0 = Date.now();
-    const { state, apiConfig, storyResponse, playerInput, signal, onDelta } = params;
+    const { state, apiConfig, storyResponse, playerInput, openingConfig, signal, onDelta } = params;
     const storyBody = 提取响应正文文本(storyResponse);
     const shortTerm = (storyResponse.shortTerm || '').trim() || storyBody.slice(0, 140);
 
@@ -182,7 +186,7 @@ export const 执行导演后处理V2 = async (params: {
     const messages: 通用消息[] = 规范化文本补全消息链([
         {
             role: 'system',
-            content: '你是《墨然江湖 2.0》的中央剧情导演兼因果演化引擎。你掌握全局隐秘圣经与人物认知隔离表，负责在每回合正文之后审计伏笔、推进跨层级人物幕后行动、动态重规划剧情脉络并生成下回合演化简报。只输出合法 JSON（包裹在 <导演更新JSON> 标签内）。'
+            content: '你是《墨色江湖 2.0》的中央剧情导演兼因果演化引擎。你掌握全局隐秘圣经与人物认知隔离表，负责在每回合正文之后审计伏笔、推进跨层级人物幕后行动、动态重规划剧情脉络并生成下回合演化简报。只输出合法 JSON（包裹在 <导演更新JSON> 标签内）。'
         },
         { role: 'user', content: prompt }
     ], { 保留System: true, 合并同角色: false });
@@ -202,27 +206,33 @@ export const 执行导演后处理V2 = async (params: {
         .replace(/^```(?:json|JSON)?\s*/g, '')
         .replace(/\s*```$/g, '')
         .trim();
-    const parsed = parseJsonWithRepair<Record<string, any>>(jsonBlock).value || {};
+    const parseResult = parseJsonWithRepair<Record<string, any>>(jsonBlock);
+    if (!parseResult.value || typeof parseResult.value !== 'object' || Array.isArray(parseResult.value)) {
+        throw new Error(`2.0 导演后处理 JSON 解析失败：${parseResult.error || '返回内容无法解析为合法对象'}`);
+    }
+    const parsed = parseResult.value;
 
     // Clone mutable buffers
     const nextBible: DirectorWorldBible = JSON.parse(JSON.stringify(state.directorBible));
     const nextEnv = 规范化环境信息(JSON.parse(JSON.stringify(state.环境)));
-    const nextRole = JSON.parse(JSON.stringify(state.角色));
+    let nextRole = JSON.parse(JSON.stringify(state.角色));
     let nextSocial: any[] = JSON.parse(JSON.stringify(state.社交 || []));
     const nextWorld = JSON.parse(JSON.stringify(state.世界));
     const nextWorldEvents = [...(state.世界大事 || [])];
 
-    // 1. Environment & Time
+    // 1. Environment & Time (support full location hierarchy while keeping unchanged layers)
     const envPatch = parsed.环境变更 || {};
     const curCanon = 环境时间转标准串(nextEnv) || state.gameInitialTime || '1:01:01:06:00';
     const rawMins = Number(envPatch.推进分钟数);
     const addMins = Number.isFinite(rawMins) && rawMins >= 0 ? rawMins : 20;
     const nextCanon = 推进标准时间分钟(curCanon, addMins);
     nextEnv.时间 = nextCanon;
+    if (typeof envPatch.大地点 === 'string' && envPatch.大地点.trim()) nextEnv.大地点 = envPatch.大地点.trim();
+    if (typeof envPatch.中地点 === 'string' && envPatch.中地点.trim()) nextEnv.中地点 = envPatch.中地点.trim();
     if (typeof envPatch.小地点 === 'string' && envPatch.小地点.trim()) nextEnv.小地点 = envPatch.小地点.trim();
     if (typeof envPatch.具体地点 === 'string' && envPatch.具体地点.trim()) nextEnv.具体地点 = envPatch.具体地点.trim();
 
-    // 2. Protagonist factual updates (no battle/body HP bloat)
+    // 2. Protagonist factual updates (currency delta + stackable items)
     const rolePatch = parsed.主角变化 || {};
     if (typeof rolePatch.境界 === 'string' && rolePatch.境界.trim()) {
         nextRole.境界 = rolePatch.境界.trim();
@@ -230,17 +240,70 @@ export const 执行导演后处理V2 = async (params: {
     if (typeof rolePatch.状态或伤势变化 === 'string' && rolePatch.状态或伤势变化.trim()) {
         nextRole.当前状况 = rolePatch.状态或伤势变化.trim();
     }
+    const moneyDelta = Number(rolePatch.金钱变化BaseAmount ?? rolePatch.金钱变化);
+    if (Number.isFinite(moneyDelta) && moneyDelta !== 0) {
+        nextRole = 变更角色货币BaseAmount(nextRole, Math.trunc(moneyDelta), {
+            runtimeProfile: openingConfig?.modeRuntimeProfile,
+            仙侠模式: 推断单位仙侠(nextRole) || /仙侠|玄幻/.test(String(openingConfig?.题材模式 || ''))
+        });
+    }
+    const 解析物品变更项 = (rawItem: unknown): { name: string; count: number; type?: string; desc?: string } | null => {
+        if (typeof rawItem === 'string') {
+            const name = rawItem.trim();
+            return name ? { name, count: 1 } : null;
+        }
+        if (rawItem && typeof rawItem === 'object') {
+            const name = typeof (rawItem as any).名称 === 'string' ? (rawItem as any).名称.trim() : '';
+            if (!name) return null;
+            const rawCount = Number((rawItem as any).数量);
+            const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.floor(rawCount) : 1;
+            const type = typeof (rawItem as any).类型 === 'string' ? (rawItem as any).类型.trim() : undefined;
+            const desc = typeof (rawItem as any).描述 === 'string' ? (rawItem as any).描述.trim() : undefined;
+            return { name, count, type, desc };
+        }
+        return null;
+    };
     if (Array.isArray(rolePatch.获得物品)) {
         nextRole.物品列表 = Array.isArray(nextRole.物品列表) ? nextRole.物品列表 : [];
-        for (const itemName of rolePatch.获得物品) {
-            if (typeof itemName === 'string' && itemName.trim() && !nextRole.物品列表.some((x: any) => (x?.名称 || x) === itemName.trim())) {
-                nextRole.物品列表.push({ 名称: itemName.trim(), 类型: '剧情物品', 数量: 1, 描述: '剧情获取' });
+        for (const rawEntry of rolePatch.获得物品) {
+            const item = 解析物品变更项(rawEntry);
+            if (!item) continue;
+            const existing = nextRole.物品列表.find((x: any) => (x?.名称 || x) === item.name);
+            if (existing && typeof existing === 'object') {
+                const curCount = Math.max(1, Number(existing.堆叠数量 ?? existing.数量) || 1);
+                existing.数量 = curCount + item.count;
+                if ('堆叠数量' in existing) existing.堆叠数量 = curCount + item.count;
+            } else {
+                nextRole.物品列表.push({
+                    名称: item.name,
+                    类型: item.type || '剧情物品',
+                    数量: item.count,
+                    堆叠数量: item.count,
+                    描述: item.desc || '剧情获取'
+                });
             }
         }
     }
     if (Array.isArray(rolePatch.失去物品) && Array.isArray(nextRole.物品列表)) {
-        const lostSet = new Set(rolePatch.失去物品.filter((x: unknown) => typeof x === 'string').map((x: string) => x.trim()));
-        nextRole.物品列表 = nextRole.物品列表.filter((x: any) => !lostSet.has(x?.名称 || x));
+        for (const rawEntry of rolePatch.失去物品) {
+            const item = 解析物品变更项(rawEntry);
+            if (!item) continue;
+            const idx = nextRole.物品列表.findIndex((x: any) => (x?.名称 || x) === item.name);
+            if (idx < 0) continue;
+            const target = nextRole.物品列表[idx];
+            if (target && typeof target === 'object') {
+                const curCount = Math.max(1, Number(target.堆叠数量 ?? target.数量) || 1);
+                const left = curCount - item.count;
+                if (left > 0) {
+                    target.数量 = left;
+                    if ('堆叠数量' in target) target.堆叠数量 = left;
+                } else {
+                    nextRole.物品列表.splice(idx, 1);
+                }
+            } else {
+                nextRole.物品列表.splice(idx, 1);
+            }
+        }
     }
 
     // 3. Social updates (strictly public/grounded fields, NO leaking 隐藏秘密)
@@ -409,21 +472,23 @@ export const 执行导演后处理V2 = async (params: {
     const replanned = replanPatch.需要重规划 === true;
     const replanReason = typeof replanPatch.重规划原因 === 'string' ? replanPatch.重规划原因.trim() : '';
     const nextActNum = Number(replanPatch.推进到幕次);
-    if (Number.isFinite(nextActNum) && nextActNum >= 1 && nextActNum !== nextBible.当前幕次) {
+    const targetAct = Number.isInteger(nextActNum) && nextActNum >= 1 && nextActNum !== nextBible.当前幕次
+        ? nextBible.宏观分幕大纲.find((a) => a.幕次 === nextActNum)
+        : undefined;
+    if (targetAct) {
         const oldAct = nextBible.宏观分幕大纲.find((a) => a.幕次 === nextBible.当前幕次);
         if (oldAct) oldAct.当前状态 = '已完成';
         nextBible.当前幕次 = nextActNum;
-        const targetAct = nextBible.宏观分幕大纲.find((a) => a.幕次 === nextActNum);
-        if (targetAct) targetAct.当前状态 = '推进中';
+        targetAct.当前状态 = '推进中';
     }
     const curAct = nextBible.宏观分幕大纲.find((a) => a.幕次 === nextBible.当前幕次);
     if (curAct) {
         if (typeof replanPatch.修订当前幕核心矛盾 === 'string' && replanPatch.修订当前幕核心矛盾.trim()) {
-            curAct.核心矛盾 = replanPatch.修订当前幕核心矛盾.trim();
+            curAct.核心矛盾 = 净化玩家可见圣经文案(replanPatch.修订当前幕核心矛盾.trim(), nextBible);
             if (replanned) curAct.当前状态 = '已重规划';
         }
         if (typeof replanPatch.修订当前幕破局路径 === 'string' && replanPatch.修订当前幕破局路径.trim()) {
-            curAct.主角目标与破局路径 = replanPatch.修订当前幕破局路径.trim();
+            curAct.主角目标与破局路径 = 净化玩家可见圣经文案(replanPatch.修订当前幕破局路径.trim(), nextBible);
         }
     }
     nextBible.动态轨迹记录.push({

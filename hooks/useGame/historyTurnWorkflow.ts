@@ -1,5 +1,7 @@
 import type {
+    DirectorWorldBible,
     GameResponse,
+    OpeningConfig,
     女主剧情规划结构,
     详细门派结构,
     世界数据结构,
@@ -11,6 +13,11 @@ import type {
     记忆系统结构,
     叙事状态结构
 } from '../../types';
+import { 执行导演后处理V2 } from '../../engine/storyV2/directorPostTurn';
+import { 获取主剧情接口配置, 获取规划分析接口配置, 接口配置是否可用 } from '../../utils/apiConfig';
+import { 规范化环境信息, 规范化角色物品容器映射 } from './stateTransforms';
+import { 规范化世界状态, 规范化剧情状态, 规范化剧情规划状态 } from './storyState';
+import { 构建同人运行时提示词包 } from '../../prompts/runtime/fandom';
 import { 同步剧情小说分解时间校准 } from '../../services/novelDecompositionCalibration';
 import type { 回合快照结构 } from './turnSnapshot';
 
@@ -19,6 +26,7 @@ type 历史回合工作流依赖 = {
     记忆系统: 记忆系统结构;
     memoryConfig: any;
     gameConfig: any;
+    apiConfig?: any;
     prompts: any[];
     内置提示词列表: any[];
     世界书列表: any[];
@@ -121,6 +129,13 @@ type 历史回合工作流依赖 = {
     设置任务列表: (value: any[]) => void;
     设置约定列表: (value: any[]) => void;
     设置社交: (value: any[]) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    setWorldEvents?: (value: string[]) => void;
+    设置剧情规划?: (value: any) => void;
+    设置世界?: (value: any) => void;
+    设置环境?: (value: any) => void;
+    设置角色?: (value: any) => void;
     记录变量生成上下文: (params: { playerInput: string; response: any }) => void;
     set聊天区自动滚动抑制令牌: (value: number) => void;
     获取NPC唯一标识: (npc: any, index?: number) => string;
@@ -340,6 +355,83 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             }
         );
         deps.应用并同步记忆系统(recoveredMemory, { 静默总结提示: deps.记忆总结阶段 !== 'remind' });
+        let recomputedDirectorBible = snapshot.回档前状态.导演圣经;
+        let recomputedWorldEvents = Array.isArray(snapshot.回档前状态.世界大事)
+            ? deps.深拷贝(snapshot.回档前状态.世界大事)
+            : [];
+        let finalStoryPlanForSave = (patchedState as any).剧情规划 ?? snapshot.回档前状态.剧情规划;
+        const runtimeGameConfigForReparse = deps.规范化游戏设置(deps.gameConfig);
+        const openingCfgForReparse = deps.获取开局配置?.() as OpeningConfig | undefined;
+        const canRecomputeDirector = runtimeGameConfigForReparse.启用2_0剧情引擎 !== false
+            && !构建同人运行时提示词包({ openingConfig: openingCfgForReparse }).enabled
+            && Boolean(snapshot.回档前状态.导演圣经)
+            && !options?.skipVariableModelCalibration
+            && Boolean(deps.apiConfig);
+        if (canRecomputeDirector && snapshot.回档前状态.导演圣经) {
+            const planningApi = 获取规划分析接口配置(deps.apiConfig);
+            const fallbackMainApi = 获取主剧情接口配置(deps.apiConfig);
+            const directorApi = 接口配置是否可用(planningApi) ? planningApi : fallbackMainApi;
+            if (接口配置是否可用(directorApi)) {
+                try {
+                    const turnCountEstimate = Math.max(1, Math.ceil((snapshot.回档前历史?.length || 0) / 2) + 1);
+                    const postRes = await 执行导演后处理V2({
+                        state: {
+                            turnIndex: turnCountEstimate,
+                            gameInitialTime: snapshot.游戏时间 || nextGameTime || '1:01:01:06:00',
+                            worldPrompt: '',
+                            directorBible: deps.深拷贝(snapshot.回档前状态.导演圣经),
+                            角色: deps.深拷贝((patchedState as any).角色),
+                            环境: 规范化环境信息(deps.深拷贝((patchedState as any).环境)),
+                            社交: deps.深拷贝(Array.isArray(patchedState.社交) ? patchedState.社交 : []),
+                            世界: 规范化世界状态(deps.深拷贝((patchedState as any).世界)),
+                            剧情: 规范化剧情状态(deps.深拷贝(patchedState.剧情)),
+                            剧情规划: 规范化剧情规划状态(deps.深拷贝(finalStoryPlanForSave)),
+                            女主剧情规划: deps.深拷贝(patchedState.女主剧情规划),
+                            记忆系统: deps.深拷贝(recoveredMemory),
+                            历史记录: deps.深拷贝(recoveredHistory),
+                            任务列表: Array.isArray(patchedState.任务列表) ? deps.深拷贝(patchedState.任务列表) : [],
+                            世界大事: [...recomputedWorldEvents]
+                        },
+                        apiConfig: directorApi,
+                        storyResponse: displayParsed,
+                        playerInput: replayPlayerInput,
+                        openingConfig: openingCfgForReparse
+                    });
+                    recomputedDirectorBible = postRes.nextState.directorBible;
+                    recomputedWorldEvents = Array.isArray(postRes.nextState.世界大事)
+                        ? postRes.nextState.世界大事
+                        : recomputedWorldEvents;
+                    const updatedEnv = 规范化环境信息(postRes.nextState.环境);
+                    const updatedRole = 规范化角色物品容器映射(postRes.nextState.角色, {
+                        启用饱腹口渴系统: runtimeGameConfigForReparse.启用饱腹口渴系统,
+                        题材模式: openingCfgForReparse?.题材模式
+                    });
+                    const updatedSocial = deps.规范化社交列表(postRes.nextState.社交, { 合并同名: false });
+                    const updatedWorld = 规范化世界状态(postRes.nextState.世界);
+                    const updatedStory = 规范化剧情状态(postRes.nextState.剧情);
+                    const updatedStoryPlan = 规范化剧情规划状态(postRes.nextState.剧情规划);
+                    (patchedState as any).角色 = updatedRole;
+                    (patchedState as any).环境 = updatedEnv;
+                    patchedState.社交 = updatedSocial;
+                    (patchedState as any).世界 = updatedWorld;
+                    patchedState.剧情 = updatedStory;
+                    finalStoryPlanForSave = updatedStoryPlan;
+                    patchedState.任务列表 = Array.isArray(postRes.nextState.任务列表) ? postRes.nextState.任务列表 : patchedState.任务列表;
+                    deps.设置角色?.(deps.深拷贝(updatedRole));
+                    deps.设置环境?.(deps.深拷贝(updatedEnv));
+                    deps.设置社交(deps.深拷贝(updatedSocial));
+                    deps.设置世界?.(deps.深拷贝(updatedWorld));
+                    deps.设置剧情(deps.深拷贝(updatedStory));
+                    deps.设置剧情规划?.(deps.深拷贝(updatedStoryPlan));
+                    deps.设置任务列表(deps.深拷贝(patchedState.任务列表));
+                    deps.设置导演圣经?.(recomputedDirectorBible);
+                    deps.设置上一回合导演圣经?.(deps.深拷贝(snapshot.回档前状态.导演圣经));
+                    deps.setWorldEvents?.(recomputedWorldEvents);
+                } catch (directorError) {
+                    console.warn('重解析回合 2.0 导演后处理失败，保留回合前导演圣经', directorError);
+                }
+            }
+        }
         void deps.performAutoSave({
             history: recoveredHistory,
             role: patchedState.角色,
@@ -351,11 +443,13 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             tasks: patchedState.任务列表,
             agreements: patchedState.约定列表,
             story: patchedState.剧情,
-            storyPlan: patchedState.剧情规划,
+            storyPlan: finalStoryPlanForSave,
             heroinePlan: patchedState.女主剧情规划,
             fandomStoryPlan: patchedState.同人剧情规划,
             fandomHeroinePlan: patchedState.同人女主剧情规划,
-            directorBible: snapshot.回档前状态.导演圣经,
+            directorBible: recomputedDirectorBible,
+            lastTurnDirectorBible: snapshot.回档前状态.导演圣经,
+            worldEvents: recomputedWorldEvents,
             memory: recoveredMemory,
             visualConfig: deps.规范化视觉设置(deps.深拷贝(deps.visualConfigRef.current || deps.visualConfig)),
             sceneImageArchive: deps.规范化场景图片档案(deps.深拷贝(deps.场景图片档案Ref.current || {})),

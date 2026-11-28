@@ -847,7 +847,7 @@ const 构建存档摘要记录 = (save: Partial<存档结构> | null | undefined
     };
 };
 
-const 清洗导入存档 = (raw: any): Omit<存档结构, 'id'> | null => {
+export const 清洗导入存档 = (raw: any): Omit<存档结构, 'id'> | null => {
     if (!raw || typeof raw !== 'object') return null;
     if (!raw.角色数据 || typeof raw.角色数据 !== 'object') return null;
     if (!raw.环境信息 || typeof raw.环境信息 !== 'object') return null;
@@ -887,7 +887,14 @@ const 清洗导入存档 = (raw: any): Omit<存档结构, 'id'> | null => {
         角色锚点列表: Array.isArray(raw.角色锚点列表) ? 深拷贝(raw.角色锚点列表) : undefined,
         当前角色锚点ID: typeof raw.当前角色锚点ID === 'string' ? raw.当前角色锚点ID : undefined,
         拍卖行: raw.拍卖行 && typeof raw.拍卖行 === 'object' && !Array.isArray(raw.拍卖行) ? 深拷贝(raw.拍卖行) : undefined,
-        场外对话: Array.isArray(raw.场外对话) ? 深拷贝(raw.场外对话) : undefined
+        导演圣经: raw.导演圣经 && typeof raw.导演圣经 === 'object' && !Array.isArray(raw.导演圣经) ? 深拷贝(raw.导演圣经) : undefined,
+        上一回合导演圣经: raw.上一回合导演圣经 && typeof raw.上一回合导演圣经 === 'object' && !Array.isArray(raw.上一回合导演圣经)
+            ? 深拷贝(raw.上一回合导演圣经)
+            : undefined,
+        世界大事: Array.isArray(raw.世界大事) ? 深拷贝(raw.世界大事.filter((x: unknown) => typeof x === 'string')) : undefined,
+        场外对话: Array.isArray(raw.场外对话) ? 深拷贝(raw.场外对话) : undefined,
+        场外交易暂存: Array.isArray(raw.场外交易暂存) ? 深拷贝(raw.场外交易暂存) : undefined,
+        场外战果暂存: Array.isArray(raw.场外战果暂存) ? 深拷贝(raw.场外战果暂存) : undefined
     };
 
     normalized.元数据 = {

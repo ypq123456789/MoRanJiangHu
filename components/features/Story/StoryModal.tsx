@@ -2,7 +2,7 @@ import React from 'react';
 import { 剧情系统结构 } from '../../../models/story';
 import { 剧情规划结构 } from '../../../models/storyPlan';
 import { 同人剧情规划结构 } from '../../../models/fandomPlanning/story';
-import type { DirectorWorldBible } from '../../../models/directorBible';
+import { 净化玩家可见圣经文案, type DirectorWorldBible } from '../../../models/directorBible';
 
 interface Props {
     story: 剧情系统结构;
@@ -71,14 +71,14 @@ const StoryModal: React.FC<Props> = ({ story, storyPlan, directorBible, worldEve
                     <div className="text-[11px] tracking-[0.3em] text-wuxia-gold">2.0 因果脉络与伏笔线索簿</div>
                     {当前幕次节点 ? (
                         <span className="rounded-full border border-wuxia-gold/30 bg-wuxia-gold/10 px-3 py-0.5 text-[11px] text-wuxia-gold">
-                            第 {当前幕次节点.幕次} 幕 · {当前幕次节点.标题}
+                            第 {当前幕次节点.幕次} 幕 · {净化玩家可见圣经文案(当前幕次节点.标题, directorBible)}
                         </span>
                     ) : null}
                 </div>
                 {当前幕次节点?.核心矛盾 ? (
                     <div className="rounded-xl border border-gray-800 bg-black/30 px-3 py-2 text-xs text-gray-300 leading-6">
                         <span className="text-wuxia-gold/80 font-semibold">本幕主轴：</span>
-                        {当前幕次节点.核心矛盾}
+                        {净化玩家可见圣经文案(当前幕次节点.核心矛盾, directorBible)}
                     </div>
                 ) : null}
                 <div>
@@ -162,7 +162,7 @@ const StoryModal: React.FC<Props> = ({ story, storyPlan, directorBible, worldEve
                             {isFandomMode ? '同人规划视图' : '原创规划视图'}
                         </div>
                     </div>
-                    <button onClick={onClose} className="h-9 w-9 rounded-full border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-400">×</button>
+                    <button type="button" aria-label="关闭" onClick={onClose} className="h-9 w-9 rounded-full border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-400">×</button>
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">

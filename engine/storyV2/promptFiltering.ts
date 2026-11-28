@@ -68,7 +68,7 @@ export const 净化2_0酒馆预设 = (gameConfig: 游戏设置结构): 游戏设
     const disabledIds = new Set<string>();
     if (Array.isArray(targetPreset.prompts)) {
         targetPreset.prompts = targetPreset.prompts.map((entry: any) => {
-            if (!entry || entry.enabled === false) return entry;
+            if (!entry) return entry;
             const hay = `${entry.name || ''}\n${entry.content || ''}`;
             if (酒馆冲突条目正则.test(hay)) {
                 if (entry.identifier) disabledIds.add(String(entry.identifier));

@@ -8,10 +8,16 @@ import * as textAIService from '../../services/ai/text';
 import { 是否流式连接中断错误消息 } from '../../services/ai/chatCompletionClient';
 import { recordAiParseFailureDiagnostic } from '../../services/diagnosticContext';
 import { recordDiagnosticLog } from '../../services/diagnosticLog';
-import type { GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, DirectorWorldBible, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
+import type { GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 场外交易记录结构, 场外战果暂存结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, DirectorWorldBible, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
 import { 渲染主剧情回合V2 } from '../../engine/storyV2/storyTurnRenderer';
 import { 执行导演后处理V2 } from '../../engine/storyV2/directorPostTurn';
 import { 提取2_0流式正文预览, 从状态构建2_0导演圣经 } from '../../engine/storyV2/legacySaveBridge';
+import { 构建场外交易注入块 } from '../../engine/plugins/tradePlugin';
+import { 构建场外战果注入块 } from '../../engine/plugins/clashPlugin';
+import { 构建同人运行时提示词包 } from '../../prompts/runtime/fandom';
+import { 变更角色货币BaseAmount, 获取货币显示模式, 计算角色货币底层总值 } from '../../utils/currencyDisplay';
+import { 推断单位仙侠 } from '../../utils/realmDisplay';
+import { 同步角色储物负重上限 } from '../../utils/storageCarry';
 import type { StoryV2Config, StoryV2EngineState } from '../../engine/storyV2/types';
 import { 规范化角色物品容器映射, 规范化社交列表 } from './stateTransforms';
 import { 获取主剧情接口配置, 获取剧情回忆接口配置, 获取文章优化接口配置, 获取变量计算接口配置, 获取世界演变接口配置, 获取规划分析接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 变量校准功能已启用 as 变量生成功能已启用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
@@ -39,6 +45,105 @@ import type { 世界演变触发参数, 世界演变执行结果 } from './world
 import type { 地图更新执行结果 } from './mapUpdateWorkflow';
 import { 生成地图更新 } from './mapUpdateWorkflow';
 import { 获取激活小说拆分注入文本 } from '../../services/novelDecompositionInjection';
+
+const 合并导演角色变更 = (params: {
+    latestRole?: 角色数据结构;
+    preTurnRole: 角色数据结构;
+    postTurnRole: 角色数据结构;
+    openingConfig?: OpeningConfig;
+}): 角色数据结构 => {
+    const { latestRole, preTurnRole, postTurnRole, openingConfig } = params;
+    if (!latestRole) return postTurnRole;
+
+    const preItems = Array.isArray(preTurnRole?.物品列表) ? preTurnRole.物品列表 : [];
+    const latestItems = Array.isArray(latestRole?.物品列表) ? latestRole.物品列表 : [];
+    const displayMode = 获取货币显示模式(openingConfig, latestRole);
+    const isXianxia = 推断单位仙侠(latestRole) || /仙侠|玄幻/.test(String(openingConfig?.题材模式 || ''));
+    const currencyOptions = {
+        runtimeProfile: openingConfig?.modeRuntimeProfile,
+        货币模式: displayMode,
+        仙侠模式: isXianxia
+    };
+    const preFingerprint = JSON.stringify({
+        items: preItems,
+        money: 计算角色货币底层总值(preTurnRole?.金钱, openingConfig?.modeRuntimeProfile, displayMode)
+    });
+    const latestFingerprint = JSON.stringify({
+        items: latestItems,
+        money: 计算角色货币底层总值(latestRole?.金钱, openingConfig?.modeRuntimeProfile, displayMode)
+    });
+    if (preFingerprint === latestFingerprint) {
+        return postTurnRole;
+    }
+
+    let merged = JSON.parse(JSON.stringify(latestRole)) as 角色数据结构;
+    if (postTurnRole.境界 && postTurnRole.境界 !== preTurnRole.境界) {
+        merged.境界 = postTurnRole.境界;
+    }
+    const postCondition = (postTurnRole as any)?.当前状况;
+    const preCondition = (preTurnRole as any)?.当前状况;
+    if (typeof postCondition === 'string' && postCondition && postCondition !== preCondition) {
+        (merged as any).当前状况 = postCondition;
+    }
+
+    const moneyDelta = 计算角色货币底层总值(postTurnRole?.金钱, openingConfig?.modeRuntimeProfile, displayMode)
+        - 计算角色货币底层总值(preTurnRole?.金钱, openingConfig?.modeRuntimeProfile, displayMode);
+    if (moneyDelta !== 0) {
+        merged = 变更角色货币BaseAmount(merged, moneyDelta, currencyOptions);
+    }
+
+    const countItems = (items: any[]): Map<string, { qty: number; template?: any }> => {
+        const map = new Map<string, { qty: number; template?: any }>();
+        for (const entry of (Array.isArray(items) ? items : [])) {
+            const name = typeof entry === 'string' ? entry.trim() : String(entry?.名称 || '').trim();
+            if (!name) continue;
+            const qty = typeof entry === 'object' && entry !== null
+                ? Math.max(1, Math.floor(Number(entry.堆叠数量 ?? entry.数量 ?? 1) || 1))
+                : 1;
+            const prev = map.get(name);
+            map.set(name, { qty: (prev?.qty || 0) + qty, template: prev?.template || entry });
+        }
+        return map;
+    };
+
+    const preMap = countItems(preItems);
+    const postMap = countItems(postTurnRole?.物品列表 || []);
+    const mergedItems: any[] = Array.isArray(merged.物品列表) ? [...merged.物品列表] : [];
+    const allNames = new Set<string>([...preMap.keys(), ...postMap.keys()]);
+
+    for (const name of allNames) {
+        const diff = (postMap.get(name)?.qty || 0) - (preMap.get(name)?.qty || 0);
+        if (diff > 0) {
+            const tpl = postMap.get(name)?.template;
+            const idx = mergedItems.findIndex((it: any) => String(it?.名称 || it || '').trim() === name && !it?.已装备);
+            if (idx >= 0 && typeof mergedItems[idx] === 'object') {
+                const cur = Math.max(1, Math.floor(Number(mergedItems[idx].堆叠数量 ?? mergedItems[idx].数量 ?? 1) || 1));
+                mergedItems[idx] = { ...mergedItems[idx], 数量: cur + diff, 堆叠数量: cur + diff };
+            } else if (tpl && typeof tpl === 'object') {
+                mergedItems.push({ ...JSON.parse(JSON.stringify(tpl)), 数量: diff, 堆叠数量: diff });
+            } else {
+                mergedItems.push({ 名称: name, 类型: '剧情物品', 数量: diff, 堆叠数量: diff });
+            }
+        } else if (diff < 0) {
+            let toRemove = Math.abs(diff);
+            for (let i = mergedItems.length - 1; i >= 0 && toRemove > 0; i -= 1) {
+                const it = mergedItems[i];
+                const itName = typeof it === 'string' ? it.trim() : String(it?.名称 || '').trim();
+                if (itName !== name || (typeof it === 'object' && it?.已装备)) continue;
+                const cur = typeof it === 'object' ? Math.max(1, Math.floor(Number(it.堆叠数量 ?? it.数量 ?? 1) || 1)) : 1;
+                if (cur <= toRemove) {
+                    toRemove -= cur;
+                    mergedItems.splice(i, 1);
+                } else {
+                    mergedItems[i] = { ...it, 数量: cur - toRemove, 堆叠数量: cur - toRemove };
+                    toRemove = 0;
+                }
+            }
+        }
+    }
+    merged.物品列表 = mergedItems;
+    return 同步角色储物负重上限(merged) as 角色数据结构;
+};
 import { 同步剧情小说分解时间校准 } from '../../services/novelDecompositionCalibration';
 import { 提取命中新女性角色姓名黑名单 } from '../../utils/femaleNameSelector';
 import { 检测NPC姓名改写风险命令, 检测社交删除风险命令 } from '../../utils/npcRetentionGuard';
@@ -543,7 +648,7 @@ const 构建名器句子级审查提示 = (params: {
     hit: 名器档案名称正文命中;
     bodyText: string;
 }) => [
-    `你是《墨色江湖》的正文局部审查器，只判断一句正文里的“名器名称”是否自然。`,
+    `你是《墨色江湖 2.0》的正文局部审查器，只判断一句正文里的“名器名称”是否自然。`,
     '任务：不要重写全文，只处理用户给出的一句话。',
     '判断标准：如果该名称在当前上下文里像角色自然说出的称呼、江湖传闻、玩家可理解的外号，且不破坏行文，就保留；如果它像内部档案字段、设定标签、生图/判定用名，或突然暴露私密档案导致违和，就只改写这一句。',
     '改写要求：保持原句事实、语气、人物关系、地点、动作和前后承接，不新增事件，不输出命令、记忆或解释。',
@@ -1204,7 +1309,10 @@ type 主剧情发送当前状态 = {
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
     导演圣经?: DirectorWorldBible;
+    上一回合导演圣经?: DirectorWorldBible;
     worldEvents?: string[];
+    场外交易暂存?: 场外交易记录结构[];
+    场外战果暂存?: 场外战果暂存结构[];
     开局配置?: OpeningConfig;
     游戏初始时间?: string;
     loading: boolean;
@@ -1240,9 +1348,13 @@ type 主剧情发送依赖 = {
         }>;
         历史?: 聊天记录结构[];
         场外对话?: 场外对话消息结构[];
+        场外交易暂存?: 场外交易记录结构[];
+        场外战果暂存?: 场外战果暂存结构[];
     } | null;
     recallAbortControllerRef: { current: AbortController | null };
     前台发送序号Ref?: { current: number };
+    获取会话代次?: () => number;
+    获取最新角色Snapshot?: () => 角色数据结构 | undefined;
     setLoading: (value: boolean) => void;
     set后台队列处理中: (value: boolean) => void;
     setShowSettings: (value: boolean) => void;
@@ -1255,11 +1367,14 @@ type 主剧情发送依赖 = {
     设置女主剧情规划?: (value: 女主剧情规划结构 | undefined) => void;
     设置任务列表?: (value: any[]) => void;
     设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
     setWorldEvents?: (value: string[]) => void;
     设置历史记录: (value: 聊天记录结构[] | ((prev: 聊天记录结构[]) => 聊天记录结构[])) => void;
     设置叙事平静值: (value: 叙事状态结构) => void;
     应用并同步记忆系统: (memory: 记忆系统结构, options?: { 静默总结提示?: boolean }) => void;
     清空场外对话暂存?: () => void;
+    清空场外交易暂存?: () => void;
+    清空场外战果暂存?: () => void;
     构建系统提示词: (promptPool: any[], memoryData: 记忆系统结构, socialData: any[], statePayload: any, options?: any) => Promise<主剧情系统上下文 & {
         runtimePromptStates: Record<string, any>;
     }> | (主剧情系统上下文 & {
@@ -1736,7 +1851,10 @@ export const 执行主剧情发送工作流 = async (
             导演圣经: deps.深拷贝(currentState.导演圣经),
             记忆系统: deps.深拷贝(memBeforeSend),
             叙事平静值: deps.深拷贝(currentState.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }),
-            场外对话: deps.深拷贝(currentState.场外对话 || [])
+            场外对话: deps.深拷贝(currentState.场外对话 || []),
+            场外交易暂存: deps.深拷贝(currentState.场外交易暂存 || []),
+            场外战果暂存: deps.深拷贝(currentState.场外战果暂存 || []),
+            世界大事: Array.isArray(currentState.worldEvents) ? deps.深拷贝(currentState.worldEvents) : []
         },
         回档前持久态: {
             视觉设置: deps.深拷贝(currentState.visualConfig),
@@ -1870,10 +1988,12 @@ export const 执行主剧情发送工作流 = async (
         const runtimeGameConfigV2 = 规范化游戏设置(currentState.gameConfig);
         const useStoryV2Turn = Boolean(
             !使用省次数模式
+            && !构建同人运行时提示词包({ openingConfig: currentState.开局配置 }).enabled
             && runtimeGameConfigV2.启用2_0剧情引擎 !== false
             && (currentState.导演圣经 || deps.设置导演圣经)
         );
         if (useStoryV2Turn) {
+            const v2SessionGeneration = deps.获取会话代次?.() ?? 0;
             if (isStreaming) {
                 streamMarker = Date.now();
                 deps.设置历史记录([
@@ -1898,12 +2018,17 @@ export const 执行主剧情发送工作流 = async (
                     story: currentState.剧情,
                     storyPlan: currentState.剧情规划
                 });
+            const preTurnDirectorBible = deps.深拷贝(currentDirectorBible);
             deps.设置导演圣经?.(currentDirectorBible);
             const 场外对话提示块V2 = 构建场外对话记录块(currentState.场外对话);
+            const 场外交易提示块V2 = 构建场外交易注入块(currentState.场外交易暂存);
+            const 场外战果提示块V2 = 构建场外战果注入块(currentState.场外战果暂存);
             const effectiveV2Input = [
                 sendInput,
                 recallTag ? `【历史回忆检索参考】\n${recallTag}` : '',
-                场外对话提示块V2 ? `【场外交流摘要】\n${场外对话提示块V2}` : ''
+                场外对话提示块V2 ? `【场外交流摘要】\n${场外对话提示块V2}` : '',
+                场外交易提示块V2,
+                场外战果提示块V2
             ].filter(Boolean).join('\n\n');
             const v2State: StoryV2EngineState = {
                 turnIndex: nextRound,
@@ -1929,14 +2054,16 @@ export const 执行主剧情发送工作流 = async (
                 directorApiConfig: 接口配置是否可用(planningApiV2) ? planningApiV2 : activeApi,
                 openingConfig: currentState.开局配置 || ({} as OpeningConfig),
                 worldConfig: {
-                    worldName: currentState.开局配置?.modeRuntimeProfile?.identity?.displayName || currentState.开局配置?.题材模式 || '墨染江湖'
+                    worldName: currentState.开局配置?.modeRuntimeProfile?.identity?.displayName || currentState.开局配置?.题材模式 || '墨色江湖 2.0'
                 },
                 promptPool: currentState.prompts,
                 worldbooks: currentState.世界书列表
             };
+            let latestRawDraftForV2Timeout = '';
             const renderedTurn = await deps.执行带自动重试的生成请求({
                 enabled: deps.游戏设置启用自动重试(runtimeGameConfigV2),
                 action: async (_attempt, lastError) => {
+                    latestRawDraftForV2Timeout = '';
                     if (isStreaming && lastError && 是否流式意外终止错误(lastError)) {
                         流式意外终止需降级非流式 = true;
                     }
@@ -1944,8 +2071,22 @@ export const 执行主剧情发送工作流 = async (
                     return 渲染主剧情回合V2(v2State, v2Config, effectiveV2Input, {
                         signal: controller.signal,
                         stream: turnUseStreaming,
+                        minBodyLength: runtimeGameConfigV2.字数要求,
+                        shortBodyMode: runtimeGameConfigV2.字数不足处理方式,
+                        executeStreamWithTimeout: (reqSignal, runFn) => 执行主剧情流式请求带空闲超时(
+                            reqSignal || controller.signal,
+                            (timeoutSignal, markActivity) => runFn(timeoutSignal, markActivity),
+                            () => {
+                                const draft = (latestRawDraftForV2Timeout || '').trim();
+                                if (!draft || !draft.includes('</正文>')) return null;
+                                if (runtimeGameConfigV2.启用行动选项 !== false && !draft.includes('</行动选项>')) return null;
+                                return draft;
+                            },
+                            获取游玩请求超时毫秒(runtimeGameConfigV2.游玩请求超时设置)
+                        ),
                         onDelta: turnUseStreaming
                             ? (_delta, accumulated) => {
+                                latestRawDraftForV2Timeout = accumulated;
                                 const preview = 提取2_0流式正文预览(accumulated);
                                 if (!preview) return;
                                 latestStreamDraftText = preview;
@@ -2005,8 +2146,35 @@ export const 执行主剧情发送工作流 = async (
                 outputTokens: deps.估算AI输出Token(renderedTurn.rawText, activeApi?.model)
             };
             const committedHistoryV2 = [...updatedDisplayHistory, newAiMsgV2];
+            const provisionalMemoryV2 = 写入四段记忆(
+                updatedMemSys,
+                构建即时记忆条目(currentGameTime, sendInput, displayResponse),
+                构建短期记忆条目(currentGameTime, displayResponse),
+                {
+                    immediateLimit: normalizedMemoryConfig.即时消息上传条数N,
+                    shortLimit: normalizedMemoryConfig.短期记忆阈值,
+                    midLimit: normalizedMemoryConfig.中期记忆阈值,
+                    recordTime: currentGameTime,
+                    timestamp: currentGameTime
+                }
+            );
             deps.设置历史记录(committedHistoryV2);
+            deps.应用并同步记忆系统(provisionalMemoryV2);
+            deps.设置上一回合导演圣经?.(preTurnDirectorBible);
             deps.清空场外对话暂存?.();
+            deps.清空场外交易暂存?.();
+            deps.清空场外战果暂存?.();
+
+            let 续跑历史V2: 聊天记录结构[] | null = null;
+            let 续跑场外对话V2: 场外对话消息结构[] | null = null;
+            let 续跑交易暂存V2: 场外交易记录结构[] | null = null;
+            let 续跑战果暂存V2: 场外战果暂存结构[] | null = null;
+
+            const 是否当前V2会话仍有效 = () => (
+                本次仍是最新前台回合()
+                && (!deps.获取会话代次 || deps.获取会话代次() === v2SessionGeneration)
+                && !controller.signal.aborted
+            );
 
             const runV2PostTurn = async () => {
                 try {
@@ -2017,13 +2185,24 @@ export const 执行主剧情发送工作流 = async (
                         apiConfig: v2Config.directorApiConfig || v2Config.apiConfig,
                         storyResponse: displayResponse,
                         playerInput: sendInput,
+                        openingConfig: currentState.开局配置,
                         signal: controller.signal
                     });
+                    if (!是否当前V2会话仍有效()) {
+                        收束自动存档完成(null);
+                        return;
+                    }
                     const finalEnvV2 = deps.规范化环境信息(postRes.nextState.环境);
                     const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;
-                    const finalRoleV2 = 规范化角色物品容器映射(postRes.nextState.角色, {
+                    const rawFinalRoleV2 = 规范化角色物品容器映射(postRes.nextState.角色, {
                         启用饱腹口渴系统: runtimeGameConfigV2.启用饱腹口渴系统,
                         题材模式: currentState.开局配置?.题材模式
+                    });
+                    const finalRoleV2 = 合并导演角色变更({
+                        latestRole: deps.获取最新角色Snapshot?.(),
+                        preTurnRole: v2State.角色,
+                        postTurnRole: rawFinalRoleV2,
+                        openingConfig: currentState.开局配置
                     });
                     const finalSocialV2 = 规范化社交列表(postRes.nextState.社交, { 合并同名: false });
                     const finalWorldV2 = deps.规范化世界状态(postRes.nextState.世界);
@@ -2052,7 +2231,8 @@ export const 执行主剧情发送工作流 = async (
                         ...newAiMsgV2,
                         gameTime: finalGameTimeV2
                     };
-                    const finalHistoryV2 = committedHistoryV2.map((m) => (
+                    const baseHistoryForCommit = 续跑历史V2 || committedHistoryV2;
+                    const finalHistoryV2 = baseHistoryForCommit.map((m) => (
                         m.role === 'assistant' && m.timestamp === aiTimestamp ? finalAiMsgV2 : m
                     ));
                     deps.设置历史记录(finalHistoryV2);
@@ -2089,32 +2269,41 @@ export const 执行主剧情发送工作流 = async (
                             autoApply: true
                         });
                     }
-                    const savedV2 = await deps.performAutoSave({
-                        history: finalHistoryV2,
-                        role: finalRoleV2,
-                        env: finalEnvV2,
-                        social: finalSocialV2,
-                        world: finalWorldV2,
-                        battle: currentState.战斗,
-                        sect: currentState.玩家门派,
-                        tasks: finalTasksV2,
-                        agreements: currentState.约定列表,
-                        story: finalStoryV2,
-                        storyPlan: finalStoryPlanV2,
-                        heroinePlan: finalHeroinePlanV2,
-                        fandomStoryPlan: currentState.同人剧情规划,
-                        fandomHeroinePlan: currentState.同人女主剧情规划,
-                        directorBible: postRes.nextState.directorBible,
-                        memory: finalMemoryV2
-                    });
-                    const validId = typeof savedV2?.id === 'number' && Number.isFinite(savedV2.id) ? savedV2.id : null;
-                    if (validId !== null) {
-                        本回合重Roll快照.关联自动存档ID = validId;
+                    if (runtimeGameConfigV2.启用回合结束自动存档 !== false) {
+                        const savedV2 = await deps.performAutoSave({
+                            history: finalHistoryV2,
+                            role: finalRoleV2,
+                            env: finalEnvV2,
+                            social: finalSocialV2,
+                            world: finalWorldV2,
+                            battle: currentState.战斗,
+                            sect: currentState.玩家门派,
+                            tasks: finalTasksV2,
+                            agreements: currentState.约定列表,
+                            story: finalStoryV2,
+                            storyPlan: finalStoryPlanV2,
+                            heroinePlan: finalHeroinePlanV2,
+                            fandomStoryPlan: currentState.同人剧情规划,
+                            fandomHeroinePlan: currentState.同人女主剧情规划,
+                            directorBible: postRes.nextState.directorBible,
+                            lastTurnDirectorBible: preTurnDirectorBible,
+                            worldEvents: finalWorldEventsV2,
+                            memory: finalMemoryV2,
+                            场外对话: 续跑场外对话V2 ?? [],
+                            场外交易暂存: 续跑交易暂存V2 ?? [],
+                            场外战果暂存: 续跑战果暂存V2 ?? []
+                        });
+                        const validId = typeof savedV2?.id === 'number' && Number.isFinite(savedV2.id) ? savedV2.id : null;
+                        if (validId !== null) {
+                            本回合重Roll快照.关联自动存档ID = validId;
+                        }
+                        收束自动存档完成(validId);
+                    } else {
+                        收束自动存档完成(null);
                     }
-                    收束自动存档完成(validId);
                 } catch (postErr: any) {
                     收束自动存档完成(null);
-                    if (postErr?.name === 'AbortError') {
+                    if (postErr?.name === 'AbortError' || !是否当前V2会话仍有效()) {
                         options?.onPlanningProgress?.({ phase: 'cancelled', text: '2.0 后台导演推演已取消，当前正文已保留。' });
                         options?.onWorldEvolutionProgress?.({ phase: 'cancelled', text: '2.0 离屏演化已取消。' });
                         return;
@@ -2129,14 +2318,37 @@ export const 执行主剧情发送工作流 = async (
                 }
             };
 
+            if (runtimeGameConfigV2.启用正文后暂停后续步骤 === true && deps.注册待继续后续步骤) {
+                deps.注册待继续后续步骤({
+                    阶段摘要: ['2.0 导演推演与伏笔核销', '2.0 离屏人物与势力演化'],
+                    回合标识: aiTimestamp,
+                    执行: async () => {
+                        const 续跑快照 = deps.获取续跑状态快照?.() || null;
+                        续跑历史V2 = Array.isArray(续跑快照?.历史) && 续跑快照.历史.length > 0 ? 续跑快照.历史 : null;
+                        续跑场外对话V2 = Array.isArray(续跑快照?.场外对话) ? 续跑快照.场外对话 : null;
+                        续跑交易暂存V2 = Array.isArray(续跑快照?.场外交易暂存) ? 续跑快照.场外交易暂存 : null;
+                        续跑战果暂存V2 = Array.isArray(续跑快照?.场外战果暂存) ? 续跑快照.场外战果暂存 : null;
+                        controller = new AbortController();
+                        deps.abortControllerRef.current = controller;
+                        deps.set后台队列处理中(true);
+                        await runV2PostTurn();
+                    }
+                });
+                return { attachedRecallPreview, pausedAfterStory: true };
+            }
+
             deps.set后台队列处理中(true);
             后台队列已启动 = true;
             void runV2PostTurn();
             return { attachedRecallPreview };
         }
         const recallContextActiveForMain = recallFeatureEnabled && Boolean(recallTag);
-        // 场外对话（侧聊）暂存原文：主回合成功吸收后由 deps.清空场外对话暂存 清空。
-        const 场外对话提示块 = 构建场外对话记录块(currentState.场外对话);
+        // 场外对话（侧聊/交易/交锋暂存）原文：主回合成功吸收后由清空回调清空。
+        const 场外对话提示块 = [
+            构建场外对话记录块(currentState.场外对话),
+            构建场外交易注入块(currentState.场外交易暂存),
+            构建场外战果注入块(currentState.场外战果暂存)
+        ].filter(Boolean).join('\n\n');
         const builtContext = await deps.构建系统提示词(
             currentState.prompts,
             updatedMemSys,
@@ -2535,7 +2747,7 @@ export const 执行主剧情发送工作流 = async (
             });
             const sourceBody = 构建正文文本(aiData);
             const expandPrompt = [
-                '你是《墨色江湖》的正文补足器。',
+                '你是《墨色江湖 2.0》的正文补足器。',
                 '任务不是重新生成整回合，而是在不改变事实、不新增命令含义的前提下，只扩写用户给出的 <正文>。',
                 '必须保留原正文里的判定结果、人物关系、地点、物品、台词含义和事件顺序。',
                 `本次 <正文> 可见字数目标至少 ${runtimeGameConfig.字数要求} 字；可以补充动作过程、感官反馈、环境承接、NPC反应和结果余波。`,
@@ -2794,8 +3006,10 @@ export const 执行主剧情发送工作流 = async (
             }
         );
         deps.应用并同步记忆系统(nextMemory);
-        // 主回合已成功落地（记忆已写入）：暂存的场外对话由本回合正文吸收，至此清空。
+        // 主回合已成功落地（记忆已写入）：暂存的场外对话与插件事件由本回合正文吸收，至此清空。
         deps.清空场外对话暂存?.();
+        deps.清空场外交易暂存?.();
+        deps.清空场外战果暂存?.();
 
         const newAiMsg: 聊天记录结构 = {
             role: "assistant",
@@ -2899,9 +3113,11 @@ export const 执行主剧情发送工作流 = async (
             && 获取队列阶段渠道键(文章优化配置, activeApi) !== 获取队列阶段渠道键(变量生成配置, activeApi);
         // 暂停模式下文章优化已经在「正文写完」时跑过，继续时不能再跑一次，否则等于白花一次调用。
         let 文章优化已由暂停前执行 = false;
-        // 暂停期间玩家可能追加系统消息 / 新开侧聊，续跑时抓一份最新快照，存档以它为准。
+        // 暂停期间玩家可能追加系统消息 / 新开侧聊与插件暂存，续跑时抓一份最新快照，存档以它为准。
         let 续跑存档历史: 聊天记录结构[] | null = null;
         let 续跑场外对话: 场外对话消息结构[] | null = null;
+        let 续跑交易暂存: 场外交易记录结构[] | null = null;
+        let 续跑战果暂存: 场外战果暂存结构[] | null = null;
 
         const 执行文章优化阶段 = async (启用并行文案: boolean = 文章优化变量可并行) => {
             if (!文章优化开启) return null;
@@ -3651,6 +3867,8 @@ export const 执行主剧情发送工作流 = async (
                             // 否则存档会写回旧的暂存（currentState 仍是发起回合时的闭包快照），读档后重复注入一次。
                             // 暂停模式例外：暂停期间新开的场外对话属于下一轮，不能被本回合存档清掉。
                             场外对话: 续跑场外对话 ?? [],
+                            场外交易暂存: 续跑交易暂存 ?? [],
+                            场外战果暂存: 续跑战果暂存 ?? [],
                             force: true
                         });
                         const autoSaveId = Number(saved?.id);
@@ -3762,6 +3980,8 @@ export const 执行主剧情发送工作流 = async (
                         ? 续跑快照!.历史!
                         : null;
                     续跑场外对话 = Array.isArray(续跑快照?.场外对话) ? 续跑快照!.场外对话! : null;
+                    续跑交易暂存 = Array.isArray(续跑快照?.场外交易暂存) ? 续跑快照!.场外交易暂存! : null;
+                    续跑战果暂存 = Array.isArray(续跑快照?.场外战果暂存) ? 续跑快照!.场外战果暂存! : null;
                     // 不检查旧 signal：暂停前它只在「文章优化被玩家中止」时才会 abort，
                     // 那种场景正文仍然保留、也应该允许继续；真正的过期回合已由发送/重ROLL/读档主动清空 + 回合标识校验拦掉。
                     controller = new AbortController();

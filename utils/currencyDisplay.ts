@@ -897,23 +897,33 @@ export const 是否货币类物品 = (item: any): boolean => (
 );
 
 /**
- * 以底层基础货币单位增减角色现金并同步回写三层货币槽位。
+ * 以底层基础货币单位增减角色现金并同步回写三层货币槽位（支持正数收入与负数支出）。
  */
-export const 自动增加BaseAmount = (
+export const 变更角色货币BaseAmount = (
     character: 角色数据结构,
-    baseIncome: number,
+    deltaBaseAmount: number,
     options?: { runtimeProfile?: ModeRuntimeProfile | null; 货币模式?: 货币显示模式; 仙侠模式?: boolean }
 ): 角色数据结构 => {
     const mode: 货币显示模式 = options?.仙侠模式 === true
         ? 'xianxia'
         : (options?.货币模式 || (character?.灵根 ? 'xianxia' : 'wuxia'));
     const curTotal = 计算角色货币底层总值(character?.金钱, options?.runtimeProfile, mode);
-    const delta = Math.max(0, Math.floor(Number(baseIncome) || 0));
+    const delta = Math.trunc(Number(deltaBaseAmount) || 0);
+    const nextTotal = Math.max(0, curTotal + delta);
     return {
         ...character,
-        金钱: 底层总值转角色金钱(curTotal + delta, options?.runtimeProfile, mode)
+        金钱: 底层总值转角色金钱(nextTotal, options?.runtimeProfile, mode)
     };
 };
+
+/**
+ * 以底层基础货币单位增加角色现金并同步回写三层货币槽位。
+ */
+export const 自动增加BaseAmount = (
+    character: 角色数据结构,
+    baseIncome: number,
+    options?: { runtimeProfile?: ModeRuntimeProfile | null; 货币模式?: 货币显示模式; 仙侠模式?: boolean }
+): 角色数据结构 => 变更角色货币BaseAmount(character, Math.max(0, Math.floor(Number(baseIncome) || 0)), options);
 
 export const 计算金钱BaseAmount总值 = (
     money?: Partial<角色金钱> | null,

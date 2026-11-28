@@ -393,6 +393,8 @@ const MemoryModal = 创建可预加载懒组件('memory-modal', () => import('./
 const MobileMemory = 创建可预加载懒组件('mobile-memory', () => import('./components/features/Memory/MobileMemory'));
 const MemorySummaryFlowModal = 创建可预加载懒组件('memory-summary-flow-modal', () => import('./components/features/Memory/MemorySummaryFlowModal'));
 const RoleChatModal = 创建可预加载懒组件('role-chat-modal', () => import('./components/features/Chat/RoleChatModal'));
+const TradePluginModal = 创建可预加载懒组件('trade-plugin-modal', () => import('./components/features/Chat/TradePluginModal'));
+const TacticalClashModal = 创建可预加载懒组件('tactical-clash-modal', () => import('./components/features/Chat/TacticalClashModal'));
 const MemorySummaryFlowMobileModal = 创建可预加载懒组件('mobile-memory-summary-flow-modal', () => import('./components/features/Memory/MemorySummaryFlowMobileModal'));
 const NpcMemorySummaryFlowModal = 创建可预加载懒组件('npc-memory-summary-flow-modal', () => import('./components/features/Memory/NpcMemorySummaryFlowModal'));
 const NpcMemorySummaryFlowMobileModal = 创建可预加载懒组件('mobile-npc-memory-summary-flow-modal', () => import('./components/features/Memory/NpcMemorySummaryFlowMobileModal'));
@@ -1817,6 +1819,9 @@ const App: React.FC = () => {
         setShowCloudPlay(false);
         setShowImageManager(false);
         setShowNovelDecompositionWorkbench(false);
+        setters.setShowRoleChat(false);
+        setters.setShowTradePlugin(false);
+        setters.setShowTacticalClash(false);
         setters.setShowSaveLoad({ show: false, mode: 'save' });
         setters.setShowSettings(false);
         setShowMobileMusic(false);
@@ -3253,6 +3258,10 @@ const App: React.FC = () => {
                                     onRecoverParseErrorRaw={actions.handleRecoverFromParseErrorRaw}
                                     onQuickRestart={actions.handleQuickRestart}
                                     onOpenRoleChat={() => setters.setShowRoleChat(true)}
+                                    onOpenTradePlugin={safeGameConfig?.启用情境交易插件 !== false ? () => setters.setShowTradePlugin(true) : undefined}
+                                    onOpenTacticalClash={safeGameConfig?.启用战术交锋插件 !== false ? () => setters.setShowTacticalClash(true) : undefined}
+                                    tradePendingCount={Array.isArray(state.场外交易暂存) ? state.场外交易暂存.length : 0}
+                                    clashPendingCount={Array.isArray(state.场外战果暂存) ? state.场外战果暂存.length : 0}
                                     requestConfirm={requestConfirm}
                                     loading={state.loading} 
                                     variableGenerationRunning={meta.variableGenerationRunning}
@@ -4544,6 +4553,96 @@ const App: React.FC = () => {
                                     setters.setActiveTab('role_chat');
                                     setters.setShowSettings(true);
                                     setters.setShowRoleChat(false);
+                                }}
+                            />
+                        </懒加载边界>
+                    )}
+
+                    {state.showTradePlugin && safeGameConfig?.启用情境交易插件 !== false && (
+                        <懒加载边界
+                            onDismiss={() => setters.setShowTradePlugin(false)}
+                        >
+                            <TradePluginModal
+                                open={true}
+                                loading={state.loading}
+                                role={state.角色}
+                                env={state.环境}
+                                world={state.世界}
+                                social={state.社交}
+                                directorBible={state.导演圣经}
+                                openingConfig={state.开局配置}
+                                pendingTrades={state.场外交易暂存 || []}
+                                onApplyTrade={({ nextRole, nextSocial, record }) => {
+                                    setters.setCharacter(nextRole);
+                                    setters.setSocial(nextSocial);
+                                    actions.追加场外交易记录(record);
+                                    actions.pushNotification({
+                                        title: '情境交易已暂存',
+                                        message: record.成交摘要,
+                                        tone: 'success'
+                                    });
+                                    void actions.performAutoSave?.({
+                                        role: nextRole,
+                                        social: nextSocial,
+                                        场外交易暂存: [...(state.场外交易暂存 || []), record],
+                                        force: true
+                                    });
+                                }}
+                                onClearTrades={() => {
+                                    actions.清空场外交易暂存();
+                                    void actions.performAutoSave?.({
+                                        场外交易暂存: [],
+                                        force: true
+                                    });
+                                }}
+                                onClose={() => setters.setShowTradePlugin(false)}
+                                onOpenSettings={() => {
+                                    setters.setActiveTab('game');
+                                    setters.setShowSettings(true);
+                                    setters.setShowTradePlugin(false);
+                                }}
+                            />
+                        </懒加载边界>
+                    )}
+
+                    {state.showTacticalClash && safeGameConfig?.启用战术交锋插件 !== false && (
+                        <懒加载边界
+                            onDismiss={() => setters.setShowTacticalClash(false)}
+                        >
+                            <TacticalClashModal
+                                open={true}
+                                loading={state.loading}
+                                role={state.角色}
+                                env={state.环境}
+                                social={state.社交}
+                                directorBible={state.导演圣经}
+                                pendingClashes={state.场外战果暂存 || []}
+                                onCommitClash={({ nextRole, record }) => {
+                                    setters.setCharacter(nextRole);
+                                    actions.追加场外战果记录(record);
+                                    actions.pushNotification({
+                                        title: '交锋战果已暂存',
+                                        message: record.战果摘要,
+                                        tone: 'success'
+                                    });
+                                    void actions.performAutoSave?.({
+                                        role: nextRole,
+                                        场外战果暂存: [...(state.场外战果暂存 || []), record],
+                                        force: true
+                                    });
+                                }}
+                                onClearClashes={() => {
+                                    actions.清空场外战果暂存();
+                                    void actions.performAutoSave?.({
+                                        场外战果暂存: [],
+                                        force: true
+                                    });
+                                }}
+                                onClose={() => setters.setShowTacticalClash(false)}
+                                onOpenSettings={() => {
+                                    setters.setActiveTab('game');
+                                    setters.setShowSettings(true);
+                                    setters.setShowTacticalClash(false);
                                 }}
                             />
                         </懒加载边界>

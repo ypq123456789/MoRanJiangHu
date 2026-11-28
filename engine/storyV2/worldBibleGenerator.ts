@@ -6,9 +6,89 @@ import {
 import { 地图层级命名契约, 地图层级命名自检 } from '../../prompts/runtime/mapLayerNaming';
 import { 规范化文本补全消息链, 请求模型文本, type 通用消息 } from '../../services/ai/chatCompletionClient';
 import { 提取首个标签内容 } from '../../services/ai/storyResponseParser';
-import type { OpeningConfig, 角色数据结构, 地图层级结构 } from '../../types';
+import type { OpeningConfig, 角色数据结构, 地图层级结构, 游戏设置结构 } from '../../types';
 import type { 当前可用接口结构 } from '../../utils/apiConfig';
 import { parseJsonWithRepair } from '../../utils/jsonRepair';
+import { 读取伙伴列表 } from '../../utils/openingCompanion';
+import { 题材是否仙侠 } from '../../utils/topicModeProfiles';
+
+const 地图节点下限 = 24;
+const 空间阶梯下限 = 3;
+const 势力数量下限 = 6;
+const 跨势力账目下限 = 2;
+const 核心卡司下限 = 7;
+const 伏笔数量下限 = 6;
+const 宏观分幕下限 = 4;
+
+const 地图层级深度: Record<string, number> = {
+    寰宇: 0,
+    大地点: 1,
+    中地点: 2,
+    小地点: 3,
+    区地点: 4,
+    子区域: 4,
+    子地点: 5
+};
+
+const 校验地图树结构 = (mapLayers: 地图层级结构[]): string[] => {
+    const issues: string[] = [];
+    if (mapLayers.length < 地图节点下限) {
+        issues.push(`<世界基底>地图层级仅 ${mapLayers.length} 个（需至少 ${地图节点下限} 个完整六层节点）`);
+        return issues;
+    }
+    const byId = new Map<string, 地图层级结构>();
+    for (const node of mapLayers) {
+        if (!node.ID || byId.has(node.ID)) {
+            issues.push(`<世界基底>存在空 ID 或重复节点 ID：${node.ID || node.名称}`);
+            return issues;
+        }
+        byId.set(node.ID, node);
+    }
+    const roots = mapLayers.filter((n) => n.层级 === '寰宇');
+    if (roots.length < 1) {
+        issues.push('<世界基底>缺少根节点（层级=寰宇）');
+        return issues;
+    }
+    for (const node of mapLayers) {
+        const tier = 地图层级深度[node.层级];
+        if (tier === undefined) {
+            issues.push(`<世界基底>节点「${node.名称}」层级「${node.层级}」非法`);
+            return issues;
+        }
+        if (node.层级 === '寰宇') continue;
+        const pid = (node.父级ID || '').trim();
+        if (!pid) {
+            issues.push(`<世界基底>非根节点「${node.名称}」缺少父级ID`);
+            return issues;
+        }
+        if (pid === node.ID) {
+            issues.push(`<世界基底>节点「${node.名称}」父级ID指向自身`);
+            return issues;
+        }
+        const parent = byId.get(pid);
+        if (!parent) {
+            issues.push(`<世界基底>节点「${node.名称}」的父级ID「${pid}」不存在`);
+            return issues;
+        }
+        const parentTier = 地图层级深度[parent.层级];
+        if (parentTier === undefined || tier !== parentTier + 1) {
+            issues.push(`<世界基底>节点「${node.名称}」(${node.层级}) 与父节点「${parent.名称}」(${parent.层级}) 层级不相邻`);
+            return issues;
+        }
+        // Check cycle
+        const visited = new Set<string>([node.ID]);
+        let cursor: 地图层级结构 | undefined = parent;
+        while (cursor && cursor.层级 !== '寰宇') {
+            if (visited.has(cursor.ID)) {
+                issues.push(`<世界基底>节点「${node.名称}」存在父子循环引用`);
+                return issues;
+            }
+            visited.add(cursor.ID);
+            cursor = cursor.父级ID ? byId.get(cursor.父级ID) : undefined;
+        }
+    }
+    return issues;
+};
 
 export interface WorldBibleGenerationResult {
     worldPrompt: string;
@@ -81,33 +161,35 @@ const 规范化地图节点数组 = (raw: unknown): 地图层级结构[] => {
     });
 };
 
-const 评估圣经完整度 = (bible: DirectorWorldBible, partnerName?: string): string[] => {
+const 评估圣经完整度 = (bible: DirectorWorldBible, partnerNames: string[] = []): string[] => {
     const issues: string[] = [];
     if (!bible.顶层隐秘秩序 || bible.顶层隐秘秩序.length < 15) issues.push('缺少具体的顶层隐秘秩序/垄断链条');
     if (!bible.核心历史原罪 || bible.核心历史原罪.length < 15) issues.push('缺少核心历史原罪/世界裂痕根源');
-    if (bible.空间阶梯.length < 3) issues.push(`空间阶梯不足（当前 ${bible.空间阶梯.length} 级，需 4 级）`);
-    if (bible.势力暗账.length < 5) issues.push(`势力暗账不足 5 个（当前 ${bible.势力暗账.length} 个）`);
+    if (bible.空间阶梯.length < 空间阶梯下限) issues.push(`空间阶梯不足（当前 ${bible.空间阶梯.length} 级，需至少 ${空间阶梯下限} 级）`);
+    if (bible.势力暗账.length < 势力数量下限) issues.push(`势力暗账不足 ${势力数量下限} 个（当前 ${bible.势力暗账.length} 个）`);
 
     const missingLeader = bible.势力暗账.filter((f) => !f.领袖 || f.领袖 === '无' || f.领袖 === '暂无');
     if (missingLeader.length > 0) {
         issues.push(`存在无具名领袖的空壳势力：${missingLeader.map((f) => f.名称).join('、')}`);
     }
-    const missingCross = bible.势力暗账.filter((f) => !f.跨势力账目 || f.跨势力账目.length === 0);
+    const missingCross = bible.势力暗账.filter((f) => !f.跨势力账目 || f.跨势力账目.length < 跨势力账目下限);
     if (missingCross.length > 0) {
-        issues.push(`存在跨势力关系空白势力：${missingCross.map((f) => f.名称).join('、')}`);
+        issues.push(`存在跨势力账目不足 ${跨势力账目下限} 条的势力：${missingCross.map((f) => f.名称).join('、')}`);
     }
-    if (bible.核心卡司.length < 6) issues.push(`核心卡司不足 6 人（当前 ${bible.核心卡司.length} 人）`);
+    if (bible.核心卡司.length < 核心卡司下限) issues.push(`核心卡司不足 ${核心卡司下限} 人（当前 ${bible.核心卡司.length} 人）`);
     const tiers = new Set(bible.核心卡司.map((c) => c.所处层级));
     if (tiers.size < 2) issues.push('核心卡司只集中在单一层级，缺少跨层级角色联动');
-    if (partnerName && !bible.核心卡司.some((c) => c.姓名 === partnerName)) {
-        issues.push(`开局同伴「${partnerName}」未被写入核心卡司档案与秘密线`);
+    for (const pName of partnerNames) {
+        if (pName && !bible.核心卡司.some((c) => c.姓名 === pName)) {
+            issues.push(`开局同伴「${pName}」未被写入核心卡司档案与秘密线`);
+        }
     }
     if (bible.前史导火索.length < 1) issues.push('缺少开局前数日内已引爆的前史导火索事件');
     if (!bible.主角核心困局.最大威胁源 || !bible.主角核心困局.手中唯一筹码或信息差) {
         issues.push('缺少主角开局根本困局或信息差筹码');
     }
-    if (bible.宏观分幕大纲.length < 3) issues.push(`宏观分幕大纲不足 3 幕（当前 ${bible.宏观分幕大纲.length} 幕）`);
-    if (bible.伏笔台账.length < 5) issues.push(`伏笔台账不足 5 枚（当前 ${bible.伏笔台账.length} 枚）`);
+    if (bible.宏观分幕大纲.length < 宏观分幕下限) issues.push(`宏观分幕大纲不足 ${宏观分幕下限} 幕（当前 ${bible.宏观分幕大纲.length} 幕）`);
+    if (bible.伏笔台账.length < 伏笔数量下限) issues.push(`伏笔台账不足 ${伏笔数量下限} 枚（当前 ${bible.伏笔台账.length} 枚）`);
     return issues;
 };
 
@@ -131,23 +213,25 @@ const 确保核心结构兜底 = (
         世界观表层摘要: bible.世界观表层摘要 || params.worldPrompt.slice(0, 500)
     };
 
-    const partner = params.openingConfig?.初始伙伴;
-    if (partner?.enabled && partner.姓名 && !next.核心卡司.some((c) => c.姓名 === partner.姓名)) {
+    const enabledPartners = 读取伙伴列表(params.openingConfig);
+    for (let idx = enabledPartners.length - 1; idx >= 0; idx -= 1) {
+        const { partner, name } = enabledPartners[idx];
+        if (!name || name === playerName || next.核心卡司.some((c) => c.姓名 === name)) continue;
         next.核心卡司.unshift({
             id: `CAST-${String(next.核心卡司.length + 1).padStart(3, '0')}`,
-            姓名: partner.姓名,
+            姓名: name,
             性别: (partner.性别 as any) || '女',
-            身份与势力: partner.背景名称 || '修真家族旁支',
+            身份与势力: partner.背景名称 || '江湖旁支同路人',
             所处层级: 1,
             生平与过往执念: `${partner.背景描述 || '出身旁支'}，${partner.性格 || '重诺隐忍，深知底层身不由己'}`,
             表层伪装: '稳重可靠的同行伙伴，时刻提醒风险',
             真实诉求与利益底线: '保住自身与至亲生路，不被家族或宗门当作弃子献祭',
-            隐藏秘密: `${partner.姓名}所属支脉近期卷入了一桩涉及高层密令的旧案，她正借同行掩护暗中脱身或寻觅生机。`,
+            隐藏秘密: `${name}所属支脉近期卷入了一桩涉及高层密令的旧案，正借同行掩护暗中脱身或寻觅生机。`,
             初始认知边界: {
-                已知事实: ['主角散修出身的隐忍性情', '自身支脉近期遭遇异常追索的端倪'],
+                已知事实: ['主角的过往底色与性情', '自身支脉近期遭遇异常追索的端倪'],
                 盲区: ['前史导火索背后的顶层博弈全貌']
             },
-            人际渊源: [{ 对象: params.charData.姓名, 真实关系与心思: '自幼相识、互为依托，却也各自藏有底牌' }],
+            人际渊源: [{ 对象: params.charData.姓名, 真实关系与心思: '自幼相识或患难与共、互为依托，却也各自藏有底牌' }],
             幕后当前日程: {
                 当前目标: '在追查收紧前确认一件旧信物的安全去处',
                 正在推进的步骤: '借日常同行遮掩行踪，暗中试探主角是否可托付重担',
@@ -182,16 +266,17 @@ export const 生成世界与导演圣经V2 = async (params: {
     apiConfig: 当前可用接口结构;
     extraPrompt?: string;
     signal?: AbortSignal;
+    stream?: boolean;
     onDelta?: (delta: string, accumulated: string) => void;
 }): Promise<WorldBibleGenerationResult> => {
-    const { worldConfig, charData, openingConfig, apiConfig, extraPrompt, signal, onDelta } = params;
-    const partner = openingConfig?.初始伙伴;
-    const partnerHint = partner?.enabled
-        ? `初始同伴：${partner.姓名}（${partner.性别 || '女'}，${partner.背景名称 || ''}，性格：${partner.性格 || ''}，关系：${partner.关系 || '自幼相识'}）`
+    const { worldConfig, charData, openingConfig, apiConfig, extraPrompt, signal, stream = true, onDelta } = params;
+    const enabledPartners = 读取伙伴列表(openingConfig);
+    const partnerHint = enabledPartners.length > 0
+        ? `初始同伴（共 ${enabledPartners.length} 人）：${enabledPartners.map(({ partner, name }) => `${name}（${partner.性别 || '女'}，${partner.背景名称 || ''}，性格：${partner.性格 || ''}，关系：${partner.关系 || '自幼相识'}）`).join('；')}`
         : '无预设初始同伴';
 
     const systemPrompt = [
-        '你是专精《道君》《庆余年》《蛊真人》级长篇因果网文架构的【总编剧兼世界架构师】。',
+        '你是《墨色江湖 2.0》专精《道君》《庆余年》《蛊真人》级长篇因果网文架构的【总编剧兼世界架构师】。',
         '你的任务是构建一台【开局前就已经上了发条的高压因果机器】：',
         '所有势力利益链、跨层级重要角色、前史导火索与伏笔台账都像精密齿轮一样相互咬合，开局即卷入危局与博弈。',
         '你必须严格写出完整规模的结构化设定，绝不允许只用 1~2 条示例敷衍交差。'
@@ -252,7 +337,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         '    "短中期推进动力": "为什么第0回合就不得不采取行动、结盟或破局"',
         '  },',
         '  "宏观分幕大纲": [',
-        '    { "幕次": 1, "标题": "...", "核心矛盾": "...", "主角目标与破局路径": "...", "关键势力与人物": ["..."], "跃迁至下一幕条件": "...", "当前状态": "推进中" },',
+        '    { "幕次": 1, "标题": "玩家视角可读的当前局势标题（严禁剧透未揭晓伏笔真相）", "核心矛盾": "写当前局势可见危机与矛盾，不要直接剧透暗线真相", "主角目标与破局路径": "...", "关键势力与人物": ["..."], "跃迁至下一幕条件": "...", "当前状态": "推进中" },',
         '    { "幕次": 2, "标题": "...", "核心矛盾": "...", "主角目标与破局路径": "...", "关键势力与人物": ["..."], "跃迁至下一幕条件": "...", "当前状态": "未开始" },',
         '    { "幕次": 3, "标题": "...", "核心矛盾": "...", "主角目标与破局路径": "...", "关键势力与人物": ["..."], "跃迁至下一幕条件": "...", "当前状态": "未开始" },',
         '    { "幕次": 4, "标题": "...", "核心矛盾": "...", "主角目标与破局路径": "...", "关键势力与人物": ["..."], "跃迁至下一幕条件": "...", "当前状态": "未开始" }',
@@ -289,10 +374,12 @@ export const 生成世界与导演圣经V2 = async (params: {
         return 请求模型文本(apiConfig, reqMsgs, {
             temperature: 0.75,
             signal,
-            streamOptions: {
-                stream: true,
-                onDelta: (delta, acc) => onDelta?.(delta, acc)
-            }
+            streamOptions: stream
+                ? {
+                    stream: true,
+                    onDelta: (delta, acc) => onDelta?.(delta, acc)
+                }
+                : undefined
         });
     };
 
@@ -308,26 +395,28 @@ export const 生成世界与导演圣经V2 = async (params: {
         return { worldPrompt, mapLayers, directorBible, rawText };
     };
 
+    const enabledPartnerNames = enabledPartners.map((item) => item.name);
     const countIssues = (candidate: WorldBibleGenerationResult) => [
         ...(!candidate.worldPrompt || candidate.worldPrompt.length < 300 ? ['<世界观>内容过短或缺失'] : []),
-        ...(candidate.mapLayers.length < 18 ? [`<世界基底>地图层级仅 ${candidate.mapLayers.length} 个（需至少 20 个完整六层节点）`] : []),
-        ...评估圣经完整度(candidate.directorBible, partner?.enabled ? partner.姓名 : undefined)
+        ...校验地图树结构(candidate.mapLayers),
+        ...评估圣经完整度(candidate.directorBible, enabledPartnerNames)
     ];
 
     let res = parseBundle(await callGen());
     let issues = countIssues(res);
+    let lastRepairError: unknown = null;
 
     // Up to 2 targeted repair/regenerate passes if structural count gates failed
     for (let repairAttempt = 1; repairAttempt <= 2 && issues.length > 0; repairAttempt += 1) {
         try {
-            const needMapRepair = res.mapLayers.length < 18;
+            const needMapRepair = 校验地图树结构(res.mapLayers).length > 0;
             const repairPrompt = [
                 `你的上一版输出未通过第 ${repairAttempt} 次结构完整性验收，存在以下硬性数量/字段缺失：`,
                 ...issues.map((i) => `- ${i}`),
                 '',
                 needMapRepair
-                    ? '请补全并输出完整的 `<世界基底>`（至少 24 个六层树状 `地图层级` 节点）以及 `<导演圣经>`（必须真正写出 6+ 势力暗账、7+ 跨层级 NPC 核心卡司、6+ 伏笔台账、4 幕大纲，严禁只写 1~2 条示例敷衍！）。'
-                    : '请在保留既有合理核心设定的基础上，补全并输出完整的 `<导演圣经>` JSON（必须真正写出 6+ 势力暗账、7+ 跨层级 NPC 核心卡司、6+ 伏笔台账、4 幕大纲）。',
+                    ? `请补全并输出完整的 \`<世界基底>\`（至少 ${地图节点下限} 个合规六层树状 \`地图层级\` 节点）以及 \`<导演圣经>\`（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲，严禁只写 1~2 条示例敷衍！）。`
+                    : `请在保留既有合理核心设定的基础上，补全并输出完整的 \`<导演圣经>\` JSON（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲）。`,
                 '',
                 '可延续的核心设定草稿如下（请扩展写全，不要缩水）：',
                 JSON.stringify(res.directorBible)
@@ -342,10 +431,12 @@ export const 生成世界与导演圣经V2 = async (params: {
                 {
                     temperature: 0.55,
                     signal,
-                    streamOptions: {
-                        stream: true,
-                        onDelta: (delta, acc) => onDelta?.(delta, acc)
-                    }
+                    streamOptions: stream
+                        ? {
+                            stream: true,
+                            onDelta: (delta, acc) => onDelta?.(delta, acc)
+                        }
+                        : undefined
                 }
             );
             const repBaseBlock = 清理代码块(提取首个标签内容(repairedRaw, '世界基底', { 兼容错误闭合: true }) || '');
@@ -356,16 +447,26 @@ export const 生成世界与导演圣经V2 = async (params: {
             const repairedBibleObj = parseJsonWithRepair<any>(repairedBibleBlock).value;
 
             const repWorldPrompt = 清理代码块(提取首个标签内容(repairedRaw, '世界观', { 兼容错误闭合: true }) || '');
-            const mergedCandidate: WorldBibleGenerationResult = {
-                worldPrompt: repWorldPrompt.length > res.worldPrompt.length ? repWorldPrompt : res.worldPrompt,
-                mapLayers: repMapLayers.length > res.mapLayers.length ? repMapLayers : res.mapLayers,
-                directorBible: repairedBibleObj
-                    ? 确保核心结构兜底(规范化导演圣经(repairedBibleObj), {
+            const mergedWorldPrompt = repWorldPrompt.length > res.worldPrompt.length ? repWorldPrompt : res.worldPrompt;
+            const repSummary = typeof repairedBibleObj?.世界观表层摘要 === 'string' ? repairedBibleObj.世界观表层摘要.trim() : '';
+            const mergedBible = repairedBibleObj
+                ? 确保核心结构兜底(
+                    规范化导演圣经({
+                        ...repairedBibleObj,
+                        世界观表层摘要: repSummary || mergedWorldPrompt.slice(0, 500)
+                    }),
+                    {
                         charData,
                         openingConfig,
-                        worldPrompt: res.worldPrompt
-                    })
-                    : res.directorBible,
+                        worldPrompt: mergedWorldPrompt
+                    }
+                )
+                : res.directorBible;
+
+            const mergedCandidate: WorldBibleGenerationResult = {
+                worldPrompt: mergedWorldPrompt,
+                mapLayers: repMapLayers.length > res.mapLayers.length ? repMapLayers : res.mapLayers,
+                directorBible: mergedBible,
                 rawText: `${res.rawText}\n\n<!-- REPAIRED_BIBLE_${repairAttempt} -->\n${repairedRaw}`
             };
             const nextIssues = countIssues(mergedCandidate);
@@ -373,9 +474,17 @@ export const 生成世界与导演圣经V2 = async (params: {
                 res = mergedCandidate;
                 issues = nextIssues;
             }
-        } catch {
-            // Continue or fall back to best candidate
+        } catch (err: any) {
+            if (err?.name === 'AbortError' || signal?.aborted) {
+                throw err;
+            }
+            lastRepairError = err;
         }
+    }
+
+    if (issues.length > 0) {
+        const repairDetail = lastRepairError instanceof Error ? `；修补请求异常：${lastRepairError.message}` : '';
+        throw new Error(`2.0 世界观与导演圣经未通过完整性校验：${issues.join('；')}${repairDetail}`);
     }
 
     // Ensure faction cross-ledger bidirectionally links existing factions cleanly if any still missing
@@ -401,22 +510,32 @@ export const 从圣经初始化世界势力与社交 = (
     bible: DirectorWorldBible,
     mapLayers: 地图层级结构[],
     openingConfig: OpeningConfig,
-    charData: 角色数据结构
+    charData: 角色数据结构,
+    gameConfig?: Pick<游戏设置结构, '启用修炼体系'>
 ) => {
     const factions = 将势力暗账投影为世界势力(bible.势力暗账, mapLayers);
+    const enabledPartners = 读取伙伴列表(openingConfig);
+    const partnerNameSet = new Set(enabledPartners.map((item) => item.name));
+    const cultivationEnabled = gameConfig?.启用修炼体系 !== false;
+    const isXianxia = 题材是否仙侠(openingConfig?.题材模式);
+    const resolveRealmByTier = (tier: number): string => {
+        if (!cultivationEnabled) return '';
+        if (isXianxia) return tier >= 3 ? '金丹期' : (tier === 2 ? '筑基期' : '炼气期');
+        return tier >= 3 ? '宗师境' : (tier === 2 ? '一流高手' : '初入江湖');
+    };
     const castAsSocial = bible.核心卡司
-        .filter((c) => c.是否已登场 || c.姓名 === openingConfig?.初始伙伴?.姓名)
+        .filter((c) => c.是否已登场 || partnerNameSet.has(c.姓名))
         .map((c) => ({
             id: c.id,
             姓名: c.姓名,
             性别: c.性别,
             身份: c.身份与势力,
-            境界: c.所处层级 >= 3 ? '金丹期' : (c.所处层级 === 2 ? '筑基期' : '练气期'),
+            境界: resolveRealmByTier(Number(c.所处层级) || 1),
             简介: `${c.生平与过往执念}。日常表现：${c.表层伪装}。`,
             核心性格特征: c.表层伪装,
             关系: c.人际渊源.find((t) => t.对象 === charData.姓名)?.真实关系与心思 || '同行/交集之人',
-            好感度: c.姓名 === openingConfig?.初始伙伴?.姓名 ? 60 : 35,
-            是否在场: c.姓名 === openingConfig?.初始伙伴?.姓名,
+            好感度: partnerNameSet.has(c.姓名) ? 60 : 35,
+            是否在场: partnerNameSet.has(c.姓名),
             记忆: []
         }));
 

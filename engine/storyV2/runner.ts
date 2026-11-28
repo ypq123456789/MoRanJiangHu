@@ -30,7 +30,8 @@ export const 初始化世界与圣经V2 = async (params: {
         worldConfig: config.worldConfig,
         charData,
         openingConfig: config.openingConfig,
-        apiConfig: config.directorApiConfig || config.apiConfig
+        apiConfig: config.directorApiConfig || config.apiConfig,
+        stream: config.gameConfig?.启用非流式输出 !== true
     });
 
     const baseState = 创建开场基础状态(charData, {
@@ -49,7 +50,8 @@ export const 初始化世界与圣经V2 = async (params: {
         genRes.directorBible,
         genRes.mapLayers,
         config.openingConfig,
-        charData
+        charData,
+        config.gameConfig
     );
 
     const world = {

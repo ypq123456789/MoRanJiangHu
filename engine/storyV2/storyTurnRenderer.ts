@@ -16,6 +16,8 @@ import { StoryResponseParseError, parseStoryRawText } from '../../services/ai/st
 import type { GameResponse, 提示词结构 } from '../../types';
 import { 提取叙事约束块 } from '../../utils/narrativeConstraint';
 import { 按功能开关过滤提示词内容 } from '../../utils/promptFeatureToggles';
+import { 读取伙伴列表 } from '../../utils/openingCompanion';
+import { 正文字数差距在容错内 } from '../../utils/bodyLengthTolerance';
 import { 过滤非场景世界书, 构建2_0写作规则池, 净化2_0酒馆预设 } from './promptFiltering';
 import { 构建本回合导演简报, type SceneBriefOutput } from './sceneBriefBuilder';
 import type { StoryV2Config, StoryV2EngineState } from './types';
@@ -28,7 +30,7 @@ export interface RenderedStoryTurn {
     contextChars: number;
 }
 
-const V2_STORY_CONTRACT = [
+const 构建V2演出协议 = (requireActionOptions: boolean): string => [
     '【2.0 主剧情导演演出协议 · 必须严格遵守（覆盖任何旧预设习惯）】',
     '1. 你的职责是“严密因果与高张力舞台演出者”，而非散步流水账记叙者或机械降神爽文。',
     '2. 严格服从【2.0 剧情导演简报】与【信息隔离墙】：',
@@ -37,9 +39,13 @@ const V2_STORY_CONTRACT = [
     '   - 埋伏笔时只展现自然可感的“表面载体细节”，绝对禁止旁白科普底层真相。',
     '3. 不写低价值重复劳动（砍柴/推车/重复擦汗），每次交锋都要推进真实利害、交换筹码或显露新裂痕；同时严禁替玩家主动做重大决定或输出 `<变量规划>`/`<剧情规划>`。',
     '4. 严格标签规范：',
-    '   - 顶层标签：`<thinking>...</thinking>` -> `<正文>...</正文>` -> `<短期记忆>...</短期记忆>` -> `<行动选项>...</行动选项>`；',
+    requireActionOptions
+        ? '   - 顶层标签：`<thinking>...</thinking>` -> `<正文>...</正文>` -> `<短期记忆>...</短期记忆>` -> `<行动选项>...</行动选项>`；'
+        : '   - 顶层标签：`<thinking>...</thinking>` -> `<正文>...</正文>` -> `<短期记忆>...</短期记忆>`（本次关闭了行动选项，严禁输出 `<行动选项>` 标签！）；',
     '   - `<正文>` 内对白标签必须是纯粹角色名如 `【杨培强】`、`【俞月荷】`，绝不允许写成 `【角色名：杨培强】`；物品/功法/秘籍引用统一用书名号 `《镇岳秘图》`，不要用尖括号 `<镇岳秘图>`；',
-    '   - `<行动选项>` 严格输出 4~5 条纯正文内部策略抉择（如 `A.[策略标签] 具体动作`），严禁生成 `10` 条选项，严禁任何 `[视角切换]`、`[双线叙事]`、`[镜头转换]`、`[时间跳转]` 或无铺垫硬塞的 `[NSFW-A/B/C]`！',
+    requireActionOptions
+        ? '   - `<行动选项>` 严格输出 4~5 条纯正文内部策略抉择（如 `A.[策略标签] 具体动作`），严禁生成 `10` 条选项，严禁任何 `[视角切换]`、`[双线叙事]`、`[镜头转换]`、`[时间跳转]` 或无铺垫硬塞的 `[NSFW-A/B/C]`！'
+        : '   - 本次不生成 `<行动选项>`，正文收束在有画面感与悬念张力的当下即可。',
     '5. 严禁暴露后台数字时间戳（如 `1:01:01:08:00`），时间一律使用自然描写。'
 ].join('\n');
 
@@ -84,6 +90,7 @@ const 解析V2故事响应 = (
     params: {
         validateDialogueFormat: boolean;
         knownSpeakers: string[];
+        requireActionOptionsTag: boolean;
     }
 ): GameResponse => {
     const normalized = (rawText || '')
@@ -93,19 +100,38 @@ const 解析V2故事响应 = (
         enableTagRepair: true,
         validateDialogueFormat: params.validateDialogueFormat,
         knownSpeakers: params.knownSpeakers,
-        requireActionOptionsTag: true
+        requireActionOptionsTag: params.requireActionOptionsTag
     });
-    return 清洗2_0解析后正文日志(parsed);
+    const cleaned = 清洗2_0解析后正文日志(parsed);
+    if (!params.requireActionOptionsTag) {
+        return { ...cleaned, action_options: [] };
+    }
+    return cleaned;
 };
+
+const 计算响应正文字符数 = (resp: GameResponse): number => (
+    (Array.isArray(resp?.logs) ? resp.logs : [])
+        .map((l) => (typeof l?.text === 'string' ? l.text : ''))
+        .join('')
+        .replace(/\s+/g, '')
+        .length
+);
 
 const 执行带重试故事生成 = async (params: {
     apiConfig: StoryV2Config['apiConfig'];
     messages: 通用消息[];
     validateDialogueFormat: boolean;
     knownSpeakers: string[];
+    requireActionOptionsTag: boolean;
+    minBodyLength?: number;
+    shortBodyMode?: '重新生成' | '仅提示';
     signal?: AbortSignal;
     stream?: boolean;
     onDelta?: (delta: string, accumulated: string) => void;
+    executeStreamWithTimeout?: (
+        signal: AbortSignal | undefined,
+        runFn: (reqSignal: AbortSignal, markActivity?: () => void) => Promise<string>
+    ) => Promise<string>;
 }): Promise<{ response: GameResponse; rawText: string }> => {
     let lastError: any = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -116,35 +142,59 @@ const 执行带重试故事生成 = async (params: {
             ? null
             : {
                 role: 'user' as const,
-                content: `【格式修复重试(${attempt}/3)】上一版未通过校验（原因：${lastError?.parseDetail || lastError?.message || '标签缺失或对白格式不合'}）。请重新完整输出：<thinking>...</thinking>、<正文>...</正文>（严格【旁白】/【角色名】分行）、<短期记忆>...</短期记忆>、<行动选项>...</行动选项>（选项必须写在标签内部！）。`
+                content: params.requireActionOptionsTag
+                    ? `【格式/字数修复重试(${attempt}/3)】上一版未通过校验（原因：${lastError?.parseDetail || lastError?.message || '标签缺失或篇幅不足'}）。请重新完整输出：<thinking>...</thinking>、<正文>...</正文>（严格【旁白】/【角色名】分行）、<短期记忆>...</短期记忆>、<行动选项>...</行动选项>（选项必须写在标签内部！）。`
+                    : `【格式/字数修复重试(${attempt}/3)】上一版未通过校验（原因：${lastError?.parseDetail || lastError?.message || '标签缺失或篇幅不足'}）。请重新完整输出：<thinking>...</thinking>、<正文>...</正文>（严格【旁白】/【角色名】分行）、<短期记忆>...</短期记忆>。`
             };
         const reqMessages = 规范化文本补全消息链(
             retryHint ? [...params.messages, retryHint] : params.messages,
             { 保留System: true, 合并同角色: false, 尾部System转User: true }
         );
-        const rawText = await 请求模型文本(params.apiConfig, reqMessages, {
+        const invokeOnce = (reqSignal: AbortSignal | undefined, markActivity?: () => void) => 请求模型文本(params.apiConfig, reqMessages, {
             temperature: 0.72,
-            signal: params.signal,
-            streamOptions: {
-                stream: params.stream !== false,
-                onDelta: (delta, acc) => params.onDelta?.(delta, acc)
-            }
+            signal: reqSignal,
+            streamOptions: params.stream !== false
+                ? {
+                    stream: true,
+                    onDelta: (delta, acc) => {
+                        markActivity?.();
+                        params.onDelta?.(delta, acc);
+                    }
+                }
+                : undefined
         });
+        const rawText = params.executeStreamWithTimeout && params.stream !== false
+            ? await params.executeStreamWithTimeout(params.signal, (reqSignal, markActivity) => invokeOnce(reqSignal, markActivity))
+            : await invokeOnce(params.signal);
         try {
             const response = 解析V2故事响应(rawText, {
                 validateDialogueFormat: params.validateDialogueFormat,
-                knownSpeakers: params.knownSpeakers
+                knownSpeakers: params.knownSpeakers,
+                requireActionOptionsTag: params.requireActionOptionsTag
             });
+            const minLen = Number(params.minBodyLength) || 0;
+            if (minLen >= 50 && params.shortBodyMode !== '仅提示') {
+                const actualLen = 计算响应正文字符数(response);
+                if (actualLen < minLen && !正文字数差距在容错内(actualLen, minLen)) {
+                    const lenErr = new StoryResponseParseError(
+                        `正文过短：当前约 ${actualLen} 字，低于设置要求 ${minLen} 字，请扩写完整正文。`,
+                        rawText,
+                        `正文过短：${actualLen}/${minLen}`
+                    );
+                    (lenErr as any).reasonType = 'body_length_shortage';
+                    throw lenErr;
+                }
+            }
             return { response, rawText };
         } catch (err) {
             lastError = err;
             if (attempt === 3 || !(err instanceof StoryResponseParseError || (err as any)?.name === 'StoryResponseParseError')) {
-                // On attempt 3, try relaxing validateDialogueFormat as last safety net
-                if (attempt === 3 && params.validateDialogueFormat) {
+                if (attempt === 3 && (err as any)?.reasonType !== 'body_length_shortage' && params.validateDialogueFormat) {
                     try {
                         const relaxed = 解析V2故事响应(rawText, {
                             validateDialogueFormat: false,
-                            knownSpeakers: params.knownSpeakers
+                            knownSpeakers: params.knownSpeakers,
+                            requireActionOptionsTag: params.requireActionOptionsTag
                         });
                         return { response: relaxed, rawText };
                     } catch {
@@ -170,13 +220,16 @@ export const 渲染开局回合V2 = async (
     const startMs = Date.now();
     const { apiConfig, openingConfig } = config;
     const gameConfig = 净化2_0酒馆预设(config.gameConfig);
+    const requireActionOptions = gameConfig.启用行动选项 !== false;
+    const storyContract = 构建V2演出协议(requireActionOptions);
     const { directorBible: _omitBible, ...safeState } = state;
     const presentNpcNames = (state.社交 || []).filter((n) => n?.是否在场 !== false).map((n) => n?.姓名).filter(Boolean);
+    const firstEnabledPartner = 读取伙伴列表(openingConfig)[0]?.name;
     const briefOutput = 构建本回合导演简报({
         bible: state.directorBible,
         turnIndex: 0,
         playerName: state.角色?.姓名 || '主角',
-        partnerName: openingConfig?.初始伙伴?.enabled ? openingConfig.初始伙伴.姓名 : undefined,
+        partnerName: firstEnabledPartner,
         presentNpcNames,
         gameConfig
     });
@@ -192,6 +245,9 @@ export const 渲染开局回合V2 = async (
 
     const filteredWorldbooks = 过滤非场景世界书(config.worldbooks || [], false);
     const tavernMode = 酒馆预设模式可用(gameConfig);
+    const explicitExtraRequirement = (config.worldConfig.openingExtraRequirement || '').trim();
+    const openingConfigPrompt = 构建开局配置提示词(openingConfig, explicitExtraRequirement)
+        || (explicitExtraRequirement ? `【开局额外要求】\n${explicitExtraRequirement}` : '');
 
     const sysCtx = 构建系统提示词({
         promptPool: finalPool,
@@ -216,9 +272,9 @@ export const 渲染开局回合V2 = async (
             世界书附加文本: [
                 briefOutput.directorBriefText,
                 briefOutput.knowledgeIsolationText,
-                构建开局配置提示词(openingConfig, config.worldConfig.openingExtraRequirement || ''),
-                V2_STORY_CONTRACT
-            ],
+                openingConfigPrompt,
+                storyContract
+            ].filter(Boolean),
             openingConfig,
             强制剧情COT提示词ID: 'core_cot'
         }
@@ -233,11 +289,12 @@ export const 渲染开局回合V2 = async (
 
     const openingTaskInput = [
         '请基于以上【世界观】、【主角与同伴建档】与【2.0 剧情导演开局简报】，生成极具沉浸感与戏剧张力的第 0 回合开场第一幕。',
+        openingConfigPrompt,
         briefOutput.directorBriefText,
         briefOutput.knowledgeIsolationText,
-        V2_STORY_CONTRACT,
+        storyContract,
         `目标字数：正文约 ${gameConfig.字数要求 || 1500} 字。`
-    ].join('\n\n');
+    ].filter(Boolean).join('\n\n');
 
     let orderedMessages: 通用消息[] = [];
     if (tavernMode) {
@@ -261,10 +318,11 @@ export const 渲染开局回合V2 = async (
             role: 'user',
             content: [
                 '【最高优先级·2.0叙事与格式覆盖指令】',
+                openingConfigPrompt,
                 briefOutput.directorBriefText,
                 briefOutput.knowledgeIsolationText,
-                V2_STORY_CONTRACT
-            ].join('\n\n')
+                storyContract
+            ].filter(Boolean).join('\n\n')
         });
     } else {
         const cotPseudo = 构建COT伪装提示词(gameConfig, sysCtx.contextPieces.AI角色声明);
@@ -299,11 +357,12 @@ export const 渲染开局回合V2 = async (
         messages: orderedMessages,
         validateDialogueFormat: gameConfig.启用严格正文对白格式 !== false,
         knownSpeakers,
+        requireActionOptionsTag: requireActionOptions,
         signal: options?.signal,
         stream: options?.stream,
         onDelta: options?.onDelta
     });
-    response.action_options = 过滤并精简V2行动选项(response.action_options);
+    response.action_options = requireActionOptions ? 过滤并精简V2行动选项(response.action_options) : [];
 
     return {
         response,
@@ -322,18 +381,27 @@ export const 渲染主剧情回合V2 = async (
         signal?: AbortSignal;
         stream?: boolean;
         onDelta?: (delta: string, accumulated: string) => void;
+        minBodyLength?: number;
+        shortBodyMode?: '重新生成' | '仅提示';
+        executeStreamWithTimeout?: (
+            signal: AbortSignal | undefined,
+            runFn: (reqSignal: AbortSignal, markActivity?: () => void) => Promise<string>
+        ) => Promise<string>;
     }
 ): Promise<RenderedStoryTurn> => {
     const startMs = Date.now();
     const { apiConfig, openingConfig } = config;
     const gameConfig = 净化2_0酒馆预设(config.gameConfig);
+    const requireActionOptions = gameConfig.启用行动选项 !== false;
+    const storyContract = 构建V2演出协议(requireActionOptions);
     const { directorBible: _omitBible, ...safeState } = state;
     const presentNpcNames = (state.社交 || []).filter((n) => n?.是否在场 !== false).map((n) => n?.姓名).filter(Boolean);
+    const firstEnabledPartner = 读取伙伴列表(openingConfig)[0]?.name;
     const briefOutput = 构建本回合导演简报({
         bible: state.directorBible,
         turnIndex: state.turnIndex,
         playerName: state.角色?.姓名 || '主角',
-        partnerName: openingConfig?.初始伙伴?.enabled ? openingConfig.初始伙伴.姓名 : undefined,
+        partnerName: firstEnabledPartner,
         presentNpcNames,
         gameConfig
     });
@@ -406,7 +474,7 @@ export const 渲染主剧情回合V2 = async (
                 '【最高优先级·2.0导演执行与防重复指令】',
                 briefOutput.directorBriefText,
                 briefOutput.knowledgeIsolationText,
-                V2_STORY_CONTRACT,
+                storyContract,
                 `目标篇幅：正文严格控制在本轮约 ${gameConfig.字数要求 || 1600} 字（误差控制在 ±20% 内）。`
             ].join('\n\n')
         }
@@ -424,11 +492,15 @@ export const 渲染主剧情回合V2 = async (
         messages: orderedMessages,
         validateDialogueFormat: gameConfig.启用严格正文对白格式 !== false,
         knownSpeakers,
+        requireActionOptionsTag: requireActionOptions,
+        minBodyLength: options?.minBodyLength,
+        shortBodyMode: options?.shortBodyMode,
         signal: options?.signal,
         stream: options?.stream,
-        onDelta: options?.onDelta
+        onDelta: options?.onDelta,
+        executeStreamWithTimeout: options?.executeStreamWithTimeout
     });
-    response.action_options = 过滤并精简V2行动选项(response.action_options);
+    response.action_options = requireActionOptions ? 过滤并精简V2行动选项(response.action_options) : [];
 
     return {
         response,

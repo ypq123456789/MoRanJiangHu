@@ -38,7 +38,7 @@ const 稳定哈希文本 = (text: string): string => {
     return (hash >>> 0).toString(36);
 };
 
-const 读取伙伴列表 = (openingConfig?: OpeningConfig) => {
+export const 读取伙伴列表 = (openingConfig?: OpeningConfig) => {
     const source = Array.isArray(openingConfig?.初始伙伴列表) && openingConfig.初始伙伴列表.length > 0
         ? openingConfig.初始伙伴列表
         : (openingConfig?.初始伙伴 ? [openingConfig.初始伙伴] : []);
