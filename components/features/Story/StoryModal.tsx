@@ -2,10 +2,13 @@ import React from 'react';
 import { 剧情系统结构 } from '../../../models/story';
 import { 剧情规划结构 } from '../../../models/storyPlan';
 import { 同人剧情规划结构 } from '../../../models/fandomPlanning/story';
+import type { DirectorWorldBible } from '../../../models/directorBible';
 
 interface Props {
     story: 剧情系统结构;
     storyPlan?: 剧情规划结构 | 同人剧情规划结构;
+    directorBible?: DirectorWorldBible;
+    worldEvents?: string[];
     isFandomMode?: boolean;
     onClose: () => void;
 }
@@ -31,7 +34,7 @@ const 字段块: React.FC<{ 标题: string; 内容: string[]; empty?: string }> 
     </section>
 );
 
-const StoryModal: React.FC<Props> = ({ story, storyPlan, isFandomMode = false, onClose }) => {
+const StoryModal: React.FC<Props> = ({ story, storyPlan, directorBible, worldEvents = [], isFandomMode = false, onClose }) => {
     const [revealNext, setRevealNext] = React.useState(false);
     const timerRef = React.useRef<number | null>(null);
 
@@ -45,6 +48,15 @@ const StoryModal: React.FC<Props> = ({ story, storyPlan, isFandomMode = false, o
     const 分歧线 = Array.isArray((storyPlan as any)?.分歧线) ? (storyPlan as any).分歧线 : [];
     const 换章规则 = (storyPlan as any)?.换章规则 || (storyPlan as any)?.换组规则;
     const 对齐信息 = (storyPlan as any)?.当前对齐信息;
+    const 可见伏笔台账 = Array.isArray(directorBible?.伏笔台账)
+        ? directorBible.伏笔台账.filter((item) => item && item.状态 !== '未埋设')
+        : [];
+    const 当前幕次节点 = Array.isArray(directorBible?.宏观分幕大纲)
+        ? (directorBible.宏观分幕大纲.find((item) => item?.幕次 === directorBible?.当前幕次) || directorBible?.宏观分幕大纲?.[0])
+        : undefined;
+    const 局势外溢列表 = Array.isArray(worldEvents)
+        ? worldEvents.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : [];
 
     const 清理长按 = () => {
         if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -52,13 +64,87 @@ const StoryModal: React.FC<Props> = ({ story, storyPlan, isFandomMode = false, o
         setRevealNext(false);
     };
 
+    const 渲染因果线索板块 = () => (
+        (可见伏笔台账.length > 0 || 局势外溢列表.length > 0 || 当前幕次节点) ? (
+            <section className="rounded-2xl border border-wuxia-gold/20 bg-black/40 p-4 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] tracking-[0.3em] text-wuxia-gold">2.0 因果脉络与伏笔线索簿</div>
+                    {当前幕次节点 ? (
+                        <span className="rounded-full border border-wuxia-gold/30 bg-wuxia-gold/10 px-3 py-0.5 text-[11px] text-wuxia-gold">
+                            第 {当前幕次节点.幕次} 幕 · {当前幕次节点.标题}
+                        </span>
+                    ) : null}
+                </div>
+                {当前幕次节点?.核心矛盾 ? (
+                    <div className="rounded-xl border border-gray-800 bg-black/30 px-3 py-2 text-xs text-gray-300 leading-6">
+                        <span className="text-wuxia-gold/80 font-semibold">本幕主轴：</span>
+                        {当前幕次节点.核心矛盾}
+                    </div>
+                ) : null}
+                <div>
+                    <div className="text-xs text-gray-400 mb-2">已感知伏笔与悬念线索（未揭晓前仅记录表象，绝不剧透幕后真相）</div>
+                    {可见伏笔台账.length > 0 ? (
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                            {可见伏笔台账.map((item) => (
+                                <div key={item.id || item.表面载体} className="rounded-xl border border-gray-800 bg-black/35 p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-sm font-semibold text-gray-100">{item.表面载体 || '未命名线索'}</span>
+                                        <span className={`rounded-full px-2 py-0.5 text-[10px] border ${
+                                            item.状态 === '已回收'
+                                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                                                : item.状态 === '发酵中'
+                                                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                                                    : 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
+                                        }`}>
+                                            {item.状态}
+                                        </span>
+                                    </div>
+                                    {item.埋设落点描述 ? (
+                                        <div className="mt-2 text-xs text-gray-300 leading-6">{item.埋设落点描述}</div>
+                                    ) : null}
+                                    {item.状态 === '已回收' && item.底层真相 ? (
+                                        <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 px-2.5 py-1.5 text-xs text-emerald-200 leading-5">
+                                            真相揭晓：{item.底层真相}
+                                        </div>
+                                    ) : (
+                                        <div className="mt-1.5 text-[11px] text-gray-500">
+                                            {typeof item.埋设回合 === 'number' ? `第 ${item.埋设回合} 回合埋设` : '暗流蓄势中'}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-xs text-gray-600 italic">当前尚未触发显性伏笔线索。</div>
+                    )}
+                </div>
+                {局势外溢列表.length > 0 ? (
+                    <div>
+                        <div className="text-xs text-gray-400 mb-2">近期世界局势外溢（离屏人物与势力动作的当下余波）</div>
+                        <div className="space-y-1.5">
+                            {局势外溢列表.map((ev, idx) => (
+                                <div key={`spillover-${idx}`} className="text-xs text-amber-200/90 leading-6 border-l-2 border-amber-500/40 pl-3">
+                                    {ev}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
+            </section>
+        ) : null
+    );
+
     if (!当前章节) {
         return (
             <div className="fixed inset-0 bg-black/90 z-[200] hidden md:flex items-center justify-center p-4">
-                <div className="w-full max-w-3xl rounded-3xl border border-wuxia-gold/20 bg-black/90 p-8 text-center">
-                    <div className="text-2xl font-serif tracking-[0.35em] text-wuxia-gold">江湖卷宗</div>
-                    <div className="mt-6 text-gray-500">当前没有可展示的剧情卷宗。</div>
-                    <button onClick={onClose} className="mt-6 rounded-full border border-gray-700 px-4 py-2 text-sm text-gray-300">关闭</button>
+                <div className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-3xl border border-wuxia-gold/20 bg-black/90 p-8">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="text-2xl font-serif tracking-[0.35em] text-wuxia-gold">江湖卷宗</div>
+                        <button onClick={onClose} className="rounded-full border border-gray-700 px-4 py-2 text-sm text-gray-300">关闭</button>
+                    </div>
+                    {渲染因果线索板块() || (
+                        <div className="py-10 text-center text-gray-500">当前没有可展示的剧情卷宗。</div>
+                    )}
                 </div>
             </div>
         );
@@ -210,6 +296,8 @@ const StoryModal: React.FC<Props> = ({ story, storyPlan, isFandomMode = false, o
                             </div>
                         </div>
                     </section>
+
+                    {渲染因果线索板块()}
 
                     <section className="rounded-2xl border border-gray-800 bg-black/35 p-4">
                         <div className="text-[11px] tracking-[0.3em] text-gray-400 mb-3">历史卷宗</div>

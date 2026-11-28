@@ -35,8 +35,10 @@ import {
     世界书预设组结构,
     世界书作用域,
     TavernCommand,
-    叙事状态结构
+    叙事状态结构,
+    DirectorWorldBible
 } from '../types';
+import { 规范化导演圣经 } from '../models/directorBible';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createVariableReviewActions, findVariableReviewBeforeTurn, type VariableReviewActions } from './useGame/variableReviewActions';
 import type { VariableReviewInput } from './useGame/variableReviewWorkflow';
@@ -445,6 +447,7 @@ export const useGame = () => {
         女主剧情规划, 设置女主剧情规划,
         同人剧情规划, 设置同人剧情规划,
         同人女主剧情规划, 设置同人女主剧情规划,
+        导演圣经, 设置导演圣经,
         开局配置, 设置开局配置,
         游戏初始时间, 设置游戏初始时间,
         历史记录, 设置历史记录,
@@ -1012,6 +1015,7 @@ export const useGame = () => {
         设置女主剧情规划(规范化女主剧情规划状态(深拷贝(snapshot.回档前状态.女主剧情规划)));
         设置同人剧情规划(规范化同人剧情规划状态(深拷贝(snapshot.回档前状态.同人剧情规划)));
         设置同人女主剧情规划(规范化同人女主剧情规划状态(深拷贝(snapshot.回档前状态.同人女主剧情规划)));
+        设置导演圣经(snapshot.回档前状态.导演圣经 ? 规范化导演圣经(深拷贝(snapshot.回档前状态.导演圣经)) : undefined);
         应用并同步记忆系统(深拷贝(snapshot.回档前状态.记忆系统));
         设置叙事平静值(深拷贝(snapshot.回档前状态.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }));
         替换场外对话(深拷贝(snapshot.回档前状态.场外对话));
@@ -3322,6 +3326,7 @@ export const useGame = () => {
         设置女主剧情规划(openingBase.女主剧情规划);
         设置同人剧情规划(openingBase.同人剧情规划);
         设置同人女主剧情规划(openingBase.同人女主剧情规划);
+        设置导演圣经((openingBase as any).导演圣经 ? 规范化导演圣经((openingBase as any).导演圣经) : undefined);
         应用并同步记忆系统(创建空记忆系统(), { 静默总结提示: true });
         设置历史记录([]);
         替换场外对话([]);
@@ -3879,7 +3884,9 @@ export const useGame = () => {
         任务列表: any[];
         约定列表: any[];
         剧情: 剧情系统结构;
+        剧情规划?: 剧情规划结构;
         女主剧情规划?: 女主剧情规划结构;
+        导演圣经?: DirectorWorldBible;
         历史记录: 聊天记录结构[];
     }>(null);
     最新回合基线Ref.current = {
@@ -3892,7 +3899,9 @@ export const useGame = () => {
         任务列表,
         约定列表,
         剧情,
+        剧情规划,
         女主剧情规划,
+        导演圣经,
         历史记录
     };
 
@@ -3980,6 +3989,8 @@ export const useGame = () => {
                 女主剧情规划,
                 同人剧情规划,
                 同人女主剧情规划,
+                导演圣经,
+                worldEvents,
                 开局配置,
                 游戏初始时间,
                 叙事平静值,
@@ -4022,7 +4033,16 @@ export const useGame = () => {
                     };
                 },
                 setShowSettings,
+                设置角色,
+                设置环境,
+                设置社交: 同步设置社交,
+                设置世界,
                 设置剧情,
+                设置剧情规划,
+                设置女主剧情规划,
+                设置任务列表,
+                设置导演圣经,
+                setWorldEvents,
                 设置历史记录,
                 设置叙事平静值,
                 应用并同步记忆系统,
@@ -4172,6 +4192,7 @@ export const useGame = () => {
         女主剧情规划,
         同人剧情规划,
         同人女主剧情规划,
+        导演圣经,
         记忆系统,
         叙事平静值,
         openingConfig: 开局配置,
@@ -4248,6 +4269,7 @@ export const useGame = () => {
         设置女主剧情规划,
         设置同人剧情规划,
         设置同人女主剧情规划,
+        设置导演圣经,
         设置开局配置,
          设置提示词池: setPrompts,
          设置历史记录,
@@ -4292,6 +4314,7 @@ export const useGame = () => {
         女主剧情规划,
         同人剧情规划,
         同人女主剧情规划,
+        导演圣经,
         开局配置,
         内置提示词列表,
         世界书列表,
@@ -4328,6 +4351,7 @@ export const useGame = () => {
         设置女主剧情规划,
         设置同人剧情规划,
         设置同人女主剧情规划,
+        设置导演圣经,
         设置开局配置,
         设置叙事平静值,
         设置开局主剧情进度: set开局主剧情进度,

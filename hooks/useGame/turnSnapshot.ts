@@ -1,3 +1,4 @@
+import type { DirectorWorldBible } from '../../models/directorBible';
 import type {
     聊天记录结构,
     场外对话消息结构,
@@ -40,6 +41,7 @@ export type 回合快照结构 = {
         女主剧情规划?: 女主剧情规划结构;
         同人剧情规划?: 同人剧情规划结构;
         同人女主剧情规划?: 同人女主剧情规划结构;
+        导演圣经?: DirectorWorldBible;
         记忆系统: 记忆系统结构;
         叙事平静值?: 叙事状态结构;
         场外对话?: 场外对话消息结构[];

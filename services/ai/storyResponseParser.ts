@@ -1065,13 +1065,18 @@ const 解析判定日志行 = (line: string): { sender: string; text: string; tr
 };
 
 const Judge标签残片行正则 = /^\s*(?:<|&lt;)\s*\/?\s*judge\s*(?:>|&gt;)\s*$/i;
+const Judge文本块起始行正则 = /^判定类型\s*[:：]\s*\S+/;
 const Judge数值起始行正则 = /^判定值\s*[+\-]?\d+(?:\.\d+)?\s*\/\s*难度\s*[+\-]?\d+(?:\.\d+)?/;
-const Judge明细延续行正则 = /^(?:触发对象|对象|判定值|难度|基础\s*B|环境\s*E|状态\s*S|幸运\s*L|装备\s*Q|胜方|败方|差值|失败窗口|硬失败|结果)\s*(?:[=:：]|[（(]|[A-Za-z＋+\-0-9])/;
+const Judge明细延续行正则 = /^(?:触发对象|对象|判定类型|行动目标|可用依据|判定值拆解|难度拆解|合计判定值|合计难度|结果窗口|变量影响|判定值|难度|基础\s*B|环境\s*E|状态\s*S|幸运\s*L|装备\s*Q|胜方|败方|差值|失败窗口|硬失败|结果)\s*(?:[=:：]|[（(]|[A-Za-z＋+\-0-9])/;
+const Judge列表细项行正则 = /^[-•*]\s*(?:基础|额外|额外专注|天赋|环境|状态|幸运|装备|大成功|成功|失败|大失败|变量影响?|目标[^\n:：]{0,12}|有人[^\n:：]{0,12}|[\u4e00-\u9fa5A-Za-z0-9()（）]{2,16}\s*[:：])/;
 const Judge标题残片行正则 = /^(?:【\s*[^】｜\n\r]{1,16}\s*】|\[\s*[^\]｜\n\r]{1,16}\s*\])\s*[^｜\n\r]{0,80}$/;
 
 const 是否Judge标签残片行 = (line: string): boolean => Judge标签残片行正则.test(line.trim());
+const 是否Judge文本块起始行 = (line: string): boolean => Judge文本块起始行正则.test(line.trim());
 const 是否Judge数值起始行 = (line: string): boolean => Judge数值起始行正则.test(line.trim());
-const 是否Judge明细延续行 = (line: string): boolean => Judge明细延续行正则.test(line.trim());
+const 是否Judge明细延续行 = (line: string): boolean => (
+    Judge明细延续行正则.test(line.trim()) || Judge列表细项行正则.test(line.trim())
+);
 
 const 下一条非空行 = (lines: string[], startIndex: number): string => {
     for (let index = startIndex; index < lines.length; index += 1) {
@@ -1104,7 +1109,7 @@ const 清理正文Judge残片 = (body: string): string => {
             continue;
         }
 
-        if (是否Judge数值起始行(line)) {
+        if (是否Judge数值起始行(line) || (是否Judge文本块起始行(line) && /^(?:行动目标|可用依据|判定值|判定值拆解)\s*[:：]/.test(nextNonEmpty))) {
             inOrphanJudgeDetail = true;
             continue;
         }
@@ -1116,6 +1121,10 @@ const 清理正文Judge残片 = (body: string): string => {
                 continue;
             }
             if (是否Judge明细延续行(line) || 是否Judge标签残片行(line)) {
+                continue;
+            }
+            // During active Judge breakdown, any sub-bullet explanatory line right before 合计判定值 / 结果窗口 / 【判定】 belongs to the orphan judge block
+            if (/^[-•*]/.test(line)) {
                 continue;
             }
             inOrphanJudgeDetail = false;
@@ -1879,7 +1888,19 @@ const 解析标签协议响应 = (content: string, options?: Required<StoryParse
     const variablePlanBlock = 提取首个标签内容(textWithoutThinking, '变量规划', { 兼容错误闭合: true }) || titleSections.变量规划 || '';
     const shortTerm = 提取首个标签内容(textWithoutThinking, '短期记忆', { 兼容错误闭合: true }) || titleSections.短期记忆 || '';
     const commandBlock = 提取首个标签内容(textWithoutThinking, '命令') || titleSections.命令 || '';
-    const actionOptionsBlock = 提取首个标签内容(textWithoutThinking, '行动选项') || titleSections.行动选项 || '';
+    const extractedActionOptionsBlock = 提取首个标签内容(textWithoutThinking, '行动选项') || titleSections.行动选项 || '';
+    const trailingActionOptionsBlock = (() => {
+        if (extractedActionOptionsBlock.trim()) return '';
+        const closedMatch = textWithoutThinking.match(/<\s*\/\s*(?:行动选项|action\s*options?)\s*>\s*([\s\S]+)$/i);
+        const tail = closedMatch?.[1]?.trim() || '';
+        if (!tail) return '';
+        const optionLines = tail
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => /^(?:[A-J][\.\)、\s]|(?:\d{1,2})[\.\)、\s]|[-*]\s*\[)/.test(line));
+        return optionLines.length >= 2 ? optionLines.join('\n') : '';
+    })();
+    const actionOptionsBlock = extractedActionOptionsBlock || trailingActionOptionsBlock;
     const dynamicWorldBlock = 提取首个标签内容(textWithoutThinking, '动态世界') || titleSections.动态世界 || '';
     const bodyJudgeExtraction = 提取正文中的Judge区块(清理正文残留协议内容(bodyBlock || ''));
     const fallbackJudgeBlocks = 提取标签内容列表(textWithoutThinking, 'judge', { 兼容错误闭合: true })

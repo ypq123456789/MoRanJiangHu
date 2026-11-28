@@ -416,14 +416,16 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
                             {category} {getCategoryCount(items, category)}
                         </button>
                     ))}
-                    <button
-                        type="button"
-                        onClick={handleSellAllMisc}
-                        disabled={!onSellAllMisc || getCategoryCount(items, '杂物') <= 0}
-                        className="shrink-0 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-100 disabled:opacity-40"
-                    >
-                        杂物全售
-                    </button>
+                    {onSellAllMisc ? (
+                        <button
+                            type="button"
+                            onClick={handleSellAllMisc}
+                            disabled={getCategoryCount(items, '杂物') <= 0}
+                            className="shrink-0 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-100 disabled:opacity-40"
+                        >
+                            杂物全售
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         onClick={handleDiscardAllMisc}
@@ -585,7 +587,7 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
                             <div className="rounded border border-emerald-500/20 bg-emerald-500/5 p-2">
                                 <div className="mb-2 flex items-center justify-between gap-2">
                                     <span className="text-[10px] font-bold text-emerald-200">图标操作</span>
-                                    <span className="truncate text-[10px] text-gray-500">可重生图或进入拍卖行</span>
+                                    <span className="truncate text-[10px] text-gray-500">{onSellItem ? '可重生图或进入拍卖行' : '可重生图或存入个人图库'}</span>
                                 </div>
                                 <textarea
                                     value={customPrompt}
@@ -593,7 +595,7 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
                                     placeholder="可选：输入额外提示词"
                                     className="mb-2 h-16 w-full resize-none rounded border border-gray-700 bg-black/25 px-2 py-1.5 text-xs leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-cyan-400/60"
                                 />
-                                <div className="grid grid-cols-3 gap-2">
+                                <div className={`grid ${onSellItem ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
                                     <button
                                         type="button"
                                         onClick={handleRegenerateSelectedImage}
@@ -619,14 +621,15 @@ const MobileInventoryModal: React.FC<Props> = ({ character, openingConfig, onClo
                                                 查看图库≫
                                             </button>
                                         ) : null}
-                                        <button
-                                            type="button"
-                                            onClick={handleSellSelected}
-                                            disabled={!onSellItem}
-                                            className="rounded bg-emerald-700/40 px-3 py-2 text-xs font-bold text-emerald-100 disabled:opacity-40"
-                                        >
-                                            出售
-                                        </button>
+                                        {onSellItem ? (
+                                            <button
+                                                type="button"
+                                                onClick={handleSellSelected}
+                                                className="rounded bg-emerald-700/40 px-3 py-2 text-xs font-bold text-emerald-100"
+                                            >
+                                                出售
+                                            </button>
+                                        ) : null}
                                 </div>
                             </div>
 

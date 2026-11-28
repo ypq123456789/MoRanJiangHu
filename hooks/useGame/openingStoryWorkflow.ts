@@ -17,6 +17,7 @@ import type {
     女主剧情规划结构,
     同人剧情规划结构,
     同人女主剧情规划结构,
+    DirectorWorldBible,
     环境信息结构,
     角色数据结构,
     世界数据结构,
@@ -85,6 +86,10 @@ import { 修复开局伙伴社交列表 } from '../../utils/openingCompanion';
 import { 同步在场NPC当前位置 } from './responseCommandProcessor';
 import { 生成地图更新 } from './mapUpdateWorkflow';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
+import { 渲染开局回合V2 } from '../../engine/storyV2/storyTurnRenderer';
+import { 执行导演后处理V2 } from '../../engine/storyV2/directorPostTurn';
+import { 提取2_0流式正文预览, 从状态构建2_0导演圣经 } from '../../engine/storyV2/legacySaveBridge';
+import type { StoryV2Config, StoryV2EngineState } from '../../engine/storyV2/types';
 
 const 开局规划分析请求超时毫秒 = 90000;
 const 开场剧情慢首包提示毫秒 = 10000;
@@ -219,6 +224,7 @@ type 自动存档快照结构 = {
     heroinePlan?: 女主剧情规划结构;
     fandomStoryPlan?: 同人剧情规划结构;
     fandomHeroinePlan?: 同人女主剧情规划结构;
+    directorBible?: DirectorWorldBible;
     memory?: 记忆系统结构;
     openingConfig?: OpeningConfig;
     force?: boolean;
@@ -238,6 +244,9 @@ type 开场剧情生成依赖 = {
     女主剧情规划?: 女主剧情规划结构;
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
+    导演圣经?: DirectorWorldBible;
+    社交?: any[];
+    深拷贝?: <T>(value: T) => T;
     gameConfig: any;
     memoryConfig: any;
     builtinPromptEntries: 内置提示词条目结构[];
@@ -255,6 +264,7 @@ type 开场剧情生成依赖 = {
     设置女主剧情规划: (value: 女主剧情规划结构) => void;
     设置同人剧情规划: (value: 同人剧情规划结构 | undefined) => void;
     设置同人女主剧情规划: (value: 同人女主剧情规划结构 | undefined) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
     设置玩家门派: (value: 详细门派结构) => void;
     设置任务列表: (value: any[]) => void;
     设置约定列表: (value: any[]) => void;
@@ -724,6 +734,232 @@ export const 执行开场剧情生成工作流 = async (
         );
 
         const openingGameConfig = 规范化游戏设置(deps.gameConfig);
+        const openingUseSingleCall = 省次数模式已启用(deps.apiConfig)
+            && deps.apiConfig?.功能模型占位?.省次数模式包含开局 !== false
+            && 接口配置是否可用(获取省次数模式接口配置(deps.apiConfig));
+        const useStoryV2Opening = Boolean(
+            !openingUseSingleCall
+            && openingGameConfig.启用2_0剧情引擎 !== false
+            && (contextData?.导演圣经 || deps.导演圣经 || deps.设置导演圣经)
+        );
+        if (useStoryV2Opening) {
+            const safeDeepCopy = <T,>(value: T): T => (
+                deps.深拷贝
+                    ? deps.深拷贝(value)
+                    : (value === undefined ? value : JSON.parse(JSON.stringify(value)))
+            );
+            const initialGameTime = 环境时间转标准串(openingEnv) || '1:01:01:06:00';
+            streamMarker = Date.now();
+            if (useStreaming) {
+                deps.设置历史记录([
+                    ...initialHistory,
+                    {
+                        role: 'assistant',
+                        content: '',
+                        timestamp: streamMarker,
+                        gameTime: initialGameTime
+                    }
+                ]);
+            }
+            const openingWorldPrompt = 读取提示词内容(promptSnapshot, 'core_world');
+            const initialSocialSeed = Array.isArray(contextData?.社交)
+                ? contextData.社交
+                : (Array.isArray(deps.社交) ? deps.社交 : []);
+            const openingDirectorBible = safeDeepCopy(contextData?.导演圣经 ?? deps.导演圣经)
+                || 从状态构建2_0导演圣经({
+                    worldPrompt: openingWorldPrompt,
+                    role: openingStatePayload.角色,
+                    social: initialSocialSeed,
+                    world: openingStatePayload.世界,
+                    story: openingStatePayload.剧情,
+                    storyPlan: openingStatePayload.剧情规划
+                });
+            deps.设置导演圣经?.(openingDirectorBible);
+            const normalizedOpeningRole = deps.规范化角色物品容器映射(
+                safeDeepCopy(openingStatePayload.角色),
+                {
+                    启用饱腹口渴系统: openingGameConfig.启用饱腹口渴系统,
+                    题材模式: options?.开局配置?.题材模式,
+                    补建缺失装备引用: true
+                }
+            );
+            const v2State: StoryV2EngineState = {
+                turnIndex: 0,
+                gameInitialTime: initialGameTime,
+                worldPrompt: openingWorldPrompt,
+                directorBible: openingDirectorBible,
+                角色: normalizedOpeningRole,
+                环境: openingEnv,
+                社交: deps.规范化社交列表(safeDeepCopy(initialSocialSeed)),
+                世界: deps.规范化世界状态(safeDeepCopy(openingStatePayload.世界)),
+                剧情: openingStatePayload.剧情,
+                剧情规划: openingStatePayload.剧情规划,
+                女主剧情规划: openingStatePayload.女主剧情规划,
+                记忆系统: openingMem,
+                历史记录: [],
+                任务列表: Array.isArray(openingStatePayload.任务列表) ? safeDeepCopy(openingStatePayload.任务列表) : [],
+                世界大事: []
+            };
+            const planningApi = 获取规划分析接口配置(deps.apiConfig);
+            const v2Config: StoryV2Config = {
+                gameConfig: openingGameConfig,
+                apiConfig: apiForOpening,
+                directorApiConfig: 接口配置是否可用(planningApi) ? planningApi : apiForOpening,
+                openingConfig: options?.开局配置 || ({} as OpeningConfig),
+                worldConfig: {
+                    worldName: options?.开局配置?.modeRuntimeProfile?.identity?.displayName || options?.开局配置?.题材模式 || '墨染江湖',
+                    openingExtraRequirement: options?.开局额外要求 || ''
+                },
+                promptPool: promptSnapshot,
+                worldbooks: deps.worldbooks
+            };
+            deps.设置开局主剧情进度({
+                phase: 'start',
+                text: '正在通过 2.0 导演引擎演绎开场剧情...',
+                channelName: apiForOpening?.名称 || '',
+                modelName: apiForOpening?.model || ''
+            });
+            const renderedOpening = await 渲染开局回合V2(v2State, v2Config, {
+                signal: controller.signal,
+                stream: useStreaming,
+                onDelta: useStreaming
+                    ? (_delta, accumulated) => {
+                        openingAnyDeltaReceived = true;
+                        const preview = 提取2_0流式正文预览(accumulated);
+                        if (!preview) return;
+                        openingDeltaReceived = true;
+                        deps.设置历史记录((prev) => prev.map((item) => (
+                            item.timestamp === streamMarker && item.role === 'assistant' && !item.structuredResponse
+                                ? { ...item, content: preview }
+                                : item
+                        )));
+                    }
+                    : undefined
+            });
+            const displayAiData: GameResponse = renderedOpening.response;
+            const newAiMsg: 聊天记录结构 = {
+                role: 'assistant',
+                content: 'Structured Response',
+                structuredResponse: displayAiData,
+                rawJson: renderedOpening.rawText,
+                timestamp: streamMarker || Date.now(),
+                gameTime: initialGameTime,
+                responseDurationSec: deps.计算回复耗时秒(openingRequestStartedAt),
+                outputTokens: deps.估算AI输出Token(renderedOpening.rawText, apiForOpening?.model)
+            };
+            deps.设置历史记录([...initialHistory, newAiMsg]);
+            deps.设置开局主剧情进度({
+                phase: 'done',
+                text: '2.0 开局正文生成完成，正在推演伏笔与幕后暗线...'
+            });
+            deps.设置开局规划进度({
+                phase: 'start',
+                text: '2.0 导演后台正在更新伏笔台账与离屏局势...'
+            });
+            deps.设置开局世界演变进度({
+                phase: 'start',
+                text: '正在计算离屏人物动向与外溢事件...'
+            });
+            const postResult = await 执行导演后处理V2({
+                state: v2State,
+                apiConfig: v2Config.directorApiConfig || v2Config.apiConfig,
+                storyResponse: displayAiData,
+                playerInput: '(开局初始化)',
+                signal: controller.signal
+            });
+            const finalEnv = deps.规范化环境信息(postResult.nextState.环境);
+            const finalGameTime = 环境时间转标准串(finalEnv) || initialGameTime;
+            const finalRole = deps.规范化角色物品容器映射(postResult.nextState.角色, {
+                启用饱腹口渴系统: openingGameConfig.启用饱腹口渴系统,
+                题材模式: options?.开局配置?.题材模式
+            });
+            const finalSocial = deps.规范化社交列表(postResult.nextState.社交);
+            const finalWorld = deps.规范化世界状态(postResult.nextState.世界);
+            const finalStory = deps.规范化剧情状态(postResult.nextState.剧情, finalEnv);
+            const finalStoryPlan = deps.规范化剧情规划状态(postResult.nextState.剧情规划);
+            const finalHeroinePlan = postResult.nextState.女主剧情规划
+                ? deps.规范化女主剧情规划状态(postResult.nextState.女主剧情规划)
+                : openingStatePayload.女主剧情规划;
+            const finalMemory = 规范化记忆系统(postResult.nextState.记忆系统);
+            const finalWorldEvents = Array.isArray(postResult.nextState.世界大事) ? postResult.nextState.世界大事 : [];
+            const finalTasks = Array.isArray(postResult.nextState.任务列表) ? postResult.nextState.任务列表 : [];
+
+            deps.设置角色(finalRole);
+            deps.设置环境(finalEnv);
+            deps.设置社交(finalSocial);
+            deps.设置世界(finalWorld);
+            deps.设置剧情(finalStory);
+            deps.设置剧情规划(finalStoryPlan);
+            if (finalHeroinePlan) deps.设置女主剧情规划(finalHeroinePlan);
+            deps.设置导演圣经?.(postResult.nextState.directorBible);
+            deps.setWorldEvents(finalWorldEvents);
+            deps.设置任务列表(finalTasks);
+            deps.设置游戏初始时间(postResult.nextState.gameInitialTime || finalGameTime);
+            deps.应用并同步记忆系统(finalMemory);
+
+            const committedAiMsg: 聊天记录结构 = {
+                ...newAiMsg,
+                gameTime: finalGameTime
+            };
+            const committedHistory = [...initialHistory, committedAiMsg];
+            deps.设置历史记录(committedHistory);
+            deps.设置开局规划进度({
+                phase: 'done',
+                text: postResult.replanned ? '2.0 导演推演与动态重规划完成' : '2.0 导演后台推演与伏笔落账完成'
+            });
+            deps.设置开局世界演变进度({
+                phase: 'done',
+                text: postResult.offscreenSpillovers.length > 0
+                    ? `已推进 ${postResult.offscreenSpillovers.length} 条离屏局势外溢`
+                    : '局势稳定推进'
+            });
+            deps.记录变量生成上下文({
+                playerInput: '',
+                response: displayAiData
+            });
+            if (finalSocial.length > 0) {
+                try {
+                    deps.触发新增NPC自动生图(finalSocial);
+                } catch (err) {
+                    console.warn('2.0开局NPC自动生图触发失败', err);
+                }
+            }
+            void 安全触发开局主角自动生图(deps.触发主角自动生图, finalRole, '主角开局2.0生图触发');
+            const openingBodyText = (Array.isArray(displayAiData.logs) ? displayAiData.logs : [])
+                .map((l: any) => (l?.text || '').trim())
+                .filter(Boolean)
+                .join('\n');
+            if (openingBodyText) {
+                deps.触发场景自动生图({
+                    response: displayAiData,
+                    bodyText: openingBodyText,
+                    env: finalEnv,
+                    turnNumber: 1,
+                    source: 'auto',
+                    autoApply: true
+                });
+            }
+            void deps.performAutoSave({
+                history: committedHistory,
+                role: finalRole,
+                env: finalEnv,
+                social: finalSocial,
+                world: finalWorld,
+                battle: contextData.战斗 || deps.战斗,
+                sect: contextData.玩家门派 || deps.玩家门派,
+                tasks: finalTasks,
+                agreements: contextData.约定列表 || deps.约定列表,
+                story: finalStory,
+                storyPlan: finalStoryPlan,
+                heroinePlan: finalHeroinePlan,
+                fandomStoryPlan: contextData.同人剧情规划,
+                fandomHeroinePlan: contextData.同人女主剧情规划,
+                directorBible: postResult.nextState.directorBible,
+                memory: finalMemory,
+                openingConfig: options?.开局配置
+            });
+            return;
+        }
         const 开局功能模型占位 = deps.apiConfig?.功能模型占位;
         const 开局全局非流式输出 = openingGameConfig.启用非流式输出 === true;
         // 开局后处理与局内一致：尊重全局/分功能“非流式输出”设置；未开启时走真实流式请求。

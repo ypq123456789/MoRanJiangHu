@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { 执行响应命令处理, 响应命令处理状态 } from '../hooks/useGame/responseCommandProcessor';
 import { 规范化社交列表 } from '../hooks/useGame/stateTransforms';
-import { 计算金钱BaseAmount总值 } from '../services/auctionHouse';
+import { 计算金钱BaseAmount总值 } from '../utils/currencyDisplay';
 import {
     addScriptedMoneyDelta,
     consumeScriptedMoneyDelta,

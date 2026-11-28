@@ -8,7 +8,12 @@ import * as textAIService from '../../services/ai/text';
 import { 是否流式连接中断错误消息 } from '../../services/ai/chatCompletionClient';
 import { recordAiParseFailureDiagnostic } from '../../services/diagnosticContext';
 import { recordDiagnosticLog } from '../../services/diagnosticLog';
-import type { GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
+import type { GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, DirectorWorldBible, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
+import { 渲染主剧情回合V2 } from '../../engine/storyV2/storyTurnRenderer';
+import { 执行导演后处理V2 } from '../../engine/storyV2/directorPostTurn';
+import { 提取2_0流式正文预览, 从状态构建2_0导演圣经 } from '../../engine/storyV2/legacySaveBridge';
+import type { StoryV2Config, StoryV2EngineState } from '../../engine/storyV2/types';
+import { 规范化角色物品容器映射, 规范化社交列表 } from './stateTransforms';
 import { 获取主剧情接口配置, 获取剧情回忆接口配置, 获取文章优化接口配置, 获取变量计算接口配置, 获取世界演变接口配置, 获取规划分析接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 变量校准功能已启用 as 变量生成功能已启用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
 import { 构建省次数附加输出协议, 提取省次数分节, 过滤省次数流式草稿, type 省次数环节 } from '../../utils/singleCallMode';
 import { 获取繁体输出指令 } from '../../utils/traditionalChinese';
@@ -1198,6 +1203,8 @@ type 主剧情发送当前状态 = {
     女主剧情规划?: 女主剧情规划结构;
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
+    导演圣经?: DirectorWorldBible;
+    worldEvents?: string[];
     开局配置?: OpeningConfig;
     游戏初始时间?: string;
     loading: boolean;
@@ -1239,7 +1246,16 @@ type 主剧情发送依赖 = {
     setLoading: (value: boolean) => void;
     set后台队列处理中: (value: boolean) => void;
     setShowSettings: (value: boolean) => void;
+    设置角色?: (value: 角色数据结构) => void;
+    设置环境?: (value: any) => void;
+    设置社交?: (value: any[]) => void;
+    设置世界?: (value: any) => void;
     设置剧情: (value: 剧情系统结构) => void;
+    设置剧情规划?: (value: 剧情规划结构) => void;
+    设置女主剧情规划?: (value: 女主剧情规划结构 | undefined) => void;
+    设置任务列表?: (value: any[]) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    setWorldEvents?: (value: string[]) => void;
     设置历史记录: (value: 聊天记录结构[] | ((prev: 聊天记录结构[]) => 聊天记录结构[])) => void;
     设置叙事平静值: (value: 叙事状态结构) => void;
     应用并同步记忆系统: (memory: 记忆系统结构, options?: { 静默总结提示?: boolean }) => void;
@@ -1717,6 +1733,7 @@ export const 执行主剧情发送工作流 = async (
             女主剧情规划: deps.深拷贝(currentState.女主剧情规划),
             同人剧情规划: deps.深拷贝(currentState.同人剧情规划),
             同人女主剧情规划: deps.深拷贝(currentState.同人女主剧情规划),
+            导演圣经: deps.深拷贝(currentState.导演圣经),
             记忆系统: deps.深拷贝(memBeforeSend),
             叙事平静值: deps.深拷贝(currentState.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }),
             场外对话: deps.深拷贝(currentState.场外对话 || [])
@@ -1850,6 +1867,273 @@ export const 执行主剧情发送工作流 = async (
         const naturalProseLoaded = await naturalProseSnapshotPending;
         if (naturalProseLoaded.error) throw naturalProseLoaded.error;
         const naturalProseSnapshot = naturalProseLoaded.value;
+        const runtimeGameConfigV2 = 规范化游戏设置(currentState.gameConfig);
+        const useStoryV2Turn = Boolean(
+            !使用省次数模式
+            && runtimeGameConfigV2.启用2_0剧情引擎 !== false
+            && (currentState.导演圣经 || deps.设置导演圣经)
+        );
+        if (useStoryV2Turn) {
+            if (isStreaming) {
+                streamMarker = Date.now();
+                deps.设置历史记录([
+                    ...updatedDisplayHistory,
+                    {
+                        role: 'assistant',
+                        content: '',
+                        timestamp: streamMarker,
+                        gameTime: currentGameTime
+                    }
+                ]);
+            }
+            const worldPromptContent = (Array.isArray(currentState.prompts)
+                ? currentState.prompts.find((p: any) => p?.id === 'core_world')?.内容
+                : '') || '';
+            const currentDirectorBible = deps.深拷贝(currentState.导演圣经)
+                || 从状态构建2_0导演圣经({
+                    worldPrompt: worldPromptContent,
+                    role: currentState.角色,
+                    social: currentState.社交,
+                    world: currentState.世界,
+                    story: currentState.剧情,
+                    storyPlan: currentState.剧情规划
+                });
+            deps.设置导演圣经?.(currentDirectorBible);
+            const 场外对话提示块V2 = 构建场外对话记录块(currentState.场外对话);
+            const effectiveV2Input = [
+                sendInput,
+                recallTag ? `【历史回忆检索参考】\n${recallTag}` : '',
+                场外对话提示块V2 ? `【场外交流摘要】\n${场外对话提示块V2}` : ''
+            ].filter(Boolean).join('\n\n');
+            const v2State: StoryV2EngineState = {
+                turnIndex: nextRound,
+                gameInitialTime: currentState.游戏初始时间 || currentGameTime || '1:01:01:06:00',
+                worldPrompt: worldPromptContent,
+                directorBible: currentDirectorBible,
+                角色: deps.深拷贝(currentState.角色),
+                环境: deps.规范化环境信息(deps.深拷贝(currentState.环境)),
+                社交: deps.深拷贝(Array.isArray(currentState.社交) ? currentState.社交 : []),
+                世界: deps.规范化世界状态(deps.深拷贝(currentState.世界)),
+                剧情: deps.规范化剧情状态(deps.深拷贝(currentState.剧情), currentState.环境),
+                剧情规划: deps.规范化剧情规划状态(deps.深拷贝(currentState.剧情规划)),
+                女主剧情规划: deps.规范化女主剧情规划状态(deps.深拷贝(currentState.女主剧情规划)),
+                记忆系统: deps.深拷贝(updatedMemSys),
+                历史记录: deps.按回合窗口裁剪历史(updatedContextHistory, Math.max(1, Number(normalizedMemoryConfig.即时消息上传条数N) || 6)),
+                任务列表: Array.isArray(currentState.任务列表) ? deps.深拷贝(currentState.任务列表) : [],
+                世界大事: Array.isArray(currentState.worldEvents) ? [...currentState.worldEvents] : []
+            };
+            const planningApiV2 = 获取规划分析接口配置(currentState.apiConfig);
+            const v2Config: StoryV2Config = {
+                gameConfig: runtimeGameConfigV2,
+                apiConfig: activeApi,
+                directorApiConfig: 接口配置是否可用(planningApiV2) ? planningApiV2 : activeApi,
+                openingConfig: currentState.开局配置 || ({} as OpeningConfig),
+                worldConfig: {
+                    worldName: currentState.开局配置?.modeRuntimeProfile?.identity?.displayName || currentState.开局配置?.题材模式 || '墨染江湖'
+                },
+                promptPool: currentState.prompts,
+                worldbooks: currentState.世界书列表
+            };
+            const renderedTurn = await deps.执行带自动重试的生成请求({
+                enabled: deps.游戏设置启用自动重试(runtimeGameConfigV2),
+                action: async (_attempt, lastError) => {
+                    if (isStreaming && lastError && 是否流式意外终止错误(lastError)) {
+                        流式意外终止需降级非流式 = true;
+                    }
+                    const turnUseStreaming = isStreaming && !流式意外终止需降级非流式;
+                    return 渲染主剧情回合V2(v2State, v2Config, effectiveV2Input, {
+                        signal: controller.signal,
+                        stream: turnUseStreaming,
+                        onDelta: turnUseStreaming
+                            ? (_delta, accumulated) => {
+                                const preview = 提取2_0流式正文预览(accumulated);
+                                if (!preview) return;
+                                latestStreamDraftText = preview;
+                                if (streamMarker) {
+                                    deps.设置历史记录((prev) => prev.map((item) => (
+                                        item.timestamp === streamMarker && item.role === 'assistant' && !item.structuredResponse
+                                            ? { ...item, content: preview }
+                                            : item
+                                    )));
+                                }
+                            }
+                            : undefined
+                    });
+                },
+                onRetry: (attempt, maxAttempts, reason) => {
+                    const 重试原因 = 流式意外终止需降级非流式 && isStreaming
+                        ? 流式意外终止降级提示
+                        : reason;
+                    if (isStreaming) {
+                        deps.设置历史记录((prev) => deps.更新流式草稿为自动重试提示(prev, attempt, maxAttempts, 重试原因));
+                    }
+                }
+            });
+            if (controller.signal.aborted) {
+                throw controller.signal.reason || new DOMException('Aborted', 'AbortError');
+            }
+            let displayResponse: GameResponse = renderedTurn.response;
+            if (deps.文章优化功能已开启()) {
+                try {
+                    options?.onPolishProgress?.({ phase: 'start', text: '正在润色 2.0 本回合正文...' });
+                    const polished = await deps.执行正文润色(displayResponse, renderedTurn.rawText, {
+                        playerInput: sendInput,
+                        signal: controller.signal,
+                        minLength: runtimeGameConfigV2.字数要求
+                    });
+                    if (polished.applied) {
+                        displayResponse = polished.response;
+                        options?.onPolishProgress?.({ phase: 'done', text: '正文润色完成。' });
+                    } else {
+                        options?.onPolishProgress?.({ phase: 'skipped', text: polished.error || '保持原稿。' });
+                    }
+                } catch (polishErr: any) {
+                    if (polishErr?.name === 'AbortError') throw polishErr;
+                    options?.onPolishProgress?.({ phase: 'skipped', text: '正文润色失败，已保留原稿。' });
+                }
+            } else {
+                options?.onPolishProgress?.({ phase: 'skipped', text: '正文优化功能未开启，已跳过。' });
+            }
+            const aiTimestamp = streamMarker || Date.now();
+            const newAiMsgV2: 聊天记录结构 = {
+                role: 'assistant',
+                content: 'Structured Response',
+                structuredResponse: displayResponse,
+                rawJson: renderedTurn.rawText,
+                timestamp: aiTimestamp,
+                gameTime: currentGameTime,
+                outputTokens: deps.估算AI输出Token(renderedTurn.rawText, activeApi?.model)
+            };
+            const committedHistoryV2 = [...updatedDisplayHistory, newAiMsgV2];
+            deps.设置历史记录(committedHistoryV2);
+            deps.清空场外对话暂存?.();
+
+            const runV2PostTurn = async () => {
+                try {
+                    options?.onPlanningProgress?.({ phase: 'start', text: '2.0 导演正在核销伏笔、推进暗线与检测重规划...' });
+                    options?.onWorldEvolutionProgress?.({ phase: 'start', text: '正在结算离屏人物倒计时与势力暗账...' });
+                    const postRes = await 执行导演后处理V2({
+                        state: v2State,
+                        apiConfig: v2Config.directorApiConfig || v2Config.apiConfig,
+                        storyResponse: displayResponse,
+                        playerInput: sendInput,
+                        signal: controller.signal
+                    });
+                    const finalEnvV2 = deps.规范化环境信息(postRes.nextState.环境);
+                    const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;
+                    const finalRoleV2 = 规范化角色物品容器映射(postRes.nextState.角色, {
+                        启用饱腹口渴系统: runtimeGameConfigV2.启用饱腹口渴系统,
+                        题材模式: currentState.开局配置?.题材模式
+                    });
+                    const finalSocialV2 = 规范化社交列表(postRes.nextState.社交, { 合并同名: false });
+                    const finalWorldV2 = deps.规范化世界状态(postRes.nextState.世界);
+                    const finalStoryV2 = deps.规范化剧情状态(postRes.nextState.剧情, finalEnvV2);
+                    const finalStoryPlanV2 = deps.规范化剧情规划状态(postRes.nextState.剧情规划);
+                    const finalHeroinePlanV2 = postRes.nextState.女主剧情规划
+                        ? deps.规范化女主剧情规划状态(postRes.nextState.女主剧情规划)
+                        : currentState.女主剧情规划;
+                    const finalMemoryV2 = 规范化记忆系统(postRes.nextState.记忆系统);
+                    const finalWorldEventsV2 = Array.isArray(postRes.nextState.世界大事) ? postRes.nextState.世界大事 : [];
+                    const finalTasksV2 = Array.isArray(postRes.nextState.任务列表) ? postRes.nextState.任务列表 : [];
+
+                    deps.设置角色?.(finalRoleV2);
+                    deps.设置环境?.(finalEnvV2);
+                    deps.设置社交?.(finalSocialV2);
+                    deps.设置世界?.(finalWorldV2);
+                    deps.设置剧情(finalStoryV2);
+                    deps.设置剧情规划?.(finalStoryPlanV2);
+                    if (finalHeroinePlanV2) deps.设置女主剧情规划?.(finalHeroinePlanV2);
+                    deps.设置任务列表?.(finalTasksV2);
+                    deps.设置导演圣经?.(postRes.nextState.directorBible);
+                    deps.setWorldEvents?.(finalWorldEventsV2);
+                    deps.应用并同步记忆系统(finalMemoryV2);
+
+                    const finalAiMsgV2: 聊天记录结构 = {
+                        ...newAiMsgV2,
+                        gameTime: finalGameTimeV2
+                    };
+                    const finalHistoryV2 = committedHistoryV2.map((m) => (
+                        m.role === 'assistant' && m.timestamp === aiTimestamp ? finalAiMsgV2 : m
+                    ));
+                    deps.设置历史记录(finalHistoryV2);
+
+                    options?.onPlanningProgress?.({
+                        phase: 'done',
+                        text: postRes.replanned
+                            ? `2.0 导演已完成动态重规划${postRes.replanReason ? `：${postRes.replanReason}` : ''}`
+                            : '2.0 导演推演与伏笔台账更新完成。'
+                    });
+                    options?.onWorldEvolutionProgress?.({
+                        phase: 'done',
+                        text: postRes.offscreenSpillovers.length > 0
+                            ? `已结算 ${postRes.offscreenSpillovers.length} 条离屏局势外溢`
+                            : '离屏局势稳定推进'
+                    });
+
+                    const newNpcsV2 = deps.提取新增NPC列表(currentState.社交, finalSocialV2);
+                    if (newNpcsV2.length > 0) deps.触发新增NPC自动生图(newNpcsV2);
+                    deps.触发对白NPC头像补全(finalSocialV2);
+                    deps.检查主角每回合生图(finalRoleV2);
+                    const bodyTextV2 = (Array.isArray(displayResponse.logs) ? displayResponse.logs : [])
+                        .map((l: any) => (l?.text || '').trim())
+                        .filter(Boolean)
+                        .join('\n');
+                    if (bodyTextV2) {
+                        deps.触发场景自动生图({
+                            response: displayResponse,
+                            bodyText: bodyTextV2,
+                            env: finalEnvV2,
+                            turnNumber: nextRound,
+                            playerInput: sendInput,
+                            source: 'auto',
+                            autoApply: true
+                        });
+                    }
+                    const savedV2 = await deps.performAutoSave({
+                        history: finalHistoryV2,
+                        role: finalRoleV2,
+                        env: finalEnvV2,
+                        social: finalSocialV2,
+                        world: finalWorldV2,
+                        battle: currentState.战斗,
+                        sect: currentState.玩家门派,
+                        tasks: finalTasksV2,
+                        agreements: currentState.约定列表,
+                        story: finalStoryV2,
+                        storyPlan: finalStoryPlanV2,
+                        heroinePlan: finalHeroinePlanV2,
+                        fandomStoryPlan: currentState.同人剧情规划,
+                        fandomHeroinePlan: currentState.同人女主剧情规划,
+                        directorBible: postRes.nextState.directorBible,
+                        memory: finalMemoryV2
+                    });
+                    const validId = typeof savedV2?.id === 'number' && Number.isFinite(savedV2.id) ? savedV2.id : null;
+                    if (validId !== null) {
+                        本回合重Roll快照.关联自动存档ID = validId;
+                    }
+                    收束自动存档完成(validId);
+                } catch (postErr: any) {
+                    收束自动存档完成(null);
+                    if (postErr?.name === 'AbortError') {
+                        options?.onPlanningProgress?.({ phase: 'cancelled', text: '2.0 后台导演推演已取消，当前正文已保留。' });
+                        options?.onWorldEvolutionProgress?.({ phase: 'cancelled', text: '2.0 离屏演化已取消。' });
+                        return;
+                    }
+                    console.warn('2.0 导演后处理失败，已保留正文并跳过本轮后台记账', postErr);
+                    options?.onPlanningProgress?.({ phase: 'error', text: postErr?.message || '2.0 导演推演失败' });
+                } finally {
+                    deps.set后台队列处理中(false);
+                    if (deps.abortControllerRef.current === controller) {
+                        deps.abortControllerRef.current = null;
+                    }
+                }
+            };
+
+            deps.set后台队列处理中(true);
+            后台队列已启动 = true;
+            void runV2PostTurn();
+            return { attachedRecallPreview };
+        }
         const recallContextActiveForMain = recallFeatureEnabled && Boolean(recallTag);
         // 场外对话（侧聊）暂存原文：主回合成功吸收后由 deps.清空场外对话暂存 清空。
         const 场外对话提示块 = 构建场外对话记录块(currentState.场外对话);
@@ -2344,6 +2628,7 @@ export const 执行主剧情发送工作流 = async (
                 女主剧情规划: deps.深拷贝(currentState.女主剧情规划),
                 同人剧情规划: deps.深拷贝(currentState.同人剧情规划),
                 同人女主剧情规划: deps.深拷贝(currentState.同人女主剧情规划),
+                导演圣经: deps.深拷贝(currentState.导演圣经),
                 记忆系统: deps.深拷贝(memBeforeSend),
                 叙事平静值: deps.深拷贝(currentState.叙事平静值 || { 平静计数: 0, 情节事件记录: [] })
             },

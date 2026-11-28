@@ -355,6 +355,7 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             heroinePlan: patchedState.女主剧情规划,
             fandomStoryPlan: patchedState.同人剧情规划,
             fandomHeroinePlan: patchedState.同人女主剧情规划,
+            directorBible: snapshot.回档前状态.导演圣经,
             memory: recoveredMemory,
             visualConfig: deps.规范化视觉设置(deps.深拷贝(deps.visualConfigRef.current || deps.visualConfig)),
             sceneImageArchive: deps.规范化场景图片档案(deps.深拷贝(deps.场景图片档案Ref.current || {})),

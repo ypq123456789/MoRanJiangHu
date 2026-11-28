@@ -157,7 +157,6 @@ const WorldModal: React.FC<Props> = ({
     const 江湖史册 = Array.isArray(world?.江湖史册) ? world.江湖史册 : [];
     const 势力列表 = Array.isArray(world?.势力列表) ? world.势力列表 : [];
     const 势力互动历史 = Array.isArray(world?.势力互动历史) ? world.势力互动历史 : [];
-    const 拍卖行待投放物品 = Array.isArray(world?.拍卖行待投放物品) ? world.拍卖行待投放物品 : [];
     const 势力名称索引 = useMemo(() => 构建势力名称索引(势力列表), [势力列表]);
     const 势力关系图数据 = useMemo(() => 构建势力关系图数据(势力列表), [势力列表]);
     const 解析世界显示名 = useMemo(() => 构建世界显示名解析器(势力列表), [势力列表]);
@@ -411,38 +410,19 @@ const WorldModal: React.FC<Props> = ({
                                     )}
                                 </section>
 
-                                {(势力互动历史.length > 0 || 拍卖行待投放物品.length > 0) && (
-                                    <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                                        <div className="rounded-2xl border border-gray-800 bg-black/35 p-5">
-                                            <div className="text-sm font-serif font-bold text-wuxia-gold tracking-[0.25em] mb-4">势力风闻</div>
-                                            <div className="space-y-3">
-                                                {势力互动历史.slice(0, 8).map((event, idx) => (
-                                                    <div key={`faction-event-${event.ID || idx}`} className="rounded-xl border border-gray-800 bg-black/30 p-4">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <div className="text-sm font-semibold text-gray-100">{显示关联列表(event.参与势力).join('、') || '未知势力'}</div>
-                                                            <div className="rounded-full border border-gray-700 px-2 py-0.5 text-[10px] text-gray-400">{event.类型 || '互动'}</div>
-                                                        </div>
-                                                        <div className="mt-2 text-sm leading-6 text-gray-300">{event.事件摘要 || '暂无摘要。'}</div>
+                                {势力互动历史.length > 0 && (
+                                    <section className="rounded-2xl border border-gray-800 bg-black/35 p-5">
+                                        <div className="text-sm font-serif font-bold text-wuxia-gold tracking-[0.25em] mb-4">势力风闻</div>
+                                        <div className="space-y-3">
+                                            {势力互动历史.slice(0, 8).map((event, idx) => (
+                                                <div key={`faction-event-${event.ID || idx}`} className="rounded-xl border border-gray-800 bg-black/30 p-4">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="text-sm font-semibold text-gray-100">{显示关联列表(event.参与势力).join('、') || '未知势力'}</div>
+                                                        <div className="rounded-full border border-gray-700 px-2 py-0.5 text-[10px] text-gray-400">{event.类型 || '互动'}</div>
                                                     </div>
-                                                ))}
-                                                {势力互动历史.length === 0 && <div className="text-xs text-gray-600 italic">暂无势力互动传闻。</div>}
-                                            </div>
-                                        </div>
-                                        <div className="rounded-2xl border border-gray-800 bg-black/35 p-5">
-                                            <div className="text-sm font-serif font-bold text-purple-300 tracking-[0.25em] mb-4">市面风声</div>
-                                            <div className="space-y-3">
-                                                {拍卖行待投放物品.slice(0, 8).map((item, idx) => (
-                                                    <div key={`market-item-${item.名称 || idx}`} className="rounded-xl border border-purple-900/25 bg-purple-950/10 p-4">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <div className="text-sm font-semibold text-purple-100">{item.名称 || `未知物品 ${idx + 1}`}</div>
-                                                            <div className="rounded-full border border-purple-900/40 px-2 py-0.5 text-[10px] text-purple-300">{item.品质 || '未知品质'}</div>
-                                                        </div>
-                                                        <div className="mt-2 text-xs text-gray-400">{item.类型 || '物品'}</div>
-                                                        {取文本(item.描述) && <div className="mt-2 text-sm leading-6 text-gray-300">{item.描述}</div>}
-                                                    </div>
-                                                ))}
-                                                {拍卖行待投放物品.length === 0 && <div className="text-xs text-gray-600 italic">暂无拍卖风声。</div>}
-                                            </div>
+                                                    <div className="mt-2 text-sm leading-6 text-gray-300">{event.事件摘要 || '暂无摘要。'}</div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </section>
                                 )}

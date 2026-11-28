@@ -2,10 +2,13 @@ import React from 'react';
 import { 剧情系统结构 } from '../../../models/story';
 import { 剧情规划结构 } from '../../../models/storyPlan';
 import { 同人剧情规划结构 } from '../../../models/fandomPlanning/story';
+import type { DirectorWorldBible } from '../../../models/directorBible';
 
 interface Props {
     story: 剧情系统结构;
     storyPlan?: 剧情规划结构 | 同人剧情规划结构;
+    directorBible?: DirectorWorldBible;
+    worldEvents?: string[];
     isFandomMode?: boolean;
     onClose: () => void;
 }
@@ -14,9 +17,15 @@ const 取数组 = (value: unknown): string[] => Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
 
-const MobileStory: React.FC<Props> = ({ story, storyPlan, isFandomMode = false, onClose }) => {
+const MobileStory: React.FC<Props> = ({ story, storyPlan, directorBible, worldEvents = [], isFandomMode = false, onClose }) => {
     const [revealNext, setRevealNext] = React.useState(false);
     const pressTimerRef = React.useRef<number | null>(null);
+    const 可见伏笔台账 = Array.isArray(directorBible?.伏笔台账)
+        ? directorBible.伏笔台账.filter((item) => item && item.状态 !== '未埋设')
+        : [];
+    const 局势外溢列表 = Array.isArray(worldEvents)
+        ? worldEvents.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : [];
 
     const 当前章节 = story?.当前章节;
     const 历史卷宗 = Array.isArray(story?.历史卷宗) ? story.历史卷宗 : [];
@@ -184,6 +193,30 @@ const MobileStory: React.FC<Props> = ({ story, storyPlan, isFandomMode = false, 
                             当前无剧情卷宗数据
                         </div>
                     )}
+                    {(可见伏笔台账.length > 0 || 局势外溢列表.length > 0) ? (
+                        <div className="bg-ink-black/75 border border-wuxia-gold/25 rounded-xl p-4 space-y-3">
+                            <div className="text-xs font-bold tracking-[0.2em] text-wuxia-gold">2.0 伏笔线索与局势外溢</div>
+                            {可见伏笔台账.map((item) => (
+                                <div key={item.id || item.表面载体} className="rounded-lg border border-gray-800 bg-black/40 p-2.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-xs font-semibold text-gray-100">{item.表面载体 || '未命名线索'}</span>
+                                        <span className="text-[10px] text-amber-300">{item.状态}</span>
+                                    </div>
+                                    {item.埋设落点描述 ? (
+                                        <div className="mt-1 text-[11px] text-gray-400 leading-5">{item.埋设落点描述}</div>
+                                    ) : null}
+                                    {item.状态 === '已回收' && item.底层真相 ? (
+                                        <div className="mt-1 text-[11px] text-emerald-300 leading-5">真相揭晓：{item.底层真相}</div>
+                                    ) : null}
+                                </div>
+                            ))}
+                            {局势外溢列表.map((ev, idx) => (
+                                <div key={`m-spill-${idx}`} className="text-[11px] text-amber-200/90 border-l-2 border-amber-500/40 pl-2.5 leading-5">
+                                    {ev}
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </div>

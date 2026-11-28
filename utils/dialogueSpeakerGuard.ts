@@ -47,6 +47,7 @@ const 是否可接受未知中文角色名 = (value: string): boolean => {
 export const 规范化正文发送者名 = (senderRaw: string): string => {
     const sender = (senderRaw || '')
         .replace(/[【】\[\]「」『』“”"]/g, '')
+        .replace(/^角色名\s*[：:]\s*/u, '')
         .trim();
     if (!sender) return '旁白';
     if (sender === '判定') return '【判定】';

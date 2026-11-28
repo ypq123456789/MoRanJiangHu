@@ -18,7 +18,8 @@ import type {
     剧情系统结构,
     世界数据结构,
     提示词结构,
-    叙事状态结构
+    叙事状态结构,
+    DirectorWorldBible
 } from '../../../types';
 import { 执行手动存档, 执行自动存档, 执行读取存档 } from '../saveCoordinator';
 import type { 自动存档快照结构 } from '../saveCoordinator';
@@ -44,6 +45,7 @@ type 存档编排工作流依赖 = {
     女主剧情规划?: 女主剧情规划结构;
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
+    导演圣经?: DirectorWorldBible;
     记忆系统: 记忆系统结构;
     叙事平静值?: 叙事状态结构;
     openingConfig?: OpeningConfig;
@@ -104,6 +106,7 @@ type 存档编排工作流依赖 = {
     设置女主剧情规划: (value: 女主剧情规划结构 | undefined) => void;
     设置同人剧情规划: (value: 同人剧情规划结构 | undefined) => void;
     设置同人女主剧情规划: (value: 同人女主剧情规划结构 | undefined) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
     设置开局配置: (value: OpeningConfig | undefined) => void;
     设置提示词池: (value: 提示词结构[]) => void;
     设置历史记录: (value: 聊天记录结构[]) => void;
@@ -139,6 +142,7 @@ export const 创建存读档工作流 = (deps: 存档编排工作流依赖) => {
         女主剧情规划: deps.女主剧情规划,
         同人剧情规划: deps.同人剧情规划,
         同人女主剧情规划: deps.同人女主剧情规划,
+        导演圣经: deps.导演圣经,
         记忆系统: deps.记忆系统,
         叙事平静值: deps.叙事平静值,
         openingConfig: deps.openingConfig,
@@ -206,6 +210,7 @@ export const 创建存读档工作流 = (deps: 存档编排工作流依赖) => {
         设置女主剧情规划: deps.设置女主剧情规划,
         设置同人剧情规划: deps.设置同人剧情规划,
         设置同人女主剧情规划: deps.设置同人女主剧情规划,
+        设置导演圣经: deps.设置导演圣经,
         设置开局配置: deps.设置开局配置,
         设置提示词池: deps.设置提示词池,
         设置历史记录: deps.设置历史记录,

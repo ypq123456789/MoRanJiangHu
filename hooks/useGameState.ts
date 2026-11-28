@@ -46,6 +46,7 @@ import {
     创建空剧情规划,
     创建空门派状态
 } from './useGame/storyState';
+import { 规范化导演圣经, type DirectorWorldBible } from '../models/directorBible';
 import { isNativeCapacitorEnvironment } from '../utils/nativeRuntime';
 import { 订阅云端设置回填 } from '../services/cloudSettingsSync';
 
@@ -160,6 +161,7 @@ export const useGameState = () => {
     const [女主剧情规划, 设置女主剧情规划] = useState<女主剧情规划结构 | undefined>(() => 创建空女主剧情规划状态());
     const [同人剧情规划, 设置同人剧情规划] = useState<同人剧情规划结构 | undefined>(() => 创建空同人剧情规划状态());
     const [同人女主剧情规划, 设置同人女主剧情规划] = useState<同人女主剧情规划结构 | undefined>(() => 创建空同人女主剧情规划状态());
+    const [导演圣经, 设置导演圣经] = useState<DirectorWorldBible | undefined>(undefined);
     const [开局配置, 设置开局配置] = useState<OpeningConfig | undefined>(undefined);
     const [游戏初始时间, 设置游戏初始时间] = useState('');
 
@@ -473,6 +475,7 @@ export const useGameState = () => {
         女主剧情规划, 设置女主剧情规划,
         同人剧情规划, 设置同人剧情规划,
         同人女主剧情规划, 设置同人女主剧情规划,
+        导演圣经, 设置导演圣经,
         开局配置, 设置开局配置,
         游戏初始时间, 设置游戏初始时间,
         历史记录, 设置历史记录,

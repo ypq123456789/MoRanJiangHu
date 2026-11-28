@@ -7,6 +7,7 @@ import type {
     女主剧情规划结构,
     同人剧情规划结构,
     同人女主剧情规划结构,
+    DirectorWorldBible,
     提示词结构,
     叙事状态结构
 } from '../../types';
@@ -52,6 +53,7 @@ type 回合快照结构 = {
         女主剧情规划?: any;
         同人剧情规划?: any;
         同人女主剧情规划?: any;
+        导演圣经?: DirectorWorldBible;
         记忆系统: any;
         叙事平静值?: 叙事状态结构;
     };
@@ -86,6 +88,7 @@ type 会话生命周期依赖 = {
     女主剧情规划?: 女主剧情规划结构;
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
+    导演圣经?: DirectorWorldBible;
     开局配置?: OpeningConfig;
     内置提示词列表: any[];
     世界书列表: any[];
@@ -122,6 +125,7 @@ type 会话生命周期依赖 = {
     设置女主剧情规划: (value: any) => void;
     设置同人剧情规划: (value: any) => void;
     设置同人女主剧情规划: (value: any) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
     设置开局配置: (value: OpeningConfig | undefined) => void;
     设置叙事平静值: (value: 叙事状态结构) => void;
     设置开局文章优化进度: (value: any) => void;
@@ -218,6 +222,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
         deps.设置女主剧情规划(undefined);
         deps.设置同人剧情规划(undefined);
         deps.设置同人女主剧情规划(undefined);
+        deps.设置导演圣经?.(undefined);
         deps.设置开局配置(undefined);
         deps.设置叙事平静值({ 平静计数: 0, 情节事件记录: [] });
         deps.设置开局文章优化进度(null);
@@ -268,6 +273,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 女主剧情规划: deps.深拷贝(contextData?.女主剧情规划 ?? deps.女主剧情规划),
                 同人剧情规划: deps.深拷贝(contextData?.同人剧情规划 ?? deps.同人剧情规划),
                 同人女主剧情规划: deps.深拷贝(contextData?.同人女主剧情规划 ?? deps.同人女主剧情规划),
+                导演圣经: deps.深拷贝(contextData?.导演圣经 ?? deps.导演圣经),
                 记忆系统: deps.深拷贝(deps.记忆系统)
             },
             回档前持久态: {
@@ -300,6 +306,9 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 女主剧情规划: deps.女主剧情规划,
                 同人剧情规划: deps.同人剧情规划,
                 同人女主剧情规划: deps.同人女主剧情规划,
+                导演圣经: contextData?.导演圣经 ?? deps.导演圣经,
+                社交: deps.社交,
+                深拷贝: deps.深拷贝,
                 gameConfig: deps.gameConfig,
                 memoryConfig: deps.memoryConfig,
                 builtinPromptEntries: deps.内置提示词列表,
@@ -317,6 +326,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 设置女主剧情规划: deps.设置女主剧情规划,
                 设置同人剧情规划: deps.设置同人剧情规划,
                 设置同人女主剧情规划: deps.设置同人女主剧情规划,
+                设置导演圣经: deps.设置导演圣经,
                 设置玩家门派: deps.设置玩家门派,
                 设置任务列表: deps.设置任务列表,
                 设置约定列表: deps.设置约定列表,
@@ -448,6 +458,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 setPrompts: deps.setPrompts,
                 setLoading: deps.setLoading,
                 setShowSettings: deps.setShowSettings,
+                设置导演圣经: deps.设置导演圣经,
                 设置历史记录: deps.设置历史记录,
                 设置开局配置: deps.设置开局配置,
                 设置最近开局配置: deps.设置最近开局配置,
@@ -542,7 +553,8 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 剧情规划: deps.剧情规划,
                 女主剧情规划: deps.女主剧情规划,
                 同人剧情规划: deps.同人剧情规划,
-                同人女主剧情规划: deps.同人女主剧情规划
+                同人女主剧情规划: deps.同人女主剧情规划,
+                导演圣经: deps.导演圣经
             };
             deps.setLoading(true);
             try {

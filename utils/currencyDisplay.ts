@@ -895,3 +895,28 @@ export const 计算货币物品兑换底层总值 = (
 export const 是否货币类物品 = (item: any): boolean => (
     读取货币类型分类名(typeof item?.类型 === 'string' ? item.类型.trim() : '') !== ''
 );
+
+/**
+ * 以底层基础货币单位增减角色现金并同步回写三层货币槽位。
+ */
+export const 自动增加BaseAmount = (
+    character: 角色数据结构,
+    baseIncome: number,
+    options?: { runtimeProfile?: ModeRuntimeProfile | null; 货币模式?: 货币显示模式; 仙侠模式?: boolean }
+): 角色数据结构 => {
+    const mode: 货币显示模式 = options?.仙侠模式 === true
+        ? 'xianxia'
+        : (options?.货币模式 || (character?.灵根 ? 'xianxia' : 'wuxia'));
+    const curTotal = 计算角色货币底层总值(character?.金钱, options?.runtimeProfile, mode);
+    const delta = Math.max(0, Math.floor(Number(baseIncome) || 0));
+    return {
+        ...character,
+        金钱: 底层总值转角色金钱(curTotal + delta, options?.runtimeProfile, mode)
+    };
+};
+
+export const 计算金钱BaseAmount总值 = (
+    money?: Partial<角色金钱> | null,
+    profile?: ModeRuntimeProfile | null,
+    mode?: 货币显示模式
+): number => 计算角色货币底层总值(money, profile, mode);

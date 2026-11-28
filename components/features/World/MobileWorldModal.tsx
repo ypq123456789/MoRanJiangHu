@@ -152,7 +152,6 @@ const MobileWorldModal: React.FC<Props> = ({
     const 江湖史册 = useMemo(() => Array.isArray(world?.江湖史册) ? world.江湖史册 : [], [world]);
     const 势力列表 = useMemo(() => Array.isArray(world?.势力列表) ? world.势力列表 : [], [world]);
     const 势力互动历史 = useMemo(() => Array.isArray(world?.势力互动历史) ? world.势力互动历史 : [], [world]);
-    const 拍卖行待投放物品 = useMemo(() => Array.isArray(world?.拍卖行待投放物品) ? world.拍卖行待投放物品 : [], [world]);
     const 势力关系图数据 = useMemo(() => 构建势力关系图数据(势力列表), [势力列表]);
     const 解析世界显示名 = useMemo(() => 构建世界显示名解析器(势力列表), [势力列表]);
     const 显示关联列表 = (values: unknown): string[] => 清洗数组显示名(values, 解析世界显示名);
@@ -372,22 +371,6 @@ const MobileWorldModal: React.FC<Props> = ({
                                                 <div className="rounded-full border border-gray-700 px-2 py-0.5 text-[10px] text-gray-400">{event.类型 || '互动'}</div>
                                             </div>
                                             <div className="mt-2 text-sm leading-6 text-gray-300">{event.事件摘要 || '暂无摘要。'}</div>
-                                        </div>
-                                    ))}
-                                </>
-                            )}
-
-                            {拍卖行待投放物品.length > 0 && (
-                                <>
-                                    <div className="px-2 pt-4 pb-1 text-[11px] font-bold text-purple-300 tracking-widest">市面风声</div>
-                                    {拍卖行待投放物品.slice(0, 6).map((item, idx) => (
-                                        <div key={`market-item-${item.名称 || idx}`} className="rounded-3xl border border-purple-900/25 bg-purple-950/10 p-4">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="text-sm font-semibold text-purple-100">{item.名称 || `未知物品 ${idx + 1}`}</div>
-                                                <div className="rounded-full border border-purple-900/40 px-2 py-0.5 text-[10px] text-purple-300">{item.品质 || '未知品质'}</div>
-                                            </div>
-                                            <div className="mt-2 text-xs text-gray-400">{item.类型 || '物品'}</div>
-                                            {取文本(item.描述) && <div className="mt-2 text-sm leading-6 text-gray-300">{item.描述}</div>}
                                         </div>
                                     ))}
                                 </>

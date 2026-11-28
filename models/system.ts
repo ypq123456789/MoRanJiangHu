@@ -15,6 +15,7 @@ import { 同人剧情规划结构 } from './fandomPlanning/story';
 import { 同人女主剧情规划结构 } from './fandomPlanning/heroinePlan';
 import { 战斗状态结构 } from './battle';
 import { 世界书结构 } from './worldbook';
+import type { DirectorWorldBible } from './directorBible';
 
 type 背景初始物品快照 = {
     名称: string;
@@ -1272,6 +1273,7 @@ export interface 游戏设置结构 {
     禁用APK自动更新: boolean; // Disable automatic APK update checks and release-note popups; manual update remains available
     启用回合结束自动存档: boolean; // Auto save after each completed story turn
     启用正文后暂停后续步骤?: boolean; // 正文（含文章优化）完成后暂停变量/世界/规划/地图，等玩家确认正文后再一键继续；默认关闭（保持原有全自动体验）
+    启用2_0剧情引擎?: boolean; // Enable 2.0 Causal Director Story Engine (default enabled when wired)
     启用回合提示音?: boolean; // Play a short notification sound when a turn completes (default: true)
     启用繁体模式: boolean; // Require AI-generated in-game text to use Traditional Chinese
     启用非流式输出: boolean; // Disable streaming output, use non-streaming request instead
@@ -1432,6 +1434,7 @@ export interface 存档结构 {
     女主剧情规划?: 女主剧情规划结构;
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
+    导演圣经?: DirectorWorldBible;
     
     // New Settings in Save
     记忆系统?: 记忆系统结构;

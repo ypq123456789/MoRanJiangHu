@@ -1,0 +1,455 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { test, expect } from '@playwright/test';
+
+const MIME = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf'
+};
+
+let server = null;
+let baseUrl = '';
+
+const startDistServer = async () => {
+    const root = path.resolve('dist');
+    if (!fs.existsSync(path.join(root, 'index.html'))) {
+        throw new Error('dist/index.html missing; run npm run build first');
+    }
+    const srv = http.createServer((req, res) => {
+        let reqPath = decodeURIComponent((req.url || '/').split('?')[0]);
+        if (reqPath === '/') reqPath = '/index.html';
+        const resolved = path.join(root, path.normalize(reqPath).replace(/^(\.\.[/\\])+/, ''));
+        if (resolved.startsWith(root) && fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+            res.writeHead(200, { 'Content-Type': MIME[path.extname(resolved).toLowerCase()] || 'application/octet-stream' });
+            fs.createReadStream(resolved).pipe(res);
+            return;
+        }
+        res.writeHead(200, { 'Content-Type': MIME['.html'] });
+        fs.createReadStream(path.join(root, 'index.html')).pipe(res);
+    });
+    await new Promise((resolve, reject) => {
+        srv.once('error', reject);
+        srv.listen(0, '127.0.0.1', resolve);
+    });
+    const addr = srv.address();
+    return { srv, url: `http://127.0.0.1:${addr.port}/` };
+};
+
+const buildWorldBibleMockResponse = () => {
+    const mapNodes = [
+        { ID: 'DT-001', 名称: '九州江海', 层级: '寰宇', 父级ID: '', 描述: '九州与东海诸岛总揽', 坐标X: 50, 坐标Y: 50, 范围半径: 50 },
+        { ID: 'DT-002', 名称: '云州府境', 层级: '大地点', 父级ID: 'DT-001', 描述: '漕运盐路咽喉大州', 坐标X: 30, 坐标Y: 40, 范围半径: 20 },
+        { ID: 'DT-003', 名称: '沧澜群岛', 层级: '大地点', 父级ID: 'DT-001', 描述: '海外走私盐船泊地', 坐标X: 75, 坐标Y: 45, 范围半径: 18 },
+        { ID: 'DT-004', 名称: '北朔雪原', 层级: '大地点', 父级ID: 'DT-001', 描述: '边军马政重镇', 坐标X: 45, 坐标Y: 15, 范围半径: 20 },
+        { ID: 'DT-005', 名称: '南越瘴岭', 层级: '大地点', 父级ID: 'DT-001', 描述: '药石矿脉秘境', 坐标X: 55, 坐标Y: 80, 范围半径: 18 },
+        ...Array.from({ length: 8 }, (_, idx) => ({
+            ID: `DT-${String(idx + 6).padStart(3, '0')}`,
+            名称: `云州中域${idx + 1}`,
+            层级: '中地点',
+            父级ID: `DT-00${(idx % 4) + 2}`,
+            描述: `第${idx + 1}中域枢纽`,
+            坐标X: 25 + idx * 7,
+            坐标Y: 45,
+            范围半径: 10
+        })),
+        ...Array.from({ length: 10 }, (_, idx) => ({
+            ID: `DT-${String(idx + 14).padStart(3, '0')}`,
+            名称: idx === 0 ? '云州西郊' : `江湖城镇${idx + 1}`,
+            层级: '小地点',
+            父级ID: `DT-${String((idx % 8) + 6).padStart(3, '0')}`,
+            描述: idx === 0 ? '紧邻西市渡口的荒凉郊野' : `第${idx + 1}城镇地标`,
+            叙事核心: idx === 0 ? '七日前沉船余波正于此地暗中发酵' : '',
+            坐标X: 30 + idx * 4,
+            坐标Y: 50,
+            范围半径: 5
+        })),
+        { ID: 'DT-024', 名称: '云州破庙区', 层级: '区地点', 父级ID: 'DT-014', 描述: '西郊破败山神庙一带', 坐标X: 31, 坐标Y: 51, 范围半径: 3 },
+        { ID: 'DT-025', 名称: '西市老渡口', 层级: '区地点', 父级ID: 'DT-014', 描述: '官差与漕帮盯防要道', 坐标X: 33, 坐标Y: 52, 范围半径: 3 },
+        { ID: 'DT-026', 名称: '破庙供桌殿', 层级: '子地点', 父级ID: 'DT-024', 描述: '避雨藏身之所', 坐标X: 31, 坐标Y: 51, 范围半径: 1 }
+    ];
+    const factions = Array.from({ length: 6 }, (_, idx) => ({
+        id: `FCT-00${idx + 1}`,
+        名称: `势力甲乙${idx + 1}门`,
+        类型: idx % 2 === 0 ? '宗门' : '世家',
+        实力等级: 5 + (idx % 4),
+        层级: (idx % 3) + 1,
+        领袖: `掌门${idx + 1}`,
+        核心人物: [`CAST-00${idx + 1}`],
+        内部裂痕: '少壮派与长老会就盐引分成暗生嫌隙',
+        对外公开立场: '维持云州商路与渡口秩序',
+        真实诉求与暗中图谋: '暗中争夺十年前沉银案秘钥与密库总账',
+        致命弱点或忌讳: '盐票周转亏空且暗桩名单恐遭外泄',
+        跨势力账目: [{ 对方势力: `势力甲乙${((idx + 1) % 6) + 1}门`, 关系: '利益互锁', 具体渊源: '争夺西市渡口税权与秘钥下落' }],
+        地盘: ['云州西郊', '西市老渡口']
+    }));
+    const cast = Array.from({ length: 7 }, (_, idx) => ({
+        id: `CAST-00${idx + 1}`,
+        姓名: idx === 0 ? '顾霜晚' : `江湖人士${idx + 1}`,
+        性别: idx % 2 === 0 ? '女' : '男',
+        身份与势力: `势力甲乙${(idx % 6) + 1}门要员`,
+        所处层级: (idx % 3) + 1,
+        生平与过往执念: '早年失落家族契约与十年前渡口旧案息息相关',
+        表层伪装: '沉静持重的行商或客卿',
+        真实诉求与利益底线: '绝不令青铜秘钥落入靖安司暗桩之手',
+        隐藏秘密: `持有线索号${idx + 1}`,
+        初始认知边界: { 已知事实: ['码头夜船暗号'], 盲区: ['不知主角随身携带半块玉扣'] },
+        人际渊源: [{ 对象: '林秋水', 真实关系与心思: '试探利用却暂保合作底线' }],
+        幕后当前日程: { 当前目标: `封锁第${idx + 1}码头`, 正在推进的步骤: '暗调人手布防并清点过往船只', 行动倒计时回合: 2, 已触发影响: [] },
+        是否已登场: idx === 0
+    }));
+    const foreshadows = Array.from({ length: 6 }, (_, idx) => ({
+        id: `FS-00${idx + 1}`,
+        类型: '物件',
+        表面载体: idx === 0 ? '青铜碎钥' : `古旧线索${idx + 1}`,
+        底层真相: idx === 0 ? '绝密真相_盐库暗门密钥' : `隐藏真相${idx + 1}`,
+        知情人: ['CAST-002'],
+        盲区人物: ['林秋水'],
+        建议埋设阶段: idx === 0 ? '第0~1回合' : `第${idx + 1}回合`,
+        建议回收阶段: '第1幕高潮',
+        触发或回收条件: '对照盐引铜模',
+        状态: '未埋设'
+    }));
+    const acts = Array.from({ length: 4 }, (_, idx) => ({
+        幕次: idx + 1,
+        标题: `第${idx + 1}幕·风雨欲来`,
+        核心矛盾: '盐引秘钥引发多方暗战与底层求生挣扎',
+        主角目标与破局路径: '在围追堵截中查明账簿下落并稳住同路人',
+        关键势力与人物: ['林秋水', '顾霜晚'],
+        跃迁至下一幕条件: '破解第一重暗桩',
+        当前状态: idx === 0 ? '推进中' : '未开始'
+    }));
+
+    const worldProse = [
+        '九州疆域辽阔，以云州府境为南北漕运盐路咽喉，北接雪原边军防线，东连沧澜群岛私舶暗港，南望十万瘴岭药矿险地，西扼古道关隘。表面上朝廷设盐铁转运司统御九州商税与盐引勘合，六大宗门与百年世家各守祖制、以武止戈，维系着百年来表面平和的江湖秩序、坊市规矩与官民商路往来，令无数寒门子弟仍以为勤修苦练便能出人头地。',
+        '然而在民间市井与外围散修眼中，近十年来官盐价钱节节攀升，西市老渡口屡传夜船失事沉江之闻，凡私运私盐、打听旧案或携有残缺铜牌者往往一夜蒸发，坊间暗流早已汹涌难平。外围武者修习粗浅吐纳法门，常为一枚引气丹或半张渡船路引奔波卖命；而高居内城阁楼之上的人物，却只用一纸令签便能封锁整条江面。今夜大雨倾盆，七日前那场沉船旧案的余波正席卷而来，正是山雨欲来风满楼的前夕。'
+    ].join('\n\n');
+
+    return [
+        `<世界观>${worldProse}</世界观>`,
+        `<世界基底>${JSON.stringify({ 地图层级: mapNodes })}</世界基底>`,
+        `<导演圣经>${JSON.stringify({
+            version: 2,
+            世界观表层摘要: '云州商道风云诡谲，表面盐铁秩序下暗藏多方势力角逐。',
+            顶层隐秘秩序: '十年前起云州盐引与边军军饷便被高层通过暗库总账私下勾兑垄断，违者一律以沉船水匪名义抹除。',
+            核心历史原罪: '十年前云州百艘运银官船一夜沉江的旧案实为顶层瓜分失衡所致，遗留两半青铜密钥至今下落不明。',
+            终局方向与逆推因果: '循着青铜碎钥与沉银账簿逆推顶层密约，撬动六派制衡秩序。',
+            空间阶梯: [
+                { 层级序号: 1, 层级名称: '云州下城码头', 典型区域: ['西市老渡口', '云州西郊'], 准入壁垒: '无盐引不得夜行登船', 核心资源与垄断者: '私盐渡口归漕帮暗控', 主要压迫冲突: '差役盘剥与黑市灭口' },
+                { 层级序号: 2, 层级名称: '内城宗门世家', 典型区域: ['云州府城'], 准入壁垒: '须持宗门腰牌或世家荐书', 核心资源与垄断者: '筑基灵药与官营盐票', 主要压迫冲突: '旁支倾轧与借刀杀人' },
+                { 层级序号: 3, 层级名称: '列国靖安司网', 典型区域: ['南北漕运总署'], 准入壁垒: '三品令签方可调阅旧案卷宗', 核心资源与垄断者: '总账名册与缉捕大权', 主要压迫冲突: '灭口清场与派系换血' },
+                { 层级序号: 4, 层级名称: '天京秘阁顶层', 典型区域: ['沧澜秘岛'], 准入壁垒: '唯有半块旧钥可启封海图', 核心资源与垄断者: '长生古丹方与天下盐脉', 主要压迫冲突: '破局立新抑或成为下一个执棋者' }
+            ],
+            前史导火索: [{ 事件名: '渡口翻船案', 发生时间: '开局前七日', 真实经过: '秘钥随货坠江引发各派密探截杀', 表层流言版本: '水鬼索命沉船无人生还', 卷入各方: ['势力甲乙1门', '势力甲乙2门'], 留下的烫手筹码或危机: '生还者正遭全城搜捕灭口' }],
+            主角核心困局: { 开局处境: '身怀半块玉扣且被差役盯上行踪', 最大威胁源: '靖安司暗桩与漕帮追兵', 手中唯一筹码或信息差: '知晓沉船真实方位与玉扣暗纹', 短中期推进动力: '雨夜突围保命并反查内鬼' },
+            宏观分幕大纲: acts,
+            当前幕次: 1,
+            势力暗账: factions,
+            核心卡司: cast,
+            伏笔台账: foreshadows,
+            动态轨迹记录: [],
+            下回合导演简报: {
+                生成于回合: 0,
+                本回合舞台焦点: '雨夜破庙避雨与陌生同路人试探',
+                必须守住的悬念或冲突: '门外脚步声越来越近',
+                待埋或推进伏笔ID: 'FS-001',
+                待埋伏笔演出方式: '墙角供桌下露出一枚沾泥青铜碎钥',
+                即将落地的外溢世界波及: ['黑市放话悬赏沉船生还者'],
+                在场人物私密动向提示: [],
+                下一拍预计走向: '试探同行者来历'
+            }
+        })}</导演圣经>`
+    ].join('\n');
+};
+
+const buildSseChunk = (content) => {
+    const piece = JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { content }, finish_reason: null }] });
+    const end = JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
+    return `data: ${piece}\n\ndata: ${end}\n\ndata: [DONE]\n\n`;
+};
+
+const putSetting = async (page, key, value) => {
+    await page.evaluate(async ({ key, value }) => {
+        const req = indexedDB.open('WuxiaGameDB');
+        const db = await new Promise((resolve, reject) => {
+            req.onerror = () => reject(req.error);
+            req.onsuccess = () => resolve(req.result);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('saves')) db.createObjectStore('saves', { keyPath: 'id', autoIncrement: true });
+                if (!db.objectStoreNames.contains('save_summaries')) db.createObjectStore('save_summaries', { keyPath: 'id' });
+                if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+                if (!db.objectStoreNames.contains('image_assets')) db.createObjectStore('image_assets', { keyPath: 'id' });
+            };
+        });
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(['settings'], 'readwrite');
+            tx.objectStore('settings').put({
+                key,
+                value,
+                version: 2,
+                category: 'e2e',
+                updatedAt: Date.now()
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+    }, { key, value });
+};
+
+const clickVisible = async (page, candidates) => {
+    for (const c of candidates) {
+        const btn = page.getByRole('button', { name: c }).first();
+        if (await btn.count() && await btn.isVisible().catch(() => false)) {
+            await btn.click({ force: true });
+            return true;
+        }
+        const txt = page.getByText(c, { exact: false }).first();
+        if (await txt.count() && await txt.isVisible().catch(() => false)) {
+            await txt.click({ force: true });
+            return true;
+        }
+    }
+    return false;
+};
+
+test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
+    test.beforeAll(async () => {
+        const started = await startDistServer();
+        server = started.srv;
+        baseUrl = started.url;
+    });
+
+    test.afterAll(async () => {
+        if (server) {
+            await new Promise((resolve) => server.close(resolve));
+        }
+    });
+
+    test('Full 2.0 flow: WorldGen -> Opening -> Turn 1 -> StoryModal clues -> Zero Battle/Auction UI', async ({ page }) => {
+        test.setTimeout(120000);
+        const pageErrors = [];
+        const capturedCalls = [];
+        page.on('pageerror', (err) => { console.log('[PAGEERROR]', err.message); pageErrors.push(err.message); });
+        page.on('console', (msg) => {
+            if (msg.type() === 'error' || msg.type() === 'warning' || msg.text().includes('2.0')) {
+                console.log(`[CONSOLE:${msg.type()}]`, msg.text());
+            }
+        });
+
+        await page.addInitScript(() => {
+            localStorage.setItem('moranjianghu.releaseNotesSuppressDate', new Date().toISOString().slice(0, 10));
+        });
+
+        await page.route('**/v1/chat/completions', async (route) => {
+            const body = route.request().postDataJSON();
+            const joined = (body?.messages || []).map((m) => `${m.role}: ${m.content}`).join('\n');
+            console.log('[AI_ROUTE_CALL]', {
+                stream: body?.stream,
+                msgCount: body?.messages?.length,
+                head: joined.slice(0, 120).replace(/\s+/g, ' '),
+                tail: joined.slice(-180).replace(/\s+/g, ' ')
+            });
+            let replyText = '';
+
+            if (joined.includes('角色视觉锚点提取器')) {
+                capturedCalls.push('visual_anchor');
+                replyText = JSON.stringify({
+                    外貌锚点: 'black hair, dark eyes, hanfu, pale skin, elegant',
+                    视觉年龄建议岁数: 18
+                });
+            } else if (joined.includes('构建一台【开局前就已经上了发条的高压因果机器】')) {
+                if ((body?.messages?.length || 0) >= 3) {
+                    console.log('[WORLD_BIBLE_REPAIR_REASON]', String(body.messages[2]?.content || '').slice(0, 400));
+                }
+                capturedCalls.push('world_bible_v2');
+                replyText = buildWorldBibleMockResponse();
+            } else if (joined.includes('只输出合法 JSON（包裹在 <导演更新JSON>')) {
+                const isTurn0 = joined.includes('开局初始化') || capturedCalls.filter((c) => c === 'director_post').length === 0;
+                capturedCalls.push('director_post');
+                replyText = '<导演更新JSON>' + JSON.stringify({
+                    环境变更: { 推进分钟数: isTurn0 ? 0 : 15, 小地点: '云州破庙', 具体地点: '云州西郊破庙' },
+                    伏笔迁移: [
+                        isTurn0
+                            ? { id: 'FS-001', nextStatus: '已埋设', 落点描述: '供桌青砖缝里露出一枚沾泥青铜碎钥' }
+                            : { id: 'FS-001', nextStatus: '发酵中', 落点描述: '门外搜检官差腰间挂着同款青铜锁牌' }
+                    ],
+                    幕后人物推进: isTurn0
+                        ? [{ id: 'CAST-002', 行动倒计时变化: -1, 触发外溢波及: '官差夜封西市渡口' }]
+                        : [],
+                    动态重规划: { 需要重规划: false },
+                    下回合导演简报: {
+                        本回合舞台焦点: '破庙门外火把逼近，顾霜晚神色微动',
+                        必须守住的悬念或冲突: '碎钥与官差铜牌如出一辙',
+                        在场人物私密动向提示: [],
+                        下一拍预计走向: '盘查或潜走'
+                    }
+                }) + '</导演更新JSON>';
+            } else if (joined.includes('2.0 剧情导演开局简报')) {
+                capturedCalls.push('turn0_opening_v2');
+                replyText = [
+                    '<thinking>构建2.0开局紧张雨夜氛围，埋下FS-001载体</thinking>',
+                    '<正文>',
+                    '檐角雨水连成细线砸在青石台阶上。你握紧袖中半块温润玉扣，目光落在供桌青砖缝里露出的一枚沾泥青铜碎钥。',
+                    '【顾霜晚】“这庙里潮气重，阁下还是莫要乱翻旧物的好。”',
+                    '</正文>',
+                    '<短期记忆>林秋水于云州破庙避雨，瞥见青铜碎钥，同行女子顾霜晚开口提醒。</短期记忆>',
+                    '<行动选项>',
+                    'A.不动声色用脚尖将碎钥拨进阴影再试探顾霜晚',
+                    'B.俯身捡起青铜碎钥端详其缺口纹路',
+                    'C.推开半扇破门望向山道火光动向',
+                    'D.抱臂靠柱闭目养神静观其变',
+                    '</行动选项>'
+                ].join('\n');
+            } else {
+                capturedCalls.push('turn1_normal_v2');
+                replyText = [
+                    '<thinking>承接玩家选项与FS-001推进</thinking>',
+                    '<正文>',
+                    '林秋水指节微曲，趁火堆噼啪炸响的一瞬探手将碎钥收入袖底。庙外泥地里传来整齐的靴声，领头差役腰间赫然悬着同款制式铜牌。',
+                    '【顾霜晚】“官差封了西市渡口，今夜走水路已是不成。”',
+                    '</正文>',
+                    '<短期记忆>林秋水暗藏青铜碎钥，发现官差腰牌纹路一致，西市渡口已被封锁。</短期记忆>',
+                    '<行动选项>',
+                    'A.从破庙后窗翻入竹林绕开差役',
+                    'B.借火把暗影亮出半枚碎钥试探顾霜晚反应',
+                    'C.故意咳嗽惊动外头差役探听封渡口风声',
+                    'D.退回佛龛后方观察来人腰牌字样',
+                    '</行动选项>'
+                ].join('\n');
+            }
+            console.log('[ROUTE_MATCHED]', capturedCalls[capturedCalls.length - 1]);
+
+            if (body?.stream) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'text/event-stream; charset=utf-8',
+                    body: buildSseChunk(replyText)
+                });
+            } else {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json; charset=utf-8',
+                    body: JSON.stringify({ choices: [{ message: { content: replyText } }] })
+                });
+            }
+        });
+
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto(baseUrl, { waitUntil: 'networkidle' });
+
+        const apiSettings = {
+            activeConfigId: 'mock-v2',
+            configs: [{
+                id: 'mock-v2',
+                名称: 'Mock V2 AI',
+                供应商: 'openai_compatible',
+                协议覆盖: 'openai',
+                baseUrl: 'https://mock-v2-ai.local/v1',
+                apiKey: 'mock-key',
+                model: 'mock-flash',
+                maxTokens: 2048,
+                temperature: 0.5,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            }],
+            功能模型占位: {
+                主剧情使用模型: 'mock-flash',
+                世界演变功能启用: false,
+                规划分析功能启用: false,
+                地图生成功能启用: false,
+                文生图功能启用: false
+            }
+        };
+        await putSetting(page, 'api_settings', apiSettings);
+        await page.evaluate((s) => {
+            localStorage.setItem('moranjianghu.apiConfig.localMirror.v1', JSON.stringify(s));
+        }, apiSettings);
+        await page.reload({ waitUntil: 'networkidle' });
+
+        expect(await clickVisible(page, ['本地游玩'])).toBe(true);
+        await page.waitForTimeout(300);
+        expect(await clickVisible(page, ['踏入江湖', '新的江湖', '开始游戏', '新建存档', '初入江湖'])).toBe(true);
+
+        await expect(page.getByText(/1\s*\/\s*6/).first()).toBeVisible({ timeout: 10000 });
+        for (let i = 0; i < 5; i += 1) {
+            expect(await clickVisible(page, ['下一步 →', '下一步'])).toBe(true);
+            await page.waitForTimeout(250);
+            if (i === 1) {
+                const nameInput = page.locator('input:visible').first();
+                await expect(nameInput).toBeVisible({ timeout: 5000 });
+                await nameInput.fill('林秋水');
+            }
+            if (i === 2) {
+                const partnerInput = page.getByPlaceholder(/同伴名号|同伴姓名/).first();
+                if (await partnerInput.count() && await partnerInput.isVisible().catch(() => false)) {
+                    await partnerInput.fill('顾霜晚');
+                }
+            }
+        }
+
+        const finishBtn = page.getByRole('button', { name: /开启世界推演|一键生成/ }).first();
+        await expect(finishBtn).toBeVisible({ timeout: 10000 });
+        await finishBtn.click();
+        const confirmStartBtn = page.getByRole('button', { name: '开始生成', exact: true }).first();
+        await expect(confirmStartBtn).toBeVisible({ timeout: 5000 });
+        await confirmStartBtn.click();
+
+        // Wait for Turn 0 prose to appear (use phrase unique to turn0_opening_v2, not world_bible_v2 preview)
+        await expect(page.getByText('这庙里潮气重', { exact: false }).first()).toBeVisible({ timeout: 25000 });
+        expect(capturedCalls.filter((c) => c === 'world_bible_v2')).toHaveLength(1);
+        expect(capturedCalls).toContain('turn0_opening_v2');
+
+        // Verify zero Battle & Auction buttons in Desktop RightPanel
+        await expect(page.locator('button', { hasText: /^战斗$/ })).toHaveCount(0);
+        await expect(page.locator('button', { hasText: /拍卖行|主神商城|当铺牙行/ })).toHaveCount(0);
+
+        // Wait until director post-turn finishes and send Turn 1 via action option button
+        await expect.poll(() => capturedCalls.filter((c) => c === 'director_post').length, { timeout: 15000 }).toBeGreaterThanOrEqual(1);
+        const optBtn = page.getByText('俯身捡起青铜碎钥端详其缺口纹路', { exact: false }).first();
+        await expect(optBtn).toBeVisible({ timeout: 10000 });
+        await optBtn.click({ force: true });
+        const sendBtn = page.getByRole('button', { name: /发送/ }).first();
+        await expect(sendBtn).toBeVisible({ timeout: 5000 });
+        await sendBtn.click();
+
+        await expect(page.getByText('同款制式铜牌', { exact: false }).first()).toBeVisible({ timeout: 20000 });
+        expect(capturedCalls).toContain('turn1_normal_v2');
+        await expect.poll(() => capturedCalls.filter((c) => c === 'director_post').length, { timeout: 15000 }).toBeGreaterThanOrEqual(2);
+
+        // Open StoryModal ("剧情") - expand 纪事卷宗 accordion in RightPanel if collapsed
+        const storyBtn = page.getByRole('button', { name: '剧情', exact: true }).first();
+        if (!(await storyBtn.isVisible().catch(() => false))) {
+            await page.getByText('纪事卷宗', { exact: false }).first().click({ force: true });
+        }
+        await expect(storyBtn).toBeVisible({ timeout: 10000 });
+        await storyBtn.click({ force: true });
+        const v2ClueSection = page.locator('section:visible').filter({ hasText: '2.0 因果脉络与伏笔线索簿' }).first();
+        await v2ClueSection.scrollIntoViewIfNeeded();
+        await expect(v2ClueSection).toBeVisible({ timeout: 10000 });
+        await expect(v2ClueSection.getByText('青铜碎钥', { exact: true })).toBeVisible({ timeout: 5000 });
+        await expect(v2ClueSection.getByText('发酵中').first()).toBeVisible({ timeout: 5000 });
+        await expect(v2ClueSection.getByText('官差夜封西市渡口', { exact: false }).first()).toBeVisible({ timeout: 5000 });
+        const bodyAll = await page.locator('body').innerText();
+        expect(bodyAll).not.toContain('绝密真相_盐库暗门密钥');
+
+        // Also check Mobile Viewport (390x844) quick menu has zero 战斗 / 拍卖 buttons
+        await clickVisible(page, ['关闭']);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(300);
+        await expect(page.locator('button', { hasText: /^战斗$/ })).toHaveCount(0);
+        await expect(page.locator('button', { hasText: /^拍卖$/ })).toHaveCount(0);
+
+        expect(pageErrors).toEqual([]);
+    });
+});
