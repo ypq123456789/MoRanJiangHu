@@ -1,5 +1,5 @@
 import type { DirectorWorldBible } from '../../models/directorBible';
-import type { 游戏物品 } from '../../models/item';
+import { 构建地点树, 地点路径匹配分支 } from '../../utils/locationTree';
 import type {
     NPC背包物品,
     NPC结构,
@@ -9,7 +9,8 @@ import type {
     角色数据结构
 } from '../../types';
 import { 是否货币类物品 } from '../../utils/currencyDisplay';
-import { 获取交易币制, 物品交易面额, 读取交易钱袋, 写入交易钱袋 } from './tradeCurrency';
+import { 获取交易币制, 物品交易面额, 读取交易钱袋, 写入交易钱袋, 交易物品数量, 同步玩家实体货币 } from './tradeCurrency';
+import { 本人资产陈述, 引文确认持有物品, 引文确认钱包余额 } from './tradeEvidence';
 import { 判断角色对话位置, type 角色对话位置判定 } from '../../utils/roleChatLocation';
 
 export interface TradeVenueInfo {
@@ -52,6 +53,7 @@ const 品质基价表: Record<string, number> = {
 };
 
 const 交易场所正则 = /(坊市|集市|市集|黑市|暗市|商铺|商店|杂货铺|药堂|丹阁|当铺|牙行|银号|钱庄|商会|酒楼|客栈|茶肆|百宝阁|铁匠铺|器阁|拍卖|珍宝阁)/u;
+const 交易点名称结尾 = new RegExp(交易场所正则.source + '$', 'u');
 const 敌对关系正则 = /(敌对|仇敌|死敌|追杀|通缉|绝交|决裂|围杀|刺杀|厮杀|敌意)/u;
 
 const 取文本 = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
@@ -93,13 +95,41 @@ export const 检测当前交易场所 = (
         };
     }
 
-    const activeNodeDesc = (world?.地图层级 || [])
-        .filter((node) => node?.名称 && (node.名称 === concrete || node.名称 === small))
-        .map((node) => `${node.名称} ${node.描述 || ''} ${node.叙事核心 || ''}`)
-        .join('\n');
-    const briefFocus = `${directorBible?.下回合导演简报?.本回合舞台焦点 || ''} ${directorBible?.下回合导演简报?.必须守住的悬念或冲突 || ''}`;
-    const indirectHay = `${activeNodeDesc}\n${briefFocus}`;
-    const indirectHit = indirectHay.match(交易场所正则);
+    const tree = 构建地点树(world as 世界数据结构);
+    const nodes = [...tree.节点映射.values()];
+    const knownNames = new Set(nodes.map((node) => node.名称));
+    const locationParts = [env?.大地点, mid, small, district, concrete].map(取文本)
+        .flatMap((part) => knownNames.has(part) ? [part] : part.split(/[>＞／/·•|｜→]+/u).map(取文本)).filter(Boolean);
+    const place = locationParts.at(-1);
+    const known = locationParts.filter((p, i) => knownNames.has(p) && p !== locationParts[i - 1]);
+    const candidates = nodes.filter((node) => node.名称 === place);
+    const matching = candidates.filter((node) => {
+        const names = [node.名称];
+        const levels = new Set([node.层级]);
+        const seen = new Set([node.ID]);
+        let parent = tree.节点映射.get(node.父级ID);
+        while (parent && !seen.has(parent.ID)) {
+            names.unshift(parent.名称);
+            levels.add(parent.层级);
+            seen.add(parent.ID);
+            parent = tree.节点映射.get(parent.父级ID);
+        }
+        const regions = [['大地点', 取文本(env?.大地点)], ['中地点', mid], ['小地点', small], ['区地点', district]] as const;
+        return 地点路径匹配分支(known.join(' > '), names) && regions.every(([level, name]) =>
+            !name || !levels.has(level) || 地点路径匹配分支(name, names));
+    });
+    const activeNode = matching.length === 1 ? matching[0] : undefined;
+    const layer = activeNode && world?.地图层级?.find((n) => n.ID === activeNode.ID);
+    const activeNodeDesc = activeNode ? [activeNode.描述, layer?.叙事核心].filter(Boolean).join(' ') : '';
+    // 简报必须明确交代当前地点实际设有交易点；“躲避黑市追兵”只描述冲突。
+    const brief = directorBible?.下回合导演简报;
+    const descriptions = [brief?.本回合舞台焦点, brief?.必须守住的悬念或冲突].flatMap((part) =>
+        取文本(part).split(/[，,。！？；;\n]/u));
+    const localVenue = place && descriptions.map((part) => part.trim().replace(/^(?:当前|眼前)(?:的)?/u, ''))
+        .filter((part) => part.startsWith(place))
+        .map((part) => part.slice(place.length).match(/^(?:内|中|里)?(?:设有|开设了?|开着|坐落着|有)(?:一(?:家|处|座|间))?([\p{Script=Han}]{0,8})$/u)?.[1])
+        .find((description) => description && 交易点名称结尾.test(description));
+    const indirectHit = activeNodeDesc.match(交易场所正则) || (localVenue && localVenue.match(交易场所正则));
     if (indirectHit) {
         return {
             available: true,
@@ -184,12 +214,11 @@ export const 评估NPC交易资格 = (
 };
 
 const 物品名称 = (item: NPC背包物品 | string) => 取文本(typeof item === 'string' ? item : item?.名称);
-const 物品数量 = (item: NPC背包物品) => Math.max(0, Math.floor(Number(item?.堆叠数量 ?? item?.数量 ?? 1) || 0));
 
 const 交易货单 = (bag: NPC背包物品[], source: TradableItemView['source'], currency: ReturnType<typeof 获取交易币制>, equipped = new Set<string>()): TradableItemView[] =>
     bag.flatMap((item, index) => {
         const name = 物品名称(item);
-        const quantity = 物品数量(item);
+        const quantity = 交易物品数量(item, source);
         if (!name || !quantity || 是否货币类物品(item) || 物品交易面额(item, currency)) return [];
         return [{
             id: 取文本(item.ID) || source + '-' + index + '-' + name,
@@ -208,15 +237,21 @@ export const 提取主角可交易物品列表 = (role: 角色数据结构, open
 export const 首次登记NPC交易资产 = (npc: NPC结构, facts: { 依据?: string; 余额Base?: number; 背包?: NPC背包物品[] } | undefined,
     story: string, opening?: OpeningConfig | null, role?: 角色数据结构): NPC结构 => {
     const evidence = 取文本(facts?.依据);
-    if (!evidence || !story.includes(evidence)) return npc;
+    if (!facts || !evidence || !story.includes(evidence)) return npc;
+    const clauses = 本人资产陈述(npc, evidence, story);
+    if (!clauses.length) return npc;
     const currency = 获取交易币制(opening, role);
     const next = { ...npc };
     if (!Array.isArray(npc.背包) && Array.isArray(facts?.背包)) {
-        next.背包 = facts.背包.filter((item) => 取文本(item?.名称) && evidence.includes(item.名称)
-            && Number.isSafeInteger(item.数量) && item.数量! > 0);
+        const items = facts.背包.filter((item) => 取文本(item?.名称)
+            && Number.isSafeInteger(item.数量) && item.数量! > 0 && (item.堆叠数量 === undefined || item.堆叠数量 === item.数量)
+            && 引文确认持有物品(clauses, item.名称, item.数量!))
+            .map((item) => ({ ...item, 堆叠数量: item.数量 }));
+        if (items.length) next.背包 = items;
     }
     if (currency.cashEnabled && Number.isSafeInteger(facts.余额Base) && facts.余额Base! >= 0
-        && !读取交易钱袋(npc.金钱, next.背包 || [], currency).known) {
+        && !读取交易钱袋(npc.金钱, next.背包 || [], currency, 'npc').known
+        && 引文确认钱包余额(clauses, facts.余额Base!, currency)) {
         next.金钱 = 写入交易钱袋(npc.金钱, facts.余额Base!, currency);
     }
     return next;
@@ -231,15 +266,17 @@ interface StockParams {
     role?: 角色数据结构;
 }
 
+const 柜台账本键 = (venue?: TradeVenueInfo | null) => venue?.ledgerKey || venue?.venueName || '';
+
 export const 提取交易对方库存列表 = (params: StockParams) => {
     const currency = 获取交易币制(params.openingConfig, params.role);
     if (params.targetType === 'npc') {
         const npc = params.npc;
         const bag = Array.isArray(npc?.背包) ? npc.背包 : [];
-        const wallet = 读取交易钱袋(npc?.金钱, bag, currency);
+        const wallet = 读取交易钱袋(npc?.金钱, bag, currency, 'npc');
         return { items: 交易货单(bag, 'npc', currency), bag, purseBase: wallet.balance, purseKnown: wallet.known };
     }
-    const ledger = params.world?.场所交易账本?.[params.venue?.ledgerKey || params.venue?.venueName || ''];
+    const ledger = params.world?.场所交易账本?.[柜台账本键(params.venue)];
     if (ledger) return { items: 交易货单(ledger.库存, 'venue', currency), bag: ledger.库存, purseBase: ledger.余额, purseKnown: true };
     const isXianxia = currency.mode === 'xianxia';
     const vType = params.venue?.venueType || '坊市';
@@ -331,7 +368,7 @@ const 划拨物品 = (bag: NPC背包物品[], selected: Map<number, TradableItem
         if (!pick) { remaining.push(item); return; }
         const value = typeof item === 'string' ? { 名称: item } : item;
         out.push({ ...value, 名称: pick.name, 类型: pick.type, 价值: pick.unitPriceBase, 数量: pick.quantity, 堆叠数量: pick.quantity });
-        const left = 物品数量(item) - pick.quantity;
+        const left = 交易物品数量(item, pick.source) - pick.quantity;
         if (left > 0) remaining.push({ ...value, 数量: left, 堆叠数量: left });
     });
     return { remaining, out };
@@ -377,21 +414,18 @@ export const 执行情境交易结算 = (params: ExecuteTradeParams): ExecuteTra
     const player = 划拨物品(playerBag, offers);
     const other = 划拨物品(stock.bag, purchases);
     const hasCash = paidBase !== receivedBase;
-    let nextPlayerItems = player.remaining;
     let nextOtherItems = other.remaining;
-    if (hasCash && playerBag.some((item) => 物品交易面额(item, currency))) {
-        nextPlayerItems = nextPlayerItems.filter((item) => !物品交易面额(item, currency));
-        if (playerAfter > 0) nextPlayerItems.push({ 名称: currency.label, 类型: '货币:底层货币', 数量: playerAfter, 堆叠数量: playerAfter });
-    }
+    const nextMoney = hasCash ? 写入交易钱袋(role.金钱, playerAfter, currency) : role.金钱;
+    const nextPlayerItems = hasCash ? 同步玩家实体货币(player.remaining, role.金钱, nextMoney, currency) : player.remaining;
     // 只有实际从旧背包折算进钱袋的实体币才移除。有独立钱袋时支付来自钱袋。
-    if (npc && hasCash && !读取交易钱袋(npc.金钱, [], currency).known) {
+    if (npc && hasCash && !读取交易钱袋(npc.金钱, [], currency, 'npc').known) {
         nextOtherItems = nextOtherItems.filter((item) => !物品交易面额(item, currency));
     }
     const stamp = Date.now();
     const nextRole = { ...role, 物品列表: [...nextPlayerItems, ...other.out.map((item, index) => ({
         ...item, ID: 'trade_' + stamp + '_' + index, 品质: item.品质 || '凡品'
     }))] } as 角色数据结构;
-    if (hasCash) nextRole.金钱 = 写入交易钱袋(role.金钱, playerAfter, currency) as 角色数据结构['金钱'];
+    if (hasCash) nextRole.金钱 = nextMoney as 角色数据结构['金钱'];
     const bag = [...nextOtherItems, ...player.out.map((item) => ({ ...item, ID: undefined }))];
     let nextWorld: 世界数据结构 | undefined;
     let nextSocial = params.social;
@@ -404,16 +438,16 @@ export const 执行情境交易结算 = (params: ExecuteTradeParams): ExecuteTra
         nextSocial = [...params.social];
         nextSocial[npcIdx] = nextNpc;
     } else {
-        const key = params.venue!.ledgerKey || params.targetName;
+        const key = 柜台账本键(params.venue);
         nextWorld = { ...params.world, 场所交易账本: { ...params.world?.场所交易账本, [key]: { 余额: otherAfter, 库存: bag } } } as 世界数据结构;
     }
 
     const spentText = [
-        ...params.playerItemsOffered.map((i) => `${i.name}×${i.quantity}`),
+        ...player.out.map((i) => `${i.名称}×${i.数量}`),
         ...(paidBase > 0 ? [amount(paidBase)] : [])
     ].join('、') || '无';
     const gotText = [
-        ...params.counterpartyItemsBought.map((i) => `${i.name}×${i.quantity}`),
+        ...other.out.map((i) => `${i.名称}×${i.数量}`),
         ...(receivedBase > 0 ? [amount(receivedBase)] : [])
     ].join('、') || '无';
     const exchange = isGift
@@ -428,8 +462,8 @@ export const 执行情境交易结算 = (params: ExecuteTradeParams): ExecuteTra
         对象名称: params.targetName,
         npcId: params.npcId,
         地点: params.locationLabel,
-        玩家支出物品: params.playerItemsOffered.map((x) => ({ 名称: x.name, 数量: x.quantity })),
-        玩家获得物品: params.counterpartyItemsBought.map((x) => ({ 名称: x.name, 数量: x.quantity })),
+        玩家支出物品: player.out.map((x) => ({ 名称: x.名称, 数量: x.数量! })),
+        玩家获得物品: other.out.map((x) => ({ 名称: x.名称, 数量: x.数量! })),
         玩家支出金钱Base: paidBase,
         玩家获得金钱Base: receivedBase,
         成交摘要: summary,

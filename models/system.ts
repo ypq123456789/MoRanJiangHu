@@ -1425,6 +1425,7 @@ export interface 存档元数据结构 {
     现实保存时间戳?: number;
     现实保存时间ISO?: string;
     存档哈希?: string;
+    旧寄售迁移原档哈希?: string;
     对象存储哈希?: string;
     对象存储存档ID?: string;
     对象存储同步时间?: string;

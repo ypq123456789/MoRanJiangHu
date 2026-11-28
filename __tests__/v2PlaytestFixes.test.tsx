@@ -7,6 +7,7 @@ import { 构建地点树, 提取世界基底初始落点 } from '../utils/locati
 import { 合并世界基底到开场状态, 创建开场空白角色 } from '../hooks/useGame/storyState';
 import { 提取玩家可见世界圣经概览 } from '../engine/storyV2/legacySaveBridge';
 import { 创建空白导演圣经 } from '../models/directorBible';
+import { 变更角色货币BaseAmount, 获取角色金钱BaseAmount } from '../utils/currencyDisplay';
 import { 默认环境信息 } from '../models/environment';
 import { 默认游戏设置 } from '../utils/gameSettings';
 import LocationBrowser from '../components/features/Map/LocationBrowser';
@@ -410,7 +411,7 @@ describe('V2 试玩反馈综合修复验证', () => {
         expect(screen.getByText(/变量生成功能未开启/)).toBeTruthy();
     });
 
-    it.each([true, false])('6. 2.0 默认执行开局与正常回合的变量和地图，有变量命令=%s 时均完成检查', async (hasVariableCommands) => {
+    it.each([[true, false], [false, false], [true, true]])('6. 2.0 开局与正常回合完成变量和地图，含变量命令 %s，开局导演失败 %s', async (hasVariableCommands, openingDirectorFails) => {
         vi.clearAllMocks();
         const storyTurnRenderer = await import('../engine/storyV2/storyTurnRenderer');
         const directorPostTurn = await import('../engine/storyV2/directorPostTurn');
@@ -426,14 +427,16 @@ describe('V2 试玩反馈综合修复验证', () => {
         vi.mocked(storyTurnRenderer.渲染开局回合V2).mockResolvedValue({
             response: {
                 logs: [{ sender: '旁白', text: '青河镇夜雨初歇，地窖石阶微潮。' }],
-                action_options: ['A.推开铁门查看伤兽']
+                action_options: ['A.推开铁门查看伤兽'],
+                tavern_commands: [{ action: 'add', key: '角色.金钱.铜钱', value: 2 }]
             } as any,
             rawText: '<正文>【旁白】青河镇夜雨初歇，地窖石阶微潮。</正文>'
         });
         vi.mocked(storyTurnRenderer.渲染主剧情回合V2).mockResolvedValue({
             response: {
                 logs: [{ sender: '旁白', text: '你随手捡起一枚青铜令牌。' }],
-                action_options: ['A.查看令牌刻字']
+                action_options: ['A.查看令牌刻字'],
+                tavern_commands: [{ action: 'add', key: '角色.金钱.铜钱', value: 2 }]
             } as any,
             rawText: '<正文>【旁白】你随手捡起一枚青铜令牌。</正文>'
         });
@@ -480,6 +483,9 @@ describe('V2 试玩反馈综合修复验证', () => {
             }
         } as any;
 
+        if (openingDirectorFails) vi.mocked(directorPostTurn.执行导演后处理V2).mockRejectedValueOnce(new Error('导演未响应'));
+        const openingWorldProgress = vi.fn();
+        const openingPlanningProgress = vi.fn();
         const openingVarProgress = vi.fn();
         const openingMapProgress = vi.fn();
         const openingPolishProgress = vi.fn();
@@ -488,10 +494,20 @@ describe('V2 试玩反馈综合修复验证', () => {
         const setWorld = vi.fn();
         const setEnv = vi.fn();
         const baseRole = { ...创建开场空白角色(), 姓名: '杨培强' };
-        const applyCommands = vi.fn((_resp: any, base: any) => ({
-            ...base,
-            角色: { ...base.角色, 金钱: { ...base.角色.金钱, 铜钱: (base.角色?.金钱?.铜钱 || 0) + 15 } }
-        }));
+        const applyCommands = vi.fn((response: any, base: any) => {
+            const next = structuredClone(base);
+            for (const command of response.tavern_commands || []) {
+                if (command.key === '角色.金钱.铜钱' && command.action === 'add') {
+                    next.角色 = 变更角色货币BaseAmount(next.角色, command.value);
+                } else if (command.key === '世界.测试地图锚点' && command.action === 'set') {
+                    next.世界.测试地图锚点 = command.value;
+                } else {
+                    throw new Error('未预期的测试命令 ' + command.key);
+                }
+            }
+            return next;
+        });
+        const expectedCopper = 获取角色金钱BaseAmount(baseRole.金钱) + 2 + (hasVariableCommands ? 15 : 0);
 
         await 执行开场剧情生成工作流(
             {
@@ -542,8 +558,8 @@ describe('V2 试玩反馈综合修复验证', () => {
                 设置开局文章优化进度: openingPolishProgress,
                 设置开局主剧情进度: vi.fn(),
                 设置开局变量生成进度: openingVarProgress,
-                设置开局世界演变进度: vi.fn(),
-                设置开局规划进度: vi.fn(),
+                设置开局世界演变进度: openingWorldProgress,
+                设置开局规划进度: openingPlanningProgress,
                 设置开局地图更新进度: openingMapProgress,
                 设置游戏初始时间: vi.fn(),
                 记录变量生成上下文: vi.fn(),
@@ -581,17 +597,24 @@ describe('V2 试玩反馈综合修复验证', () => {
             }
         );
 
+        for (const stage of [openingPlanningProgress, openingWorldProgress]) {
+            expect(stage.mock.lastCall?.[0]).toMatchObject({ phase: openingDirectorFails ? 'error' : 'done' });
+        }
         expect(openingPolishProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'skipped' }));
         expect(varWorkflow.执行变量模型校准工作流).toHaveBeenCalledTimes(1);
         expect(openingVarProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'done' }));
         expect(mapWorkflow.生成地图更新).toHaveBeenCalledTimes(1);
         expect(openingMapProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'done' }));
+        expect(获取角色金钱BaseAmount(setRole.mock.lastCall?.[0].金钱)).toBe(expectedCopper);
+        expect(setWorld.mock.lastCall?.[0].测试地图锚点).toBe('灵兽地窖病房');
         const finalSocialArg = setSocial.mock.calls.at(-1)?.[0] || [];
         expect(finalSocialArg[0]?.当前位置).toBe('灵兽地窖病房');
 
         vi.mocked(varWorkflow.执行变量模型校准工作流).mockClear();
         vi.mocked(mapWorkflow.生成地图更新).mockClear();
         const turnVarProgress = vi.fn();
+        const turnRole = vi.fn();
+        const turnWorld = vi.fn();
         const turnMapProgress = vi.fn();
         await 执行主剧情发送工作流(
             '拾起青铜令牌检查',
@@ -626,10 +649,10 @@ describe('V2 试玩反馈综合修复验证', () => {
                 setLoading: vi.fn(),
                 set后台队列处理中: vi.fn(),
                 setShowSettings: vi.fn(),
-                设置角色: vi.fn(),
+                设置角色: turnRole,
                 设置环境: vi.fn(),
                 设置社交: vi.fn(),
-                设置世界: vi.fn(),
+                设置世界: turnWorld,
                 设置剧情: vi.fn(),
                 设置剧情规划: vi.fn(),
                 设置女主剧情规划: vi.fn(),
@@ -688,6 +711,8 @@ describe('V2 试玩反馈综合修复验证', () => {
             expect(varWorkflow.执行变量模型校准工作流).toHaveBeenCalledTimes(1);
             expect(mapWorkflow.生成地图更新).toHaveBeenCalledTimes(1);
         });
+        await waitFor(() => expect(获取角色金钱BaseAmount(turnRole.mock.lastCall?.[0].金钱)).toBe(expectedCopper));
+        expect(turnWorld.mock.lastCall?.[0].测试地图锚点).toBe('灵兽地窖病房');
         expect(turnVarProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'done' }));
         expect(turnMapProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'done' }));
     });

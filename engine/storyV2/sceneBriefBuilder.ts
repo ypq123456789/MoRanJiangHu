@@ -10,7 +10,7 @@ export interface SceneBriefOutput {
 
 const 匹配时间关键词排序 = (item: ForeshadowingItem): number => {
     const stage = item.建议埋设阶段 || '';
-    if (/开局|第[012]/.test(stage)) return 0;
+    if (/开局|第\s*[012](?!\d)/.test(stage)) return 0;
     if (/第一幕|前期/.test(stage)) return 1;
     return 2;
 };
@@ -111,7 +111,8 @@ export const 构建本回合导演简报 = (params: {
             `- 主角(${playerName})开局困局：处境=${bible.主角核心困局.开局处境}；最大威胁=${bible.主角核心困局.最大威胁源}；手里筹码=${bible.主角核心困局.手中唯一筹码或信息差}`,
             incident ? `- 【开局前已引爆的导火索（第0回合直接切入点）】：${incident.发生时间}发生「${incident.事件名}」——表层流言：${incident.表层流言版本}；实情暗流（严禁旁白全知直说）：${incident.真实经过}；留给主角眼前的烫手问题：${incident.留下的烫手筹码或危机}` : '',
             secondIncident ? `- 【外围背景暗潮】：${secondIncident.发生时间}「${secondIncident.事件名}」已牵动 ${secondIncident.卷入各方.join('、')}，正通过封锁/盘查/传闻波及本地。` : '',
-            focusForeshadow ? `- 【第0回合必须悄然埋下的伏笔 ${focusForeshadow.id}】：只展现表面载体「${focusForeshadow.表面载体}」（允许作为物件异常、流言细节或人物下意识反应），绝对禁止点破底层真相「${focusForeshadow.底层真相}」` : '',
+            focusForeshadow?.状态 === '未埋设' ? `- 【第0回合必须悄然埋下的伏笔 ${focusForeshadow.id}】：只展现表面载体「${focusForeshadow.表面载体}」（允许作为物件异常、流言细节或人物下意识反应），绝对禁止点破底层真相「${focusForeshadow.底层真相}」`
+                : focusForeshadow ? `- 延续前文线索「${focusForeshadow.表面载体}」的既有落点。` : '',
             '- 【开局硬约束】：禁止写“清晨起床洗漱散步、去砍三车竹子交差、跑腿干杂活”式流水账！第 0 回合必须在生活细节中立刻落下“已发生的变故余波 / 试探 / 烫手信物或隐秘危机”，让第一幕本身就有钩子与呼吸感。',
             '- 【风格与亲密约束】：尊重角色关系起点与危机压力；哪怕开启了 NTL/后宫偏好，开局也必须先立住人物立场、威胁与真实利益绑定，不得强行靠低级滑倒、莫名贴胸推进感情。'
         ].filter(Boolean).join('\n');

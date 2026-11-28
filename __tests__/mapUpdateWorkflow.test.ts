@@ -41,6 +41,17 @@ describe('地图自动更新解析', () => {
     ];
     const push = (node: object) => 'push 世界.地图层级 = ' + JSON.stringify(node);
 
+    it('中间穿插 set 时，后续房间仍通过同一响应的建筑别名绑定父节点', () => {
+        const input = [
+            push({ ID: 'inn-C', 名称: '云来客栈', 层级: '区地点', 父级ID: 'DT-001' }),
+            'set 世界.地图层级[0].描述 = "旧地图修订"',
+            push({ 名称: '云来药房', 层级: '子地点', 父级ID: 'inn-C' })
+        ];
+        const commands = 解析地图自动更新命令(input.join('\n'), { 地图层级: 客栈地图 });
+        expect(commands.map(c => c.action)).toEqual(['push', 'set', 'push']);
+        expect(commands[2].value.父级ID).toBe(commands[0].value.ID);
+    });
+
     it('全图重建保留旧 ID，区分异父同名房间，并解析本批父节点的原 ID 或名称', () => {
         const input = [
             { ID: 'room-B', 名称: '客房', 层级: '子地点', 父级ID: 'inn-B' },

@@ -27,6 +27,7 @@ export interface StoryV2Config {
         sectDensity?: string;
         tianjiaoSetting?: string;
         difficulty?: string;
+        factionCount?: number;
         worldExtraRequirement?: string;
         openingExtraRequirement?: string;
     };

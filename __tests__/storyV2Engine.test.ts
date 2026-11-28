@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { 净化2_0酒馆预设, 过滤非场景世界书, 构建2_0写作规则池 } from '../engine/storyV2/promptFiltering';
-import { 过滤并精简V2行动选项 } from '../engine/storyV2/storyTurnRenderer';
+import { 过滤并精简V2行动选项, 渲染主剧情回合V2 } from '../engine/storyV2/storyTurnRenderer';
 import { 构建本回合导演简报 } from '../engine/storyV2/sceneBriefBuilder';
 import { 从状态构建2_0导演圣经, 提取2_0流式正文预览 } from '../engine/storyV2/legacySaveBridge';
 import { 执行导演后处理V2 } from '../engine/storyV2/directorPostTurn';
@@ -27,7 +27,42 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
         vi.mocked(chatClient.请求模型文本).mockReset();
     });
 
-    it.each(['世界观', '世界基底', '导演圣经'])('仅补写未达标的%s，并保留第一轮已验收的内容', async (missingTag) => {
+    it('普通世界书、禁止跳转的写作规则以及不足三条的合法选项均保留', () => {
+        expect(过滤非场景世界书([{ id: 'analysis-notes' }, { id: 'anal-notes' }] as any, false).map(x => x.id)).toEqual(['analysis-notes']);
+        const config = 净化2_0酒馆预设({ 启用酒馆预设模式: true, 酒馆预设: { prompts: [
+            { identifier: 'style', content: '禁止时间跳转，按当前时刻连续叙事', enabled: true }
+        ] } } as any);
+        expect(config.酒馆预设?.prompts?.[0].enabled).toBe(true);
+        expect(过滤并精简V2行动选项(['A.[视角切换] 转场', 'B.看账本'])).toEqual(['A.看账本']);
+    });
+
+    const renderTurn = (gameConfig: any, minBodyLength = 0) => 渲染主剧情回合V2({
+        turnIndex: 1, gameInitialTime: '1:01:01:08:00', directorBible: 创建空白导演圣经(), 世界: {}, 剧情: {}, 社交: [],
+        角色: { 姓名: '渡客' }, 环境: {}, 记忆系统: { 回忆档案: [], 即时记忆: [], 短期记忆: [], 中期记忆: [], 长期记忆: [] },
+        历史记录: [], 任务列表: [], 世界大事: []
+    } as any, { gameConfig: { ...默认游戏设置, ...gameConfig }, openingConfig: {}, worldConfig: { worldName: '九州' },
+        apiConfig: { id: 'main', model: 'test' } } as any, '检视票据', { stream: false, minBodyLength });
+
+    it('V2 解析保留旧酒馆的清理脚本和分支选项', async () => {
+        const preset = { extensions: { regex_scripts: [{ id: 'clean', scriptName: '正文清理', findRegex: '/旧暗号/g', replaceString: '新暗号', placement: [2], markdownOnly: true }] } };
+        vi.mocked(chatClient.请求模型文本).mockResolvedValue('<正文>【旁白】旧暗号贴在渡口，桥旁三两船家正在等船到岸。</正文><短期记忆>抵达渡口</短期记忆><branches>\n询问船家\n查看船票\n</branches>');
+        const turn = await renderTurn({ 启用行动选项: true, 启用严格正文对白格式: false, 启用酒馆预设模式: true, 酒馆预设: preset });
+        expect(turn.response.logs.map(l => l.text).join('')).toContain('新暗号');
+        expect(turn.response.action_options).toEqual(['A.询问船家', 'B.查看船票']);
+    });
+
+    it('第 3 次放宽对白格式时仍拒绝篇幅不足的正文', async () => {
+        vi.mocked(chatClient.请求模型文本).mockResolvedValue('<正文>【渡客】“去哪里？”他说道。</正文><短期记忆>发问。</短期记忆>');
+        await expect(renderTurn({ 启用严格正文对白格式: true, 启用行动选项: false }, 600)).rejects.toThrow(/正文过短/);
+    });
+
+    it('只从空选项标签到下一个协议块之间恢复行动', () => {
+        const response = parseStoryRawText('<正文>【旁白】大雨落在码头。</正文><行动选项></行动选项>\nA.看账本\nB.查船票\n<短期记忆>\n1.旧事甲\n2.旧事乙\n</短期记忆>', { validateTagCompleteness: false });
+        expect(response.action_options).toHaveLength(2);
+        expect(response.action_options?.join('')).not.toContain('旧事');
+    });
+
+    const worldFixture = () => {
         const world = '码头盐路贯通南北，过河商旅须先持引到渡口登记。'.repeat(12);
         const tiers = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'];
         const nodes = Array.from({ length: 24 }, (_, i) => ({
@@ -45,6 +80,54 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
             宏观分幕大纲: Array.from({ length: 4 }, (_, i) => ({ 标题: `卷${i}` })),
             伏笔台账: Array.from({ length: 6 }, (_, i) => ({ 表面载体: `旧盐票${i}` }))
         };
+        return { world, nodes, bible };
+    };
+    const makeRequest = (worldConfig: { factionCount?: number; difficulty?: string } = {}) => 生成世界与导演圣经V2({
+        worldConfig: { worldName: '九州', ...worldConfig }, charData: { 姓名: '渡客' } as any,
+        apiConfig: { model: 'fixture-model' } as any, openingConfig: {} as any, stream: false
+    });
+
+    it('势力账本遵循显式数量，首次与补写提示都采用玩家难度、数量', async () => {
+        const { world, nodes, bible } = worldFixture();
+        const requests = vi.mocked(chatClient.请求模型文本)
+            .mockResolvedValueOnce(`<世界观>${world}</世界观><世界基底>${JSON.stringify({ 地图层级: nodes })}</世界基底><导演圣经>${JSON.stringify(bible)}</导演圣经>`)
+            .mockResolvedValueOnce(JSON.stringify({ ...bible, 势力暗账: bible.势力暗账.slice(0, 4) }));
+        const result = await makeRequest({ factionCount: 4, difficulty: 'extreme' });
+        expect(result.directorBible.势力暗账).toHaveLength(4);
+        for (const call of requests.mock.calls) {
+            const prompt = call[1].at(-1)?.content || '';
+            expect(prompt).toContain('极限（extreme）');
+            expect(prompt).toContain('收益稀缺');
+            expect(prompt).toContain('恰好 4 个');
+            expect(prompt).not.toContain('6 个及以上');
+        }
+    });
+
+    it('数量达标而缺少房间的地图仍需补写；改名后继续修复势力地盘引用', async () => {
+        const { world, nodes, bible } = worldFixture();
+        const old = nodes.map((n, i) => i < 5 ? n : { ...n, 层级: '区地点', 父级ID: '3' });
+        const renamed = nodes.map((n, i) => i === 1 ? { ...n, 名称: '新盐口' } : n);
+        const factions = (place: string) => bible.势力暗账.map(f => ({ ...f, 地盘: [place] }));
+        const requests = vi.mocked(chatClient.请求模型文本)
+            .mockResolvedValueOnce(`<世界观>${world}</世界观><世界基底>${JSON.stringify({ 地图层级: old })}</世界基底><导演圣经>${JSON.stringify({ ...bible, 势力暗账: factions('地点1') })}</导演圣经>`)
+            .mockResolvedValueOnce(`<世界基底>${JSON.stringify({ 地图层级: renamed })}</世界基底>`)
+            .mockResolvedValueOnce(JSON.stringify({ ...bible, 势力暗账: factions('新盐口') }));
+        const result = await makeRequest();
+        expect(result.directorBible.势力暗账[0].地盘).toEqual(['新盐口']);
+        expect(requests.mock.calls[2][1].at(-1)?.content).toContain('地点1');
+        expect(result.mapLayers.some(n => n.层级 === '子地点')).toBe(true);
+    });
+
+    it('世界观在补写中变长且圣经未提供摘要时，从最终采用的正文生成摘要', async () => {
+        const { world, nodes, bible } = worldFixture();
+        vi.mocked(chatClient.请求模型文本)
+            .mockResolvedValueOnce(`<世界观>初稿</世界观><世界基底>${JSON.stringify({ 地图层级: nodes })}</世界基底><导演圣经>${JSON.stringify({ ...bible, 世界观表层摘要: '' })}</导演圣经>`)
+            .mockResolvedValueOnce(`<世界观>${world}</世界观>`);
+        expect((await makeRequest()).directorBible.世界观表层摘要).toBe(world.slice(0, 500));
+    });
+
+    it.each(['世界观', '世界基底', '导演圣经'])('仅补写未达标的%s，并保留第一轮已验收的内容', async (missingTag) => {
+        const { world, nodes, bible } = worldFixture();
         const valid: Record<string, string> = { 世界观: world, 世界基底: JSON.stringify({ 地图层级: nodes }), 导演圣经: JSON.stringify(bible) };
         const damaged: Record<string, string> = {
             世界观: '旧短稿', 世界基底: JSON.stringify({ 地图层级: nodes.map((n, i) => i ? n : { ...n, 层级: '子地点' }) }), 导演圣经: '{}'
@@ -249,6 +332,9 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
                 埋设落点描述: '渡口借火时一晃而过'
             }
         ];
+        bible.当前幕次 = 2;
+        bible.宏观分幕大纲.push({ ...bible.宏观分幕大纲[0], 幕次: 2, 标题: '对峙' });
+        bible.伏笔台账.push({ ...bible.伏笔台账[0], id: 'FS-004', 状态: '已回收' });
         bible.核心卡司 = [{
             id: 'NPC-3',
             姓名: '顾斩潮',
@@ -275,12 +361,14 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
                 环境变更: { 推进分钟数: 20, 小地点: '临安西市客栈', 具体地点: '临安西市客栈' },
                 伏笔迁移: [
                     { id: 'FS-1', nextStatus: '已埋设', 落点描述: '试图倒退回已埋设' },
-                    { id: 'FS-2', nextStatus: '已回收', 落点描述: '船夫当众露出朱砂印身份' }
+                    { id: 'FS-2', nextStatus: '已回收', 落点描述: '船夫当众露出朱砂印身份' },
+                    { id: 'FS-004', nextStatus: '已改线' }
                 ],
                 幕后人物推进: [
                     { id: 'NPC-3', 行动倒计时变化: -1, 触发外溢波及: '官差敲锣封锁南渡渡口' }
                 ],
-                动态重规划: { 需要重规划: false },
+                新增伏笔: [{ 表面载体: '铜模', 底层真相: '藏银' }],
+                动态重规划: { 需要重规划: false, 推进到幕次: 1 },
                 下回合导演简报: {
                     本回合舞台焦点: '客栈内外官兵盘查收紧',
                     必须守住的悬念或冲突: '腰牌来源仍待印证',
@@ -309,11 +397,16 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
             },
             apiConfig: { id: 'dir', 名称: '测试', 供应商: 'openai_compatible', baseUrl: 'https://example.test/v1', apiKey: 'k', model: 'm' } as any,
             storyResponse: { logs: [{ sender: '旁白', text: '雨点砸在窗纸上，远处传来锣声。' }], shortTerm: '沈砚在客栈歇脚。', tavern_commands: [] },
+            stream: false,
             playerInput: '推开窗看楼下动静'
         });
 
         const fs1 = res.nextState.directorBible.伏笔台账.find((f) => f.id === 'FS-1');
         const fs2 = res.nextState.directorBible.伏笔台账.find((f) => f.id === 'FS-2');
+        expect(vi.mocked(chatClient.请求模型文本).mock.lastCall?.[2]?.streamOptions?.stream).toBe(false);
+        expect(res.nextState.directorBible.当前幕次).toBe(2);
+        expect(res.nextState.directorBible.伏笔台账.find(f => f.id === 'FS-004')?.状态).toBe('已回收');
+        expect(res.nextState.directorBible.伏笔台账.find(f => f.表面载体 === '铜模')?.id).toBe('FS-005');
         expect(fs1?.状态).toBe('发酵中');
         expect(fs2?.状态).toBe('已回收');
         expect(res.offscreenSpillovers.some((s) => s.includes('封锁南渡渡口'))).toBe(true);

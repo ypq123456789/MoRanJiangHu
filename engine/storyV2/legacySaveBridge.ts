@@ -1,5 +1,6 @@
 import {
     规范化导演圣经,
+    净化玩家可见圣经文案,
     type DirectorCharacterProfile,
     type DirectorWorldBible,
     type FactionLedger
@@ -12,9 +13,10 @@ import type { 剧情系统结构, 剧情规划结构, 世界数据结构, 角色
 export const 提取2_0流式正文预览 = (accumulated: string): string => {
     const raw = (accumulated || '').replace(/\r/g, '');
     if (!raw.trim()) return '';
-    const bodyStart = raw.match(/<正文>/i);
+    const visible = raw.replace(/<(thinking|think)>[\s\S]*?(?:<\/\1>|$)/gi, '');
+    const bodyStart = visible.match(/<正文>/i);
     if (bodyStart && typeof bodyStart.index === 'number') {
-        const afterOpen = raw.slice(bodyStart.index + bodyStart[0].length);
+        const afterOpen = visible.slice(bodyStart.index + bodyStart[0].length);
         const closeIdx = afterOpen.search(/<\/正文>/i);
         const bodySlice = closeIdx >= 0 ? afterOpen.slice(0, closeIdx) : afterOpen;
         return bodySlice.replace(/^\s*#{1,4}\s*正文\s*\n?/u, '').trimStart();
@@ -72,7 +74,7 @@ export const 从状态构建2_0导演圣经 = (params: {
         .map((npc, idx) => ({
             id: npc.id || `CAST-${String(idx + 1).padStart(3, '0')}`,
             姓名: npc.姓名,
-            性别: npc.性别 === '男' ? '男' : '女',
+            性别: npc.性别 || '女',
             身份与势力: npc.身份 || npc.所属门派 || '江湖中人',
             所处层级: npc.重要性 === '核心' ? 2 : 1,
             生平与过往执念: npc.简介 || `${npc.身份 || '身在江湖'}，各自背负过往纠葛`,
@@ -188,21 +190,25 @@ export const 提取玩家可见世界圣经概览 = (
     bible?: DirectorWorldBible | null
 ): 玩家可见世界圣经概览 | null => {
     if (!bible) return null;
+    const publicText = (text: string) => 净化玩家可见圣经文案(text, bible);
     const currentAct = Number(bible.当前幕次) || 1;
     const acts = (Array.isArray(bible.宏观分幕大纲) ? bible.宏观分幕大纲 : [])
         .filter((act) => act && (act.幕次 <= currentAct || act.当前状态 === '推进中' || act.当前状态 === '已完成' || act.当前状态 === '已重规划'))
         .map((act) => ({
             幕次: act.幕次,
-            标题: act.标题 || `第 ${act.幕次} 幕`,
-            核心矛盾: act.核心矛盾 || '',
-            主角目标与破局路径: act.主角目标与破局路径 || '',
-            关键势力与人物: Array.isArray(act.关键势力与人物) ? act.关键势力与人物 : [],
+            标题: publicText(act.标题 || `第 ${act.幕次} 幕`),
+            核心矛盾: publicText(act.核心矛盾 || ''),
+            主角目标与破局路径: publicText(act.主角目标与破局路径 || ''),
+            关键势力与人物: Array.isArray(act.关键势力与人物) ? act.关键势力与人物.map(publicText) : [],
             当前状态: act.当前状态 || '推进中'
         }));
     return {
-        世界观表层摘要: (bible.世界观表层摘要 || '').trim(),
+        世界观表层摘要: publicText(bible.世界观表层摘要 || ''),
         当前幕次: currentAct,
-        空间阶梯: Array.isArray(bible.空间阶梯) ? bible.空间阶梯 : [],
+        空间阶梯: (bible.空间阶梯 || []).map(tier => ({
+            ...tier, 层级名称: publicText(tier.层级名称), 典型区域: tier.典型区域.map(publicText),
+            准入壁垒: publicText(tier.准入壁垒), 核心资源与垄断者: publicText(tier.核心资源与垄断者), 主要压迫冲突: publicText(tier.主要压迫冲突)
+        })),
         公开分幕大纲: acts
     };
 };

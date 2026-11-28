@@ -2,7 +2,7 @@ import type { DirectorWorldBible } from '../../models/directorBible';
 import type { 功法结构 } from '../../models/kungfu';
 import type { NPC结构, 场外战果暂存结构, 战斗状态结构, 角色数据结构 } from '../../types';
 import { 判断角色对话位置, type 角色对话位置判定 } from '../../utils/roleChatLocation';
-import { 有开局伙伴身份标记 } from '../../utils/openingCompanion';
+import { 有开局伙伴身份标记, 有同行关系 } from '../../utils/openingCompanion';
 
 export type TacticalMoveId = 'press' | 'deflect' | 'feint' | 'withdraw';
 
@@ -196,8 +196,8 @@ export const 构建NPC明牌交锋面板 = (
     directorBible?: DirectorWorldBible | null
 ): CombatantStanceProfile => {
     const cast = directorBible?.核心卡司?.find((c) => c.姓名 === npc.姓名);
-    const tierHint = Number(npc.境界层级) || (cast?.所处层级 ? cast.所处层级 : 1);
-    const realm = npc.境界 || (tierHint >= 3 ? '高阶好手' : tierHint === 2 ? '中坚人物' : '初入江湖');
+    const tierHint = Number(npc.境界层级) || cast?.所处层级;
+    const realm = npc.境界 || (Number(tierHint) >= 3 ? '高阶好手' : tierHint === 2 ? '中坚人物' : '初入江湖');
     const base = 境界基础档位(npc.境界, tierHint);
     const offenseReasons: StatReasonItem[] = [{ label: `修为(${realm})`, delta: base }];
     const defenseReasons: StatReasonItem[] = [{ label: `护体根底`, delta: Math.max(1, Math.floor(base * 0.85)) }];
@@ -247,22 +247,21 @@ export const 构建战术交锋阵容 = (
     const socialNames = new Set(socialList.flatMap(取人物称呼));
     const seen = new Set([role.姓名]);
     for (const { npc } of 获取可选战术交锋目标(socialList, env)) {
-        if (!npc.姓名 || seen.has(npc.姓名)) continue;
+        const names = 取人物称呼(npc);
+        if (seen.has(npc.姓名) || names.some((name) => spentNames.has(name))) continue;
         seen.add(npc.姓名);
         const fighter = 创建参战者('npc:' + (npc.id || npc.姓名), 构建NPC明牌交锋面板(npc, directorBible), npc.id);
         sparringPartners.push(fighter);
         // 2.0 导演把公开关系写入「关系」，旧档通常使用「关系状态」。
         const relation = String((npc as NPC结构 & { 关系?: string }).关系 || npc.关系状态 || '').trim();
-        const ally = npc.是否队友 === true || 有开局伙伴身份标记(npc)
-            || /^(?:主角的?)?(?:同伴|队友|同行伙伴|随行伙伴|结伴同行|并肩作战的伙伴)$/u.test(relation);
+        const ally = npc.是否队友 ?? (有开局伙伴身份标记(npc) || 有同行关系(npc));
         if (ally) {
             allies.push(fighter);
             continue;
         }
         const hostile = /敌对|仇敌|死敌|宿敌|仇人|敌人|敌手|敌军|追兵|追杀者/u.test(relation)
             && !/非敌|并非.*敌|不是.*敌|不再.*敌|化敌为友|昔日|曾经|旧日|前敌|解除敌对/u.test(relation);
-        const names = 取人物称呼(npc);
-        if (!names.some((name) => spentNames.has(name)) && (names.some((name) => battleNames.has(name)) || hostile)) enemies.push(fighter);
+        if (names.some((name) => battleNames.has(name)) || hostile) enemies.push(fighter);
     }
     // 在旧战斗名单上有名、尚无社交档案的临时敌人也能入场。
     for (const enemy of activeEnemies) {
@@ -506,11 +505,13 @@ export const 同步交锋在场阵容 = (
 };
 
 // 本拍开始时仍有架势的支援者各出手一次，优先牵制主对手以外的敌人。
-const 结算支援出招 = (support: ClashFighter[], opponents: ClashFighter[], beat: number): string[] => (
-    support.map((fighter, index) => {
-        const target = opponents[(index + beat - 1) % opponents.length];
-        const damage = Math.max(5, Math.min(22, 10 + fighter.profile.offense - target.profile.defense));
-        target.posture = Math.max(0, target.posture - damage);
+const 结算支援出招 = (support: ClashFighter[], opponents: ClashFighter[], main: ClashFighter, beat: number): string[] => (
+    support.flatMap((fighter, index) => {
+        const available = opponents.filter(可继续交锋);
+        const target = available[(index + beat - 1) % available.length] ?? main;
+        if (!可继续交锋(target)) return [];
+        const damage = Math.min(target.posture, Math.max(5, Math.min(22, 10 + fighter.profile.offense - target.profile.defense)));
+        target.posture -= damage;
         return `${fighter.profile.name}牵制${target.profile.name}（架势 -${damage}%）`;
     })
 );
@@ -536,8 +537,8 @@ export const 推演阵营交锋一拍 = (session: TeamClashSession, move: Tactic
 
     const withdrew = log.playerMove === 'withdraw' && duel.finished;
     const supportNotes = withdrew ? [] : [
-        ...结算支援出招(otherAllies, otherEnemies.length ? otherEnemies : [target], session.beat),
-        ...结算支援出招(otherEnemies, otherAllies.length ? otherAllies : [actor], session.beat)
+        ...结算支援出招(otherAllies, otherEnemies, target, session.beat),
+        ...结算支援出招(otherEnemies, otherAllies, actor, session.beat)
     ];
     const nextActor = allies.find(可继续交锋);
     const nextEnemy = 可继续交锋(target) ? target : enemies.find(可继续交锋);
@@ -563,8 +564,9 @@ export const 结算战术交锋结果 = (params: {
     const nextRole: 角色数据结构 = JSON.parse(JSON.stringify(params.role));
     const teams = 'allies' in params.session ? params.session : undefined;
     const postureLost = Math.max(0, 100 - (teams?.allies[0].posture ?? params.session.playerPosture));
-    const energy = Math.max(0, Number(nextRole.当前精力 ?? 50));
-    const internal = Math.max(0, Number(nextRole.当前内力 ?? 40));
+    const resource = (raw: unknown, fallback: number) => raw != null && Number.isFinite(Number(raw)) ? Math.max(0, Number(raw)) : fallback;
+    const energy = resource(nextRole.当前精力, 50);
+    const internal = resource(nextRole.当前内力, 40);
     // 延续原有的 5 点精力保底，低于保底的旧档只按现有精力结算。
     const energyCost = Math.min(Math.max(0, energy - 5), 25, Math.max(5, Math.round(postureLost * 0.2)));
     const internalCost = Math.min(internal, 25, params.session.logs.filter((l) => l.usedSignature).length * 8);
@@ -601,9 +603,10 @@ export const 结算战术交锋结果 = (params: {
 };
 
 export const 构建场外战果注入块 = (records?: 场外战果暂存结构[] | null): string => {
-    if (!Array.isArray(records) || records.length === 0) return '';
+    const summaries = Array.isArray(records) ? records.flatMap((entry) => typeof entry?.战果摘要 === 'string' && entry.战果摘要.trim() ? [entry.战果摘要] : []) : [];
+    if (!summaries.length) return '';
     return [
         '【本回合前置战术交锋既成事实（玩家已亲自操控出招并结算精力/内力消耗，主剧情必须承接此战果演出，不可推翻）】',
-        ...records.map((r) => `- ${r.战果摘要}`)
+        ...summaries.map((summary) => `- ${summary}`)
     ].join('\n');
 };

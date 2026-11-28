@@ -59,11 +59,18 @@ export const 恢复开局伙伴队伍身份 = (social: NPC结构[], config?: Ope
     const player = 规范化文本键(playerName);
     return social.map((npc) => {
         const name = 规范化文本键(npc?.姓名);
-        if (!name || name === player || (!configured.has(name) && !有开局伙伴身份标记(npc))) return npc;
+        if (!name || name === player || npc.是否队友 === false) return npc;
+        if (!configured.has(name) && !有开局伙伴身份标记(npc)) {
+            return npc.是否队友 === undefined && 有同行关系(npc) ? { ...npc, 是否队友: true } : npc;
+        }
         if (npc.是否队友 && npc.来源 === '开局伙伴') return npc;
         return { ...npc, 是否队友: true, 来源: '开局伙伴' };
     });
 };
+
+export const 有同行关系 = (npc: Partial<NPC结构> & { 关系?: unknown }): boolean => (
+    /^(?:主角的?)?(?:同伴|队友|同行伙伴|随行伙伴|结伴同行|并肩作战的伙伴)$/u.test(取文本(npc.关系, 取文本(npc.关系状态)))
+);
 
 const 读取伙伴 = (openingConfig?: OpeningConfig) => 读取伙伴列表(openingConfig)[0] || null;
 
@@ -313,7 +320,7 @@ export const 修复开局伙伴社交列表 = (
                 根骨: seed.根骨,
                 悟性: seed.悟性,
                 福源: seed.福源,
-                是否队友: true,
+                是否队友: npc.是否队友 ?? merged?.是否队友 ?? seed.是否队友,
                 是否主要角色: true,
                 关系状态: 取文本(npc?.关系状态, seed.关系状态) || seed.关系状态
             });

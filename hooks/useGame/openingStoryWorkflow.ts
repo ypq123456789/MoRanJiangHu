@@ -931,10 +931,9 @@ export const 执行开场剧情生成工作流 = async (
                 世界大事: []
             };
             const v2PlanningApi = 接口配置是否可用(openingPlanningApi) ? openingPlanningApi : apiForOpening;
-            const v2WorldApi = 接口配置是否可用(openingWorldApi) ? openingWorldApi : v2PlanningApi;
             const v2StoryInfo = 构建开局阶段模型信息('开局主剧情', apiForOpening, apiForOpening);
             const v2PlanningInfo = 构建开局阶段模型信息('规划分析', v2PlanningApi, apiForOpening);
-            const v2WorldInfo = 构建开局阶段模型信息('动态世界', v2WorldApi, apiForOpening);
+            const v2WorldInfo = 构建开局阶段模型信息('动态世界', v2PlanningApi, apiForOpening);
             const 设置2_0开局主剧情进度 = (progress: any) => {
                 deps.设置开局主剧情进度(附加开局阶段运行信息('story', progress, v2StoryInfo));
             };
@@ -1093,44 +1092,53 @@ export const 执行开场剧情生成工作流 = async (
                 phase: 'start',
                 text: '正在计算离屏人物动向与外溢事件...'
             });
-            const postResult = await 执行导演后处理V2({
-                state: v2State,
-                apiConfig: v2Config.directorApiConfig || v2Config.apiConfig,
-                storyResponse: displayAiData,
-                playerInput: '(开局初始化)',
-                openingConfig: options?.开局配置,
-                signal: controller.signal
-            });
-            设置2_0开局规划进度({
-                phase: 'done',
-                text: postResult.replanned ? '2.0 导演推演与动态重规划完成' : '2.0 导演后台推演与伏笔落账完成'
-            });
-            设置2_0开局动态世界进度({
-                phase: 'done',
-                text: postResult.offscreenSpillovers.length > 0
-                    ? `已推进 ${postResult.offscreenSpillovers.length} 条离屏局势外溢`
-                    : '局势稳定推进'
-            });
+            let postState = v2State;
+            try {
+                const result = await 执行导演后处理V2({
+                    state: v2State,
+                    apiConfig: v2PlanningApi,
+                    storyResponse: displayAiData,
+                    playerInput: '(开局初始化)',
+                    openingConfig: options?.开局配置,
+                    stream: useStreaming && !开局规划分析非流式输出,
+                    signal: controller.signal
+                });
+                postState = result.nextState;
+                设置2_0开局规划进度({ phase: 'done', text: result.replanned ? '2.0 导演推演与动态重规划完成' : '2.0 导演后台推演与伏笔落账完成' });
+                设置2_0开局动态世界进度({ phase: 'done', text: result.offscreenSpillovers.length
+                    ? `已推进 ${result.offscreenSpillovers.length} 条离屏局势外溢` : '局势稳定推进' });
+            } catch (error) {
+                if (controller.signal.aborted || (error as Error)?.name === 'AbortError') throw error;
+                const text = `开局正文已保留，导演推演失败：${error instanceof Error ? error.message : String(error)}`;
+                设置2_0开局规划进度({ phase: 'error', text });
+                设置2_0开局动态世界进度({ phase: 'error', text });
+                const config = 规范化记忆配置(deps.memoryConfig);
+                postState = { ...v2State, 记忆系统: 写入四段记忆(v2State.记忆系统,
+                    构建即时记忆条目(initialGameTime, '', displayAiData, { 省略玩家输入: true }),
+                    构建短期记忆条目(initialGameTime, displayAiData),
+                    { immediateLimit: config.即时消息上传条数N, shortLimit: config.短期记忆阈值,
+                        midLimit: config.中期记忆阈值, recordTime: initialGameTime, timestamp: initialGameTime }) };
+            }
 
-            let finalEnv = deps.规范化环境信息(postResult.nextState.环境);
-            let finalRole = deps.规范化角色物品容器映射(postResult.nextState.角色, {
+            let finalEnv = deps.规范化环境信息(postState.环境);
+            let finalRole = deps.规范化角色物品容器映射(postState.角色, {
                 启用饱腹口渴系统: openingGameConfig.启用饱腹口渴系统,
                 题材模式: options?.开局配置?.题材模式
             });
             let finalSocial = 修复开局伙伴社交列表(
-                deps.规范化社交列表(postResult.nextState.社交),
+                deps.规范化社交列表(postState.社交),
                 options?.开局配置,
                 finalRole
             );
-            let finalWorld = deps.规范化世界状态(postResult.nextState.世界);
-            let finalStory = deps.规范化剧情状态(postResult.nextState.剧情, finalEnv);
-            const finalStoryPlan = deps.规范化剧情规划状态(postResult.nextState.剧情规划);
-            const finalHeroinePlan = postResult.nextState.女主剧情规划
-                ? deps.规范化女主剧情规划状态(postResult.nextState.女主剧情规划)
+            let finalWorld = deps.规范化世界状态(postState.世界);
+            let finalStory = deps.规范化剧情状态(postState.剧情, finalEnv);
+            let finalStoryPlan = deps.规范化剧情规划状态(postState.剧情规划);
+            let finalHeroinePlan = postState.女主剧情规划
+                ? deps.规范化女主剧情规划状态(postState.女主剧情规划)
                 : openingStatePayload.女主剧情规划;
-            const finalMemory = 规范化记忆系统(postResult.nextState.记忆系统);
-            const finalWorldEvents = Array.isArray(postResult.nextState.世界大事) ? postResult.nextState.世界大事 : [];
-            let finalTasks = Array.isArray(postResult.nextState.任务列表) ? postResult.nextState.任务列表 : [];
+            const finalMemory = 规范化记忆系统(postState.记忆系统);
+            const finalWorldEvents = Array.isArray(postState.世界大事) ? postState.世界大事 : [];
+            let finalTasks = Array.isArray(postState.任务列表) ? postState.任务列表 : [];
             let finalSect = deps.规范化门派状态(openingStatePayload.玩家门派);
             let finalAgreements = Array.isArray(openingStatePayload.约定列表) ? [...openingStatePayload.约定列表] : [];
             let finalBattle = {
@@ -1182,6 +1190,9 @@ export const 执行开场剧情生成工作流 = async (
                     nextWorld.地图层级 = finalWorld.地图层级;
                 }
                 finalWorld = nextWorld;
+                finalStory = nextState.剧情 ?? finalStory;
+                finalStoryPlan = nextState.剧情规划 ?? finalStoryPlan;
+                finalHeroinePlan = nextState.女主剧情规划 ?? finalHeroinePlan;
                 finalSect = deps.规范化门派状态(nextState.玩家门派);
                 finalTasks = Array.isArray(nextState.任务列表) ? nextState.任务列表 : finalTasks;
                 finalAgreements = Array.isArray(nextState.约定列表) ? nextState.约定列表 : finalAgreements;
@@ -1191,6 +1202,7 @@ export const 执行开场剧情生成工作流 = async (
                 };
             };
 
+            应用2_0开局增量命令(displayAiData.tavern_commands || []);
             const v2VariableFeatureOn = 变量生成功能已启用(deps.apiConfig);
             if (!v2VariableFeatureOn) {
                 设置开局变量生成进度({
@@ -1438,12 +1450,12 @@ export const 执行开场剧情生成工作流 = async (
             deps.设置剧情(finalStory);
             deps.设置剧情规划(finalStoryPlan);
             if (finalHeroinePlan) deps.设置女主剧情规划(finalHeroinePlan);
-            deps.设置导演圣经?.(postResult.nextState.directorBible);
+            deps.设置导演圣经?.(postState.directorBible);
             deps.设置上一回合导演圣经?.(openingDirectorBible);
             deps.setWorldEvents(finalWorldEvents);
             deps.设置任务列表(finalTasks);
             deps.设置约定列表(finalAgreements);
-            deps.设置游戏初始时间(postResult.nextState.gameInitialTime || finalGameTime);
+            deps.设置游戏初始时间(postState.gameInitialTime || finalGameTime);
             deps.应用并同步记忆系统(finalMemory);
 
             const committedAiMsg = buildV2OpeningAiMsg(finalGameTime);
@@ -1490,7 +1502,7 @@ export const 执行开场剧情生成工作流 = async (
                 heroinePlan: finalHeroinePlan,
                 fandomStoryPlan: contextData.同人剧情规划,
                 fandomHeroinePlan: contextData.同人女主剧情规划,
-                directorBible: postResult.nextState.directorBible,
+                directorBible: postState.directorBible,
                 lastTurnDirectorBible: openingDirectorBible,
                 worldEvents: finalWorldEvents,
                 场外对话: [],

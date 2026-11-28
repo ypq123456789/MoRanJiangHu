@@ -56,6 +56,7 @@ type 回合快照结构 = {
         导演圣经?: DirectorWorldBible;
         记忆系统: any;
         叙事平静值?: 叙事状态结构;
+        世界大事?: string[];
     };
     回档前持久态: {
         视觉设置: any;
@@ -138,6 +139,7 @@ type 会话生命周期依赖 = {
     设置开局世界演变进度: (value: any) => void;
     设置开局规划进度: (value: any) => void;
     设置开局地图更新进度: (value: any) => void;
+    worldEvents?: string[];
     setWorldEvents: (value: any[]) => void;
     应用并同步记忆系统: (memory: any, options?: { 静默总结提示?: boolean }) => void;
     清空变量生成上下文缓存: () => void;
@@ -282,6 +284,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 同人剧情规划: deps.深拷贝(contextData?.同人剧情规划 ?? deps.同人剧情规划),
                 同人女主剧情规划: deps.深拷贝(contextData?.同人女主剧情规划 ?? deps.同人女主剧情规划),
                 导演圣经: deps.深拷贝(contextData?.导演圣经 ?? deps.导演圣经),
+                世界大事: deps.深拷贝(contextData?.世界大事 ?? deps.worldEvents ?? []),
                 记忆系统: deps.深拷贝(deps.记忆系统)
             },
             回档前持久态: {

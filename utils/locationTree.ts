@@ -52,6 +52,13 @@ const 层级映射: Record<string, 地点层级类型> = {
 
 const 归一化层级 = (raw?: string): 地点层级类型 => 层级映射[raw || ''] || '小地点';
 
+const 合并地点资料 = (keeper: 地点树节点, extra: 地点树节点) => {
+    keeper.描述 ||= extra.描述;
+    keeper.控制势力 ||= extra.控制势力;
+    keeper.势力影响 ||= extra.势力影响;
+    keeper.势力标签 = [...new Set([...(keeper.势力标签 || []), ...(extra.势力标签 || [])])];
+};
+
 export const 构建地点树 = (
     world?: 世界数据结构 | null,
     env?: 环境信息结构 | null
@@ -61,8 +68,9 @@ export const 构建地点树 = (
 
     // 第一步：层级转节点
     layers.forEach((layer: any) => {
-        const id = 取文本(layer?.ID) || `location:${JSON.stringify([layer?.父级ID, layer?.层级, layer?.名称])}`;
-        节点映射.set(id, {
+        if (!layer || typeof layer !== 'object') return;
+        const id = 取文本(layer.ID) || `location:${JSON.stringify([取文本(layer.父级ID), 归一化层级(layer.层级), 取文本(layer.名称)])}`;
+        const node: 地点树节点 = {
             ID: id,
             名称: 取文本(layer?.名称) || '未命名区域',
             层级: 归一化层级(layer?.层级),
@@ -72,7 +80,10 @@ export const 构建地点树 = (
             势力影响: 取文本(layer?.势力影响),
             势力标签: Array.isArray(layer?.势力标签) ? layer.势力标签.map((item: unknown) => 取文本(item)).filter(Boolean) : [],
             子节点: [],
-        });
+        };
+        const existing = 节点映射.get(id);
+        if (existing) 合并地点资料(existing, node);
+        else 节点映射.set(id, node);
     });
 
     // 第二步：名称→ID索引
@@ -105,10 +116,7 @@ export const 构建地点树 = (
         if (g.length < 2) return;
         const keeper = g[0];
         g.slice(1).forEach(dup => {
-            if (!keeper.描述 && dup.描述) keeper.描述 = dup.描述;
-            if (!keeper.控制势力 && dup.控制势力) keeper.控制势力 = dup.控制势力;
-            if (!keeper.势力影响 && dup.势力影响) keeper.势力影响 = dup.势力影响;
-            if ((!keeper.势力标签 || keeper.势力标签.length <= 0) && dup.势力标签 && dup.势力标签.length > 0) keeper.势力标签 = dup.势力标签;
+            合并地点资料(keeper, dup);
             节点映射.forEach(n => { if (n.父级ID === dup.ID) n.父级ID = keeper.ID; });
             dup.子节点.forEach(c => { if (!keeper.子节点.some(kc => kc.ID === c.ID)) { keeper.子节点.push(c); c.父级ID = keeper.ID; } });
             节点映射.delete(dup.ID);
@@ -164,7 +172,7 @@ export const 构建地点树 = (
                 if (local) {
                     currentNode = local;
                 } else if (parent?.层级 === '区地点' && field === '具体地点' && index === parts.length - 1
-                    && !matches.some(n => n.层级 !== '子地点') && !/^(未知|无|不明|未指定|待定)$/u.test(name)) {
+                    && !/^(未知|无|不明|未指定|待定)$/u.test(name)) {
                     // 只补环境明确给出的「已知场所 > 具体地点」。不猜测玩家进了同建筑的哪一间房。
                     const room: 地点树节点 = {
                         ID: `room:${JSON.stringify([parent.ID, name])}`, 名称: name,
@@ -173,7 +181,7 @@ export const 构建地点树 = (
                     parent.子节点.push(room);
                     节点映射.set(room.ID, room);
                     currentNode = 待补录房间 = room;
-                } else if (matches.length) {
+                } else if (!parent && matches.length) {
                     currentNode = matches[0];
                 }
             }

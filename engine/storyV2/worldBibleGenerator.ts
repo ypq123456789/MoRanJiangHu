@@ -4,6 +4,7 @@ import {
     type DirectorWorldBible
 } from '../../models/directorBible';
 import { 地图层级命名契约, 地图层级命名自检 } from '../../prompts/runtime/mapLayerNaming';
+import { 获取世界锚点难度说明 } from '../../prompts/runtime/worldSetup';
 import { 规范化文本补全消息链, 请求模型文本, type 通用消息 } from '../../services/ai/chatCompletionClient';
 import { 提取首个标签内容 } from '../../services/ai/storyResponseParser';
 import { recordDiagnosticLog } from '../../services/diagnosticLog';
@@ -12,6 +13,7 @@ import type { 当前可用接口结构 } from '../../utils/apiConfig';
 import { parseJsonWithRepair } from '../../utils/jsonRepair';
 import { 读取伙伴列表 } from '../../utils/openingCompanion';
 import { 题材是否仙侠 } from '../../utils/topicModeProfiles';
+import type { StoryV2Config } from './types';
 
 const 地图节点下限 = 24;
 const 空间阶梯下限 = 3;
@@ -46,8 +48,8 @@ const 校验地图树结构 = (mapLayers: 地图层级结构[]): string[] => {
         byId.set(node.ID, node);
     }
     const roots = mapLayers.filter((n) => n.层级 === '寰宇');
-    if (roots.length < 1) {
-        issues.push('<世界基底>缺少根节点（层级=寰宇）');
+    if (roots.length !== 1 || roots[0].父级ID) {
+        issues.push('<世界基底>必须有且只有一个没有父级的寰宇根节点');
         return issues;
     }
     for (const node of mapLayers) {
@@ -88,6 +90,8 @@ const 校验地图树结构 = (mapLayers: 地图层级结构[]): string[] => {
             cursor = cursor.父级ID ? byId.get(cursor.父级ID) : undefined;
         }
     }
+    const levels = new Set(mapLayers.map(node => 地图层级深度[node.层级]));
+    if (levels.size !== 6) issues.push('<世界基底>须有从寰宇到子地点的完整六层开局分支');
     return issues;
 };
 
@@ -162,12 +166,21 @@ const 规范化地图节点数组 = (raw: unknown): 地图层级结构[] => {
     });
 };
 
-const 评估圣经完整度 = (bible: DirectorWorldBible, partnerNames: string[] = []): string[] => {
+const 评估圣经完整度 = (bible: DirectorWorldBible, map: 地图层级结构[], partnerNames: string[], factionCount?: number): string[] => {
     const issues: string[] = [];
     if (!bible.顶层隐秘秩序 || bible.顶层隐秘秩序.length < 15) issues.push('缺少具体的顶层隐秘秩序/垄断链条');
     if (!bible.核心历史原罪 || bible.核心历史原罪.length < 15) issues.push('缺少核心历史原罪/世界裂痕根源');
     if (bible.空间阶梯.length < 空间阶梯下限) issues.push(`空间阶梯不足（当前 ${bible.空间阶梯.length} 级，需至少 ${空间阶梯下限} 级）`);
-    if (bible.势力暗账.length < 势力数量下限) issues.push(`势力暗账不足 ${势力数量下限} 个（当前 ${bible.势力暗账.length} 个）`);
+    if (factionCount !== undefined && bible.势力暗账.length !== factionCount) {
+        issues.push(`势力暗账必须恰好 ${factionCount} 个（当前 ${bible.势力暗账.length} 个）`);
+    } else if (factionCount === undefined && bible.势力暗账.length < 势力数量下限) {
+        issues.push(`势力暗账不足 ${势力数量下限} 个（当前 ${bible.势力暗账.length} 个）`);
+    }
+    const locations = new Set(map.flatMap(node => [node.ID, node.名称]));
+    for (const faction of bible.势力暗账) {
+        const unknown = faction.地盘.filter(place => !locations.has(place));
+        if (unknown.length) issues.push(`「${faction.名称}」的地盘在地图中不存在：${unknown.join('、')}`);
+    }
 
     const missingLeader = bible.势力暗账.filter((f) => !f.领袖 || f.领袖 === '无' || f.领袖 === '暂无');
     if (missingLeader.length > 0) {
@@ -196,7 +209,7 @@ const 评估圣经完整度 = (bible: DirectorWorldBible, partnerNames: string[]
 
 const 确保核心结构兜底 = (
     bible: DirectorWorldBible,
-    params: { charData: 角色数据结构; openingConfig: OpeningConfig; worldPrompt: string }
+    params: { charData: 角色数据结构; openingConfig: OpeningConfig }
 ): DirectorWorldBible => {
     const playerName = (params.charData?.姓名 || '').trim();
     const filteredCast = (bible.核心卡司 || [])
@@ -210,8 +223,7 @@ const 确保核心结构兜底 = (
         }));
     const next: DirectorWorldBible = {
         ...bible,
-        核心卡司: filteredCast,
-        世界观表层摘要: bible.世界观表层摘要 || params.worldPrompt.slice(0, 500)
+        核心卡司: filteredCast
     };
 
     const enabledPartners = 读取伙伴列表(params.openingConfig);
@@ -253,15 +265,7 @@ const 确保核心结构兜底 = (
 };
 
 export const 生成世界与导演圣经V2 = async (params: {
-    worldConfig: {
-        worldName: string;
-        worldSize?: string;
-        dynastySetting?: string;
-        sectDensity?: string;
-        tianjiaoSetting?: string;
-        difficulty?: string;
-        worldExtraRequirement?: string;
-    };
+    worldConfig: StoryV2Config['worldConfig'];
     charData: 角色数据结构;
     openingConfig: OpeningConfig;
     apiConfig: 当前可用接口结构;
@@ -273,6 +277,10 @@ export const 生成世界与导演圣经V2 = async (params: {
 }): Promise<WorldBibleGenerationResult> => {
     const { worldConfig, charData, openingConfig, apiConfig, extraPrompt, signal, stream = true, onDelta } = params;
     const startedAt = Date.now();
+    const difficulty = 获取世界锚点难度说明(worldConfig.difficulty);
+    const requestedCount = worldConfig.factionCount;
+    const factionCount = typeof requestedCount === 'number' && Number.isInteger(requestedCount) && requestedCount >= 3 && requestedCount <= 15 ? requestedCount : undefined;
+    const factionRequirement = factionCount === undefined ? `${势力数量下限} 个及以上` : `恰好 ${factionCount} 个`;
     let requestCount = 0;
     const enabledPartners = 读取伙伴列表(openingConfig);
     const partnerHint = enabledPartners.length > 0
@@ -290,6 +298,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         `请为题材【${openingConfig?.题材模式 || '仙侠'}】世界「${worldConfig.worldName || '太古界'}」一次性生成表层世界观、树状地图基底与【2.0 导演圣经】。`,
         '',
         '【玩家输入与开局锚点】',
+        `- 游戏难度：${difficulty.label}（${worldConfig.difficulty || 'normal'}）；${difficulty.资源压力}；${difficulty.失败代价}。`,
         `- 世界规模：${worldConfig.worldSize || '九州宏大'} | 局势：${worldConfig.dynastySetting || '群雄逐鹿，王朝末年'} | 宗门密度：${worldConfig.sectDensity || '林立'} | 天骄氛围：${worldConfig.tianjiaoSetting || '大争之世'}`,
         `- 主角建档：${charData.姓名}（${charData.性别}，${charData.年龄}岁），背景：${charData.出身背景?.名称 || '散修遗孤'}（${charData.出身背景?.描述 || ''}），性格：${charData.性格 || ''}，天赋：${(charData.天赋列表 || []).map((t) => `${t.名称}(${t.描述})`).join('、') || '无'}`,
         `- ${partnerHint}`,
@@ -304,7 +313,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         '',
         '<世界基底>',
         '输出紧凑合法 JSON，包含：',
-        '- `地图层级`：约 28~34 个节点，严格遵守六层树结构：`1个寰宇 -> 4个大地点 -> 8个中地点 -> 12~16个小地点 -> 2~3个区地点（开局所在小地点下设） -> 1~2个子地点`。',
+        `- 地图层级：生成 ${地图节点下限}~34 个节点；从唯一寰宇依次下设大地点、中地点、小地点、区地点和子地点，开局所在分支必须包括全部六层。`,
         '  其中每个节点字段为 `{ "ID": "DT-001", "名称": "...", "层级": "寰宇|大地点|中地点|小地点|区地点|子地点", "父级ID": "...", "描述": "...", "叙事核心": "仅关键地点填写该处的历史隐患或暗流", "坐标X": 50, "坐标Y": 50, "范围半径": 10 }`。',
         地图层级命名契约,
         地图层级命名自检,
@@ -352,7 +361,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         '【铁律提醒（数组数量硬下限，少于此数将被判不合格打回重写）】',
         '- `<世界基底>.地图层级` 必须写满 **24~34 个**完整树状节点（不要偷懒只写几条！）；',
         '- `宏观分幕大纲` 必须写满 **4 幕**；',
-        '- `势力暗账` 必须写满 **6 个及以上**且覆盖地图中不同层级；每个势力都必须有真实姓名 `领袖` 与至少 2 条 `跨势力账目`！',
+        `- 势力暗账必须生成 **${factionRequirement}**且覆盖地图中不同层级；每个势力须有具名领袖和至少 ${跨势力账目下限} 条跨势力账目。地盘必须逐项写已生成的地图节点名或 ID。`,
         `- \`核心卡司\` 必须写满 **7 名及以上重要 NPC**（绝不要把主角「${charData.姓名}」自己写进核心卡司列表！），跨越高低 1~4 层级，若有初始同伴必须写入并赋予真实的族内隐患/秘密诉求；NPC 的 \`行动倒计时回合\` 控制在 1~4 回合之间，保证第 2~4 回合就能自然产生外溢连锁波及！`,
         '- `伏笔台账` 必须写满 **6 枚及以上**具体可演的线索伏笔，聚焦物证、流言、胎记怪癖、错期旧案或暗桩，不要写成泛泛黑市买卖！',
         '- 保证输出完全合法的标准 JSON，数组末尾不加多余逗号。'
@@ -385,7 +394,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         const bibleParsed = bibleBlock ? parseJsonWithRepair<any>(bibleBlock).value : null;
         const mapLayers = 规范化地图节点数组(baseParsed?.地图层级 || baseParsed?.mapLayers || []);
         const rawBible = 规范化导演圣经(bibleParsed);
-        const directorBible = 确保核心结构兜底(rawBible, { charData, openingConfig, worldPrompt });
+        const directorBible = 确保核心结构兜底(rawBible, { charData, openingConfig });
         return { worldPrompt, mapLayers, directorBible, rawText };
     };
 
@@ -393,7 +402,7 @@ export const 生成世界与导演圣经V2 = async (params: {
     const countIssues = (candidate: WorldBibleGenerationResult) => [
         ...(!candidate.worldPrompt || candidate.worldPrompt.length < 220 ? ['<世界观>内容过短或缺失'] : []),
         ...校验地图树结构(candidate.mapLayers),
-        ...评估圣经完整度(candidate.directorBible, enabledPartnerNames)
+        ...评估圣经完整度(candidate.directorBible, candidate.mapLayers, enabledPartnerNames, factionCount)
     ];
 
     let res = parseBundle(await callGen(messages, 0.75));
@@ -405,15 +414,15 @@ export const 生成世界与导演圣经V2 = async (params: {
         try {
             const needMapRepair = 校验地图树结构(res.mapLayers).length > 0;
             const needWorldPromptRepair = !res.worldPrompt || res.worldPrompt.length < 220;
-            const bibleIssues = 评估圣经完整度(res.directorBible, enabledPartnerNames);
+            const bibleIssues = 评估圣经完整度(res.directorBible, res.mapLayers, enabledPartnerNames, factionCount);
             const sections = [needWorldPromptRepair && '世界观', needMapRepair && '世界基底', bibleIssues.length > 0 && '导演圣经'].filter((tag): tag is string => typeof tag === 'string');
             params.onRepair?.(repairAttempt, sections);
             const repairPrompt = [
                 `本次只输出：${sections.map((tag) => `<${tag}>`).join('、')}。使用原协议完整闭合各块，保留已有设定，只修复下列问题。`,
                 ...issues.map((issue) => `- ${issue}`),
                 `上一版表层设定：${res.worldPrompt || res.directorBible.世界观表层摘要}`,
-                needMapRepair ? `待修地图：${JSON.stringify(res.mapLayers.map(({ ID, 名称, 层级, 父级ID, 描述 }) => ({ ID, 名称, 层级, 父级ID, 描述 })))}` : `已定地点：${res.mapLayers.map((n) => n.名称).join('、')}`,
-                bibleIssues.length ? `待修导演圣经：${JSON.stringify(res.directorBible)}` : `已定势力：${res.directorBible.势力暗账.map((f) => f.名称).join('、')}`
+                needMapRepair ? `待修地图：${JSON.stringify(res.mapLayers.map(({ ID, 名称, 层级, 父级ID, 描述 }) => ({ ID, 名称, 层级, 父级ID, 描述 })))}` : `已定地点：${res.mapLayers.map(n => n.ID + '=' + n.名称).join('、')}`,
+                bibleIssues.length ? `待修导演圣经：${JSON.stringify(res.directorBible)}` : `保留已定势力及其地图引用：${JSON.stringify(res.directorBible.势力暗账.map(({ 名称, 地盘 }) => ({ 名称, 地盘 })))}`
             ].join('\n');
             const repairedRaw = await callGen([
                 { role: 'system', content: systemPrompt },
@@ -424,7 +433,10 @@ export const 生成世界与导演圣经V2 = async (params: {
             const repaired = parseBundle(onlyBible && 清理代码块(repairedRaw).startsWith('{') ? `<导演圣经>${repairedRaw}</导演圣经>` : repairedRaw);
             if (needWorldPromptRepair && repaired.worldPrompt.length > res.worldPrompt.length) res.worldPrompt = repaired.worldPrompt;
             if (needMapRepair && repaired.mapLayers.length && 校验地图树结构(repaired.mapLayers).length === 0) res.mapLayers = repaired.mapLayers;
-            if (bibleIssues.length && 评估圣经完整度(repaired.directorBible, enabledPartnerNames).length < bibleIssues.length) res.directorBible = repaired.directorBible;
+            const remainingBibleIssues = 评估圣经完整度(res.directorBible, res.mapLayers, enabledPartnerNames, factionCount);
+            if (remainingBibleIssues.length && 评估圣经完整度(repaired.directorBible, res.mapLayers, enabledPartnerNames, factionCount).length < remainingBibleIssues.length) {
+                res.directorBible = repaired.directorBible;
+            }
             res.rawText += `\n\n<!-- REPAIRED_BIBLE_${repairAttempt} -->\n${repairedRaw}`;
             issues = countIssues(res);
         } catch (err: any) {
@@ -439,6 +451,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         const repairDetail = lastRepairError instanceof Error ? `；修补请求异常：${lastRepairError.message}` : '';
         throw new Error(`2.0 世界观与导演圣经未通过完整性校验：${issues.join('；')}${repairDetail}`);
     }
+    if (!res.directorBible.世界观表层摘要) res.directorBible.世界观表层摘要 = res.worldPrompt.slice(0, 500);
 
     // Ensure faction cross-ledger bidirectionally links existing factions cleanly if any still missing
     if (res.directorBible.势力暗账.length >= 2) {

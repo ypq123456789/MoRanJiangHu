@@ -88,6 +88,7 @@ export const 构建地图人物标记 = (
         (node.子节点 || []).forEach(child => collect(child, [...ancestors, name]));
     };
     roots.forEach(root => collect(root, []));
+    const nodeNames = new Set(nodes.map(entry => entry.name));
     const result = new Map<string, 地图人物标记[]>();
     const placed = new Set<string>();
     const add = (id: string, name: string, player: boolean) => {
@@ -118,7 +119,23 @@ export const 构建地图人物标记 = (
             || b.ancestors.length - a.ancestors.length
             || Number(npc.是否在场 === true && b.node.ID === currentId) - Number(npc.是否在场 === true && a.node.ID === currentId));
         const onPlayerBranch = records.every(record => 地点路径匹配分支(record, currentBranch));
-        const target = candidates.find(entry => entry.node.ID !== currentId || onPlayerBranch)?.node;
+        const paths = records.map(record => {
+            const whole = 归一化NPC地图文本(record);
+            return nodeNames.has(whole) ? [whole] : whole.split(/[>＞／/\\·•\-—|｜,，、;；→]+/u).filter(Boolean);
+        });
+        const explicitPaths = paths.filter(path => path.length > 1);
+        const target = candidates.find(entry => {
+            const branch = [...entry.ancestors, entry.name];
+            // 已知路径只能沿本分支匹配。末端未收录时，最多回退到该路径里匹配的父节点。
+            for (const path of explicitPaths) {
+                if (地点路径匹配分支(path.join(' > '), branch)) continue;
+                const stop = path.indexOf(entry.name);
+                if (stop < 0 || !地点路径匹配分支(path.slice(0, stop + 1).join(' > '), branch)) return false;
+            }
+            return paths.every(path => path.length > 1 || branch.includes(path[0])
+                || explicitPaths.some(full => full.includes(path[0]))
+                || (!explicitPaths.length && !nodeNames.has(path[0]) && path[0].includes(entry.name)));
+        })?.node;
         if (!target) continue;
         const sameBuilding = npc?.是否在场 === true && current?.node.层级 === '子地点'
             && target.ID === current.node.父级ID && target.层级 === '区地点' && onPlayerBranch;

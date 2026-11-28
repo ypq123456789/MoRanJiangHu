@@ -430,7 +430,7 @@ const TradePluginModal: React.FC<Props> = ({
                                 onClick={handleConfirmTrade}
                                 className="px-4 py-1.5 rounded-lg border border-wuxia-gold bg-wuxia-gold/20 text-xs font-bold text-wuxia-gold hover:bg-wuxia-gold hover:text-ink-black transition-colors disabled:opacity-40"
                             >
-                                {isGift ? '确认赠予' : '确认落账成交'}
+                                {loading ? '等待当前回合结算' : isGift ? '确认赠予' : '确认落账成交'}
                             </button>
                         </div>
                         <input

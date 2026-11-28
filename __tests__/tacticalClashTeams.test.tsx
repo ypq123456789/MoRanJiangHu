@@ -21,9 +21,50 @@ const props = (social: NPC结构[]) => ({
     open: true, loading: false, role, env, social,
     pendingClashes: [], onCommitClash: vi.fn(), onClearClashes: vi.fn(), onClose: vi.fn()
 });
-const click = (name: RegExp | string) => fireEvent.click(screen.getByRole('button', { name }));
+const click = (name: RegExp | string) => {
+    const confirm = screen.queryByRole('button', { name: /确认.*在交手距离内/ });
+    if (name instanceof RegExp && confirm) fireEvent.click(confirm);
+    fireEvent.click(screen.getByRole('button', { name }));
+};
 
 describe('战术交锋的实际出招入口', () => {
+    it('距离不明和同在附近均须确认，切换目标和地点后重新确认', () => {
+        const inputs = props([hostile, npc('追兵', { 关系状态: '死敌', 当前位置: '云州' })]);
+        const { rerender } = render(<TacticalClashModal {...inputs} env={{ 大地点: '云州', ...env }} />);
+        const move = () => screen.getByRole<HTMLButtonElement>('button', { name: /卸力借势/ });
+        expect(move().disabled).toBe(true);
+        fireEvent.click(move());
+        expect(screen.queryByLabelText('出招拆解实录')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: /确认敌将在交手距离内/ }));
+        expect(move().disabled).toBe(false);
+        const target = screen.getByRole('combobox', { name: '当前交锋目标' });
+        fireEvent.change(target, { target: { value: 'npc:追兵' } });
+        expect(move().disabled).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: /确认追兵在交手距离内/ }));
+        expect(move().disabled).toBe(false);
+        rerender(<TacticalClashModal {...inputs} env={{ 大地点: '云州', 具体地点: '东门' }} />);
+        expect(move().disabled).toBe(true);
+    });
+
+    it('旧战斗生命归零排除切磋与己方，明确离队优先于关系和来源', () => {
+        const roster = 构建战术交锋阵容(role, [
+            npc('败将', { 曾用名: ['旧名'], 是否队友: true }), npc('退队', { 是否队友: false, 来源: '开局伙伴', 关系状态: '同行伙伴' })
+        ], env, { 是否战斗中: true, 敌方: [{ 名字: '旧名', 当前血量: 0 }] } as 战斗状态结构);
+        expect(roster.allies.map(f => f.profile.name)).toEqual(['玩家']);
+        expect(roster.sparringPartners.map(f => f.profile.name)).toEqual(['退队']);
+    });
+
+    it('主招击破唯一目标后支援停手，其余支援只扣目标实有余势', () => {
+        const build = (extra: NPC结构[]) => 创建阵营交锋会话(构建战术交锋阵容(role, [companion, hostile, ...extra], env), '生死交锋')!;
+        const only = build([]);
+        only.enemyPosture = only.enemies[0].posture = 1;
+        expect(推演阵营交锋一拍(only, 'deflect', false).logs[0].summary).not.toContain('同行剑客牵制敌将');
+        const several = build([secondHostile, npc('另一同伴', { 是否队友: true })]);
+        several.enemies[1].posture = 2;
+        const result = 推演阵营交锋一拍(several, 'deflect', false);
+        expect(result.logs[0].summary).toContain('同行剑客牵制追兵（架势 -2%）');
+        expect(result.logs[0].summary).toContain('另一同伴牵制敌将');
+    });
     it('独处或仅有同伴和旁观者时不开战，明确指定同伴才进行单人切磋', () => {
         const inputs = { ...props([companion, neutral]), role: { ...role, 当前精力: 3 } };
         const { rerender } = render(<TacticalClashModal {...inputs} />);

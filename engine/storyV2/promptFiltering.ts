@@ -19,7 +19,7 @@ const 冗杂数值提示词ID集合 = new Set([
     'stat_recovery'
 ]);
 
-const 亲密器官世界书正则 = /(名器|yin_yang_record|buttock|anal|臀部|后穴|私密|肉棒|小穴)/i;
+const 亲密器官世界书正则 = /(名器|yin_yang_record|buttock|(?:^|[^a-z])anal(?:$|[^a-z])|臀部|后穴|私密|肉棒|小穴)/i;
 const 酒馆冲突条目正则 = /(快捷回复|墨染江湖A-J|必须生成完整10条|NSFW-A|视角切换|双线叙事|镜头转换|时间跳转|平行世界|平行事件|双子札记|丨伏笔|丨摘要|丨平行世界|丨双子札记|新摘要|大总结)/i;
 
 /**
@@ -69,8 +69,11 @@ export const 净化2_0酒馆预设 = (gameConfig: 游戏设置结构): 游戏设
     if (Array.isArray(targetPreset.prompts)) {
         targetPreset.prompts = targetPreset.prompts.map((entry: any) => {
             if (!entry) return entry;
-            const hay = `${entry.name || ''}\n${entry.content || ''}`;
-            if (酒馆冲突条目正则.test(hay)) {
+            const clauses = [entry.name, entry.content].filter(Boolean).join('\n').split(/[\n。！？；，,;]+/u);
+            if (clauses.some(clause => {
+                const match = 酒馆冲突条目正则.exec(clause);
+                return match && !/(禁止|不得|严禁|避免|不要|不可|不允许|不使用|不进行|勿)(?:任何|擅自|随意|自行|进行|使用|加入|生成|输出|采用|出现|切换到|进行的|\s)*$/u.test(clause.slice(0, match.index));
+            })) {
                 if (entry.identifier) disabledIds.add(String(entry.identifier));
                 return { ...entry, enabled: false };
             }

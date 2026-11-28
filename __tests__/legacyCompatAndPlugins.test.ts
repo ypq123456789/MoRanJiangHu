@@ -182,11 +182,59 @@ describe('Legacy Compatibility & Scheme B Plugins', () => {
         expect(res1.nextRole.物品列表.some((it: any) => it.名称 === '青田古玉' && it.堆叠数量 === 2)).toBe(true);
         expect(计算角色货币底层总值(res1.nextRole.金钱)).toBe(beforeMoney + 300);
 
-        // Reloading the same save a second time must not duplicate items or money
-        const res2 = 迁移旧版拍卖行寄售资产({ save, role: res1.nextRole, storage: mockStorage });
-        expect(res2.mutated).toBe(false);
+        expect(save.拍卖行.玩家寄售列表[0].未入账金额BaseAmount).toBe(300);
+        expect(JSON.parse(mockStorage.getItem(key)!).拍卖品列表[0].状态).toBe('上架中');
+        const committed = { ...save, 角色数据: res1.nextRole, 拍卖行: res1.nextAuction };
+        const res2 = 迁移旧版拍卖行寄售资产({ save: committed, role: res1.nextRole, storage: mockStorage, receipts: res1.localClaims });
         expect(res2.restoredItemCount).toBe(0);
         expect(res2.creditedBaseAmount).toBe(0);
+    });
+
+    it('同一寄售在三份镜像只兑付一次，较新成交覆盖旧上架，同名不同物品分开保留', () => {
+        const role = createBaseRole();
+        const item = { ID: 'old', 名称: '玉佩', 品质: '下品', 数量: 4, 可堆叠: true };
+        role.物品列表 = [item as any];
+        const entry = { ID: 'A', 卖家ID: 'player', 状态: '上架中', 物品: { ...item, 数量: 2 } };
+        const jade = { ...entry, ID: 'B', 物品: { ...item, ID: 'rare', 品质: '极品', 数量: 3 } };
+        const sold = { ...entry, ID: 'C' };
+        const save = { 角色数据: role, 拍卖行: { 玩家寄售列表: [entry, jade, sold], 拍卖品列表: [entry, jade, sold] } };
+        const storage = { getItem: () => JSON.stringify({ 拍卖品列表: [entry, jade, { ...sold, 状态: '已成交', 未入账金额BaseAmount: 99 }] }), setItem: vi.fn() };
+        const result = 迁移旧版拍卖行寄售资产({ save, role, storage });
+        expect(result.restoredItemCount).toBe(5);
+        expect(result.creditedBaseAmount).toBe(99);
+        expect(result.nextRole.物品列表).toMatchObject([{ ID: 'old', 数量: 6, 堆叠数量: 6 }, { ID: 'rare', 数量: 3 }]);
+        expect(storage.setItem).not.toHaveBeenCalled();
+        expect(entry.状态).toBe('上架中');
+    });
+
+    it('无寄售编号按同表次数保留独立的货品，同局镜像不重复，缺少字段的成交摘要保留已知待领金额', () => {
+        const role = createBaseRole();
+        const item = { 名称: '信物', 品质: '上品', 是否可堆叠: false };
+        const lot = { 卖家ID: 'player', 状态: '上架中', 物品: item, 上架时间: 77 };
+        const sale = { ID: 'sold', 卖家ID: 'player', 状态: '已成交' };
+        const save = { 角色数据: role, 拍卖行: { 玩家寄售列表: [lot, lot, sale], 拍卖品列表: [lot, lot, { ...sale, 未入账金额BaseAmount: 3 }] } };
+        const migrated = 迁移旧版拍卖行寄售资产({ save, role, storage: null });
+        expect(migrated.restoredItemCount).toBe(2);
+        expect(migrated.creditedBaseAmount).toBe(3);
+        const ids = migrated.nextRole.物品列表.filter(item => item.名称 === '信物').map(item => item.ID);
+        expect(ids).toHaveLength(2);
+        expect(new Set(ids).size).toBe(2);
+    });
+
+    it('真实读档规范化保留同名同品质的不同旧物和背包实体货币的新增寄售款', async () => {
+        const { 规范化角色物品容器映射 } = await import('../hooks/useGame/stateTransforms');
+        const role = createBaseRole();
+        const jade = { ID: 'jade-1', 名称: '玉佩', 类型: '材料', 品质: '良品', 描述: '青龙纹', 堆叠数量: 1, 是否可堆叠: true };
+        role.物品列表 = [jade, { ID: 'coins', 名称: '铜钱', 类型: '货币:底层货币', 堆叠数量: 500 }, { ID: 'silver', 名称: '银子', 类型: '货币:中层货币', 堆叠数量: 2 }];
+        role.已补齐系统丹药预设 = true;
+        const save = { 角色数据: role, 拍卖行: { 玩家寄售列表: [
+            { ID: 'jade', 卖家ID: 'player', 状态: '上架中', 物品: { ...jade, ID: 'jade-2', 描述: '白虎纹' } },
+            { ID: 'cash', 卖家ID: 'player', 状态: '已成交', 未入账金额BaseAmount: 36 }
+        ] } };
+        const plan = 迁移旧版拍卖行寄售资产({ save, role, storage: null });
+        const actual = 规范化角色物品容器映射(plan.nextRole);
+        expect.soft(actual.物品列表.filter(i => i.名称 === '玉佩').map(i => i.描述)).toEqual(['青龙纹', '白虎纹']);
+        expect.soft(actual.金钱.baseAmount).toBe(2536);
     });
 
     it('tradePlugin enforces scene presence, hostility refusal, real inventory settlement, and prompt injection', () => {

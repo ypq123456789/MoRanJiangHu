@@ -1,4 +1,5 @@
 import { NATURAL_PROSE_SETTINGS_KEY, normalizeNaturalProseSettings } from '../utils/naturalProse';
+import { 检查旧版寄售, 获取旧版拍卖行存储键, 迁移旧版拍卖行寄售资产, 核销旧版寄售缓存, type 寄售领取凭据 } from '../utils/legacyAuctionMigration';
 
 import { 存档结构 } from '../types';
 import type { 题材模式类型, 游戏设置结构 } from '../models/system';
@@ -878,6 +879,7 @@ export const 清洗导入存档 = (raw: any): Omit<存档结构, 'id'> | null =>
         同人剧情规划: raw.同人剧情规划 && typeof raw.同人剧情规划 === 'object' ? 深拷贝(raw.同人剧情规划) : undefined,
         同人女主剧情规划: raw.同人女主剧情规划 && typeof raw.同人女主剧情规划 === 'object' ? 深拷贝(raw.同人女主剧情规划) : undefined,
         记忆系统: raw.记忆系统 && typeof raw.记忆系统 === 'object' ? 深拷贝(raw.记忆系统) : undefined,
+        叙事平静值: raw.叙事平静值 && typeof raw.叙事平静值 === 'object' && !Array.isArray(raw.叙事平静值) ? 深拷贝(raw.叙事平静值) : undefined,
         openingConfig: raw.openingConfig && typeof raw.openingConfig === 'object' ? 深拷贝(raw.openingConfig) : undefined,
         游戏设置: raw.游戏设置 && typeof raw.游戏设置 === 'object' ? 深拷贝(raw.游戏设置) : undefined,
         记忆配置: raw.记忆配置 && typeof raw.记忆配置 === 'object' ? 深拷贝(raw.记忆配置) : undefined,
@@ -2101,6 +2103,85 @@ export const 保存存档并读取 = async (存档: Omit<存档结构, 'id'>, ga
     } as 存档结构;
 };
 
+/** 原档、角色资产及同局跨存档共享的 V1 寄售凭据在同一事务内提交。 */
+export const 写回旧版寄售迁移 = async (
+    source: 存档结构,
+    恢复开局角色?: (save: 存档结构) => 存档结构['角色数据']
+) => {
+    const action = 检查旧版寄售(source);
+    if (!action) return null;
+    const db = await 初始化数据库();
+    const key = 'legacy-auction-claims:' + 获取旧版拍卖行存储键(source);
+    const originalHash = 计算存档同步哈希(source);
+    const result = await new Promise<{ save: 存档结构; notes: string[]; localClaims: 寄售领取凭据 }>((resolve, reject) => {
+        const tx = db.transaction([STORE_NAME, SAVE_SUMMARIES_STORE, SETTINGS_STORE], 'readwrite');
+        const saves = tx.objectStore(STORE_NAME);
+        const settings = tx.objectStore(SETTINGS_STORE);
+        let committed: { save: 存档结构; notes: string[]; localClaims: 寄售领取凭据 };
+        const fail = (error: unknown) => { tx.abort(); reject(error); };
+        const migrate = (save: 存档结构) => {
+            const read = settings.get(key);
+            read.onsuccess = () => {
+                try {
+                    const receipts: 寄售领取凭据 = read.result?.value || {};
+                    const original = save.元数据?.旧寄售迁移原档哈希 || 计算存档同步哈希(save);
+                    const role = save.角色数据;
+                    const background = role.出身背景;
+                    // 初次载入带开局资产的 V1 角色会重建背包，必须先完成它，再发放寄售品。
+                    const needsOpeningItems = (role as any).已补齐系统丹药预设 !== true
+                        && (Array.isArray(background?.初始物品) || Array.isArray(background?.开局货币));
+                    const preparedRole = needsOpeningItems && 恢复开局角色 ? 恢复开局角色(save) : role;
+                    const result = 迁移旧版拍卖行寄售资产({ save, role: preparedRole, receipts });
+                    if (result.restoredItemCount || result.creditedBaseAmount || result.embeddedChanged) {
+                        save.元数据 = { ...save.元数据, 旧寄售迁移原档哈希: original };
+                        save.角色数据 = result.nextRole;
+                        save.拍卖行 = result.nextAuction;
+                        delete save.元数据.存档哈希;
+                        save.元数据.存档哈希 = 计算存档同步哈希(save);
+                        saves.put(save);
+                        const summary = 构建存档摘要记录(save, save.id);
+                        if (summary) tx.objectStore(SAVE_SUMMARIES_STORE).put(summary);
+                        const verify = saves.get(save.id);
+                        verify.onsuccess = () => {
+                            if (verify.result?.元数据?.存档哈希 !== save.元数据?.存档哈希) fail(new Error('寄售资产写回校验失败，旧寄售记录已保留。'));
+                        };
+                    }
+                    if (Object.keys(result.localClaims).some(id => !receipts[id])) {
+                        settings.put({ key, value: { ...receipts, ...result.localClaims }, updatedAt: Date.now() });
+                    }
+                    committed = { save, notes: result.notes, localClaims: result.localClaims };
+                } catch (error) { fail(error); }
+            };
+        };
+        // 不同设备导入后会分配新 ID。核对内容哈希，防止把钱物写到同号的另一存档。
+        const matches = (save: 存档结构 | undefined, hash: string) => save && (
+            计算存档同步哈希(save) === hash || save.元数据?.旧寄售迁移原档哈希 === hash
+        );
+        const findImported = () => {
+            const importHash = 清洗导入存档(source)?.元数据?.存档哈希 || originalHash;
+            const scan = saves.openCursor();
+            scan.onsuccess = () => {
+                const cursor = scan.result;
+                if (!cursor) {
+                    if (action === '待领取') return fail(new Error('找不到对应的本地存档，旧寄售记录已保留。请重新导入原档后再读取。'));
+                    committed = { save: source, notes: [], localClaims: {} };
+                    return;
+                }
+                if (matches(cursor.value, originalHash) || matches(cursor.value, importHash)) migrate(cursor.value);
+                else cursor.continue();
+            };
+        };
+        if (typeof source.id === 'number') {
+            const read = saves.get(source.id);
+            read.onsuccess = () => matches(read.result, originalHash) ? migrate(read.result) : findImported();
+        } else findImported();
+        tx.oncomplete = () => resolve(committed);
+        tx.onabort = () => reject(tx.error || new Error('未能写回寄售资产，旧寄售记录已保留。'));
+    });
+    核销旧版寄售缓存(result.save, result.localClaims);
+    return result;
+};
+
 export interface 存档导出结构 {
     version: number;
     exportedAt: string;
@@ -2175,6 +2256,9 @@ export const 导入存档数据 = async (
     }
     const existingSaves = options?.覆盖现有 ? [] : await 读取存档列表();
     const dedupeKeySet = new Set(existingSaves.map((item) => 构建存档去重键(item)));
+    for (const save of existingSaves) {
+        if (save.元数据?.旧寄售迁移原档哈希) dedupeKeySet.add('hash|' + save.元数据.旧寄售迁移原档哈希);
+    }
 
     let imported = 0;
     let skipped = 0;

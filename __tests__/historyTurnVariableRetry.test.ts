@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { 创建历史回合工作流 } from '../hooks/useGame/historyTurnWorkflow';
+import { 执行导演后处理V2 } from '../engine/storyV2/directorPostTurn';
+vi.mock('../engine/storyV2/directorPostTurn', () => ({ 执行导演后处理V2: vi.fn() }));
 
 describe('history turn variable retry', () => {
     const createSnapshot = () => ({
@@ -93,6 +95,72 @@ describe('history turn variable retry', () => {
         获取NPC唯一标识: (_npc: unknown, index?: number) => String(index ?? 0),
         合并NPC图片档案: (npc: unknown) => npc,
         ...overrides
+    });
+
+    const makeDirector = () => {
+        const snapshot = createSnapshot() as any;
+        snapshot.回档前历史 = [{ role: 'system' }, { role: 'assistant', structuredResponse: {} }, { role: 'system' }];
+        snapshot.回档前状态.导演圣经 = {};
+        snapshot.回档前状态.环境 = { 时间: '1:01:01:08:00' };
+        const save = vi.fn(async () => {});
+        const notify = vi.fn();
+        let session = 1;
+        const deps = createBaseDeps({
+            获取最新快照: () => snapshot, 获取会话代次: () => session, 通知重解析异常: notify,
+            apiConfig: { activeConfigId: 'test', configs: [{ id: 'test', baseUrl: 'https://test.example', apiKey: 'test', model: 'test' }] },
+            记忆系统: { ...snapshot.回档前状态.记忆系统, 短期记忆: ['旧正文'] },
+            环境时间转标准串: (env: any) => env.时间,
+            构建短期记忆条目: (time: string) => time,
+            写入四段记忆: (memory: any, _immediate: any, short: string) => ({ ...memory, 短期记忆: [...memory.短期记忆, short] }),
+            performAutoSave: save, scrollRef: { current: null }
+        });
+        return { snapshot, save, deps, notify, changeSession: () => session++ };
+    };
+
+    it('编辑后只校准和存档一次，回合、历史和记忆采用最终导演时间', async () => {
+        const { deps, save } = makeDirector();
+        vi.mocked(执行导演后处理V2).mockImplementationOnce(async ({ state }) => {
+            expect(state.turnIndex).toBe(1);
+            expect(state.历史记录).toHaveLength(3);
+            return { nextState: { ...state, 环境: { ...state.环境, 时间: '1:01:01:08:30' } } } as any;
+        });
+        expect(await 创建历史回合工作流(deps as any).updateHistoryItem(1, '新正文')).toBeNull();
+        expect(save).toHaveBeenCalledTimes(1);
+        const final = (save.mock.calls as any)[0][0];
+        expect(final.history.at(-1).gameTime).toBe('1:01:01:08:30');
+        expect(final.memory.短期记忆).toEqual(['1:01:01:08:30']);
+    });
+    it('导演等待期间切换存档时抛弃结果，不覆盖新存档', async () => {
+        const { deps, snapshot, save, changeSession } = makeDirector();
+        vi.mocked(执行导演后处理V2).mockImplementationOnce(async ({ state }) => {
+            changeSession();
+            return { nextState: state } as any;
+        });
+        await 创建历史回合工作流(deps as any).使用快照重建解析回合(snapshot, { logs: [] } as any, '正文');
+        expect(save).not.toHaveBeenCalled();
+    });
+    it('两次编辑交错完成时只提交后一次校准，即使两次来自不同的 React 渲染', async () => {
+        const { deps, save } = makeDirector();
+        let finishFirst!: (value: any) => void;
+        const firstRequest = new Promise(resolve => { finishFirst = resolve; });
+        const parse = (text: string) => ({ logs: [{ sender: '旁白', text }], tavern_commands: [] });
+        Object.assign(deps, { parseStoryRawText: parse, 执行重解析变量生成: vi.fn()
+            .mockReturnValueOnce(firstRequest).mockResolvedValueOnce(parse('后稿')) });
+        vi.mocked(执行导演后处理V2).mockImplementationOnce(async ({ state }) => ({ nextState: state }) as any);
+        const first = 创建历史回合工作流(deps as any).updateHistoryItem(1, '先稿');
+        await 创建历史回合工作流(deps as any).updateHistoryItem(1, '后稿');
+        finishFirst(parse('先稿'));
+        await first;
+        expect(save).toHaveBeenCalledTimes(1);
+        expect((save.mock.calls as any)[0][0].history.at(-1).rawJson).toBe('后稿');
+    });
+    it('导演失败时保留新正文，并提示从编辑器重新解析', async () => {
+        const { deps, save, notify } = makeDirector();
+        vi.mocked(执行导演后处理V2).mockRejectedValueOnce(new Error('测试断线'));
+        const message = await 创建历史回合工作流(deps as any).updateHistoryItem(1, '新正文');
+        expect(message).toContain('导演圣经');
+        expect(notify).toHaveBeenCalledWith(expect.stringContaining('保存并重解析'));
+        expect(save).toHaveBeenCalledTimes(1);
     });
 
     it('继续变量生成失败时不先回档清空正文，并向输入栏回传进度与错误', async () => {

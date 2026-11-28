@@ -1,3 +1,5 @@
+import { 应用酒馆显示规则 } from '../../hooks/useGame/tavernDisplayResponse';
+import { 提取酒馆选项 } from '../../utils/tavernOptionRenderer';
 import { 构建主剧情请求参数 } from '../../hooks/useGame/mainStoryRequest';
 import { 规范化记忆配置 } from '../../hooks/useGame/memoryUtils';
 import { 构建COT伪装提示词, 构建酒馆预设消息链, 酒馆预设模式可用 } from '../../hooks/useGame/promptRuntime';
@@ -51,9 +53,9 @@ const 构建V2演出协议 = (requireActionOptions: boolean): string => [
 
 export const 过滤并精简V2行动选项 = (options?: string[]): string[] => {
     const raw = Array.isArray(options) ? options.map((x) => (x || '').trim()).filter(Boolean) : [];
-    const metaOrForcedNsfw = /^([A-Z]\.\s*)?\[(?:视角切换|双线叙事|镜头转换|时间跳转|NSFW-[A-Z])\]/i;
+    const metaOrForcedNsfw = /^(?:[A-Z]\s*[.、)）]\s*)?[\[【](?:视角切换|双线叙事|镜头转换|时间跳转|NSFW-[A-Z])[\]】]/i;
     const clean = raw.filter((opt) => !metaOrForcedNsfw.test(opt));
-    const chosen = clean.length >= 3 ? clean.slice(0, 5) : raw.slice(0, 5);
+    const chosen = clean.slice(0, 5);
     return chosen.map((opt, idx) => {
         const letter = String.fromCharCode(65 + idx);
         return /^[A-Z]\s*[\.、]/.test(opt)
@@ -91,22 +93,26 @@ const 解析V2故事响应 = (
         validateDialogueFormat: boolean;
         knownSpeakers: string[];
         requireActionOptionsTag: boolean;
+        tavernExtensions?: Record<string, unknown>;
     }
 ): GameResponse => {
     const normalized = (rawText || '')
         .replace(/<options>([\s\S]*?)<\/options>/gi, (_m, inner) => `<行动选项>\n${inner}\n</行动选项>`);
+    const fallbackOptions = params.requireActionOptionsTag && params.tavernExtensions
+        ? 提取酒馆选项(normalized.replace(/<\s*(thinking|think)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, ''), params.tavernExtensions)
+        : [];
     const parsed = parseStoryRawText(normalized, {
         validateTagCompleteness: false,
         enableTagRepair: true,
         validateDialogueFormat: params.validateDialogueFormat,
         knownSpeakers: params.knownSpeakers,
-        requireActionOptionsTag: params.requireActionOptionsTag
+        requireActionOptionsTag: params.requireActionOptionsTag && !fallbackOptions.length
     });
     const cleaned = 清洗2_0解析后正文日志(parsed);
     if (!params.requireActionOptionsTag) {
         return { ...cleaned, action_options: [] };
     }
-    return cleaned;
+    return !cleaned.action_options?.length && fallbackOptions.length ? { ...cleaned, action_options: fallbackOptions } : cleaned;
 };
 
 const 计算响应正文字符数 = (resp: GameResponse): number => (
@@ -119,6 +125,7 @@ const 计算响应正文字符数 = (resp: GameResponse): number => (
 
 const 执行带重试故事生成 = async (params: {
     apiConfig: StoryV2Config['apiConfig'];
+    gameConfig: StoryV2Config['gameConfig'];
     messages: 通用消息[];
     validateDialogueFormat: boolean;
     knownSpeakers: string[];
@@ -166,12 +173,20 @@ const 执行带重试故事生成 = async (params: {
         const rawText = params.executeStreamWithTimeout && params.stream !== false
             ? await params.executeStreamWithTimeout(params.signal, (reqSignal, markActivity) => invokeOnce(reqSignal, markActivity))
             : await invokeOnce(params.signal);
+        const parse = (validateDialogueFormat: boolean) => 解析V2故事响应(rawText, {
+            validateDialogueFormat,
+            knownSpeakers: params.knownSpeakers,
+            requireActionOptionsTag: params.requireActionOptionsTag,
+            tavernExtensions: params.gameConfig.启用酒馆预设模式 ? params.gameConfig.酒馆预设?.extensions : undefined
+        });
         try {
-            const response = 解析V2故事响应(rawText, {
-                validateDialogueFormat: params.validateDialogueFormat,
-                knownSpeakers: params.knownSpeakers,
-                requireActionOptionsTag: params.requireActionOptionsTag
-            });
+            let response: GameResponse;
+            try {
+                response = parse(params.validateDialogueFormat);
+            } catch (error) {
+                if (attempt !== 3 || !params.validateDialogueFormat || !(error instanceof StoryResponseParseError)) throw error;
+                response = parse(false);
+            }
             const minLen = Number(params.minBodyLength) || 0;
             if (minLen >= 50 && params.shortBodyMode !== '仅提示') {
                 const actualLen = 计算响应正文字符数(response);
@@ -185,24 +200,10 @@ const 执行带重试故事生成 = async (params: {
                     throw lenErr;
                 }
             }
-            return { response, rawText };
+            return { response: await 应用酒馆显示规则(response, params.gameConfig), rawText };
         } catch (err) {
             lastError = err;
-            if (attempt === 3 || !(err instanceof StoryResponseParseError || (err as any)?.name === 'StoryResponseParseError')) {
-                if (attempt === 3 && (err as any)?.reasonType !== 'body_length_shortage' && params.validateDialogueFormat) {
-                    try {
-                        const relaxed = 解析V2故事响应(rawText, {
-                            validateDialogueFormat: false,
-                            knownSpeakers: params.knownSpeakers,
-                            requireActionOptionsTag: params.requireActionOptionsTag
-                        });
-                        return { response: relaxed, rawText };
-                    } catch {
-                        // Fall through
-                    }
-                }
-                if (attempt === 3) throw err;
-            }
+            if (attempt === 3 || !(err instanceof StoryResponseParseError)) throw err;
         }
     }
     throw lastError;
@@ -363,6 +364,7 @@ export const 渲染开局回合V2 = async (
 
     const { response, rawText } = await 执行带重试故事生成({
         apiConfig,
+        gameConfig: config.gameConfig,
         messages: orderedMessages,
         validateDialogueFormat: gameConfig.启用严格正文对白格式 !== false,
         knownSpeakers,
@@ -498,6 +500,7 @@ export const 渲染主剧情回合V2 = async (
 
     const { response, rawText } = await 执行带重试故事生成({
         apiConfig,
+        gameConfig: config.gameConfig,
         messages: orderedMessages,
         validateDialogueFormat: gameConfig.启用严格正文对白格式 !== false,
         knownSpeakers,

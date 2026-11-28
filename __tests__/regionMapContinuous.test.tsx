@@ -2,8 +2,8 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render } from '@testing-library/react';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import RegionMap from '../components/features/Map/RegionMap';
 import LocationBrowser from '../components/features/Map/LocationBrowser';
 import { 构建地点树, 补录环境所在房间, type 地点树节点 } from '../utils/locationTree';
@@ -11,13 +11,19 @@ import { 构建地图人物标记 } from '../utils/mapNpcLocation';
 import { 合并世界基底到开场状态 } from '../hooks/useGame/storyState';
 
 beforeAll(() => {
-    (globalThis as any).ResizeObserver = class {
+    vi.stubGlobal('ResizeObserver', class {
         observe() { /* jsdom 无布局，容器尺寸走默认值 */ }
         unobserve() { /* noop */ }
         disconnect() { /* noop */ }
-    };
+    });
 });
 
+afterEach(async () => {
+    await act(async () => {
+        cleanup();
+        await new Promise<void>(resolve => setImmediate(resolve));
+    });
+});
 // React 18 的 scheduler 用 setImmediate 派发后续工作；多文件并发时偶发地在 jsdom
 // 环境销毁之后才 flush，回调里访问 window 就抛 "window is not defined"。在 teardown
 // 前让出两拍，把 pending 工作放完，避免 unhandled error 把 vitest 退出码顶成 1。
@@ -26,6 +32,7 @@ afterAll(async () => {
     // setTimeout(0) 属于另一条队列，早先排入的工作仍会在 teardown 后触发。
     await new Promise(resolve => setImmediate(resolve));
     await new Promise(resolve => setImmediate(resolve));
+    vi.unstubAllGlobals();
 });
 
 const 建节点 = (id: string, name: string, 层级: 地点树节点['层级'], 父级ID = '', 子节点: 地点树节点[] = []): 地点树节点 => ({
@@ -45,6 +52,28 @@ const 树 = 建节点('n1', '沧溟神州', '寰宇', '', [
 ]);
 
 describe('连续地图组件', () => {
+    it('同名的异地场所不阻止房间补录；缺少 ID 的重名旧节点合并信息', () => {
+        const world = { 地图层级: [
+            建节点('r', '九州', '寰宇'),
+            建节点('inn', '灵兽驿', '区地点', 'r'),
+            { 名称: '药房', 层级: '区地点', 父级ID: 'r', 描述: '城西独立医馆', 控制势力: '药宗', 势力标签: ['郎中'] },
+            { 名称: '药房', 层级: '区地点', 父级ID: 'r', 势力影响: '沿街义诊', 势力标签: ['商会'] }
+        ] } as any;
+        const tree = 构建地点树(world, { 小地点: '灵兽驿', 具体地点: '灵兽驿/药房' } as any);
+        expect(tree.当前节点).toMatchObject({ 名称: '药房', 父级ID: 'inn', 层级: '子地点' });
+        expect([...tree.节点映射.values()].find(n => n.名称 === '药房' && n.层级 === '区地点'))
+            .toMatchObject({ 描述: '城西独立医馆', 控制势力: '药宗', 势力影响: '沿街义诊', 势力标签: ['郎中', '商会'] });
+    });
+
+    it('NPC 的末级房间未收录时只能落在该路径已知的父地点', () => {
+        const root = 建节点('r', '九州', '寰宇', '', [
+            建节点('a', '甲馆', '区地点', 'r', [建节点('ar', '药房', '子地点', 'a')]),
+            建节点('b', '乙馆', '区地点', 'r'), 建节点('p', '驿站', '区地点', 'r')
+        ]);
+        const people = 构建地图人物标记([root], 'p', [{ 姓名: '医师', 位置路径: '乙馆 > 药房', 当前位置: '药房' }], '玩家');
+        expect(people.get('b')?.map(p => p.name)).toEqual(['医师']);
+        expect(people.get('ar')).toBeUndefined();
+    });
     it('只把精确记录到直接父场所的在场人物落在玩家房间，补录重复执行保持幂等', () => {
         const world = { 地图层级: [
             { ID: 'root', 名称: '九州', 层级: '寰宇' },
@@ -108,9 +137,12 @@ describe('连续地图组件', () => {
         expect(mapPeople.textContent).toContain('俞月荷');
         expect(mapPeople.textContent).not.toContain('药童');
         fireEvent.click(container.querySelector('[data-node="cellar"]')!);
+        expect(container.querySelector('.sr-only')?.textContent).toContain('灵兽地窖病房');
         expect(container.querySelector('.sr-only')?.textContent).not.toContain('在场');
         fireEvent.click(container.querySelector('button[title^="定位到"]')!);
-        expect(container.querySelector('.sr-only')?.textContent).toContain('后堂药房');
+        expect(container.querySelector('.sr-only')?.textContent).toContain('回春灵兽驿');
+        expect(container.querySelector('.sr-only')?.textContent).not.toContain('后堂药房');
+        expect(container.querySelector('[data-people-node]')?.getAttribute('data-people-node')).toBe(tree.当前节点?.ID);
         unmount();
     });
 

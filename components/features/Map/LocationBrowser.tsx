@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 世界数据结构, 环境信息结构 } from '../../../types';
 import { 构建地点树, type 地点树节点 } from '../../../utils/locationTree';
 import { 构建地图人物标记, type 地图人物标记 } from '../../../utils/mapNpcLocation';
@@ -31,8 +31,7 @@ const 获取索引选中节点 = (
     nodeMap: Map<string, 地点树节点>
 ): 地点树节点 | null => {
     if (!node) return null;
-    if (是否索引可见节点(node)) return node;
-    return node.父级ID ? (nodeMap.get(node.父级ID) || null) : null;
+    return node.层级 === '子地点' ? (nodeMap.get(node.父级ID) || node) : node;
 };
 
 const LocationTreeItem: React.FC<{
@@ -122,7 +121,11 @@ const LocationTreeItem: React.FC<{
 
 const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact = false, rawResponse = '', socialList = [], playerName = '', onInsertCommand }) => {
     const tree = useMemo(() => 构建地点树(world, env), [world, env]);
-    const [selectedNode, setSelectedNode] = useState<地点树节点 | null>(() => 获取索引选中节点(tree.当前节点, tree.节点映射));
+    const [selection, setSelection] = useState<{ locationId: string; nodeId: string } | null>(null);
+    const currentId = tree.当前节点?.ID || '';
+    const manualNode = selection?.locationId === currentId ? tree.节点映射.get(selection.nodeId) : undefined;
+    const selectedNode = manualNode || 获取索引选中节点(tree.当前节点, tree.节点映射);
+    const setSelectedNode = (node: 地点树节点) => setSelection({ locationId: currentId, nodeId: node.ID });
     const [regenerating, setRegenerating] = useState(false);
     // 长路径默认折叠，省略号本身是可聚焦的展开按钮，键盘也能打开被折叠的祖先。
     const [展开面包屑, set展开面包屑] = useState(false);
@@ -144,13 +147,7 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
         return ids;
     }, [tree.当前节点]);
 
-    // 仅在 tree 变化时同步选中节点
-    const treeVersionRef = useRef(0);
-    React.useEffect(() => {
-        treeVersionRef.current += 1;
-        const nextSelected = 获取索引选中节点(tree.当前节点, tree.节点映射);
-        if (nextSelected) setSelectedNode(nextSelected);
-    }, [tree]);
+    useEffect(() => { setSelection(null); }, [currentId]);
 
     const currentViewNode = selectedNode || tree.根节点;
     const childNodes = currentViewNode ? currentViewNode.子节点 : [];
@@ -254,16 +251,12 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                         nodes={childNodes}
                         allNodes={roots}
                         peopleByNode={人物映射}
-                        selectedNodeId={selectedNode?.ID}
+                        selectedNodeId={manualNode?.ID || currentId}
                         playerName={playerName}
                         currentNodeId={tree.当前节点?.ID || ''}
                         currentLocationName={tree.当前节点?.名称 || ''}
                         onSelect={setSelectedNode}
-                        onLocateCurrent={() => {
-                            const cur = tree.当前节点;
-                            if (!cur) return;
-                            setSelectedNode(cur);
-                        }}
+                        onLocateCurrent={() => setSelection(null)}
                         level={currentViewNode?.层级 || '大地点'}
                         socialList={socialList}
                         env={env}

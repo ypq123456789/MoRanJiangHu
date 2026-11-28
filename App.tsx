@@ -483,6 +483,7 @@ const 懒加载边界: React.FC<{ children: React.ReactNode; onDismiss?: () => v
 
 const App: React.FC = () => {
     const { state, meta, setters, actions } = useGame();
+    const 正在结算回合 = state.loading || meta.postStoryQueueRunning || Boolean(meta.pendingPostStoryQueue);
     const safeGameConfig = state.gameConfig ?? ({} as typeof state.gameConfig);
     const safeCharacter = state.角色 ?? ({} as typeof state.角色);
     const safeShowSaveLoad = state.showSaveLoad ?? { show: false, mode: 'save' as const };
@@ -2837,7 +2838,7 @@ const App: React.FC = () => {
             closeSettings();
             return true;
         }
-        if (activeMobileWindowId) {
+        if (activeMobileWindowId || state.showTradePlugin || state.showTacticalClash) {
             closeAllPanels();
             return true;
         }
@@ -4575,7 +4576,7 @@ const App: React.FC = () => {
                         >
                             <TradePluginModal
                                 open={true}
-                                loading={state.loading}
+                                loading={正在结算回合}
                                 role={state.角色}
                                 env={state.环境}
                                 world={state.世界}
@@ -4624,7 +4625,7 @@ const App: React.FC = () => {
                         >
                             <TacticalClashModal
                                 open={true}
-                                loading={state.loading}
+                                loading={正在结算回合}
                                 role={state.角色}
                                 env={state.环境}
                                 social={state.社交}

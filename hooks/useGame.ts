@@ -3712,6 +3712,8 @@ export const useGame = () => {
         visualConfigRef,
         场景图片档案Ref,
         scrollRef,
+        获取会话代次: () => 会话代次Ref.current,
+        通知重解析异常: (message) => 推送右下角提示({ title: '回合重解析', message, tone: 'error' }),
         获取最新快照: () => 回合快照栈Ref.current[回合快照栈Ref.current.length - 1] || null,
         回档到快照,
         弹出重Roll快照,
@@ -3925,7 +3927,7 @@ export const useGame = () => {
     // --- 正文后暂停后续步骤（省额度模式）---
     // 玩家确认正文质量后再手动点「继续执行后续步骤」，避免不满意重ROLL 时连锁消耗变量/世界/规划/地图的额度。
     const [待继续后续步骤, set待继续后续步骤] = useState<{ 阶段摘要: string[]; 回合标识: number; 注册时间: number } | null>(null);
-    const 待继续后续步骤执行Ref = useRef<null | (() => Promise<void>)>(null);
+    const 待继续后续步骤执行Ref = useRef<{ 执行: () => Promise<void>; 放弃?: () => void } | null>(null);
     // 暂停续跑要读「玩家点击继续那一刻」的最新状态，而不是发送回合时的闭包快照。
     // 每次渲染同步一次引用（不深拷贝），续跑时再拷贝，避免暂停期间的改动被旧快照覆盖。
     const 最新回合基线Ref = useRef<null | {
@@ -3960,12 +3962,14 @@ export const useGame = () => {
     };
 
     const 放弃待继续后续步骤 = () => {
+        待继续后续步骤执行Ref.current?.放弃?.();
         待继续后续步骤执行Ref.current = null;
         set待继续后续步骤(null);
     };
 
-    const 注册待继续后续步骤 = (payload: { 阶段摘要: string[]; 回合标识?: number; 执行: () => Promise<void> }) => {
-        待继续后续步骤执行Ref.current = payload.执行;
+    const 注册待继续后续步骤 = (payload: { 阶段摘要: string[]; 回合标识?: number; 执行: () => Promise<void>; 放弃?: () => void }) => {
+        待继续后续步骤执行Ref.current?.放弃?.();
+        待继续后续步骤执行Ref.current = payload;
         set待继续后续步骤({
             阶段摘要: Array.isArray(payload.阶段摘要) ? [...payload.阶段摘要] : [],
             回合标识: Number(payload.回合标识) || 0,
@@ -3974,8 +3978,8 @@ export const useGame = () => {
     };
 
     const 继续执行后续步骤 = async () => {
-        const 执行 = 待继续后续步骤执行Ref.current;
-        if (!执行) {
+        const pending = 待继续后续步骤执行Ref.current;
+        if (!pending) {
             set待继续后续步骤(null);
             return;
         }
@@ -3994,6 +3998,7 @@ export const useGame = () => {
         // 只要注册时的回合标识对不上（包括历史被清空导致当前标识为 0），就丢弃续跑：
         // 旧闭包里的状态快照已经和新局面对不上，执行只会把上一局的命令叠到当前状态上。
         if (!注册回合标识 || 注册回合标识 !== 当前回合标识) {
+            pending.放弃?.();
             推送右下角提示({
                 title: '后续步骤已取消',
                 message: '上一回合已被回档或读档，本次未执行的后续步骤已失效。',
@@ -4001,7 +4006,7 @@ export const useGame = () => {
             });
             return;
         }
-        await 执行();
+        await pending.执行();
     };
 
     // --- Core Send Logic ---
@@ -4022,7 +4027,9 @@ export const useGame = () => {
         if (variableGenerationAbortControllerRef.current) {
             variableGenerationAbortControllerRef.current.abort();
         }
+        const generation = 会话代次Ref.current;
         const promptPool = (Array.isArray(prompts) && prompts.length > 0) ? prompts : await ensurePromptsLoaded();
+        if (generation !== 会话代次Ref.current) return { cancelled: true };
         return 执行主剧情发送工作流(
             content,
             isStreaming,
@@ -4102,6 +4109,9 @@ export const useGame = () => {
                 设置剧情规划,
                 设置女主剧情规划,
                 设置任务列表,
+                设置战斗,
+                设置玩家门派,
+                设置约定列表,
                 设置导演圣经,
                 设置上一回合导演圣经,
                 setWorldEvents,
@@ -4394,6 +4404,7 @@ export const useGame = () => {
         世界书列表,
         loading,
         最近开局配置,
+        worldEvents,
         abortControllerRef,
         放弃待继续后续步骤,
         ensurePromptsLoaded,

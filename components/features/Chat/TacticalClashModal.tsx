@@ -14,6 +14,7 @@ import {
     type TacticalMoveId
 } from '../../../engine/plugins/clashPlugin';
 import type { NPC结构, 场外战果暂存结构, 战斗状态结构, 角色数据结构 } from '../../../types';
+import { 判断角色对话位置, 角色对话确认键 } from '../../../utils/roleChatLocation';
 
 interface Props {
     open: boolean;
@@ -56,6 +57,8 @@ const RosterLine = ({ label, fighters }: { label: string; fighters: ClashFighter
 const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
     loading,
     role,
+    env,
+    social,
     roster,
     pendingClashes,
     onCommitClash,
@@ -66,6 +69,7 @@ const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
     const [mode, setMode] = useState<TeamClashSession['mode']>('生死交锋');
     const [sparringKey, setSparringKey] = useState('');
     const [useSignature, setUseSignature] = useState(false);
+    const [confirmedLocationKey, setConfirmedLocationKey] = useState('');
     const [encounter, setEncounter] = useState(() => ({ roster, session: 创建阵营交锋会话(roster, '生死交锋') }));
     const [committedMsg, setCommittedMsg] = useState('');
     const committed = useRef(false);
@@ -78,6 +82,11 @@ const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
     const enemies = session?.enemies ?? [];
     const playerProfile = (allies.find(可继续交锋) || allies[0]).profile;
     const enemyProfile = enemies.find((fighter) => fighter.key === session?.targetKey)?.profile;
+    const targetNpc = social.find((npc) => npc && 'npc:' + (npc.id || npc.姓名) === session?.targetKey);
+    const location = targetNpc ? 判断角色对话位置(targetNpc, env) : undefined;
+    const confirmKey = targetNpc ? 角色对话确认键(targetNpc, env) : '';
+    const locationConfirmed = !location || (location.可选 && (!location.需要确认 || confirmedLocationKey === confirmKey));
+    const validRecords = pendingClashes.filter((entry) => typeof entry?.战果摘要 === 'string' && entry.战果摘要.trim());
 
     const restartSession = (nextMode: TeamClashSession['mode'], key = '') => {
         setMode(nextMode);
@@ -89,13 +98,13 @@ const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
     };
 
     const handleMove = (moveId: TacticalMoveId) => {
-        if (!session || !enemyProfile || session.finished || loading) return;
+        if (!session || !enemyProfile || !locationConfirmed || session.finished || loading) return;
         setSession(推演阵营交锋一拍(session, moveId, useSignature));
         setUseSignature(false);
     };
 
     const handleCommitOutcome = () => {
-        if (!session || !session.finished || committed.current || loading) return;
+        if (!session || !session.finished || !locationConfirmed || committed.current || loading) return;
         const settled = 结算战术交锋结果({ session, role });
         committed.current = true;
         onCommitClash(settled);
@@ -167,6 +176,12 @@ const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
                         </div>
                     ) : (
                         <>
+                            {!locationConfirmed && location?.可选 && targetNpc && (
+                                <button type="button" onClick={() => setConfirmedLocationKey(confirmKey)}
+                                    className="rounded-lg border border-current px-3 py-2 text-sm text-wuxia-gold">
+                                    确认{targetNpc.姓名}在交手距离内
+                                </button>
+                            )}
                             {/* Transparent Breakdown */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div className="rounded-xl border border-wuxia-gold/30 bg-black/40 p-3 space-y-2">
@@ -251,7 +266,7 @@ const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
 
                                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                                             {MOVE_BUTTONS.map((btn) => {
-                                                const disabled = (btn.id === 'press' && session.playerStamina < (useSignature ? 2 : 1)) || loading;
+                                                const disabled = !locationConfirmed || (btn.id === 'press' && session.playerStamina < (useSignature ? 2 : 1)) || loading;
                                                 return (
                                                     <button
                                                         key={btn.id}
@@ -282,11 +297,11 @@ const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
                                             </button>
                                             <button
                                                 type="button"
-                                                disabled={Boolean(committedMsg) || loading}
+                                                disabled={!locationConfirmed || Boolean(committedMsg) || loading}
                                                 onClick={handleCommitOutcome}
                                                 className="px-3 py-1 rounded border border-wuxia-gold bg-wuxia-gold/20 text-xs font-bold text-wuxia-gold hover:bg-wuxia-gold hover:text-ink-black disabled:opacity-45"
                                             >
-                                                {committedMsg ? '已落账并暂存' : '结算体力并写入主剧情'}
+                                                {committedMsg ? '已落账并暂存' : loading ? '等待当前回合结算' : '结算体力并写入主剧情'}
                                             </button>
                                         </div>
                                     </div>
@@ -313,13 +328,13 @@ const ClashPanel: React.FC<Props & { roster: ClashRoster }> = ({
                         </>
                     )}
 
-                    {pendingClashes.length > 0 && (
+                    {validRecords.length > 0 && (
                         <div className="rounded-xl border border-gray-800 bg-black/35 p-3 space-y-1.5">
                             <div className="flex items-center justify-between text-xs text-gray-400">
-                                <span>已暂存待写入下一回合主剧情的交锋战果（{pendingClashes.length} 条）：</span>
+                                <span>已暂存待写入下一回合主剧情的交锋战果（{validRecords.length} 条）：</span>
                                 <button type="button" onClick={onClearClashes} className="text-[11px] text-red-300 hover:underline">清空待注入战果</button>
                             </div>
-                            {pendingClashes.map((c) => (
+                            {validRecords.map((c) => (
                                 <div key={c.id} className="text-xs text-cyan-200/90 border-l-2 border-cyan-500/50 pl-2">{c.战果摘要}</div>
                             ))}
                         </div>

@@ -45,6 +45,8 @@ describe('生成流程图一键套用主剧情模型', () => {
         expect(settings.功能模型占位.变量计算独立模型开关).toBe(true);
         expect(settings.功能模型占位.地图生成功能启用).toBe(true);
         expect(获取变量计算接口配置(settings)?.model).toBe('story-only-model');
+        settings.功能模型占位.变量计算渠道ID = ' main-channel ';
+        expect(获取变量计算接口配置(settings)?.model).toBe('story-only-model');
         expect(获取地图自动更新接口配置(settings)?.model).toBe('story-only-model');
         expect(获取变量计算接口配置(构造设置({ 变量计算独立模型开关: false }))).toBeNull();
     });

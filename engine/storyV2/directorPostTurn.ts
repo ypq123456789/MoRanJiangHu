@@ -146,7 +146,7 @@ const 构建导演后处理提示词 = (params: {
         '  "动态重规划": {',
         '    "需要重规划": false,',
         '    "重规划原因": "",',
-        '    "推进到幕次": 1,',
+        '    "推进到幕次": null,',
         '    "修订当前幕核心矛盾": "仅当玩家破局重塑主轴时填写（须保持玩家视角可读，严禁写入未回收伏笔底层真相）",',
         '    "修订当前幕破局路径": "",',
         '    "因果偏移摘要": "一句话总结本回合对全局走势的推力或偏转"',
@@ -173,6 +173,7 @@ export const 执行导演后处理V2 = async (params: {
     playerInput: string;
     openingConfig?: OpeningConfig;
     signal?: AbortSignal;
+    stream?: boolean;
     onDelta?: (delta: string, accumulated: string) => void;
 }): Promise<DirectorPostTurnResult> => {
     const t0 = Date.now();
@@ -201,7 +202,7 @@ export const 执行导演后处理V2 = async (params: {
     const rawText = await 请求模型文本(apiConfig, messages, {
         temperature: 0.35,
         signal,
-        streamOptions: { stream: true, onDelta: (delta, acc) => onDelta?.(delta, acc) }
+        streamOptions: { stream: params.stream !== false, onDelta }
     });
 
     const safeRawText = typeof rawText === 'string'
@@ -264,8 +265,8 @@ export const 执行导演后处理V2 = async (params: {
         if (rawItem && typeof rawItem === 'object') {
             const name = typeof (rawItem as any).名称 === 'string' ? (rawItem as any).名称.trim() : '';
             if (!name) return null;
-            const rawCount = Number((rawItem as any).数量);
-            const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.floor(rawCount) : 1;
+            const count = Math.floor(Number((rawItem as any).数量 ?? 1));
+            if (!Number.isSafeInteger(count) || count < 1) return null;
             const type = typeof (rawItem as any).类型 === 'string' ? (rawItem as any).类型.trim() : undefined;
             const desc = typeof (rawItem as any).描述 === 'string' ? (rawItem as any).描述.trim() : undefined;
             return { name, count, type, desc };
@@ -334,7 +335,7 @@ export const 执行导演后处理V2 = async (params: {
                 if (updPos) {
                     cur.当前位置 = updPos;
                     cur.当前地点 = updPos;
-                    cur.位置路径 = [nextEnv.大地点, nextEnv.中地点, nextEnv.小地点, updPos].filter(Boolean).join(' > ');
+                    cur.位置路径 = cur.是否在场 === true && updPos === nextEnv.具体地点 ? fullLocationPath : updPos;
                 } else if (cur.是否在场 === true && specificPlaceMoved && nextEnv.具体地点) {
                     cur.当前位置 = nextEnv.具体地点;
                     cur.当前地点 = nextEnv.具体地点;
@@ -359,7 +360,7 @@ export const 执行导演后处理V2 = async (params: {
                     ...(initPos ? {
                         当前位置: initPos,
                         当前地点: initPos,
-                        位置路径: [nextEnv.大地点, nextEnv.中地点, nextEnv.小地点, initPos].filter(Boolean).join(' > ')
+                        位置路径: upd.是否在场 !== false && initPos === nextEnv.具体地点 ? fullLocationPath : initPos
                     } : {}),
                     核心性格特征: upd.核心性格特征 || '深浅莫测',
                     简介: upd.核心性格特征 || upd.身份 || '',
@@ -423,7 +424,7 @@ export const 执行导演后处理V2 = async (params: {
                 fsItem.回收回合 = state.turnIndex;
                 if (desc) fsItem.回收落点描述 = desc;
                 paidOffForeshadows.push(`${fsItem.id}:${fsItem.表面载体}`);
-            } else if (nextStatus === '已改线') {
+            } else if (nextStatus === '已改线' && fsItem.状态 !== '已回收') {
                 fsItem.状态 = '已改线';
                 if (desc) fsItem.触发或回收条件 = desc;
             }
@@ -432,7 +433,10 @@ export const 执行导演后处理V2 = async (params: {
     if (Array.isArray(parsed.新增伏笔)) {
         for (const nf of parsed.新增伏笔.slice(0, 1)) {
             if (typeof nf?.表面载体 === 'string' && nf.表面载体.trim() && typeof nf?.底层真相 === 'string' && nf.底层真相.trim()) {
-                const newId = `FS-${String(nextBible.伏笔台账.length + 1).padStart(3, '0')}`;
+                const existingIds = new Set(nextBible.伏笔台账.map(entry => entry.id));
+                let seq = nextBible.伏笔台账.length + 1;
+                while (existingIds.has(`FS-${String(seq).padStart(3, '0')}`)) seq++;
+                const newId = `FS-${String(seq).padStart(3, '0')}`;
                 nextBible.伏笔台账.push({
                     id: newId,
                     类型: nf.类型 || '物件',
@@ -501,7 +505,7 @@ export const 执行导演后处理V2 = async (params: {
     const replanned = replanPatch.需要重规划 === true;
     const replanReason = typeof replanPatch.重规划原因 === 'string' ? replanPatch.重规划原因.trim() : '';
     const nextActNum = Number(replanPatch.推进到幕次);
-    const targetAct = Number.isInteger(nextActNum) && nextActNum >= 1 && nextActNum !== nextBible.当前幕次
+    const targetAct = Number.isInteger(nextActNum) && nextActNum > nextBible.当前幕次
         ? nextBible.宏观分幕大纲.find((a) => a.幕次 === nextActNum)
         : undefined;
     if (targetAct) {

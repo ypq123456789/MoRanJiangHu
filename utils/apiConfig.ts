@@ -2451,10 +2451,10 @@ export const 获取变量计算接口配置 = (settings: 接口设置结构, opt
     if (options?.manualReview) return 获取手动变量审查接口配置(settings);
     const feature = (settings as any)?.功能模型占位;
     if (!变量校准功能已启用(settings)) return null;
-    const followMainChannel = !读取字符串(feature?.变量计算渠道ID).trim()
-        || feature.变量计算渠道ID === settings.activeConfigId;
+    const channelId = 读取字符串(feature?.变量计算渠道ID).trim();
+    const followMainChannel = !channelId || channelId === 读取字符串(settings.activeConfigId).trim();
     return 构建独立文本接口配置(settings, {
-        渠道ID: feature?.变量计算渠道ID,
+        渠道ID: channelId,
         使用模型: 读取字符串(feature?.变量计算使用模型).trim() || (followMainChannel ? 获取主剧情接口配置(settings)?.model : ''),
         API地址: feature?.变量计算API地址,
         API密钥: feature?.变量计算API密钥

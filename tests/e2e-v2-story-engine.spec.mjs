@@ -561,6 +561,11 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         await page.getByRole('combobox', { name: '切磋对象' }).selectOption({ label: '顾霜晚' });
         await expect(page.getByLabel('切磋方阵容')).toContainText('顾霜晚');
         await expect(page.getByText('战前明牌诊断与变强指引：', { exact: false }).first()).toBeVisible({ timeout: 5000 });
+        const confirmClashRange = page.getByRole('button', { name: /确认.*在交手距离内/ });
+        if (await confirmClashRange.isVisible()) {
+            await expect(page.getByRole('button', { name: /强攻压招/ }).first()).toBeDisabled();
+            await confirmClashRange.click();
+        }
         await page.getByRole('button', { name: /强攻压招/ }).first().click();
         await expect(page.getByText('出招拆解实录', { exact: false }).first()).toBeVisible({ timeout: 5000 });
         await page.getByRole('dialog', { name: '战术交锋' }).getByRole('button', { name: '关闭', exact: true }).click();

@@ -28,6 +28,7 @@ export type 回合快照结构 = {
     玩家输入: string;
     游戏时间: string;
     关联自动存档ID?: number;
+    剧情回合序号?: number;
     自动存档完成?: Promise<number | null>;
     回档前状态: {
         角色: 角色数据结构;

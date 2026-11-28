@@ -41,7 +41,6 @@ import { 修复旧姓名库误改NPC姓名列表 } from '../../utils/npcNameRepa
 import { 修复开局伙伴社交列表, 恢复开局伙伴队伍身份 } from '../../utils/openingCompanion';
 import { 同步角色与门派状态 } from './storyState';
 import { 规范化场外对话列表 } from './roleChatWorkflow';
-import { 迁移旧版拍卖行寄售资产 } from '../../utils/legacyAuctionMigration';
 
 const 收集图床图片地址 = (
     value: unknown,
@@ -614,7 +613,7 @@ const 构建读档后重Roll快照 = (
                 ? 规范化导演圣经(deps.深拷贝((save as any).上一回合导演圣经))
                 : (loaded.directorBible ? deps.深拷贝(loaded.directorBible) : undefined),
             记忆系统: deps.深拷贝(deps.规范化记忆系统(loaded.memory)),
-            叙事平静值: deps.深拷贝(loaded.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }),
+            叙事平静值: deps.深拷贝(save.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }),
             场外对话: Array.isArray((save as any).场外对话) ? deps.深拷贝((save as any).场外对话) : [],
             场外交易暂存: Array.isArray((save as any).场外交易暂存) ? deps.深拷贝((save as any).场外交易暂存) : [],
             场外战果暂存: Array.isArray((save as any).场外战果暂存) ? deps.深拷贝((save as any).场外战果暂存) : [],
@@ -829,10 +828,22 @@ export const 执行自动存档 = async (
     return task;
 };
 
+// 各次渲染会重建协调依赖，自动存档 ref 在同一局游戏中保持不变。
+const 当前读档请求 = new WeakMap<object, symbol>();
+
 export const 执行读取存档 = async (
     save: 存档结构,
     deps: 存档协调依赖
-): Promise<void> => {
+): Promise<boolean> => {
+    const request = Symbol();
+    const owner = deps.最近自动存档时间戳Ref;
+    当前读档请求.set(owner, request);
+    const migration = await dbService.写回旧版寄售迁移(save, (old) => deps.规范化角色物品容器映射(old.角色数据, {
+        当前时间: deps.规范化环境信息(old.环境信息),
+        启用饱腹口渴系统: old.游戏设置?.启用饱腹口渴系统
+    }));
+    if (当前读档请求.get(owner) !== request) return false;
+    if (migration) save = migration.save;
     const startAt = Date.now();
     const trace = (stage: string, payload: Record<string, unknown> = {}) => {
         recordSaveLoadTrace(`coordinator.${stage}`, {
@@ -903,14 +914,11 @@ export const 执行读取存档 = async (
         socialCount: Array.isArray(save.社交) ? save.社交.length : 0,
         socialStats: collectValueStats(save.社交, 16000)
     });
-    let loadedSocial = shouldTrustPersistedHeavyFields
-        ? (Array.isArray(save.社交) ? save.社交 : [])
-        : deps.规范化社交列表(save.社交 || [], { 合并同名: false });
-    const nameRepairResult = 修复旧姓名库误改NPC姓名列表(loadedSocial);
-    if (nameRepairResult.已修复数量 > 0) {
-        loadedSocial = nameRepairResult.列表;
-    }
-    loadedSocial = 恢复开局伙伴队伍身份(loadedSocial, save.openingConfig, loadedRole.姓名);
+    const nameRepairResult = 修复旧姓名库误改NPC姓名列表(Array.isArray(save.社交) ? save.社交 : []);
+    const socialWithMembership = 恢复开局伙伴队伍身份(nameRepairResult.列表, save.openingConfig, loadedRole.姓名);
+    const loadedSocial = shouldTrustPersistedHeavyFields
+        ? socialWithMembership
+        : deps.规范化社交列表(socialWithMembership, { 合并同名: false });
     trace('social.prepare.done', {
         trusted: shouldTrustPersistedHeavyFields,
         socialCount: loadedSocial.length,
@@ -945,20 +953,6 @@ export const 执行读取存档 = async (
         玩家门派: loadedSect
     });
     loadedRole = syncedSectState.角色;
-    const legacyAuctionMigration = 迁移旧版拍卖行寄售资产({
-        save: save as any,
-        role: loadedRole,
-        openingConfig: deps.规范化可选开局配置((save as any).openingConfig),
-        gameConfig: saveGameConfig
-    });
-    if (legacyAuctionMigration.mutated) {
-        loadedRole = legacyAuctionMigration.nextRole;
-        deps.推送通知?.({
-            title: '旧版拍卖行寄售已退回',
-            message: legacyAuctionMigration.notes.join('；'),
-            tone: 'success'
-        });
-    }
     loadedSect = deps.规范化门派状态(syncedSectState.玩家门派);
     const loadedTasks = 规范化任务列表自动结算(save.任务列表 || []);
     const loadedAgreements = Array.isArray(save.约定列表) ? save.约定列表 : [];
@@ -1021,6 +1015,7 @@ export const 执行读取存档 = async (
         if (nextPromptPool.length > 0) {
             deps.设置提示词池(nextPromptPool);
             await dbService.保存设置(设置键.提示词池, nextPromptPool);
+            if (当前读档请求.get(owner) !== request) return false;
         }
         trace('promptSnapshot.done');
     }
@@ -1171,5 +1166,7 @@ export const 执行读取存档 = async (
     trace('view.set.done');
     trace('imageCache.schedule.start');
     后台缓存当前存档图床图片(save);
+    if (migration?.notes.length) deps.推送通知?.({ title: '旧版拍卖行寄售已结算', message: migration.notes.join('；'), tone: 'success' });
     trace('done');
+    return true;
 };

@@ -632,6 +632,7 @@ export const 执行世界生成工作流 = async (
                     const extraPromptParts = [
                         fandomPromptBundle.世界观创建补丁,
                         modeNarrativeWorldConstraint,
+                        enabledDifficultyPrompts,
                         启用修炼体系 && realmPromptContent
                             ? `【当前境界体系参考】\n${realmPromptContent.slice(0, 1200)}`
                             : '',
@@ -646,7 +647,8 @@ export const 执行世界生成工作流 = async (
                             dynastySetting: worldConfig.dynastySetting,
                             sectDensity: worldConfig.sectDensity,
                             tianjiaoSetting: worldConfig.tianjiaoSetting,
-                            difficulty: worldConfig.difficulty,
+                            difficulty,
+                            factionCount: worldConfig.factionCount,
                             worldExtraRequirement: normalizedWorldExtraRequirement
                         },
                         charData,

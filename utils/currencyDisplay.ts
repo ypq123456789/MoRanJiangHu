@@ -907,12 +907,19 @@ export const 变更角色货币BaseAmount = (
     const mode: 货币显示模式 = options?.仙侠模式 === true
         ? 'xianxia'
         : (options?.货币模式 || (character?.灵根 ? 'xianxia' : 'wuxia'));
-    const curTotal = 计算角色货币底层总值(character?.金钱, options?.runtimeProfile, mode);
-    const delta = Math.trunc(Number(deltaBaseAmount) || 0);
+    const curTotal = 获取角色金钱BaseAmount(character?.金钱, options?.runtimeProfile, mode);
+    const delta = Math.trunc(Number(deltaBaseAmount));
+    if (!Number.isSafeInteger(delta) || delta === 0 || !Number.isSafeInteger(curTotal + delta)) return character;
     const nextTotal = Math.max(0, curTotal + delta);
+    const money = { ...character.金钱, ...底层总值转角色金钱(nextTotal, options?.runtimeProfile, mode) };
+    for (const tier of 货币层级顺序) {
+        for (const alias of 题材货币字段别名[tier]) {
+            if (Object.hasOwn(character.金钱 || {}, alias)) money[alias] = money[tier];
+        }
+    }
     return {
         ...character,
-        金钱: 底层总值转角色金钱(nextTotal, options?.runtimeProfile, mode)
+        金钱: money
     };
 };
 

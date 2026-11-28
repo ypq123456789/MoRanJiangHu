@@ -267,10 +267,11 @@ export const 创建存读档工作流 = (deps: 存档编排工作流依赖) => {
             id: save?.id,
             elapsedMs: Date.now() - startAt
         });
-        await 执行读取存档(
+        const applied = await 执行读取存档(
             save,
             构建协调依赖()
         );
+        if (!applied) return;
         recordSaveLoadTrace('workflow.loadGame.afterCoordinator', {
             id: save?.id,
             elapsedMs: Date.now() - startAt

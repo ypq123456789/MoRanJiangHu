@@ -1,6 +1,7 @@
-import type { OpeningConfig, 存档结构, 游戏设置结构, 角色数据结构 } from '../types';
-import { 变更角色货币BaseAmount, 获取货币显示模式, type 货币显示模式 } from './currencyDisplay';
+import type { OpeningConfig, 存档结构, 角色数据结构 } from '../types';
+import { 变更角色货币BaseAmount, 获取货币显示模式 } from './currencyDisplay';
 import { 同步角色储物负重上限 } from './storageCarry';
+import { 获取交易币制, 读取交易钱袋, 写入交易钱袋, 同步玩家实体货币 } from '../engine/plugins/tradeCurrency';
 
 const LEGACY_AUCTION_STORAGE_PREFIX = 'moranjianghu_auction_house_v2';
 
@@ -12,6 +13,7 @@ type LegacyAuctionEntry = {
     卖家名称?: string;
     卖家ID?: string;
     一口价?: number;
+    上架时间?: number;
     起拍价?: number;
     当前价格?: number;
     标价货币?: string;
@@ -19,14 +21,6 @@ type LegacyAuctionEntry = {
     来源描述?: string;
     未入账金额BaseAmount?: number;
 };
-
-export interface LegacyAuctionMigrationResult {
-    nextRole: 角色数据结构;
-    restoredItemCount: number;
-    creditedBaseAmount: number;
-    mutated: boolean;
-    notes: string[];
-}
 
 export const 构建兼容拍卖行存储作用域 = (source?: {
     游戏初始时间?: unknown;
@@ -59,172 +53,190 @@ export const 获取旧版拍卖行存储键 = (source?: {
     历史记录?: unknown;
 }): string => `${LEGACY_AUCTION_STORAGE_PREFIX}:${规范化兼容存储作用域(构建兼容拍卖行存储作用域(source))}`;
 
-const 合并退回物品到角色背包 = (role: 角色数据结构, itemLike: Record<string, any>): 角色数据结构 => {
-    const nextRole = JSON.parse(JSON.stringify(role)) as 角色数据结构;
-    const list = Array.isArray(nextRole.物品列表) ? [...nextRole.物品列表] : [];
-    const incomingQty = Math.max(1, Math.floor(Number(itemLike?.堆叠数量 ?? itemLike?.数量 ?? 1) || 1));
-    const itemName = typeof itemLike?.名称 === 'string' ? itemLike.名称.trim() : '';
-    const itemId = typeof itemLike?.ID === 'string' ? itemLike.ID.trim() : '';
-    const stackable = itemLike?.可堆叠 === true || itemLike?.堆叠数量 !== undefined;
+const 列表字段 = ['玩家寄售列表', '拍卖品列表'] as const;
+type Auction = Partial<Record<typeof 列表字段[number], LegacyAuctionEntry[]>> & Record<string, unknown>;
+type Save = Partial<存档结构>;
+type 领取结果 = '已下架' | '已成交';
+export type 寄售领取凭据 = Record<string, 领取结果>;
 
-    const existingIdx = list.findIndex((item: any) => {
-        if (itemId && item?.ID === itemId) return true;
-        return Boolean(itemName) && item?.名称 === itemName && stackable && !item?.已装备;
-    });
-
-    if (existingIdx >= 0 && stackable) {
-        const currentQty = Math.max(1, Math.floor(Number((list[existingIdx] as any).堆叠数量 ?? 1) || 1));
-        list[existingIdx] = {
-            ...list[existingIdx],
-            堆叠数量: currentQty + incomingQty
-        };
+const 背包数量 = (item: Record<string, any>) => Math.max(1, Math.floor(Number(item.堆叠数量 ?? item.数量) || 1));
+const 可叠加 = (item: Record<string, any>) => (item.是否可堆叠 ?? item.可堆叠 ?? (item.堆叠数量 !== undefined)) === true;
+const 复制旧档对象 = <T,>(value: T): T => typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+const 取寄售物品 = (role: 角色数据结构, item: Record<string, any>) => {
+    const items = role.物品列表 || [];
+    const equipped = Object.values(role.装备 || {});
+    const existing = item.ID && 可叠加(item) && items.find((entry) => entry.ID === item.ID
+        && !entry.当前装备部位 && !(entry as any).已装备 && !equipped.includes(entry.ID) && !equipped.includes(entry.名称) && 可叠加(entry));
+    const quantity = 背包数量(item);
+    if (existing) {
+        existing.堆叠数量 = 背包数量(existing) + quantity;
+        (existing as Record<string, any>).数量 = existing.堆叠数量;
+        (existing as Record<string, any>).旧寄售原物ID = existing.ID;
     } else {
-        const cloned = JSON.parse(JSON.stringify(itemLike));
-        delete cloned.已装备;
-        delete cloned.当前装备部位;
-        if (!cloned.ID) cloned.ID = `legacy_refund_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        cloned.堆叠数量 = incomingQty;
-        list.push(cloned as any);
+        const restored = 复制旧档对象(item);
+        delete restored.已装备;
+        delete restored.当前装备部位;
+        if (!restored.ID || items.some(entry => entry.ID === restored.ID)) {
+            restored.ID = `legacy_refund_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        }
+        restored.旧寄售原物ID = restored.ID;
+        restored.数量 = restored.堆叠数量 = quantity;
+        items.push(restored as any);
     }
-
-    nextRole.物品列表 = list;
-    return 同步角色储物负重上限(nextRole) as 角色数据结构;
+    role.物品列表 = items;
+    return quantity;
 };
 
-const 是否玩家寄售条目 = (entry: LegacyAuctionEntry, playerName: string): boolean => {
-    if (!entry || typeof entry !== 'object') return false;
-    const sourceText = String(entry.来源描述 || '');
-    const sellerId = String(entry.卖家ID || '').trim();
-    const sellerName = String(entry.卖家名称 || '').trim();
-    return sourceText.includes('玩家寄售')
-        || sellerId === 'player'
-        || (Boolean(playerName) && (sellerId === playerName || sellerName === playerName));
+const 是玩家寄售 = (entry: LegacyAuctionEntry, player: string) => Boolean(entry && (
+    String(entry.来源描述 || '').includes('玩家寄售') || entry.卖家ID === 'player'
+    || (player && (entry.卖家ID === player || entry.卖家名称 === player))
+));
+const 待结算 = (entry: LegacyAuctionEntry) => (entry.状态 === '上架中' && Boolean(entry.物品 && typeof entry.物品 === 'object'))
+    || (entry.状态 === '已成交' && Number(entry.未入账金额BaseAmount) > 0);
+
+const 稳定序列 = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(稳定序列);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, v]) => [key, 稳定序列(v)]));
 };
 
-const 迁移单组寄售条目 = (
-    entries: LegacyAuctionEntry[],
-    role: 角色数据结构,
-    playerName: string,
-    currencyOptions?: { runtimeProfile?: OpeningConfig['modeRuntimeProfile']; 货币模式?: 货币显示模式 }
-): {
-    nextEntries: LegacyAuctionEntry[];
-    nextRole: 角色数据结构;
-    restoredItemCount: number;
-    creditedBaseAmount: number;
-    notes: string[];
-    changed: boolean;
-} => {
+// 无寄售 ID 的早期备份按上架时的属性和同表出现次数配对，状态与成交金额会随交易进展变化。
+const 索引寄售条目 = (entries: LegacyAuctionEntry[], player: string) => {
+    const counts = new Map<string, number>();
+    return entries.map(entry => {
+        if (!是玩家寄售(entry, player)) return { entry, key: '' };
+        if (entry.ID != null && String(entry.ID).trim()) return { entry, key: 'id:' + String(entry.ID).trim() };
+        const signature = JSON.stringify(稳定序列([entry.物品, entry.上架时间, entry.起拍价, entry.一口价, entry.标价货币]));
+        const occurrence = (counts.get(signature) || 0) + 1;
+        counts.set(signature, occurrence);
+        return { entry, key: `legacy:${signature}:${occurrence}` };
+    });
+};
+
+const 读取旧拍卖行 = (storage: StorageLike | null | undefined, key: string): Auction | undefined => {
+    try {
+        const raw = (storage === undefined ? globalThis.localStorage : storage)?.getItem(key);
+        return raw ? JSON.parse(raw) : undefined;
+    } catch { return undefined; }
+};
+
+export const 检查旧版寄售 = (save: Save, storage?: StorageLike | null) => {
+    const local = 读取旧拍卖行(storage, 获取旧版拍卖行存储键(save));
+    const player = save.角色数据?.姓名 || '';
+    const hasEntry = (auction: Auction | undefined, test: (entry: LegacyAuctionEntry) => boolean) => 列表字段.some(field =>
+        Array.isArray(auction?.[field]) && auction[field]!.some(entry => 是玩家寄售(entry, player) && test(entry)));
+    if (hasEntry(save.拍卖行, 待结算) || hasEntry(local, 待结算)) return '待领取';
+    // 从旧云档重新进入时，查回本地已领取的同一存档；全新进度无须创建迁移副本。
+    if (!save.元数据?.旧寄售迁移原档哈希 && hasEntry(local, entry => String(entry.来源描述 || '').includes('2.0读档迁移'))) return '核对旧档';
+    return null;
+};
+
+const 核销条目 = (entry: LegacyAuctionEntry, status?: 领取结果): LegacyAuctionEntry => {
+    if (!status || !待结算(entry)) return entry;
+    return status === '已成交'
+        ? { ...entry, 状态: status, 未入账金额BaseAmount: 0, 来源描述: '玩家寄售（2.0读档迁移已处理）' }
+        : { ...entry, 状态: status, 来源描述: '玩家寄售（2.0读档迁移已处理）' };
+};
+
+export const 迁移旧版拍卖行寄售资产 = (params: {
+    save: Save; role: 角色数据结构; openingConfig?: OpeningConfig; storage?: StorageLike | null; receipts?: 寄售领取凭据;
+}) => {
+    const { save, role } = params;
+    const local = 读取旧拍卖行(params.storage, 获取旧版拍卖行存储键(save));
+    const nextAuction: Auction | undefined = save.拍卖行 && { ...save.拍卖行 };
+    const groups = new Map<string, LegacyAuctionEntry[]>();
+    const localKeys = new Set<string>();
+    for (const auction of [nextAuction, local]) {
+        for (const field of 列表字段) {
+            if (!Array.isArray(auction?.[field])) continue;
+            for (const { entry, key } of 索引寄售条目(auction[field]!, role.姓名)) {
+                if (!key) continue;
+                const group = groups.get(key) || [];
+                group.push(entry);
+                groups.set(key, group);
+                if (auction === local) localKeys.add(key);
+            }
+        }
+    }
     let nextRole = role;
     let restoredItemCount = 0;
     let creditedBaseAmount = 0;
     const notes: string[] = [];
-    let changed = false;
+    const claims: 寄售领取凭据 = {};
+    const localClaims: 寄售领取凭据 = {};
+    const config = params.openingConfig ?? save.openingConfig;
+    const currency = config && { runtimeProfile: config.modeRuntimeProfile, 货币模式: 获取货币显示模式(config, role) };
+    const tradeCurrency = 获取交易币制(config, role);
 
-    const nextEntries = entries.map((entry) => {
-        if (!是否玩家寄售条目(entry, playerName)) return entry;
-        if (entry.状态 === '上架中' && entry.物品 && typeof entry.物品 === 'object') {
-            nextRole = 合并退回物品到角色背包(nextRole, entry.物品);
-            const qty = Math.max(1, Math.floor(Number(entry.物品?.堆叠数量 ?? entry.物品?.数量 ?? 1) || 1));
-            restoredItemCount += qty;
-            notes.push(`已将旧版拍卖行待售寄售品「${String(entry.物品?.名称 || '未命名物品')}」x${qty} 退回背包`);
-            changed = true;
-            return {
-                ...entry,
-                状态: '已下架',
-                来源描述: '玩家寄售（2.0读档迁移已退回背包）'
-            };
-        }
-        const unclaimedBase = Math.max(0, Math.floor(Number(entry.未入账金额BaseAmount || 0) || 0));
-        if (entry.状态 === '已成交' && unclaimedBase > 0) {
-            nextRole = 变更角色货币BaseAmount(nextRole, unclaimedBase, currencyOptions);
-            creditedBaseAmount += unclaimedBase;
-            notes.push(`已结算旧版寄售未领款项（底层值 ${unclaimedBase}）`);
-            changed = true;
-            return {
-                ...entry,
-                未入账金额BaseAmount: 0
-            };
-        }
-        return entry;
-    });
-
-    return { nextEntries, nextRole, restoredItemCount, creditedBaseAmount, notes, changed };
-};
-
-export const 迁移旧版拍卖行寄售资产 = (params: {
-    save: Partial<存档结构> & Record<string, any>;
-    role: 角色数据结构;
-    openingConfig?: OpeningConfig;
-    gameConfig?: 游戏设置结构;
-    storage?: StorageLike | null;
-}): LegacyAuctionMigrationResult => {
-    let nextRole = params.role;
-    let restoredItemCount = 0;
-    let creditedBaseAmount = 0;
-    const notes: string[] = [];
-    let mutated = false;
-    const playerName = typeof nextRole?.姓名 === 'string' ? nextRole.姓名.trim() : '';
-    const currencyOptions = params.openingConfig
-        ? {
-            runtimeProfile: params.openingConfig.modeRuntimeProfile,
-            货币模式: 获取货币显示模式(params.openingConfig, nextRole)
-        }
-        : undefined;
-
-    // 1. 检查存档对象上可能残留的旧寄售结构（如早期或自定义存档中的 save.拍卖行）
-    const saveAuction = (params.save as any)?.拍卖行;
-    if (saveAuction && typeof saveAuction === 'object') {
-        for (const listKey of ['玩家寄售列表', '拍卖品列表'] as const) {
-            if (!Array.isArray(saveAuction[listKey])) continue;
-            const res = 迁移单组寄售条目(saveAuction[listKey], nextRole, playerName, currencyOptions);
-            if (res.changed) {
-                saveAuction[listKey] = res.nextEntries;
-                nextRole = res.nextRole;
-                restoredItemCount += res.restoredItemCount;
-                creditedBaseAmount += res.creditedBaseAmount;
-                notes.push(...res.notes);
-                mutated = true;
-            }
-        }
-    }
-
-    // 2. 检查 V1 存储在 localStorage 的作用域拍卖行状态
-    const storage = params.storage === undefined
-        ? (typeof window !== 'undefined' ? window.localStorage : null)
-        : params.storage;
-    if (storage) {
-        try {
-            const storageKey = 获取旧版拍卖行存储键({
-                游戏初始时间: params.save?.游戏初始时间,
-                角色数据: params.save?.角色数据 || nextRole,
-                历史记录: params.save?.历史记录
-            });
-            const raw = storage.getItem(storageKey);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (parsed && Array.isArray(parsed.拍卖品列表)) {
-                    const res = 迁移单组寄售条目(parsed.拍卖品列表, nextRole, playerName, currencyOptions);
-                    if (res.changed) {
-                        parsed.拍卖品列表 = res.nextEntries;
-                        storage.setItem(storageKey, JSON.stringify(parsed));
-                        nextRole = res.nextRole;
-                        restoredItemCount += res.restoredItemCount;
-                        creditedBaseAmount += res.creditedBaseAmount;
-                        notes.push(...res.notes);
-                        mutated = true;
+    for (const [key, copies] of groups) {
+        if (!copies.some(待结算)) continue;
+        let status = params.receipts?.[key];
+        if (!status) {
+            const sold = copies.filter(entry => entry.状态 === '已成交');
+            if (sold.length) {
+                status = '已成交';
+                // 已领款的镜像优先于旧的待领款和待售镜像。
+                const amount = sold.some(entry => entry.未入账金额BaseAmount != null && Number(entry.未入账金额BaseAmount) === 0) ? 0
+                    : Math.max(0, ...sold.map(entry => Number(entry.未入账金额BaseAmount) || 0));
+                if (amount > 0) {
+                    const bag = nextRole.物品列表 || [];
+                    const balance = 读取交易钱袋(nextRole.金钱, bag, tradeCurrency).balance + amount;
+                    if (!Number.isSafeInteger(balance) || !Number.isSafeInteger(amount)) throw new Error('旧寄售款超出角色可记录的金额，已保留待领取款项。');
+                    if (tradeCurrency.cashEnabled) {
+                        const money = 写入交易钱袋(nextRole.金钱, balance, tradeCurrency);
+                        nextRole = { ...nextRole, 金钱: money as 角色数据结构['金钱'], 物品列表: 同步玩家实体货币(bag, nextRole.金钱, money, tradeCurrency) as 角色数据结构['物品列表'] };
+                    } else {
+                        const credited = 变更角色货币BaseAmount(nextRole, amount, currency);
+                        if (credited === nextRole) throw new Error('旧寄售款无法入账，已保留待领取款项。');
+                        nextRole = credited;
                     }
+                    creditedBaseAmount += amount;
+                    notes.push(`已结算旧版寄售未领款项（底层值 ${amount}）`);
+                }
+            } else {
+                status = '已下架';
+                const item = copies.find(entry => entry.状态 === '上架中' && entry.物品)?.物品;
+                if (item && !copies.some(entry => entry.状态 === '已下架')) {
+                    if (!restoredItemCount) nextRole = 复制旧档对象(nextRole);
+                    const qty = 取寄售物品(nextRole, item);
+                    restoredItemCount += qty;
+                    notes.push(`已将旧版寄售品「${String(item.名称 || '未命名物品')}」x${qty} 退回背包`);
                 }
             }
-        } catch {
-            // 读取旧版 localStorage 异常时不阻断读档流程
         }
+        claims[key] = status;
+        if (localKeys.has(key)) localClaims[key] = status;
     }
 
-    return {
-        nextRole,
-        restoredItemCount,
-        creditedBaseAmount,
-        mutated,
-        notes
-    };
+    let embeddedChanged = false;
+    for (const field of 列表字段) {
+        if (!Array.isArray(nextAuction?.[field])) continue;
+        nextAuction[field] = 索引寄售条目(nextAuction[field]!, role.姓名).map(({ entry, key }) => {
+            const next = 核销条目(entry, claims[key]);
+            if (next !== entry) embeddedChanged = true;
+            return next;
+        });
+    }
+    if (restoredItemCount) 同步角色储物负重上限(nextRole);
+    return { nextRole, nextAuction, localClaims, embeddedChanged, restoredItemCount, creditedBaseAmount, notes, mutated: Object.keys(claims).length > 0 };
+};
+
+// IndexedDB 事务确认提交之后再更新 V1 格式。重读保留同时新上架或变更的无关条目。
+export const 核销旧版寄售缓存 = (save: Save, receipts: 寄售领取凭据, storage?: StorageLike | null) => {
+    if (!Object.keys(receipts).length) return;
+    const key = 获取旧版拍卖行存储键(save);
+    const local = 读取旧拍卖行(storage, key);
+    if (!local) return;
+    let changed = false;
+    for (const field of 列表字段) {
+        if (!Array.isArray(local[field])) continue;
+        local[field] = 索引寄售条目(local[field]!, save.角色数据?.姓名 || '').map(({ entry, key }) => {
+            const next = 核销条目(entry, receipts[key]);
+            if (next !== entry) changed = true;
+            return next;
+        });
+    }
+    try {
+        if (changed) (storage === undefined ? globalThis.localStorage : storage)?.setItem(key, JSON.stringify(local));
+    } catch { /* 已持久化的领取凭据在再次读档时阻止重复发放，并重试清理。 */ }
 };

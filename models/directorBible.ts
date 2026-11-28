@@ -310,6 +310,7 @@ export const 规范化导演圣经 = (raw: unknown): DirectorWorldBible => {
             })
         : [];
 
+    const reservedForeshadowIds = new Set<string>(Array.isArray(src.伏笔台账) ? src.伏笔台账.filter((x: any) => str(x?.表面载体)).map((x: any) => str(x.id)).filter(Boolean) : []);
     const usedForeshadowIds = new Set<string>();
     const allocateForeshadowId = (rawId: unknown): string => {
         const preferred = str(rawId);
@@ -318,7 +319,7 @@ export const 规范化导演圣经 = (raw: unknown): DirectorWorldBible => {
             return preferred;
         }
         let seq = 1;
-        while (usedForeshadowIds.has(`FS-${String(seq).padStart(3, '0')}`)) {
+        while (usedForeshadowIds.has(`FS-${String(seq).padStart(3, '0')}`) || reservedForeshadowIds.has(`FS-${String(seq).padStart(3, '0')}`)) {
             seq += 1;
         }
         const generated = `FS-${String(seq).padStart(3, '0')}`;
@@ -429,6 +430,9 @@ export const 规范化导演圣经 = (raw: unknown): DirectorWorldBible => {
 };
 
 const 映射势力类型 = (rawType: string): 势力类型 => {
+    const knownTypes: 势力类型[] = ['门派', '家族', '商会', '镖局', '官府', '帮派', '散修联盟', '其他'];
+    const exactType = knownTypes.find(type => type === rawType.trim());
+    if (exactType) return exactType;
     if (/宗|门|教|派|道/.test(rawType)) return '门派';
     if (/世家|家族|氏/.test(rawType)) return '家族';
     if (/商|楼|阁|行/.test(rawType)) return '商会';
@@ -457,14 +461,18 @@ export const 将势力暗账投影为世界势力 = (
     }
     const factionIdByName = new Map<string, string>();
     for (const ledger of ledgers || []) {
-        if (ledger?.名称 && ledger?.id) factionIdByName.set(ledger.名称.trim(), ledger.id);
+        if (ledger?.名称 && ledger?.id) {
+            factionIdByName.set(ledger.名称.trim(), ledger.id);
+            factionIdByName.set(ledger.id, ledger.id);
+        }
     }
 
     return (ledgers || []).map((ledger) => {
         const 关系网: Record<string, 势力关系标签> = {};
         for (const rel of ledger.跨势力账目 || []) {
             if (!rel.对方势力) continue;
-            const targetKey = factionIdByName.get(rel.对方势力.trim()) || rel.对方势力.trim();
+            const targetKey = factionIdByName.get(rel.对方势力.trim());
+            if (!targetKey || targetKey === ledger.id) continue;
             关系网[targetKey] = 映射势力关系标签(rel.关系 || '');
         }
         const rawPlace = (ledger.地盘 || [])[0]?.trim() || '';
@@ -495,7 +503,7 @@ export const 净化玩家可见圣经文案 = (text: string, bible?: DirectorWor
     const trimmed = typeof text === 'string' ? text.trim() : '';
     if (!trimmed || !bible) return trimmed;
     const unrecoveredSecrets = (bible.伏笔台账 || [])
-        .filter((f) => f && f.状态 !== '已回收' && typeof f.底层真相 === 'string' && f.底层真相.trim().length >= 4)
+        .filter((f) => f && f.状态 !== '已回收' && typeof f.底层真相 === 'string' && f.底层真相.trim().length > 0)
         .map((f) => f.底层真相.trim());
     let result = trimmed;
     for (const secret of unrecoveredSecrets) {
@@ -561,7 +569,7 @@ export const 将导演圣经投影为剧情规划视图 = (
                 进入条件: activeAct?.跃迁至下一幕条件 ? [净化玩家可见圣经文案(activeAct.跃迁至下一幕条件, bible)] : [],
                 风险提示: nextAct.关键势力与人物
             }
-            : existingStory.下一章预告
+            : { 标题: '', 大纲: [], 进入条件: [], 风险提示: [] }
     };
 
     const castAgendasAsEvents = bible.核心卡司
@@ -570,9 +578,9 @@ export const 将导演圣经投影为剧情规划视图 = (
         .map((c) => ({
             事件名: `${c.姓名}的隐线动作：${c.幕后当前日程.当前目标}`,
             事件说明: c.幕后当前日程.正在推进的步骤 || c.幕后当前日程.当前目标,
-            计划触发时间: currentGameTime,
-            最早触发时间: currentGameTime,
-            最晚触发时间: currentGameTime,
+            计划触发时间: c.幕后当前日程.行动倒计时回合 <= 0 ? currentGameTime : '',
+            最早触发时间: '',
+            最晚触发时间: '',
             前置条件: [],
             触发条件: [`倒计时剩余 ${c.幕后当前日程.行动倒计时回合} 回合`],
             阻断条件: [],

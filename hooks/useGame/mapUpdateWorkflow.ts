@@ -323,7 +323,7 @@ const 规范地图节点 = (node: any) => ({
 
 type 地点节点 = ReturnType<typeof 规范地图节点>;
 
-const 定位地图节点 = (rawNodes: any[], existing: any[], mode: 'push' | 'rebuild' | 'set') => {
+const 定位地图节点 = (rawNodes: any[], existing: any[], mode: 'push' | 'rebuild' | 'set', aliases = new Map<string, string>()) => {
     const incoming: 地点节点[] = rawNodes.map(raw => {
         const node = 规范地图节点(raw);
         if (mode !== 'set' || !raw) return node;
@@ -351,7 +351,6 @@ const 定位地图节点 = (rawNodes: any[], existing: any[], mode: 'push' | 're
         return id;
     };
 
-    const aliases = new Map<string, string>();
     const resolveParent = (parent: string, level: string, oldData = false) => {
         if (!parent) return '';
         if (aliases.has(parent)) return aliases.get(parent)!;
@@ -437,11 +436,12 @@ const 解析增量地图结果 = (rawText: string, currentWorld?: any): { comman
     if (!block || /^无$/i.test(block.trim())) return { commands: [], recognized: block.trim() === '无' };
     let existingLayers = Array.isArray(currentWorld?.地图层级) ? [...currentWorld.地图层级] : [];
     const result: TavernCommand[] = [];
+    const aliases = new Map<string, string>();
     let hadDuplicate = false;
     let pendingPushes: any[] = [];
     const flushPushes = () => {
         if (!pendingPushes.length) return;
-        const nodes = 定位地图节点(pendingPushes, existingLayers, 'push');
+        const nodes = 定位地图节点(pendingPushes, existingLayers, 'push', aliases);
         hadDuplicate ||= nodes.length < pendingPushes.length;
         result.push(...nodes.map(value => ({ action: 'push' as const, key: '世界.地图层级', value })));
         existingLayers.push(...nodes);
@@ -465,7 +465,9 @@ const 解析增量地图结果 = (rawText: string, currentWorld?: any): { comman
         flushPushes();
         if (/^(?:gameState\.)?世界\.地图层级$/.test(key)) {
             if (action === 'delete' || !Array.isArray(value) || !value.length || !value.every((node) => 取文本(node?.名称))) return;
-            existingLayers = 定位地图节点(value, existingLayers, 'set');
+            existingLayers = 定位地图节点(value, existingLayers, 'set', aliases);
+            const retainedIds = new Set(existingLayers.map(node => node.ID));
+            for (const [alias, id] of aliases) if (!retainedIds.has(id)) aliases.delete(alias);
             result.push({ action, key, value: existingLayers.slice() });
             return;
         }

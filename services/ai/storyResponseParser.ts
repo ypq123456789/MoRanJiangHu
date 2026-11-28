@@ -1892,7 +1892,7 @@ const 解析标签协议响应 = (content: string, options?: Required<StoryParse
     const trailingActionOptionsBlock = (() => {
         if (extractedActionOptionsBlock.trim()) return '';
         const closedMatch = textWithoutThinking.match(/<\s*\/\s*(?:行动选项|action\s*options?)\s*>\s*([\s\S]+)$/i);
-        const tail = closedMatch?.[1]?.trim() || '';
+        const tail = closedMatch?.[1]?.split(/<\s*\/?\s*[\p{L}][^>]*>/u, 1)[0].trim() || '';
         if (!tail) return '';
         const optionLines = tail
             .split('\n')

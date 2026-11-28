@@ -38,6 +38,8 @@ type 历史回合工作流依赖 = {
     visualConfigRef: { current: any };
     场景图片档案Ref: { current: any };
     scrollRef: { current: any };
+    获取会话代次?: () => number;
+    通知重解析异常?: (message: string) => void;
     获取最新快照: () => 回合快照结构 | null;
     回档到快照: (snapshot: 回合快照结构, options?: { 保留图片状态?: boolean }) => void;
     弹出重Roll快照: () => 回合快照结构 | null;
@@ -142,6 +144,9 @@ type 历史回合工作流依赖 = {
     合并NPC图片档案: (baseNpc: any, latestNpc: any) => any;
 };
 
+// 同一快照可以跨 React 渲染重复编辑，只允许最近一次请求落盘。
+const 回合重解析标识 = new WeakMap<回合快照结构, symbol>();
+
 export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) => {
     const 创建重建空记忆系统 = (): 记忆系统结构 => ({
         回忆档案: [],
@@ -198,17 +203,6 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
         return deps.规范化记忆系统(nextMemory);
     };
 
-    const 构建重解析记忆基底 = (snapshot: 回合快照结构): 记忆系统结构 => {
-        const snapshotMemory = deps.规范化记忆系统(deps.深拷贝(snapshot.回档前状态.记忆系统));
-        const currentMemory = deps.规范化记忆系统(deps.深拷贝(deps.记忆系统));
-        return {
-            ...snapshotMemory,
-            短期记忆: Array.from(new Set(currentMemory.短期记忆.map((item) => (item || '').trim()).filter(Boolean))),
-            中期记忆: Array.from(new Set(currentMemory.中期记忆.map((item) => (item || '').trim()).filter(Boolean))),
-            长期记忆: Array.from(new Set(currentMemory.长期记忆.map((item) => (item || '').trim()).filter(Boolean)))
-        };
-    };
-
     const 使用快照重建解析回合 = async (
         snapshot: 回合快照结构,
         parsed: GameResponse,
@@ -223,11 +217,18 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             skipVariableModelCalibration?: boolean;
             preserveScrollPosition?: boolean;
             forceAutoSave?: boolean;
+            targetTimestamp?: number;
+            onWarning?: (message: string) => void;
         }
     ) => {
         const replayPlayerInput = typeof options?.playerInput === 'string' ? options.playerInput : snapshot.玩家输入;
         const hasReplayUserInput = replayPlayerInput.trim().length > 0;
-        deps.回档到快照(snapshot, { 保留图片状态: true });
+        const session = deps.获取会话代次?.();
+        const token = Symbol();
+        const stillCurrent = () => 回合重解析标识.get(snapshot) === token
+            && deps.获取会话代次?.() === session && deps.获取最新快照() === snapshot;
+        if (deps.获取最新快照() !== snapshot) return;
+        回合重解析标识.set(snapshot, token);
 
         const worldEvolutionEnabled = deps.世界演变功能已开启();
         const baseState = {
@@ -255,7 +256,8 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             }
         }
 
-        const newState = deps.processResponseCommands(effectiveParsed, baseState);
+        if (!stillCurrent()) return;
+        const newState = deps.processResponseCommands(effectiveParsed, deps.深拷贝(baseState), { applyState: false });
         const nextGameTime = deps.环境时间转标准串(newState.环境) || '未知时间';
         const syncedStory = await 同步剧情小说分解时间校准({
             previousStory: snapshot.回档前状态.剧情,
@@ -264,6 +266,7 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             openingConfig: deps.获取开局配置(),
             allowBootstrapCurrentGroup: true
         });
+        if (!stillCurrent()) return;
         const displayParsed: GameResponse = options?.displayResponse
             ? {
                 ...options.displayResponse,
@@ -291,20 +294,115 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             社交: mergedSocial,
             剧情: syncedStory
         };
+        const preTurnMemory = snapshot.回档前状态.记忆系统;
+        let directorWarning = '';
+        let recomputedDirectorBible = snapshot.回档前状态.导演圣经;
+        let recomputedWorldEvents = Array.isArray(snapshot.回档前状态.世界大事)
+            ? deps.深拷贝(snapshot.回档前状态.世界大事)
+            : [];
+        let finalStoryPlanForSave = (patchedState as any).剧情规划 ?? snapshot.回档前状态.剧情规划;
+        const runtimeGameConfigForReparse = deps.规范化游戏设置(deps.gameConfig);
+        const openingCfgForReparse = deps.获取开局配置?.() as OpeningConfig | undefined;
+        const canRecomputeDirector = runtimeGameConfigForReparse.启用2_0剧情引擎 !== false
+            && !构建同人运行时提示词包({ openingConfig: openingCfgForReparse }).enabled
+            && Boolean(snapshot.回档前状态.导演圣经)
+            && !options?.skipVariableModelCalibration
+            && Boolean(deps.apiConfig);
+        if (canRecomputeDirector && snapshot.回档前状态.导演圣经) {
+            const planningApi = 获取规划分析接口配置(deps.apiConfig);
+            const fallbackMainApi = 获取主剧情接口配置(deps.apiConfig);
+            const directorApi = 接口配置是否可用(planningApi) ? planningApi : fallbackMainApi;
+            if (接口配置是否可用(directorApi)) {
+                try {
+                    // 旧快照按玩家输入与已完成正文计数，跳过开局正文和系统消息。
+                    let completedTurns = 0;
+                    let hasInput = false;
+                    for (const item of snapshot.回档前历史) {
+                        if (item.role === 'user') hasInput = true;
+                        if (hasInput && item.role === 'assistant' && item.structuredResponse) {
+                            completedTurns++;
+                            hasInput = false;
+                        }
+                    }
+                    const turnCountEstimate = snapshot.剧情回合序号 ?? (hasReplayUserInput ? completedTurns + 1 : 0);
+                    const postRes = await 执行导演后处理V2({
+                        state: {
+                            turnIndex: turnCountEstimate,
+                            gameInitialTime: snapshot.游戏时间 || nextGameTime || '1:01:01:06:00',
+                            worldPrompt: '',
+                            directorBible: deps.深拷贝(snapshot.回档前状态.导演圣经),
+                            角色: deps.深拷贝((patchedState as any).角色),
+                            环境: 规范化环境信息(deps.深拷贝((patchedState as any).环境)),
+                            社交: deps.深拷贝(Array.isArray(patchedState.社交) ? patchedState.社交 : []),
+                            世界: 规范化世界状态(deps.深拷贝((patchedState as any).世界)),
+                            剧情: 规范化剧情状态(deps.深拷贝(patchedState.剧情)),
+                            剧情规划: 规范化剧情规划状态(deps.深拷贝(finalStoryPlanForSave)),
+                            女主剧情规划: deps.深拷贝(patchedState.女主剧情规划),
+                            记忆系统: deps.深拷贝(preTurnMemory),
+                            历史记录: deps.深拷贝(snapshot.回档前历史),
+                            任务列表: Array.isArray(patchedState.任务列表) ? deps.深拷贝(patchedState.任务列表) : [],
+                            世界大事: [...recomputedWorldEvents]
+                        },
+                        apiConfig: directorApi,
+                        storyResponse: displayParsed,
+                        playerInput: replayPlayerInput,
+                        openingConfig: openingCfgForReparse,
+                        stream: !(runtimeGameConfigForReparse.启用非流式输出 === true || deps.apiConfig?.功能模型占位?.规划分析非流式输出 === true)
+                    });
+                    if (!stillCurrent()) return;
+                    recomputedDirectorBible = postRes.nextState.directorBible;
+                    recomputedWorldEvents = Array.isArray(postRes.nextState.世界大事)
+                        ? postRes.nextState.世界大事
+                        : recomputedWorldEvents;
+                    const updatedEnv = 规范化环境信息(postRes.nextState.环境);
+                    const updatedRole = 规范化角色物品容器映射(postRes.nextState.角色, {
+                        启用饱腹口渴系统: runtimeGameConfigForReparse.启用饱腹口渴系统,
+                        题材模式: openingCfgForReparse?.题材模式
+                    });
+                    const updatedSocial = deps.规范化社交列表(postRes.nextState.社交, { 合并同名: false });
+                    const updatedWorld = 规范化世界状态(postRes.nextState.世界);
+                    const updatedStory = 规范化剧情状态(postRes.nextState.剧情);
+                    const updatedStoryPlan = 规范化剧情规划状态(postRes.nextState.剧情规划);
+                    (patchedState as any).角色 = updatedRole;
+                    (patchedState as any).环境 = updatedEnv;
+                    patchedState.社交 = updatedSocial;
+                    (patchedState as any).世界 = updatedWorld;
+                    patchedState.剧情 = updatedStory;
+                    finalStoryPlanForSave = updatedStoryPlan;
+                    patchedState.任务列表 = Array.isArray(postRes.nextState.任务列表) ? postRes.nextState.任务列表 : patchedState.任务列表;
+                } catch (directorError) {
+                    if (!stillCurrent()) return;
+                    directorWarning = '正文已更新，导演圣经和世界事件未更新。请在连接恢复后再次选择“保存并重解析”。';
+                    console.warn(directorWarning, directorError);
+                }
+            }
+        }
+        if (!stillCurrent()) return;
+        // 异步计算完成后一次性回放；命令处理器的待入账增量仅在真正提交时消费。
+        deps.回档到快照(snapshot, { 保留图片状态: true });
+        deps.processResponseCommands(effectiveParsed, baseState);
+        deps.设置角色?.(deps.深拷贝(patchedState.角色));
+        deps.设置环境?.(deps.深拷贝(patchedState.环境));
+        deps.设置世界?.(deps.深拷贝(patchedState.世界));
+        deps.设置剧情规划?.(deps.深拷贝(finalStoryPlanForSave));
+        deps.设置导演圣经?.(recomputedDirectorBible);
+        deps.设置上一回合导演圣经?.(deps.深拷贝(snapshot.回档前状态.导演圣经));
+        deps.setWorldEvents?.(recomputedWorldEvents);
         deps.设置剧情(deps.深拷贝(patchedState.剧情));
         deps.设置玩家门派(deps.深拷贝(patchedState.玩家门派));
         deps.设置任务列表(deps.深拷贝(patchedState.任务列表));
         deps.设置约定列表(deps.深拷贝(patchedState.约定列表));
         deps.设置社交(deps.规范化社交列表(deps.深拷贝(patchedState.社交), { 合并同名: false }));
 
-        const recoveredAiTimestamp = Date.now();
+        const finalGameTime = deps.环境时间转标准串(patchedState.环境) || nextGameTime;
+        const recoveredAiTimestamp = options?.targetTimestamp ?? Date.now();
         const recoveredAiMsg: 聊天记录结构 = {
             role: 'assistant',
             content: 'Structured Response',
             structuredResponse: displayParsed,
             rawJson: typeof rawText === 'string' ? rawText : '',
             timestamp: recoveredAiTimestamp,
-            gameTime: nextGameTime,
+            gameTime: finalGameTime,
             inputTokens: typeof options?.inputTokens === 'number' ? options.inputTokens : undefined,
             responseDurationSec: typeof options?.responseDurationSec === 'number' ? options.responseDurationSec : undefined,
             outputTokens: deps.估算AI输出Token(typeof rawText === 'string' ? rawText : '')
@@ -339,98 +437,25 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
         }
 
         const recoveredMemoryConfig = deps.规范化记忆配置(deps.memoryConfig);
-        const recoveredMemoryBase = 构建重解析记忆基底(snapshot);
+        const recoveredMemoryBase = deps.规范化记忆系统(deps.深拷贝(preTurnMemory));
         const recoveredMemory = deps.写入四段记忆(
             recoveredMemoryBase,
             hasReplayUserInput
-                ? deps.构建即时记忆条目(nextGameTime, replayPlayerInput, displayParsed)
-                : deps.构建即时记忆条目(nextGameTime, '', displayParsed, { 省略玩家输入: true }),
-            deps.构建短期记忆条目(nextGameTime, displayParsed),
+                ? deps.构建即时记忆条目(finalGameTime, replayPlayerInput, displayParsed)
+                : deps.构建即时记忆条目(finalGameTime, '', displayParsed, { 省略玩家输入: true }),
+            deps.构建短期记忆条目(finalGameTime, displayParsed),
             {
                 immediateLimit: recoveredMemoryConfig.即时消息上传条数N,
                 shortLimit: recoveredMemoryConfig.短期记忆阈值,
                 midLimit: recoveredMemoryConfig.中期记忆阈值,
-                recordTime: nextGameTime,
-                timestamp: nextGameTime
+                recordTime: finalGameTime,
+                timestamp: finalGameTime
             }
         );
         deps.应用并同步记忆系统(recoveredMemory, { 静默总结提示: deps.记忆总结阶段 !== 'remind' });
-        let recomputedDirectorBible = snapshot.回档前状态.导演圣经;
-        let recomputedWorldEvents = Array.isArray(snapshot.回档前状态.世界大事)
-            ? deps.深拷贝(snapshot.回档前状态.世界大事)
-            : [];
-        let finalStoryPlanForSave = (patchedState as any).剧情规划 ?? snapshot.回档前状态.剧情规划;
-        const runtimeGameConfigForReparse = deps.规范化游戏设置(deps.gameConfig);
-        const openingCfgForReparse = deps.获取开局配置?.() as OpeningConfig | undefined;
-        const canRecomputeDirector = runtimeGameConfigForReparse.启用2_0剧情引擎 !== false
-            && !构建同人运行时提示词包({ openingConfig: openingCfgForReparse }).enabled
-            && Boolean(snapshot.回档前状态.导演圣经)
-            && !options?.skipVariableModelCalibration
-            && Boolean(deps.apiConfig);
-        if (canRecomputeDirector && snapshot.回档前状态.导演圣经) {
-            const planningApi = 获取规划分析接口配置(deps.apiConfig);
-            const fallbackMainApi = 获取主剧情接口配置(deps.apiConfig);
-            const directorApi = 接口配置是否可用(planningApi) ? planningApi : fallbackMainApi;
-            if (接口配置是否可用(directorApi)) {
-                try {
-                    const turnCountEstimate = Math.max(1, Math.ceil((snapshot.回档前历史?.length || 0) / 2) + 1);
-                    const postRes = await 执行导演后处理V2({
-                        state: {
-                            turnIndex: turnCountEstimate,
-                            gameInitialTime: snapshot.游戏时间 || nextGameTime || '1:01:01:06:00',
-                            worldPrompt: '',
-                            directorBible: deps.深拷贝(snapshot.回档前状态.导演圣经),
-                            角色: deps.深拷贝((patchedState as any).角色),
-                            环境: 规范化环境信息(deps.深拷贝((patchedState as any).环境)),
-                            社交: deps.深拷贝(Array.isArray(patchedState.社交) ? patchedState.社交 : []),
-                            世界: 规范化世界状态(deps.深拷贝((patchedState as any).世界)),
-                            剧情: 规范化剧情状态(deps.深拷贝(patchedState.剧情)),
-                            剧情规划: 规范化剧情规划状态(deps.深拷贝(finalStoryPlanForSave)),
-                            女主剧情规划: deps.深拷贝(patchedState.女主剧情规划),
-                            记忆系统: deps.深拷贝(recoveredMemory),
-                            历史记录: deps.深拷贝(recoveredHistory),
-                            任务列表: Array.isArray(patchedState.任务列表) ? deps.深拷贝(patchedState.任务列表) : [],
-                            世界大事: [...recomputedWorldEvents]
-                        },
-                        apiConfig: directorApi,
-                        storyResponse: displayParsed,
-                        playerInput: replayPlayerInput,
-                        openingConfig: openingCfgForReparse
-                    });
-                    recomputedDirectorBible = postRes.nextState.directorBible;
-                    recomputedWorldEvents = Array.isArray(postRes.nextState.世界大事)
-                        ? postRes.nextState.世界大事
-                        : recomputedWorldEvents;
-                    const updatedEnv = 规范化环境信息(postRes.nextState.环境);
-                    const updatedRole = 规范化角色物品容器映射(postRes.nextState.角色, {
-                        启用饱腹口渴系统: runtimeGameConfigForReparse.启用饱腹口渴系统,
-                        题材模式: openingCfgForReparse?.题材模式
-                    });
-                    const updatedSocial = deps.规范化社交列表(postRes.nextState.社交, { 合并同名: false });
-                    const updatedWorld = 规范化世界状态(postRes.nextState.世界);
-                    const updatedStory = 规范化剧情状态(postRes.nextState.剧情);
-                    const updatedStoryPlan = 规范化剧情规划状态(postRes.nextState.剧情规划);
-                    (patchedState as any).角色 = updatedRole;
-                    (patchedState as any).环境 = updatedEnv;
-                    patchedState.社交 = updatedSocial;
-                    (patchedState as any).世界 = updatedWorld;
-                    patchedState.剧情 = updatedStory;
-                    finalStoryPlanForSave = updatedStoryPlan;
-                    patchedState.任务列表 = Array.isArray(postRes.nextState.任务列表) ? postRes.nextState.任务列表 : patchedState.任务列表;
-                    deps.设置角色?.(deps.深拷贝(updatedRole));
-                    deps.设置环境?.(deps.深拷贝(updatedEnv));
-                    deps.设置社交(deps.深拷贝(updatedSocial));
-                    deps.设置世界?.(deps.深拷贝(updatedWorld));
-                    deps.设置剧情(deps.深拷贝(updatedStory));
-                    deps.设置剧情规划?.(deps.深拷贝(updatedStoryPlan));
-                    deps.设置任务列表(deps.深拷贝(patchedState.任务列表));
-                    deps.设置导演圣经?.(recomputedDirectorBible);
-                    deps.设置上一回合导演圣经?.(deps.深拷贝(snapshot.回档前状态.导演圣经));
-                    deps.setWorldEvents?.(recomputedWorldEvents);
-                } catch (directorError) {
-                    console.warn('重解析回合 2.0 导演后处理失败，保留回合前导演圣经', directorError);
-                }
-            }
+        if (directorWarning) {
+            deps.通知重解析异常?.(directorWarning);
+            options?.onWarning?.(directorWarning);
         }
         void deps.performAutoSave({
             history: recoveredHistory,
@@ -512,34 +537,21 @@ export const 创建历史回合工作流 = (deps: 历史回合工作流依赖) =
             return detail;
         }
 
-        // 两阶段落地：先用本地校准立即把编辑后的回合渲染出来并滚动到位（跳过变量模型网络调用），
-        // 再后台异步执行独立变量模型校准并保位刷新，避免“保存后要等很久才显示这一回合”。
-        const 尾随消息 = 提取回合尾随消息(deps.历史记录, index);
+        // 编辑正文立即可见，变量与导演推演只提交一次最终状态和存档。
+        const preview = deps.历史记录.slice();
+        preview[index] = { ...target, rawJson: newRawText, structuredResponse: parsed };
+        deps.设置历史记录(preview);
+        let warning: string | null = null;
         await 使用快照重建解析回合(snapshot, parsed, newRawText, {
             playerInput: isOpeningTurn ? '' : playerInput,
-            tailMessages: 尾随消息,
+            tailMessages: 提取回合尾随消息(deps.历史记录, index),
             inputTokens: target.inputTokens,
             responseDurationSec: target.responseDurationSec,
+            targetTimestamp: target.timestamp,
             preserveSnapshot: true,
-            skipVariableModelCalibration: true
+            onWarning: (message) => { warning = message; }
         });
-        // 后台执行变量模型校准（不阻塞 UI）；保位刷新，避免二次落地时画面跳动。
-        void (async () => {
-            try {
-                await 使用快照重建解析回合(snapshot, parsed, newRawText, {
-                    playerInput: isOpeningTurn ? '' : playerInput,
-                    tailMessages: 尾随消息,
-                    inputTokens: target.inputTokens,
-                    responseDurationSec: target.responseDurationSec,
-                    preserveSnapshot: true,
-                    skipVariableModelCalibration: false,
-                    preserveScrollPosition: true
-                });
-            } catch (calibrationError) {
-                console.error('重解析回合的后台变量模型校准失败，保留本地校准结果', calibrationError);
-            }
-        })();
-        return null;
+        return warning;
     };
 
     const handleRegenerate = async (): Promise<string | null> => {
