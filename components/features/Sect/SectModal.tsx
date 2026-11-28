@@ -1,10 +1,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { 详细门派结构, 职位等级排序 } from '../../../models/sect';
+import { 门派位置文案, type 门派所在状态 } from '../../../utils/sectLibrary';
 import type { 环境信息结构 } from '../../../models/environment';
+import { 读取同门名录, 是主角成员, type 同门资料来源 } from '../../../utils/sectRoster';
 import { 提取人物头像地址 } from '../../../utils/personAvatar';
 
-interface Props {
+interface Props extends 同门资料来源 {
     sectData: 详细门派结构;
     onClose: () => void;
     onOpenNpc?: (npc: any) => void;
@@ -12,17 +14,14 @@ interface Props {
     onLearnBook?: (book: any) => void;
     onClaimMonthlyStipend?: () => void;
     onExchange?: (goodId: string, price: number) => void;
+    sectLocation?: 门派所在状态;
     learnedBookIds?: string[];
     env?: 环境信息结构;
-    socialList?: any[];
 }
 
 type Tab = 'hall' | 'exchange' | 'library' | 'members';
 type RankStep = { rank: string; lvl: number; required: number; discount: number; perks: string[] };
 const 无组织标识集合 = new Set(['', 'none', '无', '无门无派', '未加入', '散人']);
-const 规范化人物键 = (value: unknown): string => (
-    typeof value === 'string' ? value.trim().replace(/\s+/g, '').toLowerCase() : ''
-);
 
 const 是否未加入组织 = (sectData?: 详细门派结构): boolean => {
     if (!sectData) return true;
@@ -262,7 +261,7 @@ const 估算月俸数量 = (sectData: 详细门派结构): number => {
     return Math.max(0, base + contributionBonus + scaleBonus);
 };
 
-const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer, onLearnBook, onClaimMonthlyStipend, onExchange, learnedBookIds = [], env, socialList }) => {
+const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer, onLearnBook, onClaimMonthlyStipend, onExchange, learnedBookIds = [], sectLocation = '未知', env, socialList, world, factionLedgers }) => {
     const [activeTab, setActiveTab] = useState<Tab>('hall');
     const 文案 = useMemo(() => 获取组织显示文案(sectData), [sectData]);
     const 显示职位 = (rank?: string) => 文案.rankMap[String(rank || '').trim()] || rank || '无';
@@ -308,30 +307,8 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
     const 月俸规则 = sectData.月俸规则;
     const 月俸可领取 = Boolean(月俸规则) && 本月月俸可领取(sectData, env);
     const 月俸数量 = 估算月俸数量(sectData);
-    const playerMember = useMemo(() => (
-        Array.isArray(sectData.重要成员)
-            ? sectData.重要成员.find((member: any) => member?.是否玩家本人 === true || String(member?.id || '').includes('sect_member_player_'))
-            : undefined
-    ), [sectData.重要成员]);
-    const playerNameKey = 规范化人物键((playerMember as any)?.姓名);
-    const 是主角成员 = (member: any): boolean => Boolean(
-        member?.是否玩家本人 === true
-        || String(member?.id || '').includes('sect_member_player_')
-        || (playerNameKey && 规范化人物键(member?.姓名) === playerNameKey)
-    );
-    const 展示成员列表 = useMemo(() => {
-        if (!Array.isArray(sectData.重要成员)) return [];
-        // 主角置顶，其余成员按原顺序过滤掉主角同名占位
-        const others = sectData.重要成员.filter((member: any) => {
-            if (!member || typeof member !== 'object') return false;
-            if (是主角成员(member)) return false;
-            const nameKey = 规范化人物键(member.姓名);
-            return !playerNameKey || !nameKey || nameKey !== playerNameKey;
-        });
-        return playerMember ? [playerMember, ...others] : others;
-    }, [playerMember, playerNameKey, sectData.重要成员]);
-    // [修复] 轮回者人数基于原始 重要成员 数量（同步角色与门派状态 已确保主角在内）。
-    const 实际轮回者人数 = Array.isArray(sectData.重要成员) ? sectData.重要成员.filter((m: any) => m && typeof m === 'object').length : 0;
+    const 展示成员列表 = useMemo(() => 读取同门名录(sectData, { socialList, world, factionLedgers }), [sectData, socialList, world, factionLedgers]);
+    const 实际轮回者人数 = 展示成员列表.length;
     const 展示人数 = 文案.isInfinite
         ? (Number(sectData.弟子总数 || 0) > 12 ? 实际轮回者人数 : Math.max(实际轮回者人数, Number(sectData.弟子总数 || 0) || 0))
         : (sectData.弟子总数 || 0);
@@ -563,6 +540,9 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
                         )}
 
                         {/* --- EXCHANGE --- */}
+                        {(activeTab === 'library' || activeTab === 'exchange') && (
+                            <p className="mb-3 text-sm text-gray-300">{门派位置文案(sectLocation, sectData.名称)}</p>
+                        )}
                         {activeTab === 'exchange' && (
                              <div className="space-y-5 animate-slide-in">
                                  <div className="rounded-lg border border-wuxia-gold/20 bg-wuxia-gold/5 p-4">
@@ -622,7 +602,7 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
                                  {(sectData.藏经阁列表 || []).map(book => {
                                      const canRead = 职位可达(book.要求职位) && 累计贡献 >= book.要求累计贡献;
                                      const alreadyLearned = learnedBookIds.includes(book.id);
-                                     const canLearn = canRead && !alreadyLearned;
+                                     const canLearn = sectLocation === '门内' && canRead && !alreadyLearned;
                                      return (
                                          <div key={book.id} className="bg-black/40 border border-gray-700 p-5 rounded-lg transition-colors hover:border-wuxia-gold/50">
                                              <div className="flex items-start justify-between gap-4">
@@ -634,7 +614,7 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
                                                      </div>
                                                  </div>
                                                   <span className={`rounded border px-2 py-1 text-xs ${alreadyLearned ? 'border-gray-600 text-gray-300' : canRead ? 'border-emerald-400/50 text-emerald-200' : 'border-gray-700 text-gray-300'}`}>
-                                                      {alreadyLearned ? 文案.learnedAction : canRead ? 文案.canLearn : !职位可达(book.要求职位) ? '身份未足' : '贡献未足'}
+                                                      {alreadyLearned ? 文案.learnedAction : sectLocation !== '门内' ? '需到场' : canRead ? 文案.canLearn : !职位可达(book.要求职位) ? '身份未足' : '贡献未足'}
                                                   </span>
                                              </div>
                                              <p className="mt-4 text-sm leading-6 text-gray-300">{book.简介}</p>
@@ -648,7 +628,7 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
                                                    onClick={() => onLearnBook?.(book)}
                                                    className={`mt-4 w-full rounded px-3 py-2 text-sm font-bold transition-colors ${canLearn ? 'border border-wuxia-gold bg-wuxia-gold/15 text-wuxia-gold hover:bg-wuxia-gold hover:text-black' : 'border border-gray-700 bg-gray-900 text-gray-400 cursor-not-allowed'}`}
                                                >
-                                                  {alreadyLearned ? 文案.learnedAction : 文案.learnAction}
+                                                  {alreadyLearned ? 文案.learnedAction : sectLocation === '门内' ? 文案.learnAction : `到场后${文案.learnAction}`}
                                               </button>
                                           </div>
                                       );
@@ -659,12 +639,18 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
                         {/* --- MEMBERS --- */}
                         {activeTab === 'members' && (
                             <div className="space-y-4 animate-slide-in">
+                                {展示成员列表.every(是主角成员) && (
+                                    <p className="text-sm text-gray-300 [html[data-theme=day]_&]:text-stone-700">
+                                        {展示成员列表.length ? '名录只收录已知成员，目前仅登记了主角。' : '名录只收录已知成员，目前还没有登记记录。'}
+                                    </p>
+                                )}
                                 {展示成员列表.map(mem => {
                                     const isPlayer = 是主角成员(mem);
                                     return (
                                     <button
                                         key={mem.id}
                                         type="button"
+                                        disabled={!isPlayer && mem.有社交档案 === false}
                                         onClick={() => (isPlayer ? onOpenPlayer?.() : onOpenNpc?.(mem))}
                                         className={`w-full text-left p-4 rounded-lg flex flex-col gap-3 relative overflow-hidden group transition-colors ${
                                             isPlayer
@@ -672,21 +658,17 @@ const SectModal: React.FC<Props> = ({ sectData, onClose, onOpenNpc, onOpenPlayer
                                                 : 'bg-black/40 border border-gray-700 hover:bg-black/60 hover:border-wuxia-gold/40'
                                         }`}
                                     >
-                                        {isPlayer && (
-                                            <span className="absolute right-3 top-3 z-20 rounded-full bg-wuxia-gold px-2 py-0.5 text-[10px] font-bold text-black shadow-[0_0_10px_rgba(230,200,110,0.4)]">
-                                                我（主角）
-                                            </span>
-                                        )}
                                         <div className="flex items-start gap-4 z-10">
                                             <MemberAvatar member={mem} socialList={socialList} />
-                                            <div className="flex-1">
-                                                <div className="flex justify-between items-center mb-1">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex flex-wrap items-center gap-2">
                                                     <span className={`font-bold text-lg ${isPlayer ? 'text-wuxia-gold' : 'text-gray-200'}`}>{mem.姓名}</span>
+                                                    {isPlayer && <span className="shrink-0 rounded-full bg-wuxia-gold px-2 py-0.5 text-[10px] font-bold text-black [html[data-theme=day]_&]:bg-amber-100 [html[data-theme=day]_&]:text-amber-900">我（主角）</span>}
                                                     <span className="text-xs text-wuxia-gold font-bold bg-wuxia-gold/10 px-2 py-0.5 rounded border border-wuxia-gold/20">{mem.身份}</span>
                                                 </div>
                                                 <div className="text-xs text-gray-300 flex gap-3 mb-2">
                                                     <span>{mem.性别}</span>
-                                                    <span>{mem.年龄}岁</span>
+                                                    <span>{mem.年龄 != null ? mem.年龄 + '岁' : ''}</span>
                                                     <span className="text-wuxia-cyan">{mem.境界}</span>
                                                 </div>
                                                 <p className={`text-sm font-serif border-t border-gray-800/50 pt-2 ${mem.简介 ? 'text-gray-200' : 'text-gray-600 italic'}`}>

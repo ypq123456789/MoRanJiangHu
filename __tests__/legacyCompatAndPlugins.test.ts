@@ -400,7 +400,7 @@ describe('Legacy Compatibility & Scheme B Plugins', () => {
             apiConfig: { id: 'a1', name: 'm', protocol: 'openai', apiKey: 'k', baseUrl: 'http://localhost', model: 'm' } as any,
             storyResponse: { logs: [{ sender: '旁白', text: '测试' }], tavern_commands: [] },
             playerInput: '查探'
-        })).rejects.toThrow();
+        })).rejects.toMatchObject({ message: expect.stringContaining('JSON 解析失败'), rawText: '坏掉的非JSON返回' });
 
         // 2. Currency writeback, stackable item add/remove, out-of-bounds act guard, truth scrubbing
         vi.mocked(chatClient.请求模型文本).mockResolvedValueOnce(`<导演更新JSON>${JSON.stringify({

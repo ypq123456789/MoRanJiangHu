@@ -951,7 +951,7 @@ const TopBar: React.FC<Props> = ({ 环境, 游戏初始时间, timeFormat, festi
         >
             <div className="md:hidden absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-ink-black via-wuxia-gold/40 to-ink-black"></div>
 
-            <div className="md:hidden fixed left-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+60px)] z-[88] flex items-start gap-2 pointer-events-auto">
+            <div className="mobile-game-rail md:hidden fixed left-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+60px)] z-[88] flex items-start gap-2 pointer-events-auto">
                 <div className="flex items-start gap-2">
                     <div className="flex flex-col items-center gap-2">
                         <button

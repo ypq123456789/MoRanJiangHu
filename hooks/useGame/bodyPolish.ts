@@ -16,7 +16,7 @@ import { 默认文章优化提示词 } from '../../prompts/runtime/defaults';
 import { 核心_文章优化思维链 } from '../../prompts/core/cotPolish';
 import { 环境时间转标准串 } from './timeUtils';
 import { 规范化环境信息, 构建完整地点文本 } from './stateTransforms';
-import { 规范化对白日志 } from '../../utils/dialogueLogNormalizer';
+import { 剥离外层引号, 规范化对白日志 } from '../../utils/dialogueLogNormalizer';
 import { 是否可信正文标签发送者, 规范化正文发送者名 } from '../../utils/dialogueSpeakerGuard';
 import { 拆分判定日志与后续正文, 提取判定日志前缀, 是否判定日志文本 } from '../../utils/judgmentFormat';
 import { 构建运行时额外提示词 } from '../../prompts/runtime/nsfw';
@@ -331,61 +331,11 @@ const 统计角色对白条数 = (logs: 正文日志结构): number => (
         .length
 );
 
-const 角色行开头引号正则 = /^[“"「『]/;
-const 角色行结尾引号正则 = /[”"」』]$/;
-const 角色行叙事特征正则 = /(?:她|他|你|我|众人|旁边|车轮|马蹄|目光|视线|脚步|裙摆|衣袖|风声|雨声|声音|说完|说罢|说着|看了|望了|靠了|抬头|低头|转身|收回|走到|驶上|发出|响起|掠过|落在|停在)/;
-
-const 查找首段角色引号闭合位置 = (text: string): number => {
-    const source = (text || '').trim();
-    if (!source) return -1;
-    const open = source[0];
-    const close = open === '“' ? '”'
-        : open === '「' ? '」'
-            : open === '『' ? '』'
-                : open === '"' ? '"'
-                    : '';
-    if (!close) return -1;
-    return source.indexOf(close, 1);
-};
-
-const 剥离角色行外层引号 = (text: string): string => {
-    const source = (text || '').trim();
-    const closingIndex = 查找首段角色引号闭合位置(source);
-    if (closingIndex === source.length - 1 && 角色行开头引号正则.test(source) && 角色行结尾引号正则.test(source)) {
-        return source.slice(1, -1).trim();
-    }
-    return source;
-};
-
-export const 净化角色对白行 = (logs: 正文日志结构): 正文日志结构 => {
-    const result: 正文日志结构 = [];
-    (Array.isArray(logs) ? logs : []).forEach((item) => {
-        const sender = 规范化正文发送者(item?.sender || '旁白');
-        const text = typeof item?.text === 'string' ? item.text.trim() : '';
-        if (!text) return;
-        if (!是否角色正文发送者(sender)) {
-            result.push({ sender, text });
-            return;
-        }
-
-        const closingIndex = 查找首段角色引号闭合位置(text);
-        if (closingIndex > 0) {
-            const quoted = text.slice(1, closingIndex).trim();
-            const rest = text.slice(closingIndex + 1).trim();
-            if (quoted) result.push({ sender, text: quoted });
-            if (rest) result.push({ sender: '旁白', text: rest });
-            return;
-        }
-
-        if (!/[我你咱？?！!]|(?:吧|吗|呢|啊|呀|嘛|呗|啦|喂|哼|嗯|唔|哦|行|好|当然|自然|可以|不行|回来|看看)/.test(text) && 角色行叙事特征正则.test(text)) {
-            result.push({ sender: '旁白', text });
-            return;
-        }
-
-        result.push({ sender, text: 剥离角色行外层引号(text) });
-    });
-    return 规范化对白日志(result);
-};
+export const 净化角色对白行 = (logs: 正文日志结构): 正文日志结构 => (
+    规范化对白日志(logs).map(log => 是否角色正文发送者(log.sender)
+        ? { ...log, text: log.text.split('\n').map(剥离外层引号).join('\n') }
+        : log)
+);
 
 export const 执行正文润色 = async (
     baseResponse: GameResponse,
@@ -579,7 +529,7 @@ export const 执行正文润色 = async (
     const sourceLogs = Array.isArray(baseResponse.body_original_logs) && baseResponse.body_original_logs.length > 0
         ? baseResponse.body_original_logs
         : (baseResponse.logs || []);
-    const sourceDialogueCount = 统计角色对白条数(sourceLogs);
+    const sourceDialogueCount = 统计角色对白条数(规范化对白日志(sourceLogs));
     const sourceBody = 提取正文标签内容(rawText) || 构建正文文本(sourceLogs);
     if (!sourceBody.trim()) {
         return { response: baseResponse, applied: false, error: '正文为空，无法优化。' };

@@ -1947,6 +1947,14 @@ html[data-theme="day"] .right-panel-bottom-fade {
   touch-action: pan-x;
 }
 
+/* 键盘压缩游戏窗口时，把编辑区域留给草稿和展开的工具。 */
+@media (max-width: 767px) and (max-height: 600px) {
+  .desktop-game-frame:has(.action-controls:focus-within, .action-controls [aria-controls="action-composer-tools"][aria-expanded="true"])
+  :is(.mobile-game-rail, .mobile-reroll-hint, .desktop-game-status-badges) {
+    display: none;
+  }
+}
+
 /*
  * Desktop game layout — baseline quick-actions constraints for ALL desktop resolutions
  * (min-width: 768px). Prevents long option lists (e.g. 10+ choices) from consuming
@@ -2958,7 +2966,9 @@ html[data-theme="day"] .settings-nav-item-idle:focus-visible {
   --mm-bld-current-top: #efb266;
   --mm-bld-current-bottom: #b96b20;
   --mm-eave: rgba(74, 46, 18, 0.35);
-  --mm-door: rgba(64, 36, 14, 0.45);
+  --mm-fog: #403c40;
+  --mm-fog-line: #69646a;
+  --mm-passage: #306147;
 
   --mm-label: rgba(250, 240, 220, 0.94);
   --mm-label-current: #ffe0a8;
@@ -3006,7 +3016,9 @@ html[data-theme="day"] .moran-map-surface {
   --mm-bld-current-top: #f0d29a;
   --mm-bld-current-bottom: #cf9a4e;
   --mm-eave: rgba(110, 78, 32, 0.42);
-  --mm-door: rgba(110, 78, 32, 0.55);
+  --mm-fog: #d8d1c2;
+  --mm-fog-line: #b0a797;
+  --mm-passage: #245640;
 
   --mm-label: #2f2617;
   --mm-label-current: #7c3d06;

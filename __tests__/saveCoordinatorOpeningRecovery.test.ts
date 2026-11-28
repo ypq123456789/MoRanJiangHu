@@ -136,6 +136,18 @@ const createOpeningState = () => ({
 });
 
 describe('saveCoordinator opening save recovery', () => {
+    it('先从记忆恢复历史，再核对局外人；缺少可核对开局时不写完成标记', async () => {
+        const state = createOpeningState();
+        state.记忆系统.回忆档案[0].原文 += '\n【陆青】张掌柜派人收账。';
+        const deps = createDeps();
+        await 执行读取存档({ ...state, 角色数据: state.角色, 元数据: { 已核对开局局外人物: true } } as any, deps as any);
+        expect(deps.设置社交.mock.calls[0][0]).toContainEqual(expect.objectContaining({ 姓名: '张掌柜', 是否在场: false }));
+        const saved = 创建存档数据('manual', state as any, deps as any);
+        expect(saved.社交).toContainEqual(expect.objectContaining({ 姓名: '张掌柜' }));
+        expect(saved.元数据?.已核对开局局外人物).toBe(true);
+        const incomplete = 创建存档数据('manual', { ...state, 记忆系统: {}, 剧情: {} } as any, deps as any);
+        expect(incomplete.元数据?.已核对开局局外人物).toBe(false);
+    });
     it('旧档迁移尚未提交时切档，较慢的回调不会覆盖当前角色或发送结算通知', async () => {
         const deps = { ...createDeps(), 推送通知: vi.fn() };
         const first = { ...createOpeningState(), id: 1, 角色数据: { 姓名: '甲' } } as any;
@@ -152,6 +164,25 @@ describe('saveCoordinator opening save recovery', () => {
             expect(deps.设置角色.mock.calls.every(([role]) => role.姓名 === '乙')).toBe(true);
             expect(deps.推送通知).not.toHaveBeenCalled();
         } finally { persist.mockRestore(); }
+    });
+    it('读入缺少队友标记的开局伙伴后，按其明确位置细化场所并保留开局时间', async () => {
+        const deps = createDeps();
+        const env = { 时间: '0001:01:03:09:10', 小地点: '青萍镇', 具体地点: '泥鳅巷破屋', 天气: { 天气: '微雨' } };
+        const save = {
+            ...createOpeningState(), id: 'old-room', 角色数据: { 姓名: '杨培强' }, 环境信息: env,
+            世界: { 地图层级: [
+                { ID: 'w', 名称: '寰宇', 层级: '寰宇' }, { ID: 't', 名称: '青萍镇', 层级: '小地点', 父级ID: 'w' },
+                { ID: 'v', 名称: '泥鳅巷破屋', 层级: '区地点', 父级ID: 't' }, { ID: 'r', 名称: '暗室', 层级: '子地点', 父级ID: 'v' }
+            ] },
+            openingConfig: { 初始伙伴: { 姓名: '俞月荷', enabled: true } },
+            社交: [{ id: 'cast1', 姓名: '俞月荷', 是否在场: true, 位置路径: '青萍镇 > 泥鳅巷破屋 > 暗室', 当前位置: '暗室' }]
+        };
+        await 执行读取存档(save as any, deps as any);
+        expect(deps.设置环境).toHaveBeenCalledTimes(1);
+        expect(deps.设置环境).toHaveBeenCalledWith({ ...env, 具体地点: '泥鳅巷破屋 > 暗室' });
+        expect(deps.设置社交.mock.calls[0][0]).toContainEqual(expect.objectContaining({
+            id: 'cast1', 是否队友: true, 当前位置: '暗室', 当前地点: '暗室'
+        }));
     });
     it('读入旧档时从配置与确切的初始伙伴标签恢复队伍身份，保留人物 ID 与离场状态', async () => {
         const deps = { ...createDeps(), 规范化社交列表: (list: any[]) => list.map(npc => ({ 是否队友: false, ...npc })) };
@@ -179,6 +210,21 @@ describe('saveCoordinator opening save recovery', () => {
             社交: [{ 姓名: '沈青萝', 来源: '开局伙伴', 是否队友: false }] };
         const saved = 创建存档数据('manual', state as any, createDeps() as any);
         expect(saved.社交?.[0].是否队友).toBe(false);
+    });
+    it('从旧档任务和公开原文补录未在场的人，重存保留 ID 与来源，忽略思考中的姓名', async () => {
+        const state = createOpeningState();
+        const save = { ...state, 角色数据: { 姓名: '陆青' }, 社交: [],
+            任务列表: [{ 标题: '纠纷', 描述: '查明周堂主与商会的利益。' }],
+            历史记录: [{ role: 'assistant', rawJson: '<thinking>阮堂主下令灭口。</thinking><正文>【旁白】周堂主下令封锁渡口。</正文>' }] };
+        const deps = createDeps();
+        await 执行读取存档(save as any, deps as any);
+        const recovered = deps.设置社交.mock.calls[0][0];
+        expect(recovered).toEqual([expect.objectContaining({ 姓名: '周堂主', 是否在场: false, 是否队友: false })]);
+        const saved = 创建存档数据('manual', { ...state, 社交: recovered } as any, deps as any);
+        expect(saved.社交?.[0].id).toBe(recovered[0].id);
+        const afterForget = createDeps();
+        await 执行读取存档({ ...save, 元数据: saved.元数据, 社交: [] } as any, afterForget as any);
+        expect(afterForget.设置社交.mock.calls[0][0]).toEqual([]);
     });
 
     it('保存、导入并重建重 Roll 时保留独立的平静计数与情节记录', async () => {

@@ -3,6 +3,7 @@ import { 世界数据结构, 环境信息结构 } from '../../../types';
 import { 构建地点树, type 地点树节点 } from '../../../utils/locationTree';
 import { 构建地图人物标记, type 地图人物标记 } from '../../../utils/mapNpcLocation';
 import RegionMap from './RegionMap';
+import { getRoomPassages } from '../../../utils/roomConnections';
 
 interface Props {
     world: 世界数据结构;
@@ -120,11 +121,15 @@ const LocationTreeItem: React.FC<{
 };
 
 const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact = false, rawResponse = '', socialList = [], playerName = '', onInsertCommand }) => {
-    const tree = useMemo(() => 构建地点树(world, env), [world, env]);
+    const tree = useMemo(() => 构建地点树(world, env, socialList), [world, env, socialList]);
     const [selection, setSelection] = useState<{ locationId: string; nodeId: string } | null>(null);
     const currentId = tree.当前节点?.ID || '';
     const manualNode = selection?.locationId === currentId ? tree.节点映射.get(selection.nodeId) : undefined;
     const selectedNode = manualNode || 获取索引选中节点(tree.当前节点, tree.节点映射);
+    const roomExits = selectedNode?.层级 === '子地点'
+        ? getRoomPassages(tree.节点映射.get(selectedNode.父级ID)?.子节点 || [])
+            .flatMap(([a, b]) => a === selectedNode ? [b] : b === selectedNode ? [a] : [])
+        : [];
     const setSelectedNode = (node: 地点树节点) => setSelection({ locationId: currentId, nodeId: node.ID });
     const [regenerating, setRegenerating] = useState(false);
     // 长路径默认折叠，省略号本身是可聚焦的展开按钮，键盘也能打开被折叠的祖先。
@@ -324,6 +329,14 @@ const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact
                                     <div className="text-sm text-gray-400 leading-relaxed">{(selectedNode as any).描述}</div>
                                 ) : (
                                     <div className="text-sm text-gray-600">暂无描述</div>
+                                )}
+                                {roomExits.length > 0 && (
+                                    <div aria-label="已知通路" className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                                        <span className="text-gray-400">已知通路</span>
+                                        {roomExits.map(room => <button key={room.ID} type="button"
+                                            className="text-wuxia-gold underline underline-offset-2"
+                                            onClick={() => setSelectedNode(room)}>{room.名称}</button>)}
+                                    </div>
                                 )}
                                 {onInsertCommand && (
                                     <div className="mt-3 flex flex-wrap gap-2 border-t border-white/5 pt-2">

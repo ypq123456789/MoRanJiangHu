@@ -109,17 +109,20 @@ const 合并相邻同发送者 = (logs: GameLog[]): GameLog[] => {
     return merged;
 };
 
-const 查找首段闭合引号位置 = (text: string): number => {
-    const source = (text || '').trim();
-    if (!source) return -1;
-    const open = source[0];
-    const close = open === '“' ? '”'
-        : open === '「' ? '」'
-            : open === '『' ? '』'
-                : open === '"' ? '"'
-                    : '';
+const 查找首段闭合引号位置 = (source: string, start = 0): number => {
+    const open = source[start];
+    const close = 取引号闭合符(open);
     if (!close) return -1;
-    return source.indexOf(close, 1);
+    let depth = 1;
+    for (let index = start + 1; index < source.length; index++) {
+        if (source[index] === '"' && source[index - 1] === '\\') continue;
+        if (source[index] === close) {
+            if (--depth === 0) return index;
+        } else if (source[index] === open) {
+            depth++;
+        }
+    }
+    return -1;
 };
 
 const 是完整引号对白 = (text: string): boolean => {
@@ -127,7 +130,7 @@ const 是完整引号对白 = (text: string): boolean => {
     return Boolean(source && 开头引号正则.test(source) && 结尾引号正则.test(source) && 查找首段闭合引号位置(source) === source.length - 1);
 };
 
-const 剥离外层引号 = (text: string): string => {
+export const 剥离外层引号 = (text: string): string => {
     const source = (text || '').trim();
     if (!是完整引号对白(source)) return source;
     return source.slice(1, -1).trim();
@@ -135,16 +138,11 @@ const 剥离外层引号 = (text: string): string => {
 
 const 是否无效角色对白 = (sender: string, text: string): boolean => {
     const normalizedSender = 清理说话人(sender);
-    if (!normalizedSender || 非单一说话人正则.test(normalizedSender) || 泛称说话人正则.test(normalizedSender)) return true;
+    if (!normalizedSender || 非单一说话人正则.test(normalizedSender)) return true;
     const speech = 剥离外层引号(text);
     if (!speech || (拟声词正则.test(speech) && !角色发声拟声词正则.test(speech))) return true;
     if (/^(?:众人|众弟子|众门人|众侍从|众士卒|所有人|全场|人群).{0,8}(?:齐声|一起|同时)/.test(speech)) return true;
     return false;
-};
-
-const 是否有效角色说话人 = (sender: string): boolean => {
-    const normalizedSender = 清理说话人(sender);
-    return Boolean(normalizedSender && !非单一说话人正则.test(normalizedSender) && !泛称说话人正则.test(normalizedSender));
 };
 
 const 含有引号对白 = (text: string): boolean => {
@@ -286,6 +284,91 @@ const 取引号闭合符 = (char: string): string => {
     if (char === '『') return '』';
     if (char === '"') return '"';
     return '';
+};
+
+// 裸台词可以没有引号。只把有明确叙事证据的动作移出角色行，保留祈使句与普通陈述。
+const 角色动作起句 = /^(?:正|又|轻轻|缓缓|微微)?(?:坐在|站在|靠在|背靠|倚着|撑着|坐下|起身|转身|侧身|俯身|回过头|抬起|低下|抬头|低头|抬手|伸手|皱眉|点头|摇头|放下|拿起|攥紧|望向|看向|看着|推开|盯着|垂下|收回|走到|走近|摩挲|沉默|[把将][^。！？，,]{1,18}(?:摊开|铺开|放下|收起|推开|塞回))/u;
+const 描写标记 = /[，,。；;]\s*(?:[他她](?:没|能|将|把|却|仍|正|已)|(?:[他她]的)?(?:指尖|目光|视线|眼神|眼底|眼中|呼吸|脚步|眉头|脸色)(?!\s*(?:也|都|千万)?(?:别|不要|不许|切勿|莫要|务必|一定要))|只见|露出|里面|只有)/u;
+const 是角色动作段 = (sender: string, text: string): boolean => {
+    if (/[！？?!]|(?:吧|吗|呢|啊|呀|罢)[。…]*$/.test(text) || /^(?:我|你|咱|请|别|快)/.test(text)) return false;
+    if (/^(?:风声|雨声|晨雾|夜风|脚步声).{0,8}(?:穿过|掠过|响起|传来|落在)/u.test(text)) return true;
+    const subject = text.startsWith(sender) ? sender : text.match(/^[他她]/)?.[0];
+    return 角色动作起句.test(text.slice(subject?.length || 0)) && (Boolean(subject) || 描写标记.test(text));
+};
+
+const 括号动作特征 = /^(?:[他她]|随即|微微|缓缓|轻轻)?(?:低声|轻声|沉声|小声|冷声|(?:压低|放低)(?:了)?声音|轻笑|苦笑|冷笑|叹息|叹了?口气|笑着|挥手|摇[了摇]*头|点[了点]*头|皱(?:了皱)?眉|抬(?:头|眼|手)|垂(?:头|眼|眸)|转身|转过身|推开|攥紧|握紧|沉默|停顿|伸手|摆手|望向|看向|咳嗽|撑着.+(?:站起|起身|站稳)|[把将].+(?:放|收|递|握|推|摊))/u;
+const 括号释义特征 = /(?:而非|而不是|也就是|亦即|指的是|意为)/u;
+
+const 拆分角色行 = (log: GameLog): GameLog[] => {
+    const result: GameLog[] = [];
+    let paragraphBreak = false;
+    // 角色标签本身可以充当动作句的主语，转为旁白时保留这个人名。
+    const narration = (text: string) => 角色动作起句.test(text) ? log.sender + text : text;
+    const append = (sender: string, text: string) => {
+        if (!text.trim()) return;
+        const previous = result[result.length - 1];
+        if (paragraphBreak && previous?.sender === sender) {
+            previous.text += '\n\n' + text.trim();
+        } else {
+            result.push(附加原始片段({ sender, text: text.trim() }, log.rawText));
+        }
+        paragraphBreak = false;
+    };
+    const appendSpeech = (value: string, open = '', close = '') => {
+        // 台词内的普通解释、术语与嵌套引文仍属于说话内容。
+        let cursor = 0;
+        const appendWords = (words: string) => {
+            if (words.trim()) append(log.sender, open + words.trim() + close);
+        };
+        for (const match of value.matchAll(/（([^（）]+)）|\(([^()]+)\)/gu)) {
+            const content = (match[1] || match[2]).trim();
+            const before = value.slice(cursor, match.index);
+            const startsClause = !before.trim() || /[。！？!?…]\s*$/u.test(before);
+            if (括号释义特征.test(content)) {
+                // “摇头，意为拒绝”先给出独立动作；嵌在一句话中则是对词义的补充。
+                const [lead] = content.split(/[，,；;]/u, 1);
+                if (!startsClause || lead === content || !括号动作特征.test(lead) || 括号释义特征.test(lead)) continue;
+            }
+            if (!(括号动作特征.test(content) || 是角色动作段(log.sender, content) || (startsClause && 角色动作起句.test(content)))) continue;
+            appendWords(before);
+            append('旁白', match[0]);
+            cursor = match.index + match[0].length;
+            const separator = value.slice(cursor).match(/^\s*[：:]\s*/);
+            if (separator) cursor += separator[0].length;
+        }
+        appendWords(value.slice(cursor));
+    };
+
+    for (const line of log.text.split('\n')) {
+        if (!line.trim()) {
+            paragraphBreak = true;
+            continue;
+        }
+        let cursor = 0;
+        const quotes = /[“「『"]/gu;
+        let match: RegExpExecArray | null;
+        while ((match = quotes.exec(line)) !== null) {
+            const open = match[0];
+            const close = 取引号闭合符(open);
+            const closing = 查找首段闭合引号位置(line, match.index);
+            if (closing < 0) break;
+            quotes.lastIndex = closing + 1;
+            const before = line.slice(cursor, match.index).trim();
+            // “钥匙”一类嵌在句子中的引用不是一段新的对白。
+            if (before && !/[。！？!?…：:）)*]$/.test(before) && !说话尾迹正则.test(before)
+                && !(/[，,]$/.test(before) && 是角色动作段(log.sender, before))) continue;
+            append('旁白', narration(before.replace(/[：:]\s*$/, '').trimEnd()));
+            appendSpeech(line.slice(match.index + 1, closing), open, close);
+            cursor = quotes.lastIndex;
+        }
+        const rest = line.slice(cursor).trim();
+        if (cursor || 是角色动作段(log.sender, rest) || (paragraphBreak && !是否像无标签口语(rest))) {
+            append('旁白', narration(rest));
+        } else {
+            appendSpeech(rest);
+        }
+    }
+    return result;
 };
 
 const 是否英文数字 = (char: string): boolean => /[A-Za-z0-9]/.test(char);
@@ -616,32 +699,11 @@ export const 规范化可渲染对白日志 = (logs: GameLog[] | undefined): Gam
         if (/^(【)?(?:判定|NSFW判定|先机|瞄准|接战|对撞|对抗|防御|化解|伤害|态势|反击|反馈|消耗|洞察|衰退)(】)?$/.test(sender)) {
             return [附加原始片段({ sender, text }, rawSource)];
         }
-        if (是完整引号对白(text)) {
-            return 是否无效角色对白(sender, text)
-                ? [附加原始片段({ sender: '旁白', text }, rawSource)]
-                : [附加原始片段({ sender, text }, rawSource)];
-        }
-
-        const closingIndex = 开头引号正则.test(text) ? 查找首段闭合引号位置(text) : -1;
-        if (closingIndex > 0) {
-            const quoted = text.slice(0, closingIndex + 1).trim();
-            const rest = text.slice(closingIndex + 1).trim();
-            const parts: GameLog[] = [];
-            if (quoted && !是否无效角色对白(sender, quoted)) parts.push(附加原始片段({ sender, text: quoted }, rawSource));
-            else if (quoted) parts.push(附加原始片段({ sender: '旁白', text: quoted }, rawSource));
-            if (rest) parts.push(附加原始片段({ sender: '旁白', text: rest }, rawSource));
-            return parts;
-        }
-
-        if (是否有效角色说话人(sender) && 含有引号对白(text)) {
-            return [附加原始片段({ sender, text }, rawSource)];
-        }
-
-        if (是否有效角色说话人(sender)) {
-            return [附加原始片段({ sender, text }, rawSource)];
-        }
-
-        return [附加原始片段({ sender: '旁白', text }, rawSource)];
+        return 拆分角色行(附加原始片段({ sender, text }, rawSource)).map(part =>
+            part.sender !== '旁白' && 是否无效角色对白(sender, part.text)
+                ? { ...part, sender: '旁白' }
+                : part
+        );
     });
     return 合并相邻同发送者(normalized);
 };
@@ -666,7 +728,7 @@ export const 规范化对白日志 = (
             if (rawSender === '奖励') return [附加原始片段({ sender: rawSender, text }, rawSource)];
             const sender = rawSender === '旁白' ? '旁白' : (清理说话人(rawSender, confirmedSpeakers) || '旁白');
             const log = 附加原始片段({ sender, text }, rawSource);
-            if (sender !== '旁白') return [log];
+            if (sender !== '旁白') return 拆分角色行(log);
             return 拆分旁白中的显式方括号对白(log)
                 .flatMap(item => item.sender === '旁白' ? 拆分旁白夹杂无标签对白(item) : [item])
                 .flatMap(item => item.sender === '旁白' ? 拆分旁白行中引号对白(item) : [item]);

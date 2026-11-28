@@ -1,6 +1,8 @@
 import type { 世界数据结构 } from '../types';
 import { 提取NPC地图位置片段 } from './mapNpcLocation';
 import { 地图层级命名自检 } from '../prompts/runtime/mapLayerNaming';
+import { getRoomPassages } from './roomConnections';
+import { 构建地点树 } from './locationTree';
 
 type 地图层级名 = '寰宇' | '大地点' | '中地点' | '小地点' | '区地点' | '子地点';
 
@@ -18,11 +20,6 @@ const 取文本 = (value: unknown, fallback = ''): string => (
     typeof value === 'string' && value.trim() ? value.trim() : fallback
 );
 
-const 取层级 = (value: unknown): 地图层级名 => {
-    const text = 取文本(value);
-    return (层级顺序 as string[]).includes(text) ? text as 地图层级名 : '小地点';
-};
-
 const 截断 = (text: string, max: number): string => (
     text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text
 );
@@ -38,36 +35,21 @@ interface 提示节点 {
     叙事核心: string;
     控制势力: string;
     势力影响: string;
+    连通房间: string[];
     子节点: 提示节点[];
 }
 
 /** 把世界基底里的扁平地图层级整理成真正的父子树（父级ID 可写名称）。 */
 export const 收集地图提示节点 = (world?: 世界数据结构 | null): 提示节点[] => {
-    const source = Array.isArray((world as any)?.地图层级) ? (world as any).地图层级 : [];
-    const nodes: 提示节点[] = source
-        .map((layer: any, index: number) => ({
-            ID: 取文本(layer?.ID) || `layer-${index + 1}`,
-            名称: 取文本(layer?.名称) || '未命名地点',
-            层级: 取层级(layer?.层级),
-            父级ID: 取文本(layer?.父级ID),
-            描述: 取文本(layer?.描述),
-            叙事核心: 取文本(layer?.叙事核心),
-            控制势力: 取文本(layer?.控制势力),
-            势力影响: 取文本(layer?.势力影响),
-            子节点: [],
-        }))
-        .filter((node: 提示节点) => Boolean(node.名称));
-
+    const nodes: 提示节点[] = Array.from(构建地点树(world).节点映射.values(), layer => ({
+        ID: layer.ID, 名称: layer.名称, 层级: layer.层级, 父级ID: layer.父级ID, 描述: layer.描述,
+        叙事核心: layer.叙事核心 || '', 控制势力: layer.控制势力 || '', 势力影响: layer.势力影响 || '',
+        连通房间: layer.连通房间 || [], 子节点: []
+    }));
     const byId = new Map(nodes.map(node => [node.ID, node]));
-    const byName = new Map<string, 提示节点>();
-    nodes.forEach((node) => {
-        const key = node.名称.replace(/\s+/g, '');
-        if (key && !byName.has(key)) byName.set(key, node);
-    });
-
     const roots: 提示节点[] = [];
     nodes.forEach((node) => {
-        const parent = byId.get(node.父级ID) || byName.get(node.父级ID.replace(/\s+/g, ''));
+        const parent = byId.get(node.父级ID);
         if (parent && parent !== node) parent.子节点.push(node);
         else roots.push(node);
     });
@@ -110,25 +92,20 @@ export const 构建地图地点树文本 = (world?: 世界数据结构 | null, o
         const collect = (list: 提示节点[]) => list.forEach(node => { 全部.push(node); collect(node.子节点); });
         collect(roots);
         const byId = new Map(全部.map(node => [node.ID, node]));
-        const byName = new Map<string, 提示节点>();
-        全部.forEach(node => {
-            const key = 归一化名称(node.名称);
-            if (key && !byName.has(key)) byName.set(key, node);
-        });
         const 标记祖先 = (node: 提示节点) => {
             const seen = new Set<string>();
             let cursor: 提示节点 | undefined = node;
             while (cursor && !seen.has(cursor.ID)) {
                 seen.add(cursor.ID);
                 必留节点.add(cursor.ID);
-                const ref = 归一化名称(cursor.父级ID);
-                cursor = byId.get(cursor.父级ID) || (ref ? byName.get(ref) : undefined);
+                cursor = byId.get(cursor.父级ID);
             }
         };
         全部.filter(node => 必留名称.includes(归一化名称(node.名称))).forEach(标记祖先);
     }
 
     const lines: string[] = [];
+    const knownExits = new Map<string, string[]>();
     let 已列 = 0;
     let 另有 = 0;
     const 统计未列 = (node: 提示节点): number => {
@@ -144,7 +121,15 @@ export const 构建地图地点树文本 = (world?: 世界数据结构 | null, o
         const 势力 = [node.控制势力 && `控制:${node.控制势力}`, node.势力影响 && `影响:${node.势力影响}`].filter(Boolean).join('，');
         const 节点描述 = 截断(node.描述, 描述截断);
         const 备注 = [node.叙事核心 && `叙事核心:${截断(node.叙事核心, 描述截断)}`, 节点描述].filter(Boolean).join('；');
-        const 元信息 = [node.ID, 势力, 备注].filter(Boolean).join('｜');
+        for (const [from, to] of getRoomPassages(node.子节点)) {
+            for (const [room, next] of [[from, to], [to, from]]) {
+                const exits = knownExits.get(room.ID) || [];
+                exits.push(next.名称);
+                knownExits.set(room.ID, exits);
+            }
+        }
+        const exits = knownExits.get(node.ID);
+        const 元信息 = [node.ID, 势力, 备注, exits?.length && '通往:' + exits.join('、')].filter(Boolean).join('｜');
         lines.push(`${prefix}${isLast ? '└' : '├'} [${node.层级}·${层级标签[node.层级]}] ${node.名称}${元信息 ? `（${元信息}）` : ''}`);
         const childPrefix = `${prefix}${isLast ? '  ' : '│ '}`;
         node.子节点.forEach((child, index) => walk(child, childPrefix, index === node.子节点.length - 1));
@@ -202,6 +187,7 @@ export const 构建地图上下文提示词 = (
         人物行,
         '',
         '【地图与剧情结合规则】',
+        '- 房间的「通往」是已探明的直接通路。两个房间同属一处场所不能证明相通；若发现新门或通道，剧情写清两端房间，由地图更新登记。',
         '- 剧情、规划、对白、传闻、追缉、商路引用已收录地点时，必须沿用地点树里的真实名称与层级，不要凭空造一个同名不同层的地点；未收录的新地点按下方新地点规则处理。',
         '- 引用地点时利用该节点的「控制势力 / 影响 / 叙事核心」写具体压力：谁在把守、什么资源紧张、什么传闻正在扩散、上层矛盾如何落到当前城镇。',
         '- 人物跨地点移动时，在社交状态里同步写 `当前位置 / 位置路径 / 具体地点`；同一个人物只能有一个最细落点。',

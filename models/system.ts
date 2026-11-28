@@ -1417,6 +1417,7 @@ export interface 场外战果暂存结构 {
 
 export interface 存档元数据结构 {
     schemaVersion?: number;
+    已核对开局局外人物?: boolean;
     历史记录条数?: number;
     游戏回合数?: number;
     历史记录是否裁剪?: boolean;

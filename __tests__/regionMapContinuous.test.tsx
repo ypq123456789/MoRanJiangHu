@@ -182,6 +182,26 @@ describe('连续地图组件', () => {
         unmount();
     });
 
+    it('镜头已深入极小房间时，再次定位仍保持视野宽高比', () => {
+        const levels = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'] as const;
+        const room = 建节点('deep-room', '密室', '子地点', 'step4');
+        let branch = 建节点('step4', '客栈', '区地点', 'step3', [room]);
+        for (let depth = 3; depth >= 0; depth--) {
+            const id = 'step' + depth;
+            const siblings = Array.from({ length: 52 }, (_, i) => 建节点(id + '-' + i, '地点' + i, levels[depth + 1], id));
+            branch = 建节点(id, '区域' + depth, levels[depth], depth ? 'step' + (depth - 1) : '', [branch, ...siblings]);
+        }
+        const draw = (currentNodeId: string) => <RegionMap nodes={[branch]} currentNodeId={currentNodeId} currentLocationName=""
+            onSelect={vi.fn()} onLocateCurrent={vi.fn()} />;
+        const ui = render(draw(room.ID));
+        const spans = () => ui.container.querySelector('svg')!.getAttribute('viewBox')!.split(' ').slice(2).map(Number);
+        const before = spans();
+        expect(before[1]).toBeLessThan(1);
+        ui.rerender(draw('step4'));
+        const after = spans();
+        expect(after[0] / after[1]).toBeCloseTo(before[0] / before[1], 6);
+    });
+
     it('把整棵树画在一张图上，并把玩家/NPC 画在最上层', () => {
         const { container } = render(
             <RegionMap

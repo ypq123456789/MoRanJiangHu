@@ -1,11 +1,39 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { parseStoryRawText } from '../services/ai/storyResponseParser';
 import { 执行响应命令处理, 响应命令处理状态 } from '../hooks/useGame/responseCommandProcessor';
 import { 规范化社交列表 } from '../hooks/useGame/stateTransforms';
 import SocialModal from '../components/features/Social/SocialModal';
+import MobileSocial from '../components/features/Social/MobileSocial';
+
+describe.each([['桌面', SocialModal], ['手机', MobileSocial]] as const)('%s局外人物详情', (_, Panel) => {
+    it('日间模式隐藏真实姓名，已故角色不能召回，存活角色可以', () => {
+        const priorTheme = document.documentElement.dataset.theme;
+        document.documentElement.dataset.theme = 'day';
+        const npc = { id: 'witness', 姓名: '李青', 叙事名称: '白衣客', 来源: '正文提及', 关系状态: '已闻其名', 是否在场: false };
+        const onTogglePresence = vi.fn();
+        const props = { onClose: vi.fn(), onTogglePresence, selectedNpcId: npc.id };
+        const view = render(<Panel socialList={[{ ...npc, 状态: '死亡' }] as any} {...props} />);
+        try {
+            const detail = view.getByRole('region', { name: '已知人物线索' });
+            const title = within(detail).getByRole('heading');
+            expect(title.querySelector('[data-narrative-name]')?.textContent).toBe('白衣客');
+            expect(title.querySelector('.npc-real-name-mosaic')).not.toBeNull();
+            fireEvent.click(title.querySelector('[data-real-name-toggle]')!);
+            expect(title.querySelector('[data-real-name]')?.textContent).toBe('李青');
+            expect(within(detail).queryByRole('button', { name: '设为在场' })).toBeNull();
+            view.rerender(<Panel socialList={[npc] as any} {...props} />);
+            fireEvent.click(within(detail).getByRole('button', { name: '设为在场' }));
+            expect(onTogglePresence).toHaveBeenCalledWith(npc.id, true);
+        } finally {
+            cleanup();
+            if (priorTheme === undefined) delete document.documentElement.dataset.theme;
+            else document.documentElement.dataset.theme = priorTheme;
+        }
+    });
+});
 
 const 构建基础状态 = (): 响应命令处理状态 => ({
     角色: { 姓名: '杨培强' } as any,

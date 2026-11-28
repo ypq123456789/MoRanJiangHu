@@ -62,7 +62,7 @@ const buildWorldBibleMockResponse = () => {
             坐标Y: 45,
             范围半径: 10
         })),
-        ...Array.from({ length: 10 }, (_, idx) => ({
+        ...Array.from({ length: 16 }, (_, idx) => ({
             ID: `DT-${String(idx + 14).padStart(3, '0')}`,
             名称: idx === 0 ? '云州西郊' : `江湖城镇${idx + 1}`,
             层级: '小地点',
@@ -73,9 +73,9 @@ const buildWorldBibleMockResponse = () => {
             坐标Y: 50,
             范围半径: 5
         })),
-        { ID: 'DT-024', 名称: '云州破庙区', 层级: '区地点', 父级ID: 'DT-014', 描述: '西郊破败山神庙一带', 坐标X: 31, 坐标Y: 51, 范围半径: 3 },
-        { ID: 'DT-025', 名称: '西市老渡口', 层级: '区地点', 父级ID: 'DT-014', 描述: '官差与漕帮盯防要道', 坐标X: 33, 坐标Y: 52, 范围半径: 3 },
-        { ID: 'DT-026', 名称: '破庙供桌殿', 层级: '子地点', 父级ID: 'DT-024', 描述: '避雨藏身之所', 坐标X: 31, 坐标Y: 51, 范围半径: 1 }
+        { ID: 'DT-030', 名称: '云州破庙区', 层级: '区地点', 父级ID: 'DT-014', 描述: '西郊破败山神庙一带', 坐标X: 31, 坐标Y: 51, 范围半径: 3 },
+        { ID: 'DT-031', 名称: '西市老渡口', 层级: '区地点', 父级ID: 'DT-014', 描述: '官差与漕帮盯防要道', 坐标X: 33, 坐标Y: 52, 范围半径: 3 },
+        { ID: 'DT-032', 名称: '破庙供桌殿', 层级: '子地点', 父级ID: 'DT-030', 描述: '避雨藏身之所', 坐标X: 31, 坐标Y: 51, 范围半径: 1 }
     ];
     const factions = Array.from({ length: 6 }, (_, idx) => ({
         id: `FCT-00${idx + 1}`,
@@ -320,8 +320,8 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
                     '<thinking>构建2.0开局紧张雨夜氛围，埋下FS-001载体</thinking>',
                     '<正文>',
                     '檐角雨水连成细线砸在青石台阶上。你握紧袖中半块温润玉扣，目光落在供桌青砖缝里露出的一枚沾泥青铜碎钥。',
-                    '顾霜晚把钱袋摊开，只有十九枚铜钱。',
-                    '【顾霜晚】“这庙里潮气重，阁下还是莫要乱翻旧物的好。”',
+                    '【顾霜晚】把钱袋摊开，只有十九枚铜钱。',
+                    '【顾霜晚】（低声）：“这庙里潮气重，阁下还是莫要乱翻旧物的好。”',
                     '</正文>',
                     '<短期记忆>林秋水于云州破庙避雨，瞥见青铜碎钥，同行女子顾霜晚开口提醒。</短期记忆>',
                     '<行动选项>',
@@ -444,6 +444,9 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
 
         // Wait for Turn 0 prose to appear (use phrase unique to turn0_opening_v2, not world_bible_v2 preview)
         await expect(page.getByText('这庙里潮气重', { exact: false }).first()).toBeVisible({ timeout: 25000 });
+        const openingDialogue = page.locator('.mobile-chat-dialogue-bubble p').filter({ hasText: '这庙里潮气重' });
+        await expect(openingDialogue).toHaveText(/^[“「]?这庙里潮气重，阁下还是莫要乱翻旧物的好。[”」]?$/);
+        await expect(page.locator('.narrator-renderer').filter({ hasText: '把钱袋摊开' }).first()).toBeVisible();
         expect(capturedCalls.filter((c) => c === 'world_bible_v2')).toHaveLength(1);
         expect(capturedCalls).toContain('turn0_opening_v2');
 
@@ -456,20 +459,37 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         await expect.poll(() => capturedCalls.filter(c => c === 'map').length, { timeout: 15000 }).toBe(1);
         expect(capturedCalls.filter(c => c === 'variable')).toHaveLength(1);
         await expect(page.locator('html')).toHaveAttribute('data-theme', 'day');
+        await page.getByTitle('展开独立更新阶段队列').click();
+        for (const label of ['开局动态世界', '开局规划分析']) {
+            const stage = page.locator('.rounded.border').filter({ has: page.getByText(label, { exact: true }) }).last();
+            await expect(stage).toContainText('已跳过');
+            await expect(stage).toContainText('开局导演推演');
+            await expect(stage.getByRole('button', { name: '查看原始回复' })).toHaveCount(0);
+            await expect(stage.getByText(/^\d+(?:\.\d+)?(?:s|ms)$/)).toHaveCount(0);
+        }
+        const directorStage = page.locator('.rounded.border').filter({ has: page.getByText('开局导演推演', { exact: true }) }).last();
+        await directorStage.getByRole('button', { name: '查看原始回复' }).click();
+        await expect(page.locator('pre').filter({ hasText: '<导演更新JSON>' })).toBeVisible();
+        await page.getByTitle('收起独立更新阶段队列').click();
         const worldButton = page.getByRole('button', { name: '世界', exact: true });
         if (!(await worldButton.isVisible())) await page.getByText('江湖舆图', { exact: true }).first().click();
         await worldButton.click();
         await page.getByRole('button', { name: /世界总纲/ }).click();
         await expect(page.getByText(/九州疆域辽阔/).first()).toBeVisible();
+        await expect(page.getByText('云州下城码头', { exact: false })).toHaveCount(0);
+        await expect(page.getByText('在围追堵截中查明账簿下落并稳住同路人')).toHaveCount(0);
+        await page.getByRole('button', { name: '揭示第 1 幕破局方向' }).click();
+        await expect(page.getByText('在围追堵截中查明账簿下落并稳住同路人')).toBeVisible();
+        await page.getByRole('button', { name: '揭示天地空间阶梯' }).click();
         await expect(page.getByText('云州下城码头', { exact: false }).first()).toBeVisible();
         await page.screenshot({ path: testInfo.outputPath('worldview-day.png'), animations: 'disabled' });
         await page.getByRole('button', { name: '关闭世界' }).click();
 
         await page.getByRole('button', { name: '地图', exact: true }).click();
-        const map = page.locator('svg:has([data-node="DT-026"])');
-        const room = map.locator('[data-node="DT-026"]');
-        await expect(map.locator('[data-people-node="DT-026"]')).toContainText('林秋水');
-        await expect(map.locator('[data-people-node="DT-026"]')).toContainText('顾霜晚');
+        const map = page.locator('svg:has([data-node="DT-032"])');
+        const room = map.locator('[data-node="DT-032"]');
+        await expect(map.locator('[data-people-node="DT-032"]')).toContainText('林秋水');
+        await expect(map.locator('[data-people-node="DT-032"]')).toContainText('顾霜晚');
         await expect.poll(async () => {
             const bounds = await room.boundingBox();
             return bounds ? Math.min(bounds.width, bounds.height) : 0;
@@ -479,7 +499,7 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         await page.getByTitle('放大', { exact: true }).click();
         await expect.poll(viewWidth).toBeLessThan(initialWidth);
         const roomBounds = await room.boundingBox();
-        const playerLabel = await map.locator('[data-people-node="DT-026"] text').filter({ hasText: '林秋水' }).boundingBox();
+        const playerLabel = await map.locator('[data-people-node="DT-032"] text').filter({ hasText: '林秋水' }).boundingBox();
         expect(playerLabel.y + playerLabel.height).toBeLessThan(roomBounds.y + roomBounds.height - 3);
         await page.getByTitle('放大', { exact: true }).click();
         await expect.poll(async () => 1000 / await viewWidth()).toBeGreaterThan(14.3);
@@ -589,9 +609,12 @@ test.describe('MoRanJiangHu 2.0 E2E (dist/)', () => {
         await page.getByRole('button', { name: '世界', exact: true }).click({ timeout: 8000 });
         await page.getByRole('button', { name: '总纲', exact: true }).click();
         await expect(page.getByText(/九州疆域辽阔/).first()).toBeVisible();
+        await expect(page.getByText('云州下城码头', { exact: false })).toHaveCount(0);
+        await page.getByRole('button', { name: '揭示天地空间阶梯' }).click();
+        await expect(page.getByText('云州下城码头', { exact: false }).first()).toBeVisible();
         await page.getByRole('button', { name: '关闭世界' }).click();
         await page.getByRole('button', { name: '地图', exact: true }).click({ timeout: 8000 });
-        await expect(page.locator('[data-people-node="DT-026"]')).toContainText('林秋水');
+        await expect(page.locator('[data-people-node="DT-032"]')).toContainText('林秋水');
         await page.screenshot({ path: testInfo.outputPath('room-mobile-day.png'), animations: 'disabled' });
 
         expect(pageErrors).toEqual([]);

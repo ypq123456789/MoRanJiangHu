@@ -1,13 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { 世界数据结构 } from '../../../models/world';
+import { FactionReputationChart } from './FactionReputationChart';
 import { normalizeCanonicalGameTime, 结构化时间转标准串 } from '../../../hooks/useGame/timeUtils';
 import { IconBolt, IconEye, IconScroll, IconSwords, IconMapPin } from '../../ui/Icons';
 import { 势力关系图边, 势力关系图节点, 归类势力关系色调, 构建世界显示名解析器, 构建势力关系图数据, 构建势力名称索引, 解析势力关系条目 } from '../../../utils/worldFactionRelations';
 
 import type { 玩家可见世界圣经概览 } from '../../../engine/storyV2/legacySaveBridge';
+import { ActSolution, WorldTiers } from './WorldSpoilers';
 
 interface Props {
     world: 世界数据结构;
+    playerFactionId?: string;
+    playerSect?: { ID?: string; 名称?: string };
     worldPrompt?: string;
     realmPrompt?: string;
     worldOverview?: 玩家可见世界圣经概览 | null;
@@ -74,7 +78,7 @@ const 势力关系标签样式 = (relation: string): string => 势力图颜色(�
 
 const 势力关系图: React.FC<{ nodes: 势力关系图节点[]; edges: 势力关系图边[] }> = ({ nodes, edges }) => {
     const [筛选色调, 设置筛选色调] = useState<势力关系图边['tone'] | null>(null);
-    if (nodes.length < 2) return null;
+    if (!nodes.length) return null;
     const 可见边 = 筛选色调 ? edges.filter((edge) => edge.tone === 筛选色调) : edges;
     const 切换筛选 = (tone: 势力关系图边['tone']) => 设置筛选色调((prev) => (prev === tone ? null : tone));
     const 图例项: { tone: 势力关系图边['tone']; 文案: string }[] = [
@@ -110,11 +114,13 @@ const 势力关系图: React.FC<{ nodes: 势力关系图节点[]; edges: 势力�
                 {nodes.map((node) => (
                     <div
                         key={node.id}
+                        data-affiliated={node.isPlayerFaction || undefined}
                         className="world-faction-node absolute flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-orange-300/45 bg-[#24160e]/95 px-2 text-center text-xs font-bold leading-4 text-orange-100 shadow-[0_0_24px_rgba(251,146,60,0.18)]"
                         style={{ left: `${node.x}%`, top: `${node.y}%` }}
                         title={node.name}
                     >
                         <span className="line-clamp-2 break-all">{node.name}</span>
+                        {node.isPlayerFaction && <small className="faction-membership">主角所属</small>}
                     </div>
                 ))}
             </div>
@@ -140,6 +146,8 @@ const 势力关系图: React.FC<{ nodes: 势力关系图节点[]; edges: 势力�
 
 const WorldModal: React.FC<Props> = ({
     world,
+    playerFactionId,
+    playerSect,
     worldPrompt = '',
     realmPrompt = '',
     worldOverview = null,
@@ -166,7 +174,7 @@ const WorldModal: React.FC<Props> = ({
     const 势力列表 = Array.isArray(world?.势力列表) ? world.势力列表 : [];
     const 势力互动历史 = Array.isArray(world?.势力互动历史) ? world.势力互动历史 : [];
     const 势力名称索引 = useMemo(() => 构建势力名称索引(势力列表), [势力列表]);
-    const 势力关系图数据 = useMemo(() => 构建势力关系图数据(势力列表), [势力列表]);
+    const 势力关系图数据 = useMemo(() => 构建势力关系图数据(势力列表, playerFactionId, playerSect), [势力列表, playerFactionId, playerSect]);
     const 解析世界显示名 = useMemo(() => 构建世界显示名解析器(势力列表), [势力列表]);
     const 显示关联列表 = (values: unknown): string[] => 清洗数组显示名(values, 解析世界显示名);
     const 显示单名 = (value: unknown, fallback = ''): string => 解析世界显示名(value, fallback);
@@ -224,7 +232,7 @@ const WorldModal: React.FC<Props> = ({
                             </div>
                             <div className="rounded-xl border border-gray-800 bg-black/40 p-4 text-center">
                                 <div className="text-[10px] text-gray-500 tracking-[0.2em]">势力</div>
-                                <div className="mt-2 text-2xl font-mono text-wuxia-cyan">{势力列表.length}</div>
+                                <div className="mt-2 text-2xl font-mono text-wuxia-cyan">{势力关系图数据.nodes.length}</div>
                             </div>
                             <div className="rounded-xl border border-gray-800 bg-black/40 p-4 text-center">
                                 <div className="text-[10px] text-gray-500 tracking-[0.2em]">江湖史册</div>
@@ -319,7 +327,7 @@ const WorldModal: React.FC<Props> = ({
                                                                 <span className="rounded-full border border-wuxia-cyan/30 px-2 py-0.5 text-[10px] text-wuxia-cyan">{act.当前状态}</span>
                                                             </div>
                                                             {act.核心矛盾 && <div className="mt-2 text-xs leading-6 text-gray-300"><span className="text-gray-500">核心局势：</span>{act.核心矛盾}</div>}
-                                                            {act.主角目标与破局路径 && <div className="mt-1 text-xs leading-6 text-gray-300"><span className="text-gray-500">破局方向：</span>{act.主角目标与破局路径}</div>}
+                                                            <ActSolution act={act} />
                                                             {act.关键势力与人物.length > 0 && <div className="mt-2 text-[11px] text-gray-400">牵涉势力/人物：{act.关键势力与人物.join('、')}</div>}
                                                         </div>
                                                     ))}
@@ -330,16 +338,7 @@ const WorldModal: React.FC<Props> = ({
                                         {worldOverview.空间阶梯.length > 0 && (
                                             <section className="rounded-2xl border border-amber-500/20 bg-black/35 p-5">
                                                 <div className="text-sm font-serif font-bold text-amber-300 tracking-[0.22em] mb-4">天地空间阶梯</div>
-                                                <div className="space-y-3">
-                                                    {worldOverview.空间阶梯.map((tier) => (
-                                                        <div key={`tier-${tier.层级序号}`} className="rounded-xl border border-gray-800 bg-black/35 p-4 text-xs leading-6">
-                                                            <div className="font-bold text-amber-200">L{tier.层级序号} · {tier.层级名称}</div>
-                                                            {tier.典型区域.length > 0 && <div className="mt-1 text-gray-400">代表地域：{tier.典型区域.join('、')}</div>}
-                                                            {tier.准入壁垒 && <div className="text-gray-400">准入壁垒：{tier.准入壁垒}</div>}
-                                                            {tier.主要压迫冲突 && <div className="text-gray-300">主导冲突：{tier.主要压迫冲突}</div>}
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                                <WorldTiers tiers={worldOverview.空间阶梯} />
                                             </section>
                                         )}
                                     </div>
@@ -451,9 +450,10 @@ const WorldModal: React.FC<Props> = ({
                                 <section className="rounded-2xl border border-orange-900/30 bg-black/35 p-5">
                                     <div className="mb-4 flex items-center justify-between gap-3">
                                         <div className="text-sm font-serif font-bold text-orange-300 tracking-[0.25em]">江湖势力</div>
-                                        <div className="text-[10px] text-gray-500">共 {势力列表.length} 方</div>
+                                        <div className="text-[10px] text-gray-500">共 {势力关系图数据.nodes.length} 方</div>
                                     </div>
                                     <势力关系图 nodes={势力关系图数据.nodes} edges={势力关系图数据.edges} />
+                                    <FactionReputationChart nodes={势力关系图数据.nodes} />
                                     {势力列表.length > 0 ? (
                                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                             {势力列表.map((faction, idx) => (
@@ -486,7 +486,7 @@ const WorldModal: React.FC<Props> = ({
                                                 </div>
                                             ))}
                                         </div>
-                                    ) : (
+                                    ) : !势力关系图数据.nodes.length && (
                                         <div className="rounded-xl border border-dashed border-gray-800 bg-black/25 px-4 py-10 text-center text-sm text-gray-500">当前尚未显化江湖势力。</div>
                                     )}
                                 </section>

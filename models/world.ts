@@ -48,6 +48,8 @@ export interface 地图层级结构 {
     层级: 地图层级类型;
     描述: string;
     叙事核心?: string;
+    连通房间?: string[]; // 本场所中已经确认有直接通路的房间名称
+    房间格序?: number; // 系统为已发现房间保留的格子序号
     控制势力?: string;
     势力影响?: string;
     势力标签?: string[];
@@ -239,6 +241,7 @@ export interface 势力库藏物品 {
 export interface 势力结构 {
     ID: string;
     名称: string;
+    主角声望?: number; // -100 至 100；缺省表示尚无记录
     类型: 势力类型;
     实力等级: number; // 1-10
     地盘归属: string; // 关联地图层级名称
@@ -248,6 +251,12 @@ export interface 势力结构 {
     库藏物品池: 势力库藏物品[];
     当前状态: string;
 }
+
+export const 读取主角声望 = (value: unknown): number | undefined => {
+    if (typeof value !== 'number' && !(typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.trim()))) return undefined;
+    const score = Number(value);
+    return Number.isFinite(score) ? Math.max(-100, Math.min(100, Math.round(score))) : undefined;
+};
 
 export interface 势力互动事件 {
     ID: string;

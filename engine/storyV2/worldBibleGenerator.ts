@@ -4,6 +4,8 @@ import {
     type DirectorWorldBible
 } from '../../models/directorBible';
 import { 地图层级命名契约, 地图层级命名自检 } from '../../prompts/runtime/mapLayerNaming';
+import { readRoomExits } from '../../utils/roomConnections';
+import { 查找地图分支缺口 } from '../../utils/mapBranchCoverage';
 import { 获取世界锚点难度说明 } from '../../prompts/runtime/worldSetup';
 import { 规范化文本补全消息链, 请求模型文本, type 通用消息 } from '../../services/ai/chatCompletionClient';
 import { 提取首个标签内容 } from '../../services/ai/storyResponseParser';
@@ -92,6 +94,8 @@ const 校验地图树结构 = (mapLayers: 地图层级结构[]): string[] => {
     }
     const levels = new Set(mapLayers.map(node => 地图层级深度[node.层级]));
     if (levels.size !== 6) issues.push('<世界基底>须有从寰宇到子地点的完整六层开局分支');
+    const gaps = 查找地图分支缺口(mapLayers);
+    if (gaps.length) issues.push('大区域缺少可探索分支，请补足每处至少两个直接下级：' + gaps.join('、'));
     return issues;
 };
 
@@ -147,6 +151,7 @@ const 规范化地图节点数组 = (raw: unknown): 地图层级结构[] => {
             父级ID: typeof item.父级ID === 'string' ? item.父级ID.trim() : '',
             描述: typeof item.描述 === 'string' ? item.描述.trim() : '',
             ...(typeof item.叙事核心 === 'string' && item.叙事核心.trim() ? { 叙事核心: item.叙事核心.trim() } : {}),
+            ...(item.层级 === '子地点' && item.连通房间 ? { 连通房间: readRoomExits(item.连通房间) } : {}),
             归属: item.归属 && typeof item.归属 === 'object' ? item.归属 : resolveBelonging(item),
             锚点坐标: item.锚点坐标 || { x, y },
             网格宽度: Number.isFinite(Number(item.网格宽度)) ? Number(item.网格宽度) : r * 2,
@@ -301,6 +306,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         `- 游戏难度：${difficulty.label}（${worldConfig.difficulty || 'normal'}）；${difficulty.资源压力}；${difficulty.失败代价}。`,
         `- 世界规模：${worldConfig.worldSize || '九州宏大'} | 局势：${worldConfig.dynastySetting || '群雄逐鹿，王朝末年'} | 宗门密度：${worldConfig.sectDensity || '林立'} | 天骄氛围：${worldConfig.tianjiaoSetting || '大争之世'}`,
         `- 主角建档：${charData.姓名}（${charData.性别}，${charData.年龄}岁），背景：${charData.出身背景?.名称 || '散修遗孤'}（${charData.出身背景?.描述 || ''}），性格：${charData.性格 || ''}，天赋：${(charData.天赋列表 || []).map((t) => `${t.名称}(${t.描述})`).join('、') || '无'}`,
+        `- 建档门派：${charData.所属门派ID || '未填'}；建档职位：${charData.门派职位 || '未填'}。角色设定或开局要求已明确归属时，将该组织列入既定数量的势力暗账，沿用原名；将具名同门写入对应势力的领袖或核心人物，已登场的同门在核心卡司的身份与势力中写明所属组织和职务。散修不强配门派。`,
         `- ${partnerHint}`,
         worldConfig.worldExtraRequirement ? `- 额外要求：${worldConfig.worldExtraRequirement}` : '',
         extraPrompt ? `\n【题材模式/边界系统补充规范】\n${extraPrompt}` : '',
@@ -313,9 +319,10 @@ export const 生成世界与导演圣经V2 = async (params: {
         '',
         '<世界基底>',
         '输出紧凑合法 JSON，包含：',
-        `- 地图层级：生成 ${地图节点下限}~34 个节点；从唯一寰宇依次下设大地点、中地点、小地点、区地点和子地点，开局所在分支必须包括全部六层。`,
+        `- 地图层级：至少 ${地图节点下限} 个节点；从唯一寰宇依次下设大地点、中地点、小地点、区地点和子地点，开局所在分支必须包括全部六层。逐个铺满大陆与地域的直接下级，然后深入开局场所；按实际分支数量增加节点。`,
         '  其中每个节点字段为 `{ "ID": "DT-001", "名称": "...", "层级": "寰宇|大地点|中地点|小地点|区地点|子地点", "父级ID": "...", "描述": "...", "叙事核心": "仅关键地点填写该处的历史隐患或暗流", "坐标X": 50, "坐标Y": 50, "范围半径": 10 }`。',
         地图层级命名契约,
+        '- 子地点只登记开局已知的房间；只有剧情或设定明确有门、楼梯或直通走廊时，在一端的「连通房间」数组写对端同场所房名，未知空间留待探索。未注明连接的房间不能直接穿行。',
         地图层级命名自检,
         '</世界基底>',
         '',
@@ -359,7 +366,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         '}',
         '',
         '【铁律提醒（数组数量硬下限，少于此数将被判不合格打回重写）】',
-        '- `<世界基底>.地图层级` 必须写满 **24~34 个**完整树状节点（不要偷懒只写几条！）；',
+        '- 世界基底至少 24 个节点，寰宇、大地点、中地点各有至少两个不同的直接下级；不得只用开局路径或房间凑数。',
         '- `宏观分幕大纲` 必须写满 **4 幕**；',
         `- 势力暗账必须生成 **${factionRequirement}**且覆盖地图中不同层级；每个势力须有具名领袖和至少 ${跨势力账目下限} 条跨势力账目。地盘必须逐项写已生成的地图节点名或 ID。`,
         `- \`核心卡司\` 必须写满 **7 名及以上重要 NPC**（绝不要把主角「${charData.姓名}」自己写进核心卡司列表！），跨越高低 1~4 层级，若有初始同伴必须写入并赋予真实的族内隐患/秘密诉求；NPC 的 \`行动倒计时回合\` 控制在 1~4 回合之间，保证第 2~4 回合就能自然产生外溢连锁波及！`,
@@ -500,7 +507,8 @@ export const 从圣经初始化世界势力与社交 = (
         return tier >= 3 ? '宗师境' : (tier === 2 ? '一流高手' : '初入江湖');
     };
     const castAsSocial = bible.核心卡司
-        .filter((c) => c.是否已登场 || partnerNameSet.has(c.姓名))
+        // 建立世界时玩家还没看过开局正文；其他卡司待正文提供公开依据后再建档。
+        .filter((c) => partnerNameSet.has(c.姓名))
         .map((c) => ({
             id: c.id,
             姓名: c.姓名,

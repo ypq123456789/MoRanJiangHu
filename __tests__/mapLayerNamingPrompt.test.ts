@@ -2,8 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { 获取世界观生成系统提示词 } from '../prompts/runtime/worldGeneration';
 import { 世界变量结构参考提示词 } from '../prompts/runtime/worldDataSchema';
 import { 构建地图更新用户提示词 } from '../hooks/useGame/mapUpdateWorkflow';
+import { 地图重生成系统提示词 } from '../prompts/runtime/mapRegenerate';
+import { 地图重生成COT提示词 } from '../prompts/runtime/mapRegenerateCot';
+import { 查找地图分支缺口 } from '../utils/mapBranchCoverage';
 
 describe('地图层级命名提示词', () => {
+    it('重建示例本身具足分支，系统规则和思考自检都保留异地同名地点', () => {
+        const sample = 地图重生成系统提示词.match(/\{\s*"地点树"[\s\S]*?\n\}/u)![0];
+        expect(查找地图分支缺口(JSON.parse(sample).地点树)).toEqual([]);
+        for (const prompt of [地图重生成系统提示词, 地图重生成COT提示词]) {
+            expect(prompt).toContain('异地同名');
+            expect(prompt).toContain('父级ID');
+            expect(prompt).not.toMatch(/确保每个节点名称唯一|不允许出现重名节点|如果有，必须合并为一条/u);
+        }
+    });
     it('世界基底生成阶段就要求城镇用真实地名、据点归入场所层', () => {
         const prompt = 获取世界观生成系统提示词({ 生成世界基底: true } as any, null);
         expect(prompt).toContain('【地图层级与名称必须严格对应（硬性规则）】');

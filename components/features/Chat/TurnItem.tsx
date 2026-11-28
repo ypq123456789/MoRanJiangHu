@@ -4,7 +4,8 @@ import { NarratorRenderer, CharacterRenderer, JudgmentRenderer, RewardRenderer, 
 import type { 酒馆沙箱动作 } from '../../../models/system';
 import GameButton from '../../ui/GameButton';
 import { 构建区域文字样式 } from '../../../utils/visualSettings';
-import { 规范化可渲染对白日志 } from '../../../utils/dialogueLogNormalizer';
+import { 剥离外层引号, 规范化可渲染对白日志 } from '../../../utils/dialogueLogNormalizer';
+import { 规范化正文发送者名 } from '../../../utils/dialogueSpeakerGuard';
 import { 提取并清理Judge区块 } from '../../../utils/judgeBlockExtractor';
 import { 拆分判定日志与后续正文, 提取判定日志前缀, 是否判定日志文本 } from '../../../utils/judgmentFormat';
 
@@ -49,25 +50,25 @@ const 提取正文标签内容 = (raw?: string): string => {
     return (match?.[1] || '').trim();
 };
 
-const 提取原始回复正文片段 = (raw?: string): string[] => {
+type 原文片段 = { raw: string; text: string; sender: string };
+
+const 标签片段 = (raw: string): 原文片段 => {
+    const tag = raw.match(/^(?:【\s*([^】]+?)\s*】|\[\s*([^\]]+?)\s*\])/u);
+    return { raw, text: raw.slice(tag?.[0].length || 0), sender: 规范化正文发送者名(tag?.[1] || tag?.[2] || '') };
+};
+
+const 提取原始回复正文片段 = (raw?: string): 原文片段[] => {
     const source = typeof raw === 'string' ? raw.trim() : '';
     if (!source) return [];
     try {
         const parsed = JSON.parse(source);
         if (Array.isArray(parsed?.logs)) {
             return parsed.logs
-                .map((item: any) => {
-                    if (typeof item === 'string') return item.trim();
-                    if (item && typeof item === 'object') {
-                        try {
-                            return JSON.stringify(item, null, 2);
-                        } catch {
-                            return `${item.sender || '旁白'}：${item.text || ''}`.trim();
-                        }
-                    }
-                    return '';
-                })
-                .filter(Boolean);
+                .flatMap((item: Partial<GameLog> | string | null) => {
+                    if (typeof item === 'string' && item.trim()) return [标签片段(item.trim())];
+                    if (!item || typeof item !== 'object') return [];
+                    return [{ raw: JSON.stringify(item, null, 2), text: String(item.text ?? ''), sender: 规范化正文发送者名(String(item.sender ?? '')) }];
+                });
         }
     } catch {
         // 标签协议原文会走下面的正文块拆分。
@@ -87,7 +88,41 @@ const 提取原始回复正文片段 = (raw?: string): string[] => {
             snippets[snippets.length - 1] = `${snippets[snippets.length - 1]}\n${trimmed}`;
         }
     }
-    return snippets;
+    return snippets.map(标签片段);
+};
+
+const 关联原始片段 = (logs: GameLog[], sources: 原文片段[]): GameLog[] => {
+    let sourceIndex = 0;
+    let offset = 0;
+    return logs.map((log, index) => {
+        const snippets = new Set<string>();
+        const sender = 规范化正文发送者名(log.sender);
+        for (const line of String(log.text || '').split('\n')) {
+            const words = 剥离外层引号(line);
+            if (!words) continue;
+            const narrator = sender === '旁白';
+            for (let i = sourceIndex; i < sources.length; i++) {
+                const source = sources[i];
+                if (!narrator && source.sender !== '旁白' && source.sender !== sender) continue;
+                const from = i === sourceIndex ? offset : 0;
+                let phrase = words;
+                let at = source.text.indexOf(phrase, from);
+                // 挂在角色标签下的动作转为旁白时会补回主语。
+                if (at < 0 && narrator && source.sender && words.startsWith(source.sender)) {
+                    phrase = words.slice(source.sender.length);
+                    at = phrase ? source.text.indexOf(phrase, from) : -1;
+                }
+                if (at < 0) continue;
+                snippets.add(source.raw);
+                sourceIndex = i;
+                offset = at + phrase.length;
+                break;
+            }
+        }
+        if (log.rawText) return log;
+        const positional = sources.length === logs.length ? sources[index]?.raw : '';
+        return { ...log, rawText: [...snippets].join('\n') || positional || 格式化日志原始片段(log) };
+    });
 };
 
 const TurnItem: React.FC<Props> = ({
@@ -215,13 +250,7 @@ const TurnItem: React.FC<Props> = ({
         () => (使用整回合原始片段映射 ? 提取原始回复正文片段(rawJson) : []),
         [rawJson, 使用整回合原始片段映射]
     );
-    const 当前正文日志带原始片段 = 当前正文日志.map((log, index) => ({
-        ...log,
-        rawText: 格式化日志原始片段({
-            ...log,
-            rawText: (log as any)?.rawText || 原始回复正文片段[index]
-        })
-    }));
+    const 当前正文日志带原始片段 = 关联原始片段(当前正文日志, 原始回复正文片段);
     const displayLogs = 规范化可渲染对白日志(当前正文日志带原始片段
         .filter(log => !isDisclaimerLog(log))
         .map((log) => ({

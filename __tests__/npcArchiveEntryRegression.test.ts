@@ -163,6 +163,16 @@ describe('缺陷二：新档开局 AI 用代称命名的新角色必须入档', 
 });
 
 describe('稳定 ID 补写：大小写字段与残留占位 ID', () => {
+    it('同一轮命令加入哈希冲突的姓名也能分别定位，读档后沿用原 ID', () => {
+        const names = ['王娜晧', '王娟昊'];
+        const state = 执行响应命令处理({
+            logs: names.map(sender => ({ sender, text: '我到了。' })),
+            tavern_commands: names.map(姓名 => ({ action: 'push' as const, key: '社交', value: 新NPC值(姓名) }))
+        }, 构建基础状态(), deps);
+        expect(state.社交.map(npc => npc.姓名)).toEqual(names);
+        expect(new Set(state.社交.map(npc => npc.id)).size).toBe(2);
+        expect(规范化社交列表(state.社交).map(npc => npc.id)).toEqual(state.社交.map(npc => npc.id));
+    });
     const 跑 = (value: Record<string, any>) => 执行响应命令处理({
         logs: [{ sender: '旁白', text: '青衣女子立在檐下。' }],
         tavern_commands: [{ action: 'push', key: 'gameState.社交', value: 新NPC值('青衣女子', value) }]

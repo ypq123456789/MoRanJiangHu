@@ -20,6 +20,7 @@ import { 提取叙事约束块 } from '../../utils/narrativeConstraint';
 import { 按功能开关过滤提示词内容 } from '../../utils/promptFeatureToggles';
 import { 读取伙伴列表 } from '../../utils/openingCompanion';
 import { 正文字数差距在容错内 } from '../../utils/bodyLengthTolerance';
+import { 门派研习标记 } from '../../utils/sectLibrary';
 import { 过滤非场景世界书, 构建2_0写作规则池, 净化2_0酒馆预设 } from './promptFiltering';
 import { 构建本回合导演简报, type SceneBriefOutput } from './sceneBriefBuilder';
 import type { StoryV2Config, StoryV2EngineState } from './types';
@@ -41,6 +42,7 @@ const 构建V2演出协议 = (requireActionOptions: boolean): string => [
     '   - 埋伏笔时只展现自然可感的“表面载体细节”，绝对禁止旁白科普底层真相。',
     '3. 不写低价值重复劳动（砍柴/推车/重复擦汗），每次交锋都要推进真实利害、交换筹码或显露新裂痕；同时严禁替玩家主动做重大决定或输出 `<变量规划>`/`<剧情规划>`。',
     '4. 严格标签规范：',
+    '   - 【角色名】行只写角色亲口说出的台词。台词前后或中途的动作、语气、神态和心理都按原顺序另起【旁白】行，用角色姓名交代动作；角色沉默时整段只写【旁白】。',
     requireActionOptions
         ? '   - 顶层标签：`<thinking>...</thinking>` -> `<正文>...</正文>` -> `<短期记忆>...</短期记忆>` -> `<行动选项>...</行动选项>`；'
         : '   - 顶层标签：`<thinking>...</thinking>` -> `<正文>...</正文>` -> `<短期记忆>...</短期记忆>`（本次关闭了行动选项，严禁输出 `<行动选项>` 标签！）；',
@@ -404,7 +406,12 @@ export const 渲染主剧情回合V2 = async (
     const { apiConfig, openingConfig } = config;
     const gameConfig = 净化2_0酒馆预设(config.gameConfig);
     const requireActionOptions = gameConfig.启用行动选项 !== false;
-    const storyContract = 构建V2演出协议(requireActionOptions);
+    const storyContract = [
+        构建V2演出协议(requireActionOptions),
+        playerInput.split('\n').some(line => line.trimStart().startsWith(门派研习标记))
+            ? '【门派研习结算】按玩家本回合实际申请的典籍与要求裁定成败。若正文明确写到学成，另在正文外的 <命令> 块用 push 角色.功法列表 登记初学功法对象，写明名称、类型、品质、来源藏经ID与当前重数。未学成或中途放弃时不登记。累计贡献门槛不扣除。'
+            : ''
+    ].filter(Boolean).join('\n');
     const { directorBible: _omitBible, ...safeState } = state;
     const presentNpcNames = (state.社交 || []).filter((n) => n?.是否在场 !== false).map((n) => n?.姓名).filter(Boolean);
     const firstEnabledPartner = 读取伙伴列表(openingConfig)[0]?.name;

@@ -36,12 +36,24 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
         expect(过滤并精简V2行动选项(['A.[视角切换] 转场', 'B.看账本'])).toEqual(['A.看账本']);
     });
 
-    const renderTurn = (gameConfig: any, minBodyLength = 0) => 渲染主剧情回合V2({
+    const renderTurn = (gameConfig: any, minBodyLength = 0, playerInput = '检视票据') => 渲染主剧情回合V2({
         turnIndex: 1, gameInitialTime: '1:01:01:08:00', directorBible: 创建空白导演圣经(), 世界: {}, 剧情: {}, 社交: [],
         角色: { 姓名: '渡客' }, 环境: {}, 记忆系统: { 回忆档案: [], 即时记忆: [], 短期记忆: [], 中期记忆: [], 长期记忆: [] },
         历史记录: [], 任务列表: [], 世界大事: []
     } as any, { gameConfig: { ...默认游戏设置, ...gameConfig }, openingConfig: {}, worldConfig: { worldName: '九州' },
-        apiConfig: { id: 'main', model: 'test' } } as any, '检视票据', { stream: false, minBodyLength });
+        apiConfig: { id: 'main', model: 'test' } } as any, playerInput, { stream: false, minBodyLength });
+
+    it('门派研习时只登记模型确认习得的典籍', async () => {
+        const request = vi.mocked(chatClient.请求模型文本);
+        const opening = '<正文>【旁白】你习得了引泉诀。</正文><短期记忆>习得引泉诀。</短期记忆>';
+        request.mockResolvedValueOnce(opening + '<命令>push 角色.功法列表 = {"名称":"引泉诀","来源藏经ID":"b1"}</命令>');
+        const success = await renderTurn({ 启用行动选项: false }, 0, '【门派研习】我申请研习《引泉诀》。');
+        expect(request.mock.calls[0][1].at(-1)?.content).toContain('门派研习结算');
+        expect(success.response.tavern_commands).toContainEqual({ action: 'push', key: '角色.功法列表', value: { 名称: '引泉诀', 来源藏经ID: 'b1' } });
+        request.mockResolvedValueOnce('<正文>【旁白】师兄认为火候未到。</正文><短期记忆>暂未学成。</短期记忆>');
+        const attempt = await renderTurn({ 启用行动选项: false }, 0, '【门派研习】我申请研习《引泉诀》。');
+        expect(attempt.response.tavern_commands || []).toHaveLength(0);
+    });
 
     it('V2 解析保留旧酒馆的清理脚本和分支选项', async () => {
         const preset = { extensions: { regex_scripts: [{ id: 'clean', scriptName: '正文清理', findRegex: '/旧暗号/g', replaceString: '新暗号', placement: [2], markdownOnly: true }] } };
@@ -65,9 +77,12 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
     const worldFixture = () => {
         const world = '码头盐路贯通南北，过河商旅须先持引到渡口登记。'.repeat(12);
         const tiers = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'];
-        const nodes = Array.from({ length: 24 }, (_, i) => ({
-            ID: String(i), 名称: `地点${i}`, 层级: tiers[Math.min(i, 5)], 父级ID: i ? String(Math.min(i - 1, 4)) : ''
-        }));
+        const parents = [-1, 0, 1, 2, 3, 4, 0, 1, 6, 6, 2, 7, 7, 8, 8, 9, 9, 3, 10, 11, 12, 13, 14, 15];
+        const depths: number[] = [];
+        const nodes = parents.map((parent, i) => {
+            depths[i] = parent < 0 ? 0 : depths[parent] + 1;
+            return { ID: String(i), 名称: `地点${i}`, 层级: tiers[depths[i]], 父级ID: parent < 0 ? '' : String(parent) };
+        });
         const bible = {
             世界观表层摘要: '官盐漕运贯通九州，各郡凭路引出入。',
             顶层隐秘秩序: '六家盐商凭旧契与转运司一同控制沿岸的渡引。',
@@ -85,6 +100,18 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
     const makeRequest = (worldConfig: { factionCount?: number; difficulty?: string } = {}) => 生成世界与导演圣经V2({
         worldConfig: { worldName: '九州', ...worldConfig }, charData: { 姓名: '渡客' } as any,
         apiConfig: { model: 'fixture-model' } as any, openingConfig: {} as any, stream: false
+    });
+
+    it('给导演提供建档门派与职位，世界和成员档案沿用同一组织', async () => {
+        const { world, nodes, bible } = worldFixture();
+        const requests = vi.mocked(chatClient.请求模型文本).mockResolvedValue(
+            '<世界观>' + world + '</世界观><世界基底>' + JSON.stringify({ 地图层级: nodes }) + '</世界基底><导演圣经>' + JSON.stringify(bible) + '</导演圣经>'
+        );
+        await 生成世界与导演圣经V2({ worldConfig: { worldName: '九州' }, charData: { 姓名: '渡客', 所属门派ID: '青崖真宫', 门派职位: '杂役弟子' } as any,
+            apiConfig: { model: 'fixture-model' } as any, openingConfig: {} as any, stream: false });
+        const prompt = requests.mock.calls[0][1].at(-1)?.content || '';
+        expect(prompt).toContain('青崖真宫');
+        expect(prompt).toContain('杂役弟子');
     });
 
     it('势力账本遵循显式数量，首次与补写提示都采用玩家难度、数量', async () => {
@@ -116,6 +143,21 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
         expect(result.directorBible.势力暗账[0].地盘).toEqual(['新盐口']);
         expect(requests.mock.calls[2][1].at(-1)?.content).toContain('地点1');
         expect(result.mapLayers.some(n => n.层级 === '子地点')).toBe(true);
+    });
+
+    it('开局地图节点数达标时仍逐大陆和地域检查分支，并定向补足', async () => {
+        const { world, nodes, bible } = worldFixture();
+        const sparse = nodes.map(n => n.ID === '8' || n.ID === '9' ? { ...n, 父级ID: '1' } :
+            n.ID === '10' ? { ...n, 父级ID: '7' } : n);
+        const requests = vi.mocked(chatClient.请求模型文本)
+            .mockResolvedValueOnce(`<世界观>${world}</世界观><世界基底>${JSON.stringify({ 地图层级: sparse })}</世界基底><导演圣经>${JSON.stringify(bible)}</导演圣经>`)
+            .mockResolvedValueOnce(`<世界基底>${JSON.stringify({ 地图层级: nodes })}</世界基底>`);
+        const result = await makeRequest();
+        expect(requests).toHaveBeenCalledTimes(2);
+        const repair = requests.mock.calls[1][1].at(-1)?.content;
+        expect(repair).toContain('地点6');
+        expect(repair).toContain('地点2');
+        expect(result.mapLayers.filter(n => n.父级ID === '6')).toHaveLength(2);
     });
 
     it('世界观在补写中变长且圣经未提供摘要时，从最终采用的正文生成摘要', async () => {
@@ -359,6 +401,15 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
         vi.mocked(chatClient.请求模型文本).mockResolvedValueOnce(
             '<导演更新JSON>' + JSON.stringify({
                 环境变更: { 推进分钟数: 20, 小地点: '临安西市客栈', 具体地点: '临安西市客栈' },
+                势力声望更新: [
+                    { 势力ID: 'F1', 主角声望: 27, 依据: '漕帮将沈砚列为座上宾' },
+                    { 势力ID: 'F2', 主角声望: -49, 依据: '正文从未提到的风声' },
+                    { 势力ID: 'F3', 主角声望: 101, 依据: '漕帮将沈砚列为座上宾' },
+                    { 势力ID: 'F4', 主角声望: 80, 依据: '漕帮将沈砚列为座上宾' }
+                ],
+                已知局外人物: [{ 姓名: '何掌柜', 依据: '何掌柜派人去巡防营讨债。', 身份: '幕后掌印使' }],
+                社交人物更新: [{ 姓名: '顾斩潮', 是否在场: false, 身份: '未公开的暗卫' }, { 姓名: '藏锋客', 是否在场: true },
+                    { 姓名: '顾霜晚', 是否在场: true, 身份: '持令使者' }, { 姓名: '赵明川', 是否在场: true, 身份: '账房' }],
                 伏笔迁移: [
                     { id: 'FS-1', nextStatus: '已埋设', 落点描述: '试图倒退回已埋设' },
                     { id: 'FS-2', nextStatus: '已回收', 落点描述: '船夫当众露出朱砂印身份' },
@@ -386,8 +437,8 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
                 directorBible: bible,
                 角色: { 姓名: '沈砚', 当前血量: 100, 最大血量: 100 } as any,
                 环境: { 时间: '1:01:01:08:00', 年份: 1, 月份: 1, 日期: 1, 小时: 8, 分钟: 0, 季节: '春', 天气: '小雨', 大地点: '临安', 中地点: '西市', 小地点: '客栈', 区地点: '', 子地点: '', 具体地点: '临安西市客栈' } as any,
-                社交: [],
-                世界: { 地图层级: [], 势力列表: [], 江湖史册: [], 进行中事件: [] } as any,
+                社交: [{ id: 'NPC-002', 姓名: '周衡', 是否在场: false } as any],
+                世界: { 地图层级: [], 势力列表: [{ ID: 'F1', 名称: '漕帮' }, { ID: 'F2', 名称: '商会', 主角声望: 0 }, { ID: 'F3', 名称: '伏龙山' }], 江湖史册: [], 进行中事件: [] } as any,
                 剧情: { 当前章节: { 标题: '第一章', 原文内容: '', 当前分解组: 1 }, 历史卷宗: [] } as any,
                 剧情规划: { 近期剧情规划: [], 中期剧情规划: [], 长期剧情规划: [], 跨章延续事项: [] } as any,
                 记忆系统: { 回忆档案: [], 即时记忆: [], 短期记忆: [], 中期记忆: [], 长期记忆: [] },
@@ -396,7 +447,11 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
                 世界大事: []
             },
             apiConfig: { id: 'dir', 名称: '测试', 供应商: 'openai_compatible', baseUrl: 'https://example.test/v1', apiKey: 'k', model: 'm' } as any,
-            storyResponse: { logs: [{ sender: '旁白', text: '雨点砸在窗纸上，远处传来锣声。' }], shortTerm: '沈砚在客栈歇脚。', tavern_commands: [] },
+            storyResponse: { logs: [
+                { sender: '旁白', text: '雨点砸在窗纸上，远处传来锣声。漕帮将沈砚列为座上宾。顾斩潮下令封锁渡口。何掌柜派人去巡防营讨债。' },
+                { sender: '沈砚', text: '张掌柜派人追缴上月的欠款。' },
+                { sender: '旁白', text: '顾霜晚递给你一枚铜令。赵明川数着桌上的钱。' }
+            ], shortTerm: '沈砚在客栈歇脚。', tavern_commands: [] },
             stream: false,
             playerInput: '推开窗看楼下动静'
         });
@@ -404,6 +459,16 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
         const fs1 = res.nextState.directorBible.伏笔台账.find((f) => f.id === 'FS-1');
         const fs2 = res.nextState.directorBible.伏笔台账.find((f) => f.id === 'FS-2');
         expect(vi.mocked(chatClient.请求模型文本).mock.lastCall?.[2]?.streamOptions?.stream).toBe(false);
+        expect(vi.mocked(chatClient.请求模型文本).mock.lastCall?.[1].map(message => message.content).join('')).toContain('势力声望更新');
+        expect(res.nextState.世界.势力列表.map(faction => [faction.ID, faction.主角声望])).toEqual([['F1', 27], ['F2', 0], ['F3', undefined]]);
+        expect(res.nextState.社交.map(npc => npc.姓名).sort()).toEqual(['周衡', '顾斩潮', '何掌柜', '张掌柜', '顾霜晚', '赵明川'].sort());
+        expect(res.nextState.社交.find(npc => npc.姓名 === '周衡')?.id).toBe('NPC-002');
+        expect(new Set(res.nextState.社交.map(npc => npc.id)).size).toBe(res.nextState.社交.length);
+        expect(res.nextState.社交.find(npc => npc.姓名 === '张掌柜')?.简介).toContain('沈砚提到');
+        expect(res.nextState.社交.filter(npc => npc.是否在场).map(npc => npc.姓名).sort()).toEqual(['顾霜晚', '赵明川'].sort());
+        expect(res.nextState.社交.every(npc => !npc.是否队友)).toBe(true);
+        expect(JSON.stringify(res.nextState.社交)).not.toMatch(/未公开的暗卫|幕后掌印使/);
+        expect(res.nextState.directorBible.核心卡司.find(c => c.姓名 === '顾斩潮')?.是否已登场).toBe(false);
         expect(res.nextState.directorBible.当前幕次).toBe(2);
         expect(res.nextState.directorBible.伏笔台账.find(f => f.id === 'FS-004')?.状态).toBe('已回收');
         expect(res.nextState.directorBible.伏笔台账.find(f => f.表面载体 === '铜模')?.id).toBe('FS-005');

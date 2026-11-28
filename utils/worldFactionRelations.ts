@@ -1,3 +1,6 @@
+import { 读取主角声望 } from '../models/world';
+import { 是否无门派标识 } from '../models/sect';
+
 export type 势力关系边 = {
     sourceId: string;
     sourceName: string;
@@ -14,6 +17,8 @@ export type 势力关系图节点 = {
     scope: string;
     x: number;
     y: number;
+    reputation?: number;
+    isPlayerFaction?: boolean;
 };
 
 export type 势力关系图边 = 势力关系边 & {
@@ -181,7 +186,7 @@ export const 归类势力关系色调 = (relation: string): 势力关系色调 =
     return 'neutral';
 };
 
-export const 构建势力关系图数据 = (factions: unknown): {
+export const 构建势力关系图数据 = (factions: unknown, playerFactionId?: string, playerSect?: { ID?: string; 名称?: string }): {
     nodes: 势力关系图节点[];
     edges: 势力关系图边[];
 } => {
@@ -197,11 +202,22 @@ export const 构建势力关系图数据 = (factions: unknown): {
                 id,
                 name,
                 scope,
+                reputation: 读取主角声望(record.主角声望),
                 x: 50,
                 y: 50
             };
         })
         .filter(Boolean) as 势力关系图节点[];
+    const membershipKeys = [playerFactionId, playerSect?.ID, playerSect?.名称].map(取文本).filter(key => !是否无门派标识(key));
+    if (membershipKeys.length) {
+        const affiliated = membershipKeys.map(key => rawNodes.find(node => node.id === key)).find(Boolean)
+            || membershipKeys.map(key => rawNodes.filter(node => node.name === key)).find(matches => matches.length === 1)?.[0];
+        if (affiliated) affiliated.isPlayerFaction = true;
+        else {
+            const name = [playerSect?.名称, ...membershipKeys].map(取文本).find(key => !是否无门派标识(key) && !是内部ID(key));
+            rawNodes.push({ id: membershipKeys[0], name: name || '所属势力', scope: '未分域', isPlayerFaction: true, x: 50, y: 50 });
+        }
+    }
     const scopeNames = Array.from(new Set(rawNodes.map(node => node.scope)));
     const scopeCenters = new Map<string, { x: number; y: number }>();
     scopeNames.forEach((scope, index) => {
@@ -222,6 +238,7 @@ export const 构建势力关系图数据 = (factions: unknown): {
         const index = sameScope.findIndex(item => item.id === node.id);
         const center = scopeCenters.get(node.scope) || { x: 50, y: 50 };
         const total = Math.max(sameScope.length, 1);
+        if (total === 1) return { ...node, x: center.x, y: center.y };
         const angle = (Math.PI * 2 * index / total) - Math.PI / 2;
         const radius = scopeNames.length === 1
             ? (total <= 2 ? 26 : total <= 8 ? 34 : 39)

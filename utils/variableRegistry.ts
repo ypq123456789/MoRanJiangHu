@@ -273,6 +273,7 @@ export const 构建变量路径登记提示 = (stateLike: Record<string, any>): 
         '- 下面是当前存档允许变量模型直接写入的路径索引；不要自造根路径、分类名或字段名。',
         '- `set/add/delete` 只能写入登记表中已存在的路径；数组新增请对登记表中的数组路径使用 `push`。',
         '- 若必须新增人物、任务、约定等条目，请 `push` 到对应数组；条目内部字段应沿用同类条目的既有字段。',
+        '- 已有势力可首次 set 世界.势力列表[i].主角声望，填写有剧情依据的当前声望整数（-100 至 100）。',
         '- `社交` 是长期 NPC 档案，只能补字段或新增人物；不要 `delete 社交`、`delete 社交[i]`、`set 社交 = [...]` 或 `set 社交[i] = {...}`。',
         '- 不在登记表中的字段视为未登记变量，本回合不要写入。',
         '',
@@ -304,6 +305,12 @@ export const 校验变量命令是否登记 = (
     }
 
     const read = 读取路径值(rootValue, tokens);
+    if (parsed.root === '世界' && tokens.length === 3 && tokens[0] === '势力列表' && tokens[2] === '主角声望') {
+        const index = tokens[1];
+        if (typeof index !== 'number' || !rootValue.势力列表?.[index]) return { allowed: false, normalizedKey, reason: '势力不存在' };
+        if (cmd.action === 'set' && Number.isInteger(cmd.value) && Math.abs(cmd.value as number) <= 100) return { allowed: true, normalizedKey };
+        if (cmd.action !== 'delete') return { allowed: false, normalizedKey, reason: '请写入 -100 至 100 的声望终值' };
+    }
     if (read.exists) {
         if (cmd.action === 'push' && !Array.isArray(read.value)) {
             return { allowed: false, normalizedKey, reason: 'push 目标不是数组' };

@@ -51,7 +51,9 @@ import { 提取玩家可见世界圣经概览 } from './engine/storyV2/legacySav
 import './services/diagnosticLog';
 import type { 物品生图结果 } from './types';
 import type { 游戏物品, 物品类型, 物品品质 } from './models/item';
-import type { 功法结构, 功法类型, 功法品质, 消耗类型, 伤害类型, 目标类型 } from './models/kungfu';
+import { 已习得门派藏经, 获取门派所在状态, 构建门派研习行动 } from './utils/sectLibrary';
+import { 查找记录对应NPC } from './utils/npcNarrativeName';
+import type { 门派藏经 } from './models/sect';
 
 const RELEASE_NOTES_SUPPRESS_DATE_KEY = 'moranjianghu.releaseNotesSuppressDate';
 const WORKSHOP_OPEN_QUERY_PARAM = 'open';
@@ -1914,17 +1916,7 @@ const App: React.FC = () => {
             record?.名称,
         ].map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
         if (candidateTexts.length === 0) return;
-        const normalized = (value: string) => value.replace(/\s+/g, '').toLowerCase();
-        const npc = (Array.isArray(state.社交) ? state.社交 : []).find((item: any) => {
-            const npcTexts = [item?.id, item?.ID, item?.姓名, item?.名称]
-                .map((value) => (typeof value === 'string' ? value.trim() : ''))
-                .filter(Boolean);
-            return candidateTexts.some((candidate) => npcTexts.some((npcText) => (
-                normalized(candidate) === normalized(npcText)
-                || normalized(candidate).includes(normalized(npcText))
-                || normalized(npcText).includes(normalized(candidate))
-            )));
-        });
+        const npc = 查找记录对应NPC(candidateTexts, Array.isArray(state.社交) ? state.社交 : []);
         closeAllPanels();
         setSelectedSocialNpcId(npc?.id || null);
         setters.setShowSocial(true);
@@ -1957,14 +1949,17 @@ const App: React.FC = () => {
         closeAllPanels();
         setters.setShowSect(true);
     }, [closeAllPanels, setters]);
-    const learnedSectBookIds = React.useMemo(() => {
-        const currentSkills = Array.isArray(state.角色?.功法列表) ? state.角色.功法列表 : [];
-        return currentSkills
-            .map((skill: any) => String(skill?.来源藏经ID || '').trim())
-            .filter(Boolean);
-    }, [state.角色?.功法列表]);
+    const sectLocation = React.useMemo(() => state.showSect
+        ? 获取门派所在状态(state.玩家门派, state.环境, state.世界)
+        : '未知', [state.showSect, state.玩家门派, state.环境, state.世界]);
+    const learnedSectBookIds = React.useMemo(() => (state.玩家门派?.藏经阁列表 || [])
+        .filter(book => 已习得门派藏经(state.角色?.功法列表, book))
+        .map(book => book.id), [state.玩家门派?.藏经阁列表, state.角色?.功法列表]);
     const [chatDraftRequest, setChatDraftRequest] = React.useState<{ text: string; token: number } | null>(null);
     const chatDraftTokenRef = React.useRef(0);
+    const clearAppliedDraft = React.useCallback((token: number) => {
+        setChatDraftRequest(current => current?.token === token ? null : current);
+    }, []);
     const insertChatDraft = React.useCallback((text: string) => {
         const draft = String(text || '').trim();
         if (!draft) return;
@@ -2001,58 +1996,13 @@ const App: React.FC = () => {
         }
     }, [insertChatDraft]);
 
-    const handleLearnSectBook = React.useCallback((book: any) => {
-        if (!book?.id) return;
-        const currentSkills = Array.isArray(state.角色?.功法列表) ? state.角色.功法列表 : [];
-        if (currentSkills.some((skill: any) => skill?.来源藏经ID === book.id || skill?.ID === `sect_${book.id}` || skill?.名称 === book.名称)) {
-            actions.pushNotification({ title: '已学过', message: `「${book.名称 || '此典籍'}」已经在功法列表中。`, tone: 'info' });
-            return;
-        }
-        const typeMap: Record<string, 功法类型> = { 功法: '绝技', 剑法: '绝技', 刀法: '绝技', 拳法: '绝技', 身法: '轻功', 心法: '内功', 杂学: '被动' };
-        const bookName = String(book.名称 || '');
-        const inferredType = bookName.includes('剑') ? '剑法' : book.类型;
-        const quality = ['凡品', '良品', '上品', '极品', '绝世', '传说'].includes(book.品阶) ? book.品阶 : '凡品';
-        const learnedSkill = {
-            ID: `sect_${book.id}`,
-            来源藏经ID: book.id,
-            名称: book.名称 || '未命名典籍',
-            描述: book.简介 || '藏经阁所藏典籍。',
-            类型: (typeMap[inferredType] || '绝技') as 功法类型,
-            品质: quality as 功法品质,
-            来源: `${state.玩家门派?.名称 || '门派'}藏经阁`,
-            当前重数: 1,
-            最高重数: 10,
-            当前熟练度: 0,
-            升级经验: 100,
-            突破条件: '勤修不辍，实战参悟',
-            境界限制: book.要求职位 || '无',
-            大成方向: '稳固根基',
-            圆满效果: `${book.名称 || '此典籍'}圆满后可强化对应武学表现。`,
-            武器限制: [],
-            消耗类型: (inferredType === '心法' ? '内力' : '精力') as 消耗类型,
-            消耗数值: 0,
-            施展耗时: '1息',
-            冷却时间: '0息',
-            基础伤害: 0,
-            加成属性: inferredType === '身法' ? '敏捷' : inferredType === '心法' ? '根骨' : '力量',
-            加成系数: 0,
-            内力系数: inferredType === '心法' ? 1 : 0,
-            伤害类型: (inferredType === '心法' ? '内功' : '物理') as 伤害类型,
-            目标类型: '自身' as 目标类型,
-            最大目标数: 1,
-            重数描述映射: [{ 重数: 1, 描述: book.简介 || '初窥门径。' }],
-            附带效果: [],
-            被动修正: [],
-            境界特效: []
-        };
-        const nextCharacter = {
-            ...state.角色,
-            功法列表: [learnedSkill, ...currentSkills]
-        };
-        setters.setCharacter(nextCharacter as any);
-        void actions.performAutoSave?.({ role: nextCharacter, force: true });
-        actions.pushNotification({ title: `${题材界面文案.组织.能力库}${题材界面文案.组织.学习动作}成功`, message: `已${题材界面文案.组织.学习动作}「${learnedSkill.名称}」，可在${功法显示名称}页查看。`, tone: 'success' });
-    }, [actions, setters, state.玩家门派?.名称, state.角色, 题材界面文案.组织.能力库, 题材界面文案.组织.学习动作, 功法显示名称]);
+    const handleLearnSectBook = React.useCallback((book: 门派藏经) => {
+        const sect = state.玩家门派;
+        if (sectLocation !== '门内' || !sect?.藏经阁列表?.some(entry => entry.id === book.id)) return;
+        if (已习得门派藏经(state.角色?.功法列表, book)) return;
+        insertChatDraft(构建门派研习行动(sect, book));
+        setters.setShowSect(false);
+    }, [sectLocation, state.玩家门派, state.角色?.功法列表, insertChatDraft, setters]);
     const handleSectExchange = React.useCallback((goodId: string, price: number) => {
         const sect = state.玩家门派;
         if (!sect) return;
@@ -3286,9 +3236,11 @@ const App: React.FC = () => {
                                      openingVariableGenerationProgress={meta.openingVariableGenerationProgress}
                                      openingPolishProgress={meta.openingPolishProgress}
                                      openingMainStoryProgress={meta.openingMainStoryProgress}
+                                     openingDirectorProgress={meta.openingDirectorProgress}
                                      openingMapUpdateProgress={meta.openingMapUpdateProgress}
                                      mainStoryModelInfo={mainStoryApiInfo}
                                      externalDraft={chatDraftRequest}
+                                     onExternalDraftApplied={clearAppliedDraft}
                                      options={currentOptions}
                                      isStreamingDefault={!(state.gameConfig?.启用非流式输出 || state.apiConfig?.功能模型占位?.主剧情非流式输出)}
                                      stageStreamMode={{
@@ -4306,6 +4258,8 @@ const App: React.FC = () => {
                             {isMobile ? (
                                 <MobileWorldModal
                                     world={state.世界}
+                                    playerFactionId={state.角色?.所属门派ID}
+                                    playerSect={state.玩家门派}
                                     worldPrompt={currentWorldPrompt}
                                     realmPrompt={启用修炼体系 ? currentRealmPrompt : ''}
                                     worldOverview={currentWorldOverview}
@@ -4321,6 +4275,8 @@ const App: React.FC = () => {
                             ) : (
                                 <WorldModal
                                     world={state.世界}
+                                    playerFactionId={state.角色?.所属门派ID}
+                                    playerSect={state.玩家门派}
                                     worldPrompt={currentWorldPrompt}
                                     realmPrompt={启用修炼体系 ? currentRealmPrompt : ''}
                                     worldOverview={currentWorldOverview}
@@ -4386,9 +4342,12 @@ const App: React.FC = () => {
                                     onLearnBook={handleLearnSectBook}
                                     onClaimMonthlyStipend={handleClaimMonthlyStipend}
                                     onExchange={handleSectExchange}
+                                    sectLocation={sectLocation}
                                     learnedBookIds={learnedSectBookIds}
                                     onClose={() => setters.setShowSect(false)}
                                     socialList={state.社交}
+                                    world={state.世界}
+                                    factionLedgers={state.导演圣经?.势力暗账}
                                 />
                             ) : (
                                 <SectModal
@@ -4399,9 +4358,12 @@ const App: React.FC = () => {
                                     onLearnBook={handleLearnSectBook}
                                     onClaimMonthlyStipend={handleClaimMonthlyStipend}
                                     onExchange={handleSectExchange}
+                                    sectLocation={sectLocation}
                                     learnedBookIds={learnedSectBookIds}
                                     onClose={() => setters.setShowSect(false)}
                                     socialList={state.社交}
+                                    world={state.世界}
+                                    factionLedgers={state.导演圣经?.势力暗账}
                                 />
                             )}
                         </懒加载边界>

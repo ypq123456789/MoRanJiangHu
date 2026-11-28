@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { 构建主剧情COT内容, 核心_思维链 } from '../prompts/core/cot';
 import { 核心_输出格式 } from '../prompts/core/format';
 import { 构建运行时额外提示词 } from '../prompts/runtime/nsfw';
+import { parseStoryRawText } from '../services/ai/storyResponseParser';
 
 const 读取端到端AI配置 = () => {
     const baseUrl = process.env.MORAN_E2E_AI_BASE_URL?.trim();
@@ -33,12 +34,13 @@ const 解析OpenAI聊天响应内容 = async (response: Response): Promise<strin
     return String(json?.choices?.[0]?.message?.content || json?.choices?.[0]?.delta?.content || '');
 };
 
-const 提取正文文本 = (raw: string): string => {
-    const match = raw.match(/<正文>([\s\S]*?)<\/正文>/u);
-    return (match ? match[1] : raw).trim();
-};
+const 提取正文文本 = (raw: string): string => parseStoryRawText(raw).logs.map(log => log.text).join('\n');
 
 describe('额外提示词禁词端到端', () => {
+    it('用游戏实际展示的正文检查禁词，思考中的协议示例不进入正文', () => {
+        const raw = '<thinking>在 `<正文>` 中禁用“极其”。</thinking><正文>【旁白】沈砚放下茶碗。</正文><短期记忆>饮茶。</短期记忆>';
+        expect(提取正文文本(raw)).toBe('沈砚放下茶碗。');
+    });
     it('核心提示词包含极其禁词硬约束与额外提示词锚点', () => {
         // format.ts 硬编码禁用"极其"
         expect(核心_输出格式.内容).toContain('极其');
@@ -74,7 +76,7 @@ describe('额外提示词禁词端到端', () => {
         const userPrompt = [
             '当前场景：客栈大堂，主角"沈砚"独自饮茶。',
             '玩家输入：环顾四周，观察堂内客人的神态与气氛。',
-            '请按输出协议只输出 <thinking>、<正文>、<短期记忆> 三段。正文至少 300 字，重点写主角的观察与堂内气氛。'
+            '请依次输出闭合的 <thinking>…</thinking>、<正文>…</正文>、<短期记忆>…</短期记忆> 三段。正文至少 300 字，重点写主角的观察与堂内气氛。'
         ].join('\n');
 
         const controller = new AbortController();
@@ -90,6 +92,7 @@ describe('额外提示词禁词端到端', () => {
                 body: JSON.stringify({
                     model: 配置.model,
                     stream: false,
+                    max_tokens: 8192,
                     temperature: 0.8,
                     messages: [
                         { role: 'system', content: systemPrompt },

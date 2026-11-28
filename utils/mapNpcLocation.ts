@@ -62,7 +62,7 @@ export const 提取NPC地图位置片段 = (npc: any): string[] => {
     return 去重归一文本(rawItems);
 };
 
-const 提取NPC位置记录 = (npc: any): string[] => [
+export const 提取NPC位置记录 = (npc: any): string[] => [
     npc?.位置路径, npc?.当前位置, npc?.当前地点, npc?.所在地点, npc?.所在位置,
     npc?.具体地点, npc?.地点, npc?.位置, npc?.归属?.具体地点
 ].map(取文本).filter(Boolean);
@@ -137,9 +137,8 @@ export const 构建地图人物标记 = (
                 || (!explicitPaths.length && !nodeNames.has(path[0]) && path[0].includes(entry.name)));
         })?.node;
         if (!target) continue;
-        const sameBuilding = npc?.是否在场 === true && current?.node.层级 === '子地点'
-            && target.ID === current.node.父级ID && target.层级 === '区地点' && onPlayerBranch;
-        add(sameBuilding ? currentId : target.ID, name, false);
+        const inCurrentRoom = npc?.是否在场 === true && current?.node.层级 === '子地点' && onPlayerBranch;
+        add(inCurrentRoom ? currentId : target.ID, name, false);
     }
     return result;
 };

@@ -8,7 +8,7 @@ import {
 } from '../../models/directorBible';
 import { 构建即时记忆条目, 构建短期记忆条目, 写入四段记忆, 规范化记忆配置 } from '../../hooks/useGame/memoryUtils';
 import { 规范化环境信息, 规范化社交列表 } from '../../hooks/useGame/stateTransforms';
-import { 构建环境位置路径, 同步在场NPC当前位置 } from '../../hooks/useGame/responseCommandProcessor';
+import { 构建环境位置路径, 同步在场NPC当前位置, 判断NPC本回合是否在场 } from '../../hooks/useGame/responseCommandProcessor';
 import { 标准时间串转结构化, 环境时间转标准串, 结构化时间转标准串 } from '../../hooks/useGame/timeUtils';
 import { 规范化文本补全消息链, 请求模型文本, type 通用消息 } from '../../services/ai/chatCompletionClient';
 import { 提取首个标签内容 } from '../../services/ai/storyResponseParser';
@@ -20,6 +20,9 @@ import { parseJsonWithRepair } from '../../utils/jsonRepair';
 import type { StoryV2EngineState } from './types';
 import { 首次登记NPC交易资产 } from '../plugins/tradePlugin';
 import { 获取交易币制 } from '../plugins/tradeCurrency';
+import { 旁白有现场行动, 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
+import { 公开局外人物审计规则 } from '../../prompts/runtime/publicNpcAudit';
+import { normalizeNpcNameKey, textMentionsNpcName, 生成NPC稳定ID } from '../../utils/npcName';
 
 export interface DirectorPostTurnResult {
     nextState: StoryV2EngineState;
@@ -100,6 +103,7 @@ const 构建导演后处理提示词 = (params: {
         `现在刚结束第 ${turnIndex} 回合演化，请执行【2.0 统一剧情导演 + 幕后因果推演 + 状态同步】任务。`,
         '',
         '【当前主角与环境快照】',
+        `- 已知势力及其对主角的声望（null 表示尚未记录）：${JSON.stringify((state.世界?.势力列表 || []).map(({ ID, 名称, 主角声望 }) => ({ ID, 名称, 主角声望: 主角声望 ?? null })))}`,
         `- 主角：${state.角色?.姓名} | 境界：${state.角色?.境界 || '凡胎境'} | 当前时间：${环境时间转标准串(state.环境)} | 当前地点：${state.环境?.大地点}/${state.环境?.中地点}/${state.环境?.小地点}/${state.环境?.具体地点}`,
         `- 已入档社交人物：${(state.社交 || []).map((n) => `${n.姓名}(关系:${n.关系 || '未知'},好感:${n.好感度 ?? 0},在场:${n.是否在场 !== false})`).join('；') || '暂无'}`,
         '',
@@ -131,6 +135,8 @@ const 构建导演后处理提示词 = (params: {
         '{',
         '  "环境变更": { "推进分钟数": 30, "大地点": "", "中地点": "", "小地点": "", "具体地点": "精确到最底层的房间/子地点名称（若在室内切勿只填外层建筑名）", "时间叙述": "" },',
         '  "主角变化": { "境界": "", "金钱变化BaseAmount": 0, "获得物品": [{ "名称": "...", "数量": 1 }], "失去物品": [{ "名称": "...", "数量": 1 }], "状态或伤势变化": "" },',
+        '  "势力声望更新": [{ "势力ID": "快照中的ID", "主角声望": 20, "依据": "逐字摘录本回合正文中该组织公开奖惩、通缉、接纳主角或改变对其态度的原句" }],',
+        '  "已知局外人物": [{ "姓名": "公开姓名或唯一称呼", "依据": "包含该称呼、能说明其持续牵涉当前事件的一句正文原文", "身份": "可选，仅填原文里的身份" }],',
         '  "社交人物更新": [',
         '    { "姓名": "...", "性别": "女|男", "身份": "...", "关系": "...", "好感度变化": 5, "是否在场": true, "当前位置": "精确到所在房间或具体地点（同处一室可与环境具体地点一致）", "核心性格特征": "...", "新增记忆": "一句话客观记录她眼中本回合发生的事（严禁写入幕后剧透）" }',
         '  ],',
@@ -162,7 +168,9 @@ const 构建导演后处理提示词 = (params: {
         '    ],',
         '    "下一拍预计走向": "..."',
         '  }',
-        '}'
+        '}',
+        '势力声望更新只写对主角态度有明确变化的组织，当前终值为 -100 到 100 的整数，正为好感，负为敌意，0 为中立。没有正文依据就返回空数组，保留未知。NPC 个人好感、门派贡献和势力之间的关系不代表主角声望。',
+        '已知局外人物写入专用清单，现场新人物另写入社交人物更新。' + 公开局外人物审计规则
     ].join('\n');
 };
 
@@ -215,7 +223,9 @@ export const 执行导演后处理V2 = async (params: {
         .trim();
     const parseResult = parseJsonWithRepair<Record<string, any>>(jsonBlock);
     if (!parseResult.value || typeof parseResult.value !== 'object' || Array.isArray(parseResult.value)) {
-        throw new Error(`2.0 导演后处理 JSON 解析失败：${parseResult.error || '返回内容无法解析为合法对象'}`);
+        throw Object.assign(new Error(`2.0 导演后处理 JSON 解析失败：${parseResult.error || '返回内容无法解析为合法对象'}`), {
+            rawText: safeRawText
+        });
     }
     const parsed = parseResult.value;
 
@@ -224,8 +234,18 @@ export const 执行导演后处理V2 = async (params: {
     const nextEnv = 规范化环境信息(JSON.parse(JSON.stringify(state.环境)));
     let nextRole = JSON.parse(JSON.stringify(state.角色));
     let nextSocial: any[] = JSON.parse(JSON.stringify(state.社交 || []));
-    const nextWorld = JSON.parse(JSON.stringify(state.世界));
+    const nextWorld: StoryV2EngineState['世界'] = JSON.parse(JSON.stringify(state.世界));
     const nextWorldEvents = [...(state.世界大事 || [])];
+
+    if (Array.isArray(parsed.势力声望更新)) {
+        for (const update of parsed.势力声望更新) {
+            const score = update?.主角声望;
+            const evidence = typeof update?.依据 === 'string' ? update.依据.trim() : '';
+            if (!Number.isInteger(score) || Math.abs(score) > 100 || !evidence || !storyBody.includes(evidence)) continue;
+            const faction = nextWorld.势力列表?.find(item => item.ID === update.势力ID);
+            if (faction) faction.主角声望 = score;
+        }
+    }
 
     // 1. Environment & Time (support full location hierarchy while keeping unchanged layers)
     const envPatch = parsed.环境变更 || {};
@@ -317,17 +337,34 @@ export const 执行导演后处理V2 = async (params: {
     }
 
     // 3. Social updates (strictly public/grounded fields, NO leaking 隐藏秘密)
-    const castNamesSet = new Set(nextBible.核心卡司.map((c) => c.姓名));
+    const presentSpeakers = new Set((storyResponse.logs || []).map(log => normalizeNpcNameKey(log.sender)));
+    const sceneNarration = (storyResponse.logs || []).filter(log => log.sender === '旁白').map(log => log.text).join('\n');
+    const offscreenUpdates = Array.isArray(parsed.已知局外人物) ? [...parsed.已知局外人物] : [];
     if (Array.isArray(parsed.社交人物更新)) {
         for (const upd of parsed.社交人物更新) {
             const name = typeof upd?.姓名 === 'string' ? upd.姓名.trim() : '';
             if (!name || name === nextRole.姓名) continue;
             const idx = nextSocial.findIndex((n) => n?.姓名 === name);
+            const presence = 判断NPC本回合是否在场({ 姓名: name }, sceneNarration, presentSpeakers);
+            const inScene = presence ?? (旁白有现场行动(sceneNarration, name)
+                || (upd.是否在场 === true && textMentionsNpcName(sceneNarration, name)));
+            if (idx < 0 || nextSocial[idx].来源 === '正文提及') {
+                if (!textMentionsNpcName(storyBody, name)) continue;
+                if (upd.是否在场 === false || !inScene) {
+                    offscreenUpdates.push(upd);
+                    continue;
+                }
+            }
             const deltaFav = Number.isFinite(Number(upd.好感度变化)) ? Number(upd.好感度变化) : 0;
             const newMem = typeof upd.新增记忆 === 'string' && upd.新增记忆.trim() ? upd.新增记忆.trim() : '';
             const updPos = typeof upd.当前位置 === 'string' && upd.当前位置.trim() ? upd.当前位置.trim() : '';
             if (idx >= 0) {
                 const cur = nextSocial[idx];
+                if (cur.来源 === '正文提及' && inScene) {
+                    cur.是否在场 = true;
+                    if (cur.关系 === '已闻其名') cur.关系 = '初识';
+                    if (cur.关系状态 === '已闻其名') cur.关系状态 = '初识';
+                }
                 if (typeof upd.身份 === 'string' && upd.身份.trim()) cur.身份 = upd.身份.trim();
                 if (typeof upd.关系 === 'string' && upd.关系.trim()) cur.关系 = upd.关系.trim();
                 if (typeof upd.是否在场 === 'boolean') cur.是否在场 = upd.是否在场;
@@ -350,7 +387,7 @@ export const 执行导演后处理V2 = async (params: {
             } else {
                 const initPos = updPos || (upd.是否在场 !== false ? nextEnv.具体地点 : '');
                 nextSocial.push({
-                    id: `NPC-${String(nextSocial.length + 1).padStart(3, '0')}`,
+                    id: 生成NPC稳定ID(name, nextSocial, `NPC-${String(nextSocial.length + 1).padStart(3, '0')}`),
                     姓名: name,
                     性别: upd.性别 || '女',
                     身份: upd.身份 || '未知人物',
@@ -371,12 +408,14 @@ export const 执行导演后处理V2 = async (params: {
                 const targetIdx = idx >= 0 ? idx : nextSocial.length - 1;
                 nextSocial[targetIdx] = 首次登记NPC交易资产(nextSocial[targetIdx], upd.交易资产初见, storyBody, openingConfig, nextRole);
             }
-            if (castNamesSet.has(name)) {
+            if (upd.是否在场 !== false && inScene) {
                 const castObj = nextBible.核心卡司.find((c) => c.姓名 === name);
                 if (castObj) castObj.是否已登场 = true;
             }
         }
     }
+    nextSocial = 补录公开局外人物({ social: nextSocial, logs: storyResponse.logs || [], playerName: nextRole.姓名,
+        directorBible: nextBible, tasks: state.任务列表, updates: offscreenUpdates });
     nextSocial = 同步在场NPC当前位置(规范化社交列表(nextSocial, { 合并同名: false }), nextEnv);
 
     // 4. Foreshadowing Ledger Updates (monotonic progression: 未埋设(0) < 已埋设(1) < 发酵中(2) < 已回收/已改线(3))
@@ -623,6 +662,6 @@ export const 执行导演后处理V2 = async (params: {
         replanReason: replanReason || undefined,
         directorMs: Date.now() - t0,
         contextChars,
-        rawText
+        rawText: safeRawText
     };
 };

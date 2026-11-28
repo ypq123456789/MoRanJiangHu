@@ -5,6 +5,11 @@ import { 获取内置世界书槽位内容 } from '../../utils/worldbook';
 import { 地图重生成系统提示词 } from '../../prompts/runtime/mapRegenerate';
 import { 地图重生成COT提示词 } from '../../prompts/runtime/mapRegenerateCot';
 import { 地图层级命名契约, 地图层级命名自检 } from '../../prompts/runtime/mapLayerNaming';
+import { readRoomExits } from '../../utils/roomConnections';
+import { getRoomSlots } from '../../utils/roomFloorplan';
+import { 查找地图分支缺口 } from '../../utils/mapBranchCoverage';
+import { 地点路径匹配分支 } from '../../utils/locationTree';
+import { applyStateCommand } from '../../utils/stateHelpers';
 import { 请求模型文本, 规范化文本补全消息链 } from '../../services/ai/chatCompletionClient';
 import { recordDiagnosticLog, type DiagnosticLogLevel } from '../../services/diagnosticLog';
 import { 获取繁体输出指令 } from '../../utils/traditionalChinese';
@@ -53,9 +58,34 @@ type 地图更新请求参数 = {
 
 const 地图层级顺序 = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'] as const;
 const 地图层级集合 = new Set<string>(地图层级顺序);
+const 整图路径 = /^(?:gameState\.)?世界\.地图层级$/;
 const 地图更新请求超时毫秒 = 120_000;
 
 const 取文本 = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+function 检查开局地图结构(nodes: any[], env?: Partial<环境信息结构>): string {
+    const roots = nodes.filter(node => node?.层级 === '寰宇');
+    if (roots.length !== 1 || roots[0].父级ID) return '开局种子地图须有且仅有一个无父级的寰宇根节点。';
+    if (nodes.some(node => !取文本(node?.ID) || !取文本(node?.名称))) return '开局种子地图包含缺少 ID 或地名的节点。';
+    const byId = new Map(nodes.map(node => [node.ID, node]));
+    if (byId.size !== nodes.length) return '开局种子地图存在重复的地点 ID。';
+    for (const node of nodes) {
+        if (node === roots[0]) continue;
+        const level = 地图层级顺序.indexOf(node.层级);
+        if (level < 1 || byId.get(node.父级ID)?.层级 !== 地图层级顺序[level - 1]) {
+            return '开局种子地图中「' + node.名称 + '」缺少对应层级的直接父地点。';
+        }
+    }
+    const anchors = [env?.大地点, env?.中地点, env?.小地点, env?.具体地点].map(取文本)
+        .filter(name => name && !/^(未知|不明|待定|无|未指定)(?:地点)?$/u.test(name));
+    // 上面的层级检查保证每条父链都在六层内终止，可以直接核对玩家的完整位置。
+    if (anchors.length && !nodes.some(node => {
+        const names: string[] = [];
+        for (let cursor = node; cursor; cursor = byId.get(cursor.父级ID)) names.unshift(cursor.名称);
+        return anchors.every(anchor => 地点路径匹配分支(anchor, names));
+    })) return '开局种子地图中没有与当前位置一致的完整路径：' + anchors.join(' > ');
+    return '';
+}
 
 const 创建地图更新诊断ID = (): string => (
     `map_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -160,15 +190,21 @@ export const 构建地图更新用户提示词 = (params: {
     const env = params.环境 || {};
     const world = params.世界 || {};
     const layers = Array.isArray(world?.地图层级) ? world.地图层级 : [];
-    const isOpeningEmptyMap = params.mode === 'auto_incremental' && layers.length < 6;
+    const isOpeningEmptyMap = params.mode === 'auto_incremental' && layers.length === 0;
+    const gaps = 查找地图分支缺口(layers);
+    const branchPrompt = gaps.length
+        ? '待补的地域分支：' + gaps.join('、') + '。按世界题材和已知版图补到每处至少两个直接下级。只增补地理，不虚构人物经历。'
+        : '';
     const currentLocation = [env?.大地点, env?.中地点, env?.小地点, env?.具体地点].map(取文本).filter(Boolean).join(' > ');
     const existingLayerInfo = layers.length > 0
-        ? JSON.stringify(layers.map((layer: any) => ({
+        ? JSON.stringify(layers.map((layer: any, index: number) => ({
+            索引: index,
             ID: 取文本(layer?.ID),
             名称: 取文本(layer?.名称),
             层级: 取文本(layer?.层级),
             父级ID: 取文本(layer?.父级ID),
             描述: 取文本(layer?.描述),
+            ...(layer?.连通房间 ? { 连通房间: readRoomExits(layer.连通房间) } : {}),
             控制势力: 取文本(layer?.控制势力),
             势力影响: 取文本(layer?.势力影响),
             势力标签: Array.isArray(layer?.势力标签) ? layer.势力标签 : undefined
@@ -221,9 +257,11 @@ export const 构建地图更新用户提示词 = (params: {
             '1. 根节点必须是 层级:"寰宇" 名称:"诸天万界"。',
             '2. 地图层级只能是：寰宇、大地点、中地点、小地点、区地点、子地点。',
             '3. 层级与名称必须严格对应（见下方契约）；旧档重建同样按新口径命名，不得沿用旧存档的错层名称。',
-            '4. 这是全量重建任务：旧地图会在写入前被删除，绝对不要为了保留旧数据而复制旧层级；只写回忆库和当前状态能支持的地点。',
+            '4. 全量重建时依据回忆库、当前状态和已知势力版图恢复原有地名与上下级。缺少分支的大区域可补充符合世界设定的城镇或地域，室内发现与剧情事件须有记录依据。',
+            branchPrompt,
             '5. 不要生成坐标、道路、建筑列表、地图人物等旧字段。地图层级节点也不要写 `在场人物` 字段——人物显示由社交档案里的 NPC 位置（`当前位置`/`位置路径`/`具体地点`）驱动，与地图层级无关。',
             '6. 地点若能判断势力控制或势力影响，必须补充 控制势力 / 势力影响 / 势力标签；看不出势力时不要硬编。',
+            '房间只登记曾在回忆或当前状态中明确出现的地点；仅在明确有门或通道直接相连时，用「连通房间」数组记录同一场所的对端房名。',
             '7. 只输出 JSON，格式为 {"地点树":[{"名称":"...","层级":"...","父级ID":"父级名称或ID","描述":"...","控制势力":"...","势力影响":"...","势力标签":["..."]}]}，不要输出命令，也不要输出 `在场人物`。',
             '',
             地图层级命名契约,
@@ -251,8 +289,9 @@ export const 构建地图更新用户提示词 = (params: {
         forceInfo,
         '',
         '【自动更新规则】',
+        branchPrompt,
         isOpeningEmptyMap
-            ? '0. 当前地图层级为空：这是开局种子地图任务，必须根据当前地点与开局正文生成基础六层路径，至少包含 寰宇 -> 大地点 -> 中地点 -> 小地点 -> 区地点。'
+            ? '0. 开局种子地图任务：寰宇至少有两个大地点，每个大地点至少有两个中地点，每个中地点至少有两个小地点。同一批 push 必须补齐各处分支，沿当前地点继续登记正文明确出现的场所和房间。'
             : '',
         isOpeningEmptyMap
             ? '1. 开局种子地图不得输出“无”；若地点信息不足，也要用当前地点、正文里的仓库/营地/街区/房间线索补齐可用节点。'
@@ -265,7 +304,8 @@ export const 构建地图更新用户提示词 = (params: {
         '7. 禁止输出旧地图坐标字段：世界.地图、世界.建筑、世界.地图建筑、世界.地图道路、世界.地图人物。',
         '8. 同一个角色只能有一个最细叶子位置；不要把同一人同时写入多个层级。地图层级的显示由社交档案里 NPC 的 `当前位置`/`位置路径`/`具体地点` 字段驱动，地图层级节点本身不要写 `在场人物` 字段。',
         isOpeningEmptyMap ? '9. 开局空地图必须输出 push 命令，不得输出“无”。' : '9. 输出“无”前必须先逐句检查【本回合正文】：只要出现了正文明确写到、且【已有地图层级】里没有的场所或房间，就不得输出“无”。',
-        '10. 当前地点落在某个区地点（建筑/地标）内部、且该建筑下还没有子地点时，必须补 1-2 个子地点（房间/厅堂/院落/密室）；只是路过建筑外的街道时不要补房间。',
+        '10. 只登记正文、当前地点或回忆明确出现的房间；尚未出现的空间保持未知，不为凑数虚构房间、暗门或通路。',
+        '10.1 房间仅在剧情明确有门、楼梯、走廊直通同场所另一已知房间时，在一端的「连通房间」数组写对端原名；相邻或同属一栋建筑不代表能直达。新发现通路也是地图变化，即使没有新房间也应输出命令。已有房间按给定索引 set 世界.地图层级[i].连通房间 = ["已知房名","新对端房名"]，保留仍有效的旧通路；永久封死或确认不通时删除双方对应项。',
         '11. 若地图目前只到「区地点」一层都没有，不要一次性虚构大量房间：先补当前所在建筑，其余等玩家实际进入再展开。',
         '12. 若已有节点的名称与层级不匹配（例如城镇层写着「水浪帮大营」），不要复制错名；按下方契约改名或改挂到正确父级。',
         '',
@@ -273,7 +313,7 @@ export const 构建地图更新用户提示词 = (params: {
         `13. ${地图层级命名自检}`,
         traditionalChinesePrompt,
         '',
-        '【输出格式】',
+        isOpeningEmptyMap ? '【单条命令格式示例；开局按规则 0 输出完整种子图的全部节点】' : '【输出格式】',
         '<thinking>简短审计是否有新地点</thinking>',
         '<说明>- 写明新增/跳过原因</说明>',
         '<命令>',
@@ -317,6 +357,8 @@ const 规范地图节点 = (node: any) => ({
     描述: 取文本(node?.描述),
     控制势力: 取文本(node?.控制势力),
     势力影响: 取文本(node?.势力影响),
+    ...(规范化层级(node?.层级) === '子地点' && Array.isArray(node?.连通房间) ? { 连通房间: readRoomExits(node.连通房间) } : {}),
+    房间格序: Number.isSafeInteger(node?.房间格序) ? node.房间格序 as number : undefined,
     势力标签: Array.isArray(node?.势力标签) ? node.势力标签.map(取文本).filter(Boolean) : [],
     归属: { 大地点: '', 中地点: '', 小地点: '' }
 });
@@ -400,7 +442,47 @@ const 定位地图节点 = (rawNodes: any[], existing: any[], mode: 'push' | 're
             kept.add(node);
         }
     }
-    return incoming.filter(node => kept.has(node));
+    const byVenue = (nodes: 地点节点[]) => {
+        const groups = new Map<string, 地点节点[]>();
+        for (const room of nodes.filter(n => n.层级 === '子地点')) {
+            const parent = resolveParent(room.父级ID, room.层级, true);
+            const siblings = groups.get(parent) || [];
+            siblings.push(room);
+            groups.set(parent, siblings);
+        }
+        return groups;
+    };
+    const oldRooms = byVenue(oldNodes);
+    for (const [venue, rooms] of byVenue([...kept])) {
+        const previous = oldRooms.get(venue) || [];
+        const oldSlots = getRoomSlots(previous);
+        // 全图重排也先占用旧房格，再给新房间分配显式或空闲格。
+        const roomCandidates = mode === 'push' ? [...previous, ...rooms]
+            : [...rooms.filter(room => oldSlots.has(room.ID)), ...rooms.filter(room => !oldSlots.has(room.ID))];
+        const slots = getRoomSlots(roomCandidates.map(room => ({ ID: room.ID, 房间格序: oldSlots.get(room.ID) ?? room.房间格序 })));
+        const oldById = new Map(previous.map(room => [room.ID, room]));
+        const byRef = new Map(rooms.map(room => [room.名称, room]));
+        const explicitExits = new Map(rooms.map(room => [room.ID, room.连通房间]));
+        for (const room of rooms) byRef.set(room.ID, room);
+        for (const room of rooms) {
+            room.房间格序 = slots.get(room.ID);
+            const oldExits = oldById.get(room.ID)?.连通房间;
+            if (mode !== 'push' && room.连通房间 === undefined && oldExits) {
+                room.连通房间 = oldExits.filter(ref => {
+                    const peer = byRef.get(ref);
+                    if (!peer) return false;
+                    const incoming = explicitExits.get(peer.ID);
+                    const previouslyReciprocal = oldById.get(peer.ID)?.连通房间?.some(exit => exit === room.ID || exit === room.名称);
+                    // 对端明确撤销曾登记的这扇门时，不能从省略出口一侧的旧数据重新打开。
+                    return !incoming || !previouslyReciprocal || incoming.some(exit =>
+                        exit === room.ID || exit === room.名称 || aliases.get(exit) === room.ID);
+                });
+            }
+        }
+    }
+    return incoming.filter(node => kept.has(node)).map(node => node.连通房间?.length
+        ? { ...node, 连通房间: node.连通房间.map(ref => aliases.get(ref) || ref) }
+        : node);
 };
 
 export const 构建地图层级替换结果 = (rawNodes: any[], currentWorld?: any): any[] =>
@@ -431,10 +513,10 @@ const 解析命令值 = (text: string): any => {
     }
 };
 
-const 解析增量地图结果 = (rawText: string, currentWorld?: any): { commands: TavernCommand[]; recognized: boolean } => {
+const 解析增量地图结果 = (rawText: string, currentWorld?: any): { commands: TavernCommand[]; recognized: boolean; layers: any[] } => {
     const block = 提取命令块(rawText);
-    if (!block || /^无$/i.test(block.trim())) return { commands: [], recognized: block.trim() === '无' };
     let existingLayers = Array.isArray(currentWorld?.地图层级) ? [...currentWorld.地图层级] : [];
+    if (!block || /^无$/i.test(block.trim())) return { commands: [], recognized: block.trim() === '无', layers: existingLayers };
     const result: TavernCommand[] = [];
     const aliases = new Map<string, string>();
     let hadDuplicate = false;
@@ -452,24 +534,36 @@ const 解析增量地图结果 = (rawText: string, currentWorld?: any): { comman
         if (!trimmed || /^无$/i.test(trimmed)) return;
         const match = trimmed.match(/^(push|set|add|delete)\s+(.+?)(?:\s*=\s*([\s\S]+))?$/i);
         if (!match) return;
-        const action = match[1].toLowerCase() as TavernCommand['action'];
         const key = (match[2] || '').trim();
         if (!/^世界\.地图层级(?:$|\s|\[|\.)/.test(key) && !/^gameState\.世界\.地图层级(?:$|\s|\[|\.)/.test(key)) return;
+        const rawAction = match[1].toLowerCase() as TavernCommand['action'];
+        const action = rawAction === 'add' && 整图路径.test(key) ? 'push' : rawAction;
         if (action !== 'push' && action !== 'set' && action !== 'delete') return;
-        const value = action === 'delete' ? undefined : 解析命令值(match[3] || '');
-        if (action === 'push') {
+        let value = action === 'delete' ? undefined : 解析命令值(match[3] || '');
+        if (action === 'push' && 整图路径.test(key)) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) return;
             if (取文本(value.名称)) pendingPushes.push(value);
             return;
         }
         flushPushes();
-        if (/^(?:gameState\.)?世界\.地图层级$/.test(key)) {
+        if (action !== 'delete' && /地图层级(?:\[\d+\]|\.\d+)\.连通房间(?:\[\d+\]|\.\d+)?$/.test(key)) {
+            const resolveExit = (ref: unknown) => typeof ref === 'string' ? aliases.get(ref.trim()) || ref : ref;
+            value = Array.isArray(value) ? value.map(resolveExit) : resolveExit(value);
+        }
+        if (action === 'push' && (!/地图层级(?:\[\d+\]|\.\d+)\.连通房间$/.test(key) || !取文本(value))) return;
+        if (整图路径.test(key)) {
             if (action === 'delete' || !Array.isArray(value) || !value.length || !value.every((node) => 取文本(node?.名称))) return;
             existingLayers = 定位地图节点(value, existingLayers, 'set', aliases);
             const retainedIds = new Set(existingLayers.map(node => node.ID));
             for (const [alias, id] of aliases) if (!retainedIds.has(id)) aliases.delete(alias);
             result.push({ action, key, value: existingLayers.slice() });
             return;
+        }
+        // 用同一命令执行器模拟改变树结构的索引指令，后续 push 分配 ID 和最终校验都读取更新后的层级。
+        if (/地图层级(?:\[\d+\]|\.\d+)(?:\.(?:ID|名称|层级|父级ID|连通房间(?:\[\d+\]|\.\d+)?))?$/.test(key)) {
+            const next = applyStateCommand(null, null, [], { 地图层级: existingLayers } as 世界数据结构,
+                null, null, null, undefined, undefined, undefined, null, [], [], key, value, action);
+            existingLayers = next.world.地图层级;
         }
         result.push({ action, key, value } as TavernCommand);
     });
@@ -483,13 +577,13 @@ const 解析增量地图结果 = (rawText: string, currentWorld?: any): { comman
                     action: 'set',
                     key: '世界.地图层级',
                     value: newLayers
-                }], recognized: true };
+                }], recognized: true, layers: newLayers };
             }
         } catch {
             // 非 JSON 地点树时保持命令解析结果为空。
         }
     }
-    return { commands: result, recognized: result.length > 0 || hadDuplicate };
+    return { commands: result, recognized: result.length > 0 || hadDuplicate, layers: existingLayers };
 };
 
 export const 解析地图自动更新命令 = (rawText: string, currentWorld?: any): TavernCommand[] =>
@@ -695,6 +789,10 @@ export const 生成地图更新 = async (
     if (params.mode === 'memory_regenerate') {
         const rawNodes = 解析地图重生成节点(rawText);
         const newLayers = 构建地图层级替换结果(rawNodes, world);
+        const gaps = 查找地图分支缺口(newLayers);
+        if (gaps.length) {
+            return { ok: false, phase: 'error', commands: [], rawText, statusText: '重建后仍缺少地域分支，已保留原地图：' + gaps.join('、') };
+        }
         记录地图更新诊断('info', 'memory-regenerate-parsed', {
             ...baseMeta,
             elapsedMs: Date.now() - startedAt,
@@ -711,7 +809,7 @@ export const 生成地图更新 = async (
         };
     }
 
-    const { commands, recognized } = 解析增量地图结果(rawText, world);
+    const { commands, recognized, layers } = 解析增量地图结果(rawText, world);
     if (!recognized && !(使用预取地图 && !rawText)) {
         return { ok: false, phase: 'error', commands: [], rawText, statusText: '地图更新响应没有有效地点树、地图命令或“无”标记，已保留原地图。' };
     }
@@ -728,6 +826,15 @@ export const 生成地图更新 = async (
         commandCount: commands.length,
         fullTreeSyncCount
     });
+    const replacesTree = commands.some(cmd => cmd.action === 'set' && 整图路径.test(cmd.key));
+    if (layerCount === 0) {
+        const error = 检查开局地图结构(layers, env);
+        if (error) return { ok: false, phase: 'error', commands: [], rawText, statusText: error };
+    }
+    const gaps = 查找地图分支缺口(layers, layerCount > 0 && !replacesTree ? world?.地图层级 : undefined);
+    if (gaps.length) {
+        return { ok: false, phase: 'error', commands: [], rawText, statusText: '地图仍有地域分支待补：' + gaps.join('、') };
+    }
     return {
         ok: true,
         phase: 'done',

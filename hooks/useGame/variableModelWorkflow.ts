@@ -17,6 +17,9 @@ import { 构建同人运行时提示词包 } from '../../prompts/runtime/fandom'
 import { 按功能开关过滤提示词内容, 裁剪修炼体系上下文数据 } from '../../utils/promptFeatureToggles';
 import { 构建变量路径登记提示 } from '../../utils/variableRegistry';
 import { 构建女性姓名候选提示词, 收集女性姓名候选已用名 } from '../../utils/femaleNameCandidatePrompt';
+import { 公开局外人物审计规则 } from '../../prompts/runtime/publicNpcAudit';
+import { 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
+import { 是否仅闻名NPC } from '../../models/social';
 import { 构建模板姓名黑名单提示词 } from '../../utils/templateNameBlacklist';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
 
@@ -200,6 +203,13 @@ export const 查找社交NPC索引 = (socialRaw: unknown, sender: string): numbe
     if (!Array.isArray(socialRaw)) return -1;
     const target = 标准化人物匹配文本(sender);
     if (!target) return -1;
+    const 是主要角色 = (npc: any): boolean => npc?.是否主要角色 === true;
+    const 姓名键 = isMultilingualNpcName(sender) ? normalizeNpcNameKey : 标准化人物匹配文本;
+    const majorByName = socialRaw.findIndex(npc => 是主要角色(npc) && 姓名键(npc.姓名) === target);
+    if (majorByName >= 0) return majorByName;
+    const majorByAlias = socialRaw.findIndex(npc => 是主要角色(npc) && Array.isArray(npc.曾用名)
+        && npc.曾用名.some((name: unknown) => 姓名键(name) === target));
+    if (majorByAlias >= 0) return majorByAlias;
     // 外文 sender 只匹配精确姓名/曾用名，不借身份或简介的子串推断身份。
     if (isMultilingualNpcName(sender)) {
         const key = normalizeNpcNameKey(sender);
@@ -208,26 +218,23 @@ export const 查找社交NPC索引 = (socialRaw: unknown, sender: string): numbe
     }
     const 取姓名候选 = (npc: any): string[] => [npc?.姓名, ...(Array.isArray(npc?.曾用名) ? npc.曾用名 : [])].map(标准化人物匹配文本).filter(Boolean);
     const 取身份候选 = (npc: any): string[] => [npc?.身份, npc?.简介].map(标准化人物匹配文本).filter(Boolean);
-    const 是主要角色 = (npc: any): boolean => npc?.是否主要角色 === true;
     // 中文昵称和身份称谓沿用旧匹配；外文姓名候选不做子串匹配。
     const 常规命中 = (candidates: string[]): boolean => candidates.some(item => item === target || item.includes(target) || target.includes(item));
     const 常规姓名命中 = (candidates: string[]): boolean => candidates.some(item => isMultilingualNpcName(item)
         ? normalizeNpcNameKey(item) === normalizeNpcNameKey(sender)
         : 常规命中([item]));
-    // 主要角色（女一等）姓名只接受精确相等，避免昵称子串串到女一（如“婉儿”⊆“林婉儿”）
-    const 主要角色姓名命中 = (candidates: string[]): boolean => candidates.some((item) => item === target);
     // 主要角色身份/简介匹配：接受"身份包含发送者"（含精确相等，如身份'明月圣女'含'圣女'、或身份恰为'圣女'），
     // 但严禁"发送者包含身份片段"的反向命中（如发送者'丝绸商号掌柜'含女一简介里的'丝绸商号'），否则会误判成女一。
     const 主要角色身份命中 = (candidates: string[]): boolean => candidates.some((item) => item.length > 0 && item.includes(target));
-    // 第一优先：主要角色按姓名精确匹配（跨角色类型优先，避免被非主要角色的模糊包含抢先，也避免昵称/片段串到女一）
-    const majorByName = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && 是主要角色(npc) && 主要角色姓名命中(取姓名候选(npc)));
-    if (majorByName >= 0) return majorByName;
-    // 第二优先：非主要角色按原名/身份/简介常规双向匹配
-    const nonMajor = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && !是主要角色(npc)
+    // 仅闻名人物可以按本名或曾用名认出，简介中提到的人不能反向命中这份档案。
+    const heardByName = socialRaw.findIndex(npc => 是否仅闻名NPC(npc) && 取姓名候选(npc).includes(target));
+    if (heardByName >= 0) return heardByName;
+    // 非主要角色按原名/身份/简介常规双向匹配
+    const nonMajor = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && !是主要角色(npc) && !是否仅闻名NPC(npc)
         && (常规姓名命中(取姓名候选(npc)) || 常规命中(取身份候选(npc))));
     if (nonMajor >= 0) return nonMajor;
-    // 第三优先：主要角色按身份/简介（仅"身份包含发送者"方向，含精确相等）匹配
-    return socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && 是主要角色(npc) && 主要角色身份命中(取身份候选(npc)));
+    // 最后按主要角色身份/简介（仅"身份包含发送者"方向，含精确相等）匹配
+    return socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && 是主要角色(npc) && !是否仅闻名NPC(npc) && 主要角色身份命中(取身份候选(npc)));
 };
 
 const 对白人物基础缺口 = (npc: any, options?: { xianxiaMode?: boolean }): string[] => {
@@ -256,7 +263,13 @@ export const 构建正文对白人物审计提示 = (
     options?: { xianxiaMode?: boolean }
 ): string => {
     const senders = 提取本回合对白发送者(response, (baseState as any)?.角色?.姓名);
-    if (senders.length <= 0) return '';
+    const social = Array.isArray(baseState.社交) ? baseState.社交 : [];
+    const mentions = 补录公开局外人物({ social, logs: response?.logs || [], playerName: baseState.角色?.姓名, tasks: baseState.任务列表 }).slice(social.length);
+    const publicAudit = [
+        公开局外人物审计规则,
+        ...(mentions.length ? ['【本回合已具公开依据的局外人】', ...mentions.map(npc => `- ${npc.姓名}：${npc.简介}`)] : [])
+    ].join('\n');
+    if (senders.length <= 0) return response?.logs?.length ? publicAudit : '';
     const lines = senders.map((sender) => {
         const index = 查找社交NPC索引(baseState.社交, sender);
         if (index < 0) {
@@ -271,6 +284,7 @@ export const 构建正文对白人物审计提示 = (
     });
     return [
         '【本回合正文对白人物审计】',
+        publicAudit,
         '- 变量生成必须逐个核对本回合 `【角色名】` 对话框人物；凡是非旁白、非判定、非主角的人物，都必须在 `社交[]` 中有长期可承接档案。',
         '- 有对白框的人物一律优先视为持续承接对象；未建档就完整建档，半残档就补齐字段。正文中可用代称，但变量里必须落真实姓名，并把代称优先写入 `身份/简介/记忆`；只有确有旧称、化名、曾用称呼时才写 `曾用名`，不要给每个 NPC 强行生成曾用名。',
         '- NPC 当前装备与背包只记录正文、设定或既有变量明确成立的事实；不得凭身份、性别、门派、境界或“时间过去了”自动补佩剑、制服、内衣、袜鞋、干粮等默认物。',
@@ -351,7 +365,7 @@ const 构建社交档案完整性审计提示 = (
 
     const auditLines: string[] = [];
     socialRaw.forEach((npc: any, index: number) => {
-        if (!npc || typeof npc !== 'object') return;
+        if (!npc || typeof npc !== 'object' || 是否仅闻名NPC(npc)) return;
         const 名称 = 读取文本(npc?.姓名) || `社交[${index}]`;
         const 通用缺口: string[] = [];
         if (文本疑似占位(npc?.身份)) 通用缺口.push('身份');

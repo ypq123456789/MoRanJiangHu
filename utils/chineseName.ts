@@ -12,6 +12,9 @@ const 复姓列表 = [
     '褚师', '吴铭'
 ];
 
+export const 取已知中文姓氏 = (name: string): string =>
+    复姓列表.find(surname => name.startsWith(surname)) || (单姓集合.has(name[0]) ? name[0] : '');
+
 export const 取头像姓氏 = (姓名: string): string => {
     const name = 姓名.trim();
     return 复姓列表.find(surname => name.startsWith(surname)) || Array.from(name)[0] || '侠';

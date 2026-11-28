@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { 净化角色对白行, 解析正文日志文本 } from '../hooks/useGame/bodyPolish';
 
 describe('body polish dialogue parsing', () => {
+    it('文章优化保留被动作隔开的两句台词', () => {
+        const logs = 净化角色对白行(解析正文日志文本('【俞月荷】背靠着内墙。 （低声）：“门外有人。”她抬起手：“听。”'));
+        expect(logs).toEqual([
+            { sender: '旁白', text: '俞月荷背靠着内墙。 （低声）' },
+            { sender: '俞月荷', text: '门外有人。' },
+            { sender: '旁白', text: '她抬起手' },
+            { sender: '俞月荷', text: '听。' }
+        ]);
+    });
     it('keeps dialogue when the speaker tag and quoted line are split across lines', () => {
         const logs = 净化角色对白行(解析正文日志文本([
             '【旁白】',

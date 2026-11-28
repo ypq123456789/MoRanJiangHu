@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InputArea from '../components/features/Chat/InputArea';
 import LeftPanel from '../components/layout/LeftPanel';
 import StatDelta from '../components/layout/StatDelta';
@@ -27,17 +27,31 @@ describe('桌面行动区', () => {
     ])('建议按原标点追加到草稿 %j，点击不发送', (draft, expected) => {
         const props = inputProps();
         render(<InputArea {...props} />);
-        const input = screen.getAllByRole('textbox')[1] as HTMLTextAreaElement;
+        const input = screen.getByRole('textbox', { name: '行动草稿' }) as HTMLTextAreaElement;
         fireEvent.change(input, { target: { value: draft } });
         fireEvent.click(screen.getByRole('button', { name: '问掌柜' }));
         expect(input.value).toBe(expected);
         expect(props.onSend).not.toHaveBeenCalled();
     });
 
+    it('发送尚未返回时点击建议，下回合只留下新选的行动', async () => {
+        let finish!: (result: {}) => void;
+        const props = { ...inputProps(), onSend: vi.fn(() => new Promise<{}>(resolve => { finish = resolve; })) };
+        render(<InputArea {...props} />);
+        const input = screen.getByRole('textbox', { name: '行动草稿' }) as HTMLTextAreaElement;
+        fireEvent.change(input, { target: { value: '去山门' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+        fireEvent.click(screen.getByRole('button', { name: '问掌柜' }));
+        fireEvent.click(screen.getByRole('button', { name: '去渡口' }));
+        await act(async () => finish({}));
+        expect(props.onSend).toHaveBeenCalledTimes(1);
+        expect(input.value).toBe('问掌柜\n去渡口');
+    });
+
     it('流式开关、Shift+Enter 与 Enter 发送沿用原处理', async () => {
         const props = inputProps();
         render(<InputArea {...props} />);
-        const input = screen.getAllByRole('textbox')[1];
+        const input = screen.getByRole('textbox', { name: '行动草稿' });
         expect((screen.getByTitle('发送') as HTMLButtonElement).disabled).toBe(true);
         fireEvent.click(screen.getByTitle('流式传输开启'));
         fireEvent.change(input, { target: { value: '一行' } });
@@ -56,7 +70,7 @@ describe('桌面行动区', () => {
         fireEvent.click(screen.getByTitle(/角色对话/));
         expect(props.onOpenRoleChat).toHaveBeenCalledOnce();
         fireEvent.click(screen.getByTitle(/重ROLL：/));
-        await waitFor(() => expect((screen.getAllByRole('textbox')[1] as HTMLTextAreaElement).value).toBe('回档草稿'));
+        await waitFor(() => expect((screen.getByRole('textbox', { name: '行动草稿' }) as HTMLTextAreaElement).value).toBe('回档草稿'));
         fireEvent.click(screen.getByTitle('快速重开'));
         fireEvent.click(screen.getByText('仅重生开局剧情'));
         await waitFor(() => expect(props.onQuickRestart).toHaveBeenCalledWith('opening_only'));
@@ -80,7 +94,7 @@ describe('桌面行动区', () => {
     it('生成中禁用输入与建议，保留停止和变量取消入口', () => {
         const props = { ...inputProps(), onCancelVariableGeneration: vi.fn() };
         const { rerender } = render(<InputArea {...props} loading />);
-        expect((screen.getAllByRole('textbox')[1] as HTMLTextAreaElement).disabled).toBe(true);
+        expect((screen.getByRole('textbox', { name: '行动草稿' }) as HTMLTextAreaElement).disabled).toBe(true);
         expect((screen.getByRole('button', { name: '问掌柜' }) as HTMLButtonElement).disabled).toBe(true);
         fireEvent.click(screen.getByTitle('停止生成'));
         expect(props.onStop).toHaveBeenCalledOnce();

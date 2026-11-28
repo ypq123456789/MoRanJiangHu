@@ -5,6 +5,21 @@ export const normalizeNpcNameKey = (value: unknown): string => typeof value === 
 
 export const hasNpcNamePollution = (value: string): boolean => /[\p{Cc}\p{Cf}<>＝=\[\]{}]/u.test(value);
 
+/** 同名得到稳定 ID，供变量写入与旧档补录共用。 */
+export const 生成NPC稳定ID = (name: string, social: { id?: string; ID?: string; 姓名?: string }[] = [], preferred?: string): string => {
+    let hash = 0;
+    for (let index = 0; index < name.length; index += 1) {
+        hash = (Math.imul(hash, 31) + name.charCodeAt(index)) | 0;
+    }
+    const key = normalizeNpcNameKey(name);
+    const same = social.find(npc => normalizeNpcNameKey(npc?.姓名) === key);
+    const base = preferred || same?.id || same?.ID || `npc_auto_${(hash >>> 0).toString(36)}`;
+    const occupied = new Set(social.filter(npc => normalizeNpcNameKey(npc?.姓名) !== key).flatMap(npc => [npc?.id, npc?.ID]));
+    let id = base;
+    for (let number = 2; occupied.has(id); number += 1) id = `${base}_${number}`;
+    return id;
+};
+
 // 只检查字符格式，不证明文本是人物姓名；调用方仍须检查叙事语义和栏目/占位标签。
 export const isNpcNameFormatValid = (value: unknown): boolean => {
     if (typeof value !== 'string') return false;

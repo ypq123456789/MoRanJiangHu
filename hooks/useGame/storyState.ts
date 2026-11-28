@@ -16,7 +16,9 @@ import type {
     OpeningConfig
 } from '../../types';
 import { 补齐世界地图空间字段 } from '../../utils/mapSpatial';
-import { 职位等级排序 } from '../../models/sect';
+import { 是否无门派标识, 职位等级排序 } from '../../models/sect';
+export { 是否无门派标识 } from '../../models/sect';
+import { 读取主角声望 } from '../../models/world';
 import type { 任务结构, 任务状态 } from '../../models/task';
 import { 归一化六维到境界预算 } from '../../utils/attributeBudget';
 import { 修复开局伙伴社交列表 } from '../../utils/openingCompanion';
@@ -29,7 +31,7 @@ import { 候选名命中模板黑名单 } from '../../utils/templateNameBlacklis
 import { 获取当前境界配置 } from './stateTransforms';
 import { normalizeCanonicalGameTime } from './timeUtils';
 import { 确保角色金钱BaseAmount } from '../../utils/currencyDisplay';
-import { 提取世界基底初始落点 } from '../../utils/locationTree';
+import { 提取世界基底初始落点, 细化环境所在房间 } from '../../utils/locationTree';
 import type { WorldFoundationResult } from '../../services/ai/storyTasks';
 
 export type 开场命令基态 = {
@@ -156,6 +158,7 @@ const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
     const normalized = (Array.isArray(rawLayers) ? rawLayers : [])
         .map((layer) => ({
             原始ID: 取文本(layer?.ID || layer?.id),
+            连通房间: 取字符串数组(layer?.连通房间),
             名称: 清洗地图地点名称(layer?.名称 || layer?.name),
             层级: 规范化地图层级名称(layer?.层级 || layer?.level),
             父级ID: 取文本(layer?.父级ID || layer?.parentId || layer?.parent || layer?.上级地点),
@@ -169,6 +172,7 @@ const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
     if (!normalized.some((layer) => layer.层级 === '寰宇')) {
         normalized.unshift({
             原始ID: '',
+            连通房间: [],
             名称: '诸天万界',
             层级: '寰宇',
             父级ID: '',
@@ -205,6 +209,8 @@ const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
         控制势力: layer.控制势力,
         势力影响: layer.势力影响,
         势力标签: layer.势力标签,
+        ...(layer.层级 === '子地点' && layer.连通房间.length
+            ? { 连通房间: layer.连通房间.map(ref => rawIdToNewId.get(ref) || ref) } : {}),
         归属: { 大地点: '', 中地点: '', 小地点: '' }
     }));
 };
@@ -232,6 +238,7 @@ const 规范化世界基底势力列表 = (rawFactions: any[]): any[] => {
             return {
                 ID: id,
                 名称: 取文本(faction?.名称 || faction?.name),
+                主角声望: 读取主角声望(faction?.主角声望),
                 类型: 势力类型集合.has(type) ? type : '其他',
                 实力等级: Math.max(1, Math.min(10, 取数字(faction?.实力等级 || faction?.power || faction?.level, 5))),
                 地盘归属: 取文本(faction?.地盘归属 || faction?.territory || faction?.所在地),
@@ -280,6 +287,7 @@ const 标准化势力列表 = (rawFactions: any[]): any[] => {
             return {
                 ID: id,
                 名称: name || `势力 ${index + 1}`,
+                主角声望: 读取主角声望(faction?.主角声望),
                 类型: 势力类型集合.has(type) ? type : '其他',
                 实力等级: Math.max(1, Math.min(10, 取数字(faction?.实力等级 || faction?.power || faction?.level, 5))),
                 地盘归属: 取文本(faction?.地盘归属 || faction?.territory || faction?.所在地),
@@ -343,7 +351,7 @@ export const 合并世界基底到开场状态 = <T extends { 世界?: 世界数
             小地点: 取文本(currentEnv.小地点) || initialLoc.小地点,
             具体地点: initialLoc.具体地点
         }
-        : currentEnv;
+        : currentEnv && 细化环境所在房间({ ...currentWorld, 地图层级: mapLayers as any }, currentEnv);
     return {
         ...openingBase,
         ...(nextEnv ? { 环境: nextEnv } : {}),
@@ -416,14 +424,6 @@ const 取字符串数组 = (value: any): string[] => (
             .filter(Boolean)
         : []
 );
-
-const 无门派文本集合 = new Set(['', 'none', '无', '无门派', '无门无派', '尚未加入任何门派', '江湖散人', '散修', '无所属门派']);
-
-export const 是否无门派标识 = (value: any): boolean => {
-    if (value === null || value === undefined) return true;
-    const normalized = typeof value === 'string' ? value.trim().replace(/\s+/g, '') : String(value).trim();
-    return 无门派文本集合.has(normalized);
-};
 
 type 组织题材 = '营地' | '组织' | '轮回小队' | '宗门' | '门派' | '';
 
