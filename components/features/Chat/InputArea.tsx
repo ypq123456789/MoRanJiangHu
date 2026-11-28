@@ -111,6 +111,16 @@ const 移除已发送草稿 = (current: string, sent: string) => {
     return current.startsWith(prefix) ? current.slice(prefix.length) : current;
 };
 
+const 合并待重试草稿 = (current: string, sent: string) => {
+    const added = 移除已发送草稿(current, sent);
+    if (!added || added === current) return current;
+    // 发送失败后两份草稿属于同一回合，只合并跨过这次发送而重复选取的研习。
+    const originalLines = new Set(sent.split(/\r?\n/).map(line => line.trim()));
+    const remaining = added.split('\n').filter(line =>
+        !line.trimStart().startsWith(门派研习标记) || !originalLines.has(line.trim()));
+    return remaining.length ? [sent.trim(), ...remaining].join('\n') : sent;
+};
+
 const 获取性能时间 = (): number => (
     typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
@@ -256,7 +266,8 @@ const InputArea: React.FC<Props> = ({
     const [isStreaming, setIsStreaming] = useState(isStreamingDefault);
     const [lastSentContent, setLastSentContent] = useState('');
     const appliedDraftToken = useRef<number | null>(null);
-    const [isPreparing, setIsPreparing] = useState(false);
+    const [sendingContent, setSendingContent] = useState('');
+    const isPreparing = Boolean(sendingContent);
     const [attachedRecallPreview, setAttachedRecallPreview] = useState('');
     const [showAttachedRecall, setShowAttachedRecall] = useState(false);
     const [pendingRecallTag, setPendingRecallTag] = useState('');
@@ -422,18 +433,20 @@ const InputArea: React.FC<Props> = ({
         }
     }, [parseRepairModal.open, parseRepairModal.detail, parseRepairModal.editedRaw]);
 
+    const submittedDraft = sendingContent || (parseRepairModal.open ? parseRepairModal.sentContent || '' : '');
     useEffect(() => {
         if (!externalDraft?.text || externalDraft.token === appliedDraftToken.current) return;
         appliedDraftToken.current = externalDraft.token;
         setContent((current) => {
             const draft = externalDraft.text.trim();
             if (!draft) return current;
+            const nextDraft = 移除已发送草稿(current, submittedDraft);
+            if (draft.startsWith(门派研习标记) && nextDraft.split(/\r?\n/).some(line => line.trim() === draft)) return current;
             const prefix = current.trim();
-            if (draft.startsWith(门派研习标记) && prefix.split(/\r?\n/).some(line => line.trim() === draft)) return current;
             return prefix ? `${prefix}\n${draft}` : draft;
         });
         onExternalDraftApplied?.(externalDraft.token);
-    }, [externalDraft, onExternalDraftApplied]);
+    }, [externalDraft, onExternalDraftApplied, submittedDraft]);
 
     const 记录并设置队列进度 = <T extends QueueProgressPayload>(
         stage: string,
@@ -504,7 +517,8 @@ const InputArea: React.FC<Props> = ({
     const handleSend = async () => {
         if (!content.trim()) return;
         if (loading || isPreparing) return;
-        setIsPreparing(true);
+        setSendingContent(content);
+        let restoreDraft = true;
         setErrorModal(prev => ({ ...prev, open: false }));
         setParseRepairModal(prev => ({ ...prev, open: false, error: '' }));
         setRecallProgress(null);
@@ -593,6 +607,7 @@ const InputArea: React.FC<Props> = ({
                         sentContent: content,
                         error: ''
                     });
+                    restoreDraft = false;
                     return;
                 }
                 if (result.needRecallConfirm && result.preparedRecallTag && !recallAutoRetried) {
@@ -631,10 +646,12 @@ const InputArea: React.FC<Props> = ({
                 return;
             }
             setLastSentContent(content);
+            restoreDraft = false;
             setContent(current => 移除已发送草稿(current, content));
             清空剧情回忆提示();
         } finally {
-            setIsPreparing(false);
+            if (restoreDraft) setContent(current => 合并待重试草稿(current, content));
+            setSendingContent('');
         }
     };
 
@@ -743,6 +760,11 @@ const InputArea: React.FC<Props> = ({
         if (typeof window !== 'undefined') {
             window.prompt(`请手动复制${label}：`, content);
         }
+    };
+
+    const closeParseRepair = () => {
+        setContent(current => 合并待重试草稿(current, parseRepairModal.sentContent || ''));
+        setParseRepairModal(prev => ({ ...prev, open: false }));
     };
 
     const handleApplyParseRepair = async (mode: 'auto' | 'manual') => {
@@ -1705,7 +1727,7 @@ const InputArea: React.FC<Props> = ({
                             </h4>
                             <button
                                 type="button"
-                                onClick={() => setParseRepairModal(prev => ({ ...prev, open: false }))}
+                                onClick={closeParseRepair}
                                 className="text-gray-400 hover:text-white transition-colors text-2xl leading-none px-2"
                                 aria-label="关闭解析修复弹窗"
                             >
@@ -1747,16 +1769,8 @@ const InputArea: React.FC<Props> = ({
                             <button
                                 type="button"
                                 onClick={() => {
+                                    closeParseRepair();
                                     void handleReroll();
-                                    setParseRepairModal({
-                                        open: false,
-                                        title: '',
-                                        detail: '',
-                                        hint: '',
-                                        originalRaw: '',
-                                        editedRaw: '',
-                                        error: ''
-                                    });
                                 }}
                                 className="px-5 py-2.5 text-sm font-bold rounded border border-red-900/60 text-red-300 hover:bg-red-900/20"
                             >

@@ -106,4 +106,43 @@ describe('门派藏经研习', () => {
         expect(onSend).toHaveBeenCalledWith(quoted + '\n' + draft, expect.any(Boolean), expect.any(Object));
         expect(input.value).toBe('去问师父。\n去找师姐。');
     });
+
+    it.each(['发送成功', '发送失败', '手动恢复', '放弃恢复'] as const)(
+        '%s时按回合保留研习草稿，重复选择只留一条',
+        async (outcome) => {
+            const draft = 构建门派研习行动(sect, book);
+            const original = '先问守阁师兄。\n' + draft;
+            const extra = '再去找师父。';
+            type SendResult = Awaited<ReturnType<React.ComponentProps<typeof InputArea>['onSend']>>;
+            let finish!: (result: SendResult) => void;
+            const onSend = vi.fn(() => new Promise<SendResult>(resolve => { finish = resolve; }));
+            const props = { onSend, onStop: vi.fn(), onRegenerate: vi.fn(), onRecoverParseErrorRaw: vi.fn(() => null), loading: false };
+            const { rerender } = render(<InputArea {...props} />);
+            const input = screen.getByRole('textbox', { name: '行动草稿' }) as HTMLTextAreaElement;
+            fireEvent.change(input, { target: { value: original } });
+            fireEvent.keyDown(input, { key: 'Enter' });
+            [extra, draft, draft].forEach((text, i) => rerender(<InputArea {...props} externalDraft={{ text, token: i + 1 }} />));
+            expect(onSend).toHaveBeenCalledWith(original, expect.any(Boolean), expect.any(Object));
+            expect(input.value).toBe([original, extra, draft].join('\n'));
+
+            const needsRepair = outcome === '手动恢复' || outcome === '放弃恢复';
+            await act(async () => finish(needsRepair
+                ? { cancelled: true, needRerollConfirm: true, parseErrorRawText: '待修复的正文' }
+                : { cancelled: outcome === '发送失败' }));
+            if (outcome === '手动恢复') {
+                await act(async () => { fireEvent.click(screen.getByRole('button', { name: '手动编辑后应用' })); });
+                expect(props.onRecoverParseErrorRaw).toHaveBeenCalledWith('待修复的正文', false);
+            } else if (outcome === '放弃恢复') {
+                fireEvent.click(screen.getByRole('button', { name: '关闭解析修复弹窗' }));
+            }
+            const expected = outcome === '发送失败' || outcome === '放弃恢复'
+                ? [original, extra].join('\n')
+                : [extra, draft].join('\n');
+            rerender(<InputArea {...props} externalDraft={{ text: draft, token: 4 }} />);
+            expect(input.value).toBe(expected);
+            onSend.mockResolvedValueOnce({});
+            await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+            expect(onSend).toHaveBeenLastCalledWith(expected, expect.any(Boolean), expect.any(Object));
+        }
+    );
 });

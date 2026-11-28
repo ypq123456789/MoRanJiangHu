@@ -699,10 +699,15 @@ export const 执行开场剧情生成工作流 = async (
     let openingInputTokens = 0;
     const controller = new AbortController();
     deps.abortControllerRef.current = controller;
+    const 开局请求有效 = () => deps.abortControllerRef.current === controller && !controller.signal.aborted;
+    const 检查开局请求 = () => {
+        controller.signal.throwIfAborted();
+        if (deps.abortControllerRef.current !== controller) throw new DOMException('开局会话已切换', 'AbortError');
+    };
 
     try {
         const naturalProseSnapshot = await naturalProseSettingsService.load();
-        controller.signal.throwIfAborted();
+        检查开局请求();
         const 写入或插入提示词 = (
             promptPool: 提示词结构[],
             promptId: string,
@@ -741,6 +746,7 @@ export const 执行开场剧情生成工作流 = async (
             openingStatePayload.剧情,
             openingStatePayload?.角色?.姓名 || deps.角色?.姓名 || ''
         );
+        检查开局请求();
 
         const openingGameConfig = 规范化游戏设置(deps.gameConfig);
         const 启用修炼体系 = openingGameConfig.启用修炼体系 !== false;
@@ -783,16 +789,23 @@ export const 执行开场剧情生成工作流 = async (
         }): Promise<{ completed: boolean; result?: T }> => {
             let manualAttempt = 0;
             while (true) {
+                检查开局请求();
                 manualAttempt += 1;
                 params.beforeAttempt?.(manualAttempt);
                 try {
                     const result = await deps.执行带自动重试的生成请求<T>({
                         enabled: params.forceAutoRetry === true || 开局独立阶段自动重试已启用,
-                        action: params.run,
-                        onRetry: params.onAutoRetry
+                        action: () => {
+                            检查开局请求();
+                            return params.run();
+                        },
+                        onRetry: (...args) => {
+                            if (开局请求有效()) params.onAutoRetry?.(...args);
+                        }
                     });
                     return { completed: true, result };
                 } catch (error: any) {
+                    检查开局请求();
                     if (error?.name === 'AbortError') {
                         throw error;
                     }
@@ -805,6 +818,7 @@ export const 执行开场剧情生成工作流 = async (
                         );
                     params.onError?.(errorText);
                     const decision = await 请求开局阶段失败决策(params.stageLabel, errorText);
+                    检查开局请求();
                     if (decision === 'retry') {
                         continue;
                     }
@@ -963,7 +977,7 @@ export const 执行开场剧情生成工作流 = async (
                 stream: useStreaming,
                 onDelta: useStreaming
                     ? (_delta, accumulated) => {
-                        if (controller.signal.aborted) return;
+                        if (!开局请求有效()) return;
                         openingAnyDeltaReceived = true;
                         const preview = 提取2_0流式正文预览(accumulated);
                         if (!preview) return;
@@ -976,7 +990,7 @@ export const 执行开场剧情生成工作流 = async (
                     }
                     : undefined
             });
-            controller.signal.throwIfAborted();
+            检查开局请求();
             let displayAiData: GameResponse = {
                 ...renderedOpening.response,
                 tavern_commands: Array.isArray(renderedOpening.response?.tavern_commands)
@@ -1037,7 +1051,7 @@ export const 执行开场剧情生成工作流 = async (
                             allowExpansionForLength: true,
                             minLength: openingGameConfig.字数要求,
                             onDelta: (_delta: string, accumulated: string) => {
-                                if (controller.signal.aborted) return;
+                                if (!开局请求有效()) return;
                                 设置开局文章优化进度({
                                     phase: 'start',
                                     text: '正在流式优化开局正文...',
@@ -1060,6 +1074,7 @@ export const 执行开场剧情生成工作流 = async (
                     },
                     getErrorText: (error: any) => error?.message || '开局文章优化失败'
                 });
+                检查开局请求();
                 const polished = polishStage.result;
                 if (polishStage.completed && polished) {
                     if (polished.applied) {
@@ -1109,13 +1124,13 @@ export const 执行开场剧情生成工作流 = async (
                     openingConfig: options?.开局配置,
                     stream: directorStreaming,
                     onDelta: directorStreaming ? (_delta, accumulated) => {
-                        if (controller.signal.aborted) return;
+                        if (!开局请求有效()) return;
                         directorRawText = accumulated;
                         设置开局导演进度({ phase: 'stream', text: directorStatus, rawText: accumulated });
                     } : undefined,
                     signal: controller.signal
                 });
-                controller.signal.throwIfAborted();
+                检查开局请求();
                 postState = result.nextState;
                 设置开局导演进度({
                     phase: 'done',
@@ -1124,7 +1139,7 @@ export const 执行开场剧情生成工作流 = async (
                     elapsedMs: result.directorMs
                 });
             } catch (error) {
-                if (controller.signal.aborted || (error as Error)?.name === 'AbortError') {
+                if (!开局请求有效() || (error as Error)?.name === 'AbortError') {
                     设置开局导演进度({ phase: 'cancelled', text: '开局导演推演已取消。', rawText: directorRawText });
                     throw error;
                 }
@@ -1305,7 +1320,7 @@ export const 执行开场剧情生成工作流 = async (
                                 onStreamDelta: 开局变量计算非流式输出
                                     ? undefined
                                     : (_delta: string, accumulated: string) => {
-                                        if (controller.signal.aborted) return;
+                                        if (!开局请求有效()) return;
                                         设置开局变量生成进度({
                                             phase: 'start',
                                             text: '正在流式生成开局变量...',
@@ -1333,6 +1348,7 @@ export const 执行开场剧情生成工作流 = async (
                     },
                     getErrorText: (error: any) => error?.message || '开局变量生成失败'
                 });
+                检查开局请求();
                 const openingVariableResult = variableStage.result;
                 const variableStartIndex = (Array.isArray(displayAiData.tavern_commands) ? displayAiData.tavern_commands.length : 0) + 1;
                 if (variableStage.completed) {
@@ -1403,7 +1419,7 @@ export const 执行开场剧情生成工作流 = async (
                             onDelta: 开局地图更新非流式输出
                                 ? undefined
                                 : (_delta: string, accumulated: string) => {
-                                    if (controller.signal.aborted) return;
+                                    if (!开局请求有效()) return;
                                     设置开局地图更新进度({
                                         phase: 'start',
                                         text: '正在流式更新开局地图...',
@@ -1430,6 +1446,7 @@ export const 执行开场剧情生成工作流 = async (
                     },
                     getErrorText: (error: any) => error?.message || '开局地图更新失败'
                 });
+                检查开局请求();
                 const mapResult = mapStage.result;
                 if (mapStage.completed && mapResult) {
                     const mapCommands = Array.isArray(mapResult.commands) ? mapResult.commands : [];

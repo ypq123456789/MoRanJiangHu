@@ -46,15 +46,16 @@ describe('地图自动更新解析', () => {
         世界: { 地图层级 } as any, worldbooks: [], prefetchedRawText: rawText
     });
     it('逐回合增加大区时须在同一批命令中补足其直接分支，失败不落部分数据', async () => {
-        const region = { ID: 'newregion', 名称: '塞外', 层级: '中地点', 父级ID: '' };
+        const existing = [{ ID: 'land', 名称: '边地', 层级: '大地点' }];
+        const region = { ID: 'newregion', 名称: '塞外', 层级: '中地点', 父级ID: 'land' };
         const town = (name: string) => ({ 名称: name, 层级: '小地点', 父级ID: 'newregion' });
-        const invalid = await 更新分支([], [push(region), push(town('朔方')), push(town('朔方'))].join('\n'));
+        const invalid = await 更新分支(existing, [push(region), push(town('朔方')), push(town('朔方'))].join('\n'));
         expect(invalid).toMatchObject({ ok: false, phase: 'error', commands: [] });
         expect(invalid.statusText).toContain('塞外');
-        const valid = await 更新分支([], [push(region), push(town('朔方')), push(town('云中'))].join('\n'));
+        const valid = await 更新分支(existing, [push(region), push(town('朔方')), push(town('云中'))].join('\n'));
         expect(valid.ok).toBe(true);
         expect(valid.commands).toHaveLength(3);
-        const addAlias = await 更新分支([], [push(region).replace(/^push/, 'add'), push(town('朔方'))].join('\n'));
+        const addAlias = await 更新分支(existing, [push(region).replace(/^push/, 'add'), push(town('朔方'))].join('\n'));
         expect(addAlias).toMatchObject({ ok: false, commands: [] });
         expect(addAlias.statusText).toContain('塞外');
     });
@@ -88,7 +89,19 @@ describe('地图自动更新解析', () => {
             }
         }
         nodes.push({ ID: 'inn', 名称: '回春驿', 层级: '区地点', 父级ID: '东南甲' });
-        expect((await 更新分支([], nodes.map(push).join('\n'))).ok).toBe(true);
+        const run = (raw: string, 地图层级: object[] = []) => 生成地图更新({
+            mode: 'auto_incremental', apiSettings: { 功能模型占位: {} } as any, worldbooks: [],
+            环境: {} as any, 世界: {} as any,
+            stateBase: { 环境: { 具体地点: '回春驿' }, 世界: { 地图层级 } } as any,
+            currentResponse: { logs: [{ sender: '旁白', text: '你在回春驿落脚。' }] } as any, prefetchedRawText: raw
+        });
+        const full = nodes.map(push).join('\n');
+        expect(await run('<命令>' + full + '</命令>')).toMatchObject({ ok: true, phase: 'done' });
+        for (const raw of ['', '<命令>无</命令>', push({ 名称: '回春驿', 层级: '区地点' }),
+            full.replace('"父级ID":"东南甲"', '"父级ID":"未收录"'), full.replace('"名称":"回春驿"', '"名称":"旧渡口"')]) {
+            expect(await run(raw)).toMatchObject({ ok: false, phase: 'error', commands: [] });
+        }
+        expect(await run('<命令>无</命令>', nodes)).toMatchObject({ ok: true, commands: [] });
     });
 
     it('中间穿插 set 时，后续房间仍通过同一响应的建筑别名绑定父节点', () => {
@@ -279,8 +292,7 @@ describe('地图更新请求兜底超时', () => {
             currentResponse: { logs: [{ sender: '旁白', text: '清晨醒来。' }], tavern_commands: [] } as any
         });
 
-        expect(result.phase).toBe('error');
-        expect(result.statusText).toContain('云岫剑宗');
+        expect(result).toMatchObject({ ok: true, phase: 'done', commands: [] });
         const logText = vi.mocked(recordDiagnosticLog).mock.calls
             .map((call) => JSON.stringify(call))
             .join('\n');

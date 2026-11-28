@@ -437,7 +437,7 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
                 directorBible: bible,
                 角色: { 姓名: '沈砚', 当前血量: 100, 最大血量: 100 } as any,
                 环境: { 时间: '1:01:01:08:00', 年份: 1, 月份: 1, 日期: 1, 小时: 8, 分钟: 0, 季节: '春', 天气: '小雨', 大地点: '临安', 中地点: '西市', 小地点: '客栈', 区地点: '', 子地点: '', 具体地点: '临安西市客栈' } as any,
-                社交: [],
+                社交: [{ id: 'NPC-002', 姓名: '周衡', 是否在场: false } as any],
                 世界: { 地图层级: [], 势力列表: [{ ID: 'F1', 名称: '漕帮' }, { ID: 'F2', 名称: '商会', 主角声望: 0 }, { ID: 'F3', 名称: '伏龙山' }], 江湖史册: [], 进行中事件: [] } as any,
                 剧情: { 当前章节: { 标题: '第一章', 原文内容: '', 当前分解组: 1 }, 历史卷宗: [] } as any,
                 剧情规划: { 近期剧情规划: [], 中期剧情规划: [], 长期剧情规划: [], 跨章延续事项: [] } as any,
@@ -461,7 +461,9 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
         expect(vi.mocked(chatClient.请求模型文本).mock.lastCall?.[2]?.streamOptions?.stream).toBe(false);
         expect(vi.mocked(chatClient.请求模型文本).mock.lastCall?.[1].map(message => message.content).join('')).toContain('势力声望更新');
         expect(res.nextState.世界.势力列表.map(faction => [faction.ID, faction.主角声望])).toEqual([['F1', 27], ['F2', 0], ['F3', undefined]]);
-        expect(res.nextState.社交.map(npc => npc.姓名).sort()).toEqual(['顾斩潮', '何掌柜', '张掌柜', '顾霜晚', '赵明川'].sort());
+        expect(res.nextState.社交.map(npc => npc.姓名).sort()).toEqual(['周衡', '顾斩潮', '何掌柜', '张掌柜', '顾霜晚', '赵明川'].sort());
+        expect(res.nextState.社交.find(npc => npc.姓名 === '周衡')?.id).toBe('NPC-002');
+        expect(new Set(res.nextState.社交.map(npc => npc.id)).size).toBe(res.nextState.社交.length);
         expect(res.nextState.社交.find(npc => npc.姓名 === '张掌柜')?.简介).toContain('沈砚提到');
         expect(res.nextState.社交.filter(npc => npc.是否在场).map(npc => npc.姓名).sort()).toEqual(['顾霜晚', '赵明川'].sort());
         expect(res.nextState.社交.every(npc => !npc.是否队友)).toBe(true);

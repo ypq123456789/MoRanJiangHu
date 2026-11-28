@@ -22,7 +22,7 @@ import { 首次登记NPC交易资产 } from '../plugins/tradePlugin';
 import { 获取交易币制 } from '../plugins/tradeCurrency';
 import { 旁白有现场行动, 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
 import { 公开局外人物审计规则 } from '../../prompts/runtime/publicNpcAudit';
-import { normalizeNpcNameKey, textMentionsNpcName } from '../../utils/npcName';
+import { normalizeNpcNameKey, textMentionsNpcName, 生成NPC稳定ID } from '../../utils/npcName';
 
 export interface DirectorPostTurnResult {
     nextState: StoryV2EngineState;
@@ -387,7 +387,7 @@ export const 执行导演后处理V2 = async (params: {
             } else {
                 const initPos = updPos || (upd.是否在场 !== false ? nextEnv.具体地点 : '');
                 nextSocial.push({
-                    id: `NPC-${String(nextSocial.length + 1).padStart(3, '0')}`,
+                    id: 生成NPC稳定ID(name, nextSocial, `NPC-${String(nextSocial.length + 1).padStart(3, '0')}`),
                     姓名: name,
                     性别: upd.性别 || '女',
                     身份: upd.身份 || '未知人物',

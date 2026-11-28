@@ -8,6 +8,7 @@ import { 地图层级命名契约, 地图层级命名自检 } from '../../prompt
 import { readRoomExits } from '../../utils/roomConnections';
 import { getRoomSlots } from '../../utils/roomFloorplan';
 import { 查找地图分支缺口 } from '../../utils/mapBranchCoverage';
+import { 地点路径匹配分支 } from '../../utils/locationTree';
 import { applyStateCommand } from '../../utils/stateHelpers';
 import { 请求模型文本, 规范化文本补全消息链 } from '../../services/ai/chatCompletionClient';
 import { recordDiagnosticLog, type DiagnosticLogLevel } from '../../services/diagnosticLog';
@@ -61,6 +62,30 @@ const 整图路径 = /^(?:gameState\.)?世界\.地图层级$/;
 const 地图更新请求超时毫秒 = 120_000;
 
 const 取文本 = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+function 检查开局地图结构(nodes: any[], env?: Partial<环境信息结构>): string {
+    const roots = nodes.filter(node => node?.层级 === '寰宇');
+    if (roots.length !== 1 || roots[0].父级ID) return '开局种子地图须有且仅有一个无父级的寰宇根节点。';
+    if (nodes.some(node => !取文本(node?.ID) || !取文本(node?.名称))) return '开局种子地图包含缺少 ID 或地名的节点。';
+    const byId = new Map(nodes.map(node => [node.ID, node]));
+    if (byId.size !== nodes.length) return '开局种子地图存在重复的地点 ID。';
+    for (const node of nodes) {
+        if (node === roots[0]) continue;
+        const level = 地图层级顺序.indexOf(node.层级);
+        if (level < 1 || byId.get(node.父级ID)?.层级 !== 地图层级顺序[level - 1]) {
+            return '开局种子地图中「' + node.名称 + '」缺少对应层级的直接父地点。';
+        }
+    }
+    const anchors = [env?.大地点, env?.中地点, env?.小地点, env?.具体地点].map(取文本)
+        .filter(name => name && !/^(未知|不明|待定|无|未指定)(?:地点)?$/u.test(name));
+    // 上面的层级检查保证每条父链都在六层内终止，可以直接核对玩家的完整位置。
+    if (anchors.length && !nodes.some(node => {
+        const names: string[] = [];
+        for (let cursor = node; cursor; cursor = byId.get(cursor.父级ID)) names.unshift(cursor.名称);
+        return anchors.every(anchor => 地点路径匹配分支(anchor, names));
+    })) return '开局种子地图中没有与当前位置一致的完整路径：' + anchors.join(' > ');
+    return '';
+}
 
 const 创建地图更新诊断ID = (): string => (
     `map_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -798,7 +823,11 @@ export const 生成地图更新 = async (
         fullTreeSyncCount
     });
     const replacesTree = commands.some(cmd => cmd.action === 'set' && 整图路径.test(cmd.key));
-    const gaps = 查找地图分支缺口(layers, commands.length && !replacesTree ? (world?.地图层级 || []) : undefined);
+    if (layerCount === 0) {
+        const error = 检查开局地图结构(layers, env);
+        if (error) return { ok: false, phase: 'error', commands: [], rawText, statusText: error };
+    }
+    const gaps = 查找地图分支缺口(layers, layerCount > 0 && !replacesTree ? world?.地图层级 : undefined);
     if (gaps.length) {
         return { ok: false, phase: 'error', commands: [], rawText, statusText: '地图仍有地域分支待补：' + gaps.join('、') };
     }
