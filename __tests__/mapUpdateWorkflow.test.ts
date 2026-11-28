@@ -41,6 +41,41 @@ describe('地图自动更新解析', () => {
     ];
     const push = (node: object) => 'push 世界.地图层级 = ' + JSON.stringify(node);
 
+    const 更新分支 = (地图层级: object[], rawText: string) => 生成地图更新({
+        mode: 'auto_incremental', apiSettings: { 功能模型占位: {} } as any, 环境: {} as any,
+        世界: { 地图层级 } as any, worldbooks: [], prefetchedRawText: rawText
+    });
+    it('逐回合增加大区时须在同一批命令中补足其直接分支，失败不落部分数据', async () => {
+        const region = { ID: 'newregion', 名称: '塞外', 层级: '中地点', 父级ID: '' };
+        const town = (name: string) => ({ 名称: name, 层级: '小地点', 父级ID: 'newregion' });
+        const invalid = await 更新分支([], [push(region), push(town('朔方')), push(town('朔方'))].join('\n'));
+        expect(invalid).toMatchObject({ ok: false, phase: 'error', commands: [] });
+        expect(invalid.statusText).toContain('塞外');
+        const valid = await 更新分支([], [push(region), push(town('朔方')), push(town('云中'))].join('\n'));
+        expect(valid.ok).toBe(true);
+        expect(valid.commands).toHaveLength(3);
+        const addAlias = await 更新分支([], [push(region).replace(/^push/, 'add'), push(town('朔方'))].join('\n'));
+        expect(addAlias).toMatchObject({ ok: false, commands: [] });
+        expect(addAlias.statusText).toContain('塞外');
+    });
+
+    it('老档已有缺口时允许登记房间通路并逐步补地图，已有分支不能进一步减少', async () => {
+        const region = { ID: 'r', 名称: '西境', 层级: '中地点', 父级ID: '' };
+        const room = { ID: 'a', 名称: '前堂', 层级: '子地点', 父级ID: 'inn' };
+        const a = { ID: 'a1', 名称: '玉门', 层级: '小地点', 父级ID: 'r' };
+        const layers = [region, a, room];
+        expect((await 更新分支(layers, 'set 世界.地图层级[2].连通房间 = ["后堂"]')).ok).toBe(true);
+        expect((await 更新分支(layers, 'push 世界.地图层级[2].连通房间 = "后堂"')).commands)
+            .toEqual([{ action: 'push', key: '世界.地图层级[2].连通房间', value: '后堂' }]);
+        expect((await 更新分支([region, room], push(a))).ok).toBe(true);
+        for (const command of ['delete 世界.地图层级[1]', 'set 世界.地图层级[1].父级ID = "other"', 'set 世界.地图层级[1] = {"层级":"区地点"}']) {
+            const invalid = await 更新分支(layers, command);
+            expect(invalid).toMatchObject({ ok: false, commands: [] });
+            expect(invalid.statusText).toContain('西境');
+        }
+        expect(layers[1]).toEqual(a);
+    });
+
     it('中间穿插 set 时，后续房间仍通过同一响应的建筑别名绑定父节点', () => {
         const input = [
             push({ ID: 'inn-C', 名称: '云来客栈', 层级: '区地点', 父级ID: 'DT-001' }),
@@ -229,8 +264,8 @@ describe('地图更新请求兜底超时', () => {
             currentResponse: { logs: [{ sender: '旁白', text: '清晨醒来。' }], tavern_commands: [] } as any
         });
 
-        expect(result.phase).toBe('done');
-        expect(result.statusText).toContain('无需更新');
+        expect(result.phase).toBe('error');
+        expect(result.statusText).toContain('云岫剑宗');
         const logText = vi.mocked(recordDiagnosticLog).mock.calls
             .map((call) => JSON.stringify(call))
             .join('\n');

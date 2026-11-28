@@ -180,7 +180,7 @@ const MobileQuickMenu: React.FC<Props> = ({
     };
 
     return (
-        <div className="md:hidden fixed right-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+118px)] z-[89] flex items-start gap-2 pointer-events-auto">
+        <div className="mobile-game-rail md:hidden fixed right-2 top-[calc(var(--app-safe-top,env(safe-area-inset-top,0px))+118px)] z-[89] flex items-start gap-2 pointer-events-auto">
             <div className="relative flex items-start gap-2">
                 {!collapsed && showAllMenus && (
                     <div className="max-h-[min(48vh,390px)] w-[172px] overflow-hidden rounded-3xl border border-wuxia-gold/14 bg-black/38 shadow-[0_14px_40px_rgba(0,0,0,0.24)] backdrop-blur-md">

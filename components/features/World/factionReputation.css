@@ -1,0 +1,24 @@
+.faction-reputation {
+    --panel: #231e1b; --ink: #f1e5d4; --rule: #807363; --good: #77ddb1; --bad: #ff9690; --soft: #c5bbaa;
+    margin: 0 0 1rem; padding: 1rem; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--rule); border-radius: 1rem;
+}
+.faction-reputation figcaption { font-size: .95rem; font-weight: 700; margin-bottom: .8rem }
+.faction-reputation ul { margin: 0; padding: 0; list-style: none; max-height: 24rem; overflow: auto; scrollbar-width: thin; }
+.faction-axis-row { display: grid; grid-template-columns: minmax(4.8rem, 31%) minmax(0, 1fr); align-items: center; gap: .75rem; font-size: .82rem; }
+.faction-axis-name { overflow-wrap: anywhere; line-height: 1.35; padding: .3rem 0; }
+.faction-axis-scale { position: relative; display: flex; justify-content: space-between; font-size: .7rem; color: var(--soft); }
+.faction-axis-scale span:nth-child(2) { position: absolute; left: 50%; transform: translateX(-50%); }
+.faction-axis-track { position: relative; min-height: 2rem; height: 100%; --tone: var(--soft); }
+[data-tone="positive"] .faction-axis-track { --tone: var(--good); }
+[data-tone="negative"] .faction-axis-track { --tone: var(--bad); }
+.faction-axis-track::before, .faction-axis-track::after { content: ""; position: absolute; background: var(--rule); }
+.faction-axis-track::before { top: 50%; left: 0; right: 0; height: 1px; opacity: .35; }
+.faction-axis-track::after { inset: 0 auto 0 50%; width: 1px; }
+.faction-axis-track i { position: absolute; top: calc(50% - 3px); height: 6px; background: var(--tone); border-radius: 3px; }
+.faction-axis-value { position: absolute; top: 50%; transform: translate(-50%, -50%); z-index: 1; padding: 0 .18rem; color: var(--tone); background: var(--panel); white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
+.faction-membership { display: inline-block; font-size: .625rem; font-weight: 700; padding: 0 .26rem; color: #342409; background: #f2cd79; border-radius: .24rem; white-space: nowrap; }
+.faction-axis-name .faction-membership { margin-inline-start: .25rem; }
+.world-faction-node[data-affiliated] { flex-direction: column; gap: 1px; outline: 2px solid #dcac50; z-index: 1; }
+html[data-theme="day"] .faction-reputation { --panel: #fff9ef; --ink: #392d21; --rule: #9a8972; --good: #136249; --bad: #a52c29; --soft: #655848; }
+html[data-theme="day"] .world-faction-node[data-affiliated] { outline-color: #885917; }

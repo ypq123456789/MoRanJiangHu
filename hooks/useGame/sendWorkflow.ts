@@ -41,8 +41,9 @@ import { 分析世界到期触发 } from './worldEvolutionUtils';
 import { 按世界演变分流净化响应 } from './storyResponseGuards';
 import type { 响应命令处理状态 } from './responseCommandProcessor';
 import { 同步在场NPC当前位置 } from './responseCommandProcessor';
-import { 补录环境所在房间 } from '../../utils/locationTree';
+import { 补录环境所在房间, 细化环境所在房间 } from '../../utils/locationTree';
 import { 执行变量模型校准工作流 } from './variableModelWorkflow';
+import { 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
 import { 合并变量校准结果到响应 as 合并变量生成结果到响应 } from './variableCalibrationMerge';
 import type { 自动存档快照结构 } from './saveCoordinator';
 import type { 世界演变触发参数, 世界演变执行结果 } from './worldEvolutionWorkflow';
@@ -2515,7 +2516,8 @@ export const 执行主剧情发送工作流 = async (
                         latestRole: deps.获取最新角色Snapshot?.(), preTurnRole: v2State.角色,
                         postTurnRole: finalRoleV2, openingConfig: currentState.开局配置
                     });
-                    finalSocialV2 = 同步在场NPC当前位置(finalSocialV2, finalEnvV2);
+                    finalEnvV2 = 细化环境所在房间(finalWorldV2, finalEnvV2);
+                    finalSocialV2 = 同步在场NPC当前位置(finalSocialV2, finalEnvV2, finalWorldV2);
                     finalWorldV2 = 补录环境所在房间(finalWorldV2, finalEnvV2);
                     const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;
 
@@ -2607,6 +2609,11 @@ export const 执行主剧情发送工作流 = async (
                     }
                     console.warn('2.0 导演后处理失败，已保留正文并跳过本轮后台记账', postErr);
                     if (!directorCompleted) {
+                        const latest = deps.获取续跑状态快照?.()?.命令基线;
+                        const social = latest?.社交 || v2State.社交;
+                        const publicSocial = 补录公开局外人物({ social, logs: displayResponse.logs, playerName: v2State.角色.姓名,
+                            directorBible: preTurnDirectorBible, tasks: latest?.任务列表 || v2State.任务列表 });
+                        if (publicSocial !== social) deps.设置社交?.(规范化社交列表(publicSocial, { 合并同名: false }));
                         options?.onPlanningProgress?.({ phase: 'error', text: postErr?.message || '2.0 导演推演失败' });
                         options?.onWorldEvolutionProgress?.({ phase: 'error', text: '导演推演失败，本回合离屏演化未完成。' });
                     }

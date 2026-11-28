@@ -1,6 +1,58 @@
 import { describe, expect, it } from 'vitest';
 import { 规范化对白日志, 规范化可渲染对白日志 } from '../utils/dialogueLogNormalizer';
 
+describe.each([规范化对白日志, 规范化可渲染对白日志])('角色行里的动作与台词', (normalize) => {
+    it('保留截图中的纯动作和台词前后的描写，气泡只显示原话', () => {
+        const action = '坐在土炕边，指尖缓缓摩挲着那卷粗糙的焦黑兽皮。他没有去看窗外，但他能听见巷口传来的凌乱脚步声。';
+        const prefix = '背靠着内墙的暗格木板，她盯着杨培强手中的兽皮，眼神里掠过一丝不安。';
+        const raw = `【俞月荷】${prefix}（低声）：“你还在看那东西？”她攥紧了袖口。「快走。」`;
+        const result = normalize([
+            { sender: '杨培强', text: action },
+            { sender: '俞月荷', text: raw.slice('【俞月荷】'.length), rawText: raw }
+        ]);
+        expect(result).toEqual([
+            { sender: '旁白', text: '杨培强' + action + '\n俞月荷' + prefix + '（低声）', rawText: raw },
+            { sender: '俞月荷', text: '“你还在看那东西？”', rawText: raw },
+            { sender: '旁白', text: '她攥紧了袖口。', rawText: raw },
+            { sender: '俞月荷', text: '「快走。」', rawText: raw }
+        ]);
+        expect(normalize(result)).toEqual(result);
+    });
+
+    it('将明确的括号动作移出有引号和无引号的台词', () => {
+        expect(normalize([
+            { sender: '俞月荷', text: '“别出声。（摇头）再等等。”' },
+            { sender: '杨培强', text: '(压低声音)：我听见了。（他推开门）' }
+        ])).toEqual([
+            { sender: '俞月荷', text: '“别出声。”' },
+            { sender: '旁白', text: '（摇头）' },
+            { sender: '俞月荷', text: '“再等等。”' },
+            { sender: '旁白', text: '(压低声音)' },
+            { sender: '杨培强', text: '我听见了。' },
+            { sender: '旁白', text: '（他推开门）' }
+        ]);
+    });
+
+    it('保留台词里的名词引号、释义括号、正常指令和连续发言', () => {
+        const logs = [
+            { sender: '杨培强', text: '放下刀！我说的“钥匙”（旧称门引）还在。' },
+            { sender: '俞月荷', text: '“她坐在土炕边，还喊了声「等等」。”\n“那张纸（也就是借据）我收好了。”' },
+            { sender: '你', text: '“你听我说“慢着”时再拔剑。”' }
+        ];
+        expect(normalize(logs)).toEqual(logs);
+    });
+
+    it('叙事提到的匾额文字留在旁白，裸台词前的动作单独显示', () => {
+        expect(normalize([
+            { sender: '俞月荷', text: '她抬头望向写着“青崖”的匾额。' },
+            { sender: '杨培强', text: '（撑着墙站起身）你也听见了吗？' }
+        ])).toEqual([
+            { sender: '旁白', text: '她抬头望向写着“青崖”的匾额。\n（撑着墙站起身）' },
+            { sender: '杨培强', text: '你也听见了吗？' }
+        ]);
+    });
+});
+
 describe('dialogueLogNormalizer story readability cleanup', () => {
     it('does not rewrite knuckle-whitening phrasing locally', () => {
         const logs = 规范化对白日志([

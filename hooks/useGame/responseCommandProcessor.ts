@@ -1,9 +1,12 @@
+import { 构建地点树, 地点路径匹配分支 } from '../../utils/locationTree';
+import { 提取NPC位置记录 } from '../../utils/mapNpcLocation';
+import { 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
 import type { TavernCommand } from '../../types';
 import { hasExplicitReviewTimeEvidence, reviewNarratorTimeFacts } from './variableReviewTimeEvidence';
 import { 校准角色数值范围 } from './variableCalibration';
 import { validateVariableCommandBasics, 校验变量命令角色安全, variableCommandProtectionCode, type VariableCommandRejectionCode } from './variableCommandValidation';
 import type { NpcTemplateNameContext } from '../../utils/npcTemplateNamePolicy';
-import { normalizeNpcNameKey, isMultilingualNpcName, isNpcNameFormatValid, hasNpcNamePollution, textMentionsNpcName, 是代称式NPC称呼 } from '../../utils/npcName';
+import { normalizeNpcNameKey, isMultilingualNpcName, isNpcNameFormatValid, hasNpcNamePollution, textMentionsNpcName, 是代称式NPC称呼, 生成NPC稳定ID } from '../../utils/npcName';
 import { 是否含姓名叙事污染 } from '../../utils/dialogueSpeakerGuard';
 import {
     GameResponse,
@@ -424,7 +427,7 @@ const NPC已死亡 = (npc: any): boolean => {
     return 死亡状态正则.test(statusText);
 };
 
-const 判断NPC本回合是否在场 = (
+export const 判断NPC本回合是否在场 = (
     npc: any,
     responseFactText: string,
     dialogueSenderKeys: Set<string>
@@ -450,43 +453,24 @@ export const 构建环境位置路径 = (env?: Partial<环境信息结构> | nul
 
 export const 同步在场NPC当前位置 = (
     socialList: any[],
-    env?: Partial<环境信息结构> | null
+    env?: Partial<环境信息结构> | null,
+    world?: 世界数据结构
 ): any[] => {
-    if (!Array.isArray(socialList) || socialList.length <= 0) return socialList;
-    const currentLocation = typeof env?.具体地点 === 'string' && env.具体地点.trim()
-        ? env.具体地点.trim()
-        : ([env?.小地点, env?.中地点, env?.大地点]
-            .map((item) => typeof item === 'string' ? item.trim() : '')
-            .find(Boolean) || '');
-    const locationPath = 构建环境位置路径(env);
-    if (!currentLocation && !locationPath) return socialList;
-
-    let skippedCount = 0;
-    let updatedCount = 0;
-    const result = socialList.map((npc: any) => {
-        if (!npc || typeof npc !== 'object' || npc.是否在场 !== true) return npc;
-        const hasExplicitLocation = Boolean(
-            (typeof npc.位置路径 === 'string' && npc.位置路径.trim())
-            || (typeof npc.当前位置 === 'string' && npc.当前位置.trim())
-            || (typeof npc.当前地点 === 'string' && npc.当前地点.trim())
-            || (typeof npc.所在地点 === 'string' && npc.所在地点.trim())
-            || (typeof npc.所在位置 === 'string' && npc.所在位置.trim())
-            || (typeof npc.具体地点 === 'string' && npc.具体地点.trim())
-        );
-        if (hasExplicitLocation) { skippedCount++; return npc; }
-        updatedCount++;
-        const next = { ...npc };
-        if (currentLocation) {
-            next.当前位置 = currentLocation;
-            next.当前地点 = currentLocation;
-        }
-        if (locationPath) next.位置路径 = locationPath;
-        return next;
+    if (!env || !Array.isArray(socialList) || socialList.length === 0) return socialList;
+    const path = 构建环境位置路径(env);
+    if (!path) return socialList;
+    const tree = world?.地图层级?.length ? 构建地点树(world, env as 环境信息结构) : undefined;
+    const room = tree?.当前节点?.层级 === '子地点' ? tree.当前节点 : undefined;
+    const branch = tree?.面包屑.map(node => node.名称) || [];
+    const current = room?.名称 || (env.具体地点 || env.小地点 || env.中地点 || env.大地点 || '').trim();
+    const fullPath = room ? branch.join(' > ') : path;
+    return socialList.map(npc => {
+        if (!npc || npc.是否在场 !== true) return npc;
+        const locations = 提取NPC位置记录(npc);
+        if (locations.length && (!room || !locations.every(value => 地点路径匹配分支(value, branch)))) return npc;
+        if (npc.当前位置 === current && npc.当前地点 === current && npc.位置路径 === fullPath) return npc;
+        return { ...npc, 当前位置: current, 当前地点: current, 位置路径: fullPath };
     });
-    if (skippedCount > 0 || updatedCount > 0) {
-        console.info('[同步在场NPC位置]', { 保留原位: skippedCount, 填充当前位置: updatedCount, 当前地点: currentLocation || '(无)' });
-    }
-    return result;
 };
 
 const 同步当前视角在场状态 = (
@@ -1517,15 +1501,6 @@ const 是否新增社交对象命令 = (cmd: any, currentSocial?: any[]): boolea
     return true;
 };
 
-/** 由姓名派生稳定 NPC ID：同名多次出现得到同一个 ID，避免每次标准化都退化成不稳定的 npc_<下标>。 */
-const 生成NPC稳定ID = (name: string): string => {
-    let hash = 0;
-    for (let index = 0; index < name.length; index += 1) {
-        hash = (Math.imul(hash, 31) + name.charCodeAt(index)) | 0;
-    }
-    return `npc_auto_${(hash >>> 0).toString(36)}`;
-};
-
 /**
  * 给「已经通过新增依据校验」的新 NPC 补稳定 ID。
  * 背景：AI 的 push 社交 通常不写 id，标准化时会被填成 npc_<下标>；而姓名规范化对代称式姓名
@@ -1736,6 +1711,11 @@ export const 执行响应命令处理 = (
     let fandomStoryPlanBuffer = (reviewPreview ? (baseState?.同人剧情规划 ?? currentState.同人剧情规划) : deps.规范化同人剧情规划状态(baseState?.同人剧情规划 ?? currentState.同人剧情规划));
     let fandomHeroinePlanBuffer = (reviewPreview ? (baseState?.同人女主剧情规划 ?? currentState.同人女主剧情规划) : deps.规范化同人女主剧情规划状态(baseState?.同人女主剧情规划 ?? currentState.同人女主剧情规划));
     const socialBeforeCommands = Array.isArray(socialBuffer) ? socialBuffer : [];
+    const 补齐本回合公开人物 = (list: any[]) => {
+        const recovered = 补录公开局外人物({ social: list, previousSocial: socialBeforeCommands,
+            logs: response.logs, tasks: tasksBuffer, playerName: charBuffer?.姓名 });
+        return recovered === list ? list : deps.规范化社交列表(recovered, { 合并同名: false });
+    };
     const worldFactionsBeforeCommands = Array.isArray(worldBuffer?.势力列表) ? worldBuffer.势力列表 : [];
     const charGenderBeforeCommands = charBuffer?.性别;
     const charKungfuBeforeCommands = Array.isArray(charBuffer?.功法列表) ? charBuffer.功法列表 : [];
@@ -2034,6 +2014,7 @@ export const 执行响应命令处理 = (
 
         // 规划 ↔ 社交 一致性校准：命令写规划时可能把已退场/从未入档的角色
         // 带回关联人物，对照本回合最终社交名单打【人物核对】标记（只标记不剔除）。
+        socialBuffer = 补齐本回合公开人物(socialBuffer);
         const 命令后在档人物名单 = 收集在档人物名集合(socialBuffer, charBuffer?.姓名);
         校准规划关联人物一致性(storyPlanBuffer, 命令后在档人物名单);
         校准规划关联人物一致性(fandomStoryPlanBuffer, 命令后在档人物名单);
@@ -2150,6 +2131,7 @@ export const 执行响应命令处理 = (
     }
 
     // 规划 ↔ 社交 一致性校准（同上）：对照本回合最终社交名单打【人物核对】标记。
+    normalizedSocial = 补齐本回合公开人物(normalizedSocial);
     const 预览在档人物名单 = 收集在档人物名集合(normalizedSocial, charBuffer?.姓名);
     校准规划关联人物一致性(storyPlanBuffer, 预览在档人物名单);
     校准规划关联人物一致性(fandomStoryPlanBuffer, 预览在档人物名单);

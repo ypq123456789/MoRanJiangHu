@@ -7,6 +7,7 @@ import {
     NPC代称外观词列表 as NPC占位外观词列表
 } from '../../utils/npcName';
 import { 是否含姓名叙事污染 } from '../../utils/dialogueSpeakerGuard';
+import { 是否仅闻名NPC } from '../../models/social';
 import { 角色数据结构, 环境信息结构, 装备槽位 } from '../../types';
 import type { 背景开局货币 } from '../../types';
 import { normalizeCanonicalGameTime, 环境时间转标准串, 结构化时间转标准串 } from './timeUtils';
@@ -908,6 +909,17 @@ const 生成装备补建物品ID = (引用: string, slot: string): string => {
     return `itm_equip_${(hash >>> 0).toString(36)}`;
 };
 
+const 装备引用是编号 = (ref: string): boolean => /^(?:itm_|bg_item_|Item\d+$)/i.test(ref);
+const 旧装备补建说明 = /^由「([^」]+)」装备栏引用自动补建（(?:模型未在物品列表写入该装备|旧档)）。?$/u;
+
+const 装备简述 = (名称: string, 类型: string): string => {
+    const 布衣 = 名称.match(/^(.+布)(长裤|短裤|衬衣|长衫|短衫|长袍|短褂)$/u);
+    if (布衣) return `用${布衣[1]}裁成的${布衣[2]}。`;
+    if (类型 === '武器') return '一件随身使用的兵器。';
+    if (类型 === '防具') return '一件随身穿戴的装备。';
+    return '一件随身装备。';
+};
+
 const 规范化单个物品 = (rawItem: any, idx: number): any | null => {
     if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) return null;
     const item = { ...rawItem } as any;
@@ -918,13 +930,17 @@ const 规范化单个物品 = (rawItem: any, idx: number): any | null => {
         ? item.ID.trim()
         : `itm_auto_${idx}`;
     item.名称 = 名称 || 描述.slice(0, 12);
-    // 历史存档兜底：早期补建装备把「引用值」直接当名称，而引用值可能是 itm_equip_xxx / Item001。
-    // 这里只对「自动补建」的装备生效，改成槽位可读名，避免面板长期显示物品 ID。
-    if (/^(?:itm_|bg_item_|Item\d+$)/i.test(item.名称) && /自动补建/.test(描述)) {
-        const 补建槽位 = 规范化文本(item?.当前装备部位);
-        item.名称 = 补建槽位 ? `${补建槽位}（补建）` : '装备（补建）';
+    const 旧说明 = 描述.match(旧装备补建说明);
+    if (旧说明) {
+        if (item.ID.startsWith('itm_equip_')) item.待补装备引用 = item.名称;
+        if (装备引用是编号(item.名称) || item.名称 === `${旧说明[1]}（补建）` || item.名称 === '装备（补建）') {
+            item.名称 = 旧说明[1];
+        }
+        item.描述 = 规范化文本(item.视觉描述) || 装备简述(item.名称, item.类型);
+    } else {
+        item.描述 = 描述;
     }
-    item.描述 = 描述;
+    if (item.待补装备引用 && item.描述 !== 装备简述(item.名称, item.类型)) delete item.待补装备引用;
     item.类型 = 取首个有效文本片段(item?.类型, '杂物');
     item.品质 = 取首个有效文本片段(item?.品质, '凡品');
     item.重量 = 规范化物品重量(item);
@@ -1401,7 +1417,9 @@ const 规范化环境信息 = (rawEnv?: any): 环境信息结构 => {
     const 中地点 = 取地点片段(source?.中地点);
     const 小地点 = 取地点片段(source?.小地点);
     const 原始具体地点 = 取地点片段(source?.具体地点);
-    const 具体地点 = 去除具体地点冗余(原始具体地点, 小地点);
+    const 场所房间 = [...new Set([source?.区地点, source?.子地点].map(取地点片段).filter(Boolean))];
+    const 可补全地点 = !原始具体地点 || [大地点, 中地点, 小地点, ...场所房间].includes(原始具体地点);
+    const 具体地点 = 去除具体地点冗余(场所房间.length && 可补全地点 ? 场所房间.join(' > ') : 原始具体地点, 小地点);
     const rawFestival = source?.节日 && typeof source.节日 === 'object' ? source.节日 : null;
     const rawFestivalName = typeof source?.节日 === 'string' ? source.节日.trim() : '';
     const festivalSource = rawFestival;
@@ -1765,20 +1783,40 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
 
     let deduped: any[] = [];
     const seenIds = new Set<string>();
-    // 历史补建物品的名称会从「Item001」迁移成「槽位（补建）」，装备栏可能仍按旧名引用它。
-    // 先记下迁移前的名称，避免解析装备时找不到原物品又补建出一个重复对象。
+    // 记录旧名和已被正式档案替代的临时 ID，让装备栏继续指向原来那件物品。
     const 旧名称到物品ID = new Map<string, string>();
+    const normalizedItems = new Map<any, any>();
     sourceList.forEach((item: any, idx: number) => {
         if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, '堆叠数量') && 规范化整数(item?.堆叠数量, 1) <= 0) return;
         const normalizedItem = 规范化单个物品(item, idx);
         if (!normalizedItem) return;
         const 原名 = typeof item?.名称 === 'string' ? item.名称.trim() : '';
         if (原名 && 原名 !== normalizedItem.名称) 旧名称到物品ID.set(原名, normalizedItem.ID);
-        const id = normalizedItem.ID;
-        if (seenIds.has(id)) return;
-        seenIds.add(id);
-        deduped.push(normalizedItem);
+        normalizedItems.set(normalizedItem, item);
     });
+    const 正式物品 = [...normalizedItems.keys()].filter(item => !item.待补装备引用);
+    for (const item of normalizedItems.keys()) {
+        if (item.待补装备引用) {
+            const 引用 = item.待补装备引用;
+            const 按ID = 正式物品.find(entry => entry.ID === 引用 || entry.ID === item.ID);
+            const 同名候选 = !按ID && options?.补建缺失装备引用
+                ? 正式物品.filter(entry => entry.名称 === 引用 && (!entry.当前装备部位 || entry.当前装备部位 === item.当前装备部位))
+                : [];
+            const 正式 = 按ID || (同名候选.length === 1 ? 同名候选[0] : undefined);
+            if (正式) {
+                // 正式档案优先，期间已写入临时条目的图片、耐久等已有数据也随原件承接。
+                Object.assign(正式, 规范化单个物品({ ...item, ...normalizedItems.get(正式), ID: 正式.ID, 待补装备引用: undefined }, 0));
+                delete 正式.待补装备引用;
+                旧名称到物品ID.set(item.ID, 正式.ID);
+                旧名称到物品ID.set(引用, 正式.ID);
+                continue;
+            }
+        }
+        const id = item.ID;
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        deduped.push(item);
+    }
     deduped = 合并同名可堆叠物品(deduped);
 
     const uniqueByName = new Map<string, any>();
@@ -1793,14 +1831,18 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
 
     const itemById = new Map<string, any>(deduped.map((item) => [item.ID, item]));
 
-    const findItemByRef = (idOrName: string): any | undefined => {
+    const findItemByRef = (idOrName: string, slot: string): any | undefined => {
         const byId = itemById.get(idOrName);
         if (byId) return byId;
         const byName = deduped.find((item) => item?.名称 === idOrName);
         if (byName) return byName;
         // 名称迁移兜底：历史补建物品的旧 ID 名仍可能被装备栏引用。
         const 迁移ID = 旧名称到物品ID.get(idOrName);
-        return 迁移ID ? itemById.get(迁移ID) : undefined;
+        if (迁移ID) return itemById.get(迁移ID);
+        // 独立变量可能整体替换背包，留下先前按引用生成的装备 ID。由同一槽位和真实名称/ID 验算。
+        if (!idOrName.startsWith('itm_equip_')) return undefined;
+        const candidates = deduped.filter(item => [item.ID, item.名称].some(ref => 生成装备补建物品ID(ref, slot) === idOrName));
+        return candidates.length === 1 ? candidates[0] : undefined;
     };
     const equippedByItemId = new Map<string, 装备槽位>();
     // 同一个缺失引用（例如两个槽位都写 Item001）只补建一次，后续槽位复用同一物品。
@@ -1813,7 +1855,7 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
             return;
         }
         (role.装备 as any)[slot] = normalizedRef;
-        const matched = findItemByRef(normalizedRef);
+        const matched = findItemByRef(normalizedRef, slot);
         if (!matched?.ID) {
             const 已补建ID = 补建引用映射.get(normalizedRef);
             if (已补建ID) {
@@ -1836,13 +1878,15 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
             }
             // 引用值是 ID 形态时（模型写了 Item001 / itm_equip_xxx）不能把它当物品名展示，
             // 否则面板上就是「主武器 Item001」。用槽位兜底成可读名字。
-            const 引用疑似物品ID = /^(?:itm_|bg_item_|Item\d+$)/i.test(normalizedRef);
+            const 名称 = 装备引用是编号(normalizedRef) ? slot : normalizedRef;
+            const 类型 = 槽位类型映射[slot];
             const 补建物品 = 规范化单个物品({
                 ID: 生成装备补建物品ID(normalizedRef, slot),
-                名称: 引用疑似物品ID ? `${slot}（补建）` : normalizedRef,
-                类型: 槽位类型映射[slot],
+                名称,
+                类型,
+                待补装备引用: normalizedRef,
                 品质: '凡品',
-                描述: `由「${slot}」装备栏引用自动补建（模型未在物品列表写入该装备）。`,
+                描述: 装备简述(名称, 类型),
                 堆叠数量: 1,
                 是否可堆叠: false
             }, deduped.length);
@@ -1862,6 +1906,7 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
             (role.装备 as any)[slot] = '无';
             return;
         }
+        (role.装备 as any)[slot] = matched.ID;
         equippedByItemId.set(matched.ID, slot);
     });
 
@@ -1992,7 +2037,21 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
             装备引用值集合.has(规范化文本(item?.ID))
             || 装备引用值集合.has(规范化文本(item?.名称))
         ));
-        role.物品列表 = 合并同名可堆叠物品([...背景物品, ...背景货币物品, ...被装备引用物品]);
+        const 待发背景物品 = 背景物品.flatMap((entry: any) => {
+            const 同件装备 = 被装备引用物品.filter((item: any) => item.待补装备引用
+                && (item.待补装备引用 === entry.ID || item.待补装备引用 === entry.名称));
+            if (同件装备.length !== 1) return [entry];
+            const equipped = 同件装备[0];
+            equipped.名称 = entry.名称;
+            if (entry.描述) {
+                equipped.描述 = entry.描述;
+                delete equipped.待补装备引用;
+            }
+            // 已穿戴的这一件就是背景发放的物品，多件时剩余份数仍进背包。
+            const 剩余 = entry.堆叠数量 - 1;
+            return 剩余 > 0 ? [{ ...entry, 数量: 剩余, 堆叠数量: 剩余 }] : [];
+        });
+        role.物品列表 = 合并同名可堆叠物品([...待发背景物品, ...背景货币物品, ...被装备引用物品]);
         (role as any).已补齐系统丹药预设 = true;
         本轮背景资产已落地 = true;
     } else {
@@ -2588,6 +2647,12 @@ const NPC占位身份疑似同一人 = (leftRaw: any, rightRaw: any): boolean =>
     const right = 构建NPC占位身份线索(rightRaw);
     if (!left.placeholder && !right.placeholder) return false;
     if (left.nameKey && right.nameKey && left.nameKey === right.nameKey) return true;
+    // 局外档案中的引文会同时点名叙述者与当事人，不能用同句出现作为身份相同的依据。
+    if (leftRaw?.来源 === '正文提及' || rightRaw?.来源 === '正文提及') {
+        const aliases = (npc: any) => [npc?.叙事名称, ...(Array.isArray(npc?.曾用名) ? npc.曾用名 : [])].map(归一化键);
+        return Boolean(leftRaw?.id && leftRaw.id === rightRaw?.id)
+            || aliases(leftRaw).includes(right.nameKey) || aliases(rightRaw).includes(left.nameKey);
+    }
 
     const placeholder = left.placeholder ? left : right;
     const other = left.placeholder ? right : left;
@@ -3668,7 +3733,11 @@ const 规范化NPC叙事名称 = (npc: any, realName: string): string | undefine
 };
 
 const 标准化单个NPC = (rawNpc: any, fallbackIndex: number): any => {
-    const npc = rawNpc && typeof rawNpc === 'object' ? rawNpc : {};
+    let npc = rawNpc && typeof rawNpc === 'object' ? rawNpc : {};
+    if (是否仅闻名NPC(npc)) return { ...npc, 记忆: 标准化NPC记忆(npc.记忆) };
+    if (npc.来源 === '正文提及' && npc.关系状态 === '已闻其名' && npc.是否在场) {
+        npc = { ...npc, 关系状态: '初识' };
+    }
     let npc其他字段 = { ...npc };
     const 外貌描写 = 取首个非空文本(
         npc?.外貌描写,

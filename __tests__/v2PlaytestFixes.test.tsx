@@ -371,6 +371,23 @@ describe('V2 试玩反馈综合修复验证', () => {
         );
         const desktopTab = desktop.getByText('世界总纲');
         fireEvent.click(desktopTab);
+        const 验证按需揭示剧透 = () => {
+            expect(screen.getByText(/驿站失窃案牵出灵兽地窖秘密/)).toBeTruthy();
+            expect(screen.queryByText(/查明兽药去向/)).toBeNull();
+            expect(screen.queryByText(/底层散修坊镇/)).toBeNull();
+            expect(screen.queryByText(/一阶兽药与回春驿/)).toBeNull();
+            fireEvent.click(screen.getByRole('button', { name: '揭示第 1 幕破局方向' }));
+            expect(screen.getByText(/查明兽药去向/)).toBeTruthy();
+            expect(screen.queryByText(/盘缠与保命符/)).toBeNull();
+            fireEvent.click(screen.getByRole('button', { name: '揭示天地空间阶梯' }));
+            expect(screen.getByText(/底层散修坊镇/)).toBeTruthy();
+            expect(screen.getByText(/盘缠与保命符/)).toBeTruthy();
+            expect(screen.getByText(/一阶兽药与回春驿/)).toBeTruthy();
+            fireEvent.click(screen.getByRole('button', { name: '收起第 1 幕破局方向' }));
+            expect(screen.queryByText(/查明兽药去向/)).toBeNull();
+            expect(screen.queryByText(/FUTURE_PATH/)).toBeNull();
+        };
+        验证按需揭示剧透();
         expect(desktop.getByText(/九洲分五域/)).toBeTruthy();
         desktop.unmount();
 
@@ -385,6 +402,7 @@ describe('V2 试玩反馈综合修复验证', () => {
         );
         const mobileTab = mobile.getByText('总纲');
         fireEvent.click(mobileTab);
+        验证按需揭示剧透();
         expect(mobile.getByText(/九洲分五域/)).toBeTruthy();
         mobile.unmount();
     });
@@ -399,19 +417,37 @@ describe('V2 试玩反馈综合修复验证', () => {
                 openingMainStoryProgress={{ phase: 'done', text: '2.0 开局正文生成完成', channelName: 'OpenAI', modelName: 'gpt-4.1' }}
                 openingPolishProgress={{ phase: 'skipped', text: '文章优化功能未开启，已跳过。' }}
                 openingVariableGenerationProgress={{ phase: 'skipped', text: '变量生成功能未开启（请在 API 设置中启用「启用变量生成」），已跳过。' }}
-                openingWorldEvolutionProgress={{ phase: 'done', text: '局势稳定推进' }}
-                openingPlanningProgress={{ phase: 'done', text: '2.0 导演后台推演完成' }}
+                openingDirectorProgress={{ phase: 'done', rawText: '<导演更新JSON>{}</导演更新JSON>', elapsedMs: 8400 }}
+                openingWorldEvolutionProgress={{ phase: 'skipped', text: '动态世界由开局导演推演统一处理。' }}
+                openingPlanningProgress={{ phase: 'skipped', text: '规划分析由开局导演推演统一处理。' }}
                 openingMapUpdateProgress={{ phase: 'skipped', text: '世界基底地图已完整，本回合无需追加新地点。' }}
             />
         );
         const toggleBtn = screen.getByTitle('展开独立更新阶段队列');
         fireEvent.click(toggleBtn);
         expect(screen.getAllByText(/跳过原因：/).length).toBeGreaterThanOrEqual(3);
+        expect(screen.getAllByText('已跳过')).toHaveLength(5);
         expect(screen.getByText(/文章优化功能未开启，已跳过/)).toBeTruthy();
         expect(screen.getByText(/变量生成功能未开启/)).toBeTruthy();
+        expect(screen.getByText('开局导演推演')).toBeTruthy();
+        expect(screen.getAllByText('8.4s')).toHaveLength(1);
+        fireEvent.click(screen.getByRole('button', { name: '查看原始回复' }));
+        expect(screen.getByText('<导演更新JSON>{}</导演更新JSON>')).toBeTruthy();
     });
 
-    it.each([[true, false], [false, false], [true, true]])('6. 2.0 开局与正常回合完成变量和地图，含变量命令 %s，开局导演失败 %s', async (hasVariableCommands, openingDirectorFails) => {
+    it('动作和对白拆开后仍能查看对应角色的原始段落', () => {
+        const line = '【俞月荷】（低声）：“你听见了？”';
+        const raw = ['<正文>', line, '【杨培强】“听见了。”', '</正文>'].join('\n');
+        const { container } = render(<TurnItem turnNumber={1} onSaveEdit={vi.fn()} rawJson={raw} response={{ logs: [
+            { sender: '旁白', text: '（低声）' },
+            { sender: '俞月荷', text: '“你听见了？”' },
+            { sender: '杨培强', text: '“听见了。”' }
+        ] }} />);
+        fireEvent.click(container.querySelector('.mobile-chat-dialogue-bubble button')!);
+        expect(container.querySelector('[data-raw-response-text]')?.textContent).toBe(line);
+    });
+
+    it.each([[true, false, false], [false, false, false], [true, true, false], [true, false, true]])('6. 2.0 开局与回合结算，含变量命令 %s，开局导演失败 %s，回合导演失败 %s', async (hasVariableCommands, openingDirectorFails, turnDirectorFails) => {
         vi.clearAllMocks();
         const storyTurnRenderer = await import('../engine/storyV2/storyTurnRenderer');
         const directorPostTurn = await import('../engine/storyV2/directorPostTurn');
@@ -434,7 +470,8 @@ describe('V2 试玩反馈综合修复验证', () => {
         });
         vi.mocked(storyTurnRenderer.渲染主剧情回合V2).mockResolvedValue({
             response: {
-                logs: [{ sender: '旁白', text: '你随手捡起一枚青铜令牌。' }],
+                logs: [{ sender: '旁白', text: '你随手捡起一枚青铜令牌。' },
+                    ...(turnDirectorFails ? [{ sender: '俞月荷', text: '徐掌柜派人追缴上月的欠款。' }] : [])],
                 action_options: ['A.查看令牌刻字'],
                 tavern_commands: [{ action: 'add', key: '角色.金钱.铜钱', value: 2 }]
             } as any,
@@ -458,7 +495,9 @@ describe('V2 试玩反馈综合修复验证', () => {
                 世界大事: []
             },
             replanned: false,
-            offscreenSpillovers: []
+            offscreenSpillovers: [],
+            rawText: '<导演更新JSON>{}</导演更新JSON>',
+            directorMs: 8400
         });
         vi.mocked(varWorkflow.执行变量模型校准工作流).mockResolvedValue({
             commands: hasVariableCommands ? [{ action: 'add', key: '角色.金钱.铜钱', value: 15 }] : [],
@@ -486,6 +525,7 @@ describe('V2 试玩反馈综合修复验证', () => {
         if (openingDirectorFails) vi.mocked(directorPostTurn.执行导演后处理V2).mockRejectedValueOnce(new Error('导演未响应'));
         const openingWorldProgress = vi.fn();
         const openingPlanningProgress = vi.fn();
+        const openingDirectorProgress = vi.fn();
         const openingVarProgress = vi.fn();
         const openingMapProgress = vi.fn();
         const openingPolishProgress = vi.fn();
@@ -560,6 +600,7 @@ describe('V2 试玩反馈综合修复验证', () => {
                 设置开局变量生成进度: openingVarProgress,
                 设置开局世界演变进度: openingWorldProgress,
                 设置开局规划进度: openingPlanningProgress,
+                设置开局导演进度: openingDirectorProgress,
                 设置开局地图更新进度: openingMapProgress,
                 设置游戏初始时间: vi.fn(),
                 记录变量生成上下文: vi.fn(),
@@ -598,8 +639,15 @@ describe('V2 试玩反馈综合修复验证', () => {
         );
 
         for (const stage of [openingPlanningProgress, openingWorldProgress]) {
-            expect(stage.mock.lastCall?.[0]).toMatchObject({ phase: openingDirectorFails ? 'error' : 'done' });
+            expect(stage.mock.calls.map(([progress]) => progress.phase)).toEqual(['skipped']);
+            expect(stage.mock.lastCall?.[0].text).toContain('开局导演推演');
+            expect(stage.mock.lastCall?.[0].elapsedMs ?? 0).toBe(0);
         }
+        expect(directorPostTurn.执行导演后处理V2).toHaveBeenCalledTimes(1);
+        expect(openingDirectorProgress.mock.calls[0][0].phase).toBe('start');
+        expect(openingDirectorProgress.mock.lastCall?.[0]).toMatchObject(openingDirectorFails
+            ? { phase: 'error', text: expect.stringContaining('导演未响应') }
+            : { phase: 'done', rawText: '<导演更新JSON>{}</导演更新JSON>', elapsedMs: 8400 });
         expect(openingPolishProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'skipped' }));
         expect(varWorkflow.执行变量模型校准工作流).toHaveBeenCalledTimes(1);
         expect(openingVarProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'done' }));
@@ -615,7 +663,9 @@ describe('V2 试玩反馈综合修复验证', () => {
         const turnVarProgress = vi.fn();
         const turnRole = vi.fn();
         const turnWorld = vi.fn();
+        const turnSocial = vi.fn();
         const turnMapProgress = vi.fn();
+        if (turnDirectorFails) vi.mocked(directorPostTurn.执行导演后处理V2).mockRejectedValueOnce(new Error('本回合导演未响应'));
         await 执行主剧情发送工作流(
             '拾起青铜令牌检查',
             false,
@@ -651,7 +701,7 @@ describe('V2 试玩反馈综合修复验证', () => {
                 setShowSettings: vi.fn(),
                 设置角色: turnRole,
                 设置环境: vi.fn(),
-                设置社交: vi.fn(),
+                设置社交: turnSocial,
                 设置世界: turnWorld,
                 设置剧情: vi.fn(),
                 设置剧情规划: vi.fn(),
@@ -707,6 +757,13 @@ describe('V2 试玩反馈综合修复验证', () => {
             }
         );
 
+        if (turnDirectorFails) {
+            await waitFor(() => expect(turnSocial.mock.lastCall?.[0]).toContainEqual(expect.objectContaining({
+                姓名: '徐掌柜', 关系状态: '已闻其名', 是否在场: false, 简介: '俞月荷提到：徐掌柜派人追缴上月的欠款。'
+            })));
+            expect(varWorkflow.执行变量模型校准工作流).not.toHaveBeenCalled();
+            return;
+        }
         await waitFor(() => {
             expect(varWorkflow.执行变量模型校准工作流).toHaveBeenCalledTimes(1);
             expect(mapWorkflow.生成地图更新).toHaveBeenCalledTimes(1);

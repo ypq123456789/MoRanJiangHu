@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { sanitizeInventoryCommand } from '../hooks/useGame/inventoryCommandGuard';
 import { 执行响应命令处理, 响应命令处理状态 } from '../hooks/useGame/responseCommandProcessor';
 import { 规范化社交列表, 规范化角色物品容器映射, 设置默认技艺运行时配置 } from '../hooks/useGame/stateTransforms';
 
@@ -57,6 +58,33 @@ const 普通回合deps = {
 };
 
 describe('开局装备引用兜底补建', () => {
+    it.each([
+        { action: 'set', key: '角色.物品列表', value: [] },
+        { action: 'delete', key: '角色.物品列表[0]' },
+        { action: 'set', key: '角色.物品列表[0]', value: { ID: 'other', 名称: '油瓶' } },
+        { action: 'set', key: '角色.物品列表[0].堆叠数量', value: 0 },
+        { action: 'set', key: '角色.物品列表[0].堆叠数量', value: '未知' }
+    ])('补写物品时依然保护原背包：$key $action', command => {
+        const role = { 物品列表: [{ ID: 'key', 名称: '钥匙', 堆叠数量: 2 }] };
+        expect(sanitizeInventoryCommand(command, role)).toBeNull();
+    });
+
+    it('已有物品时，开局变量仍可按索引写入衣物并补写其说明', () => {
+        const state = 构建基础状态();
+        state.角色.物品列表 = [{ ID: 'key', 名称: '铜钥匙', 类型: '杂物', 描述: '齿尖磨平。' } as any];
+        const result = 执行响应命令处理({
+            logs: [{ sender: '旁白', text: '你穿着一件粗布衬衣。' }],
+            tavern_commands: [
+                { action: 'set', key: '角色.物品列表[1]', value: { ID: 'shirt', 名称: '粗布衬衣', 类型: '防具' } },
+                { action: 'set', key: '角色.物品列表[1].描述', value: '领口用同色线缝过。' },
+                { action: 'set', key: '角色.装备.内衬', value: 'shirt' }
+            ]
+        } as any, state, 开局deps as any, undefined, { applyState: false });
+        expect(result.角色.装备.内衬).toBe('shirt');
+        expect(result.角色.物品列表.find(item => item.ID === 'shirt')?.描述).toBe('领口用同色线缝过。');
+        expect(result.角色.物品列表.find(item => item.ID === 'key')?.描述).toBe('齿尖磨平。');
+    });
+
     it('只写装备槽位、不写物品列表时，自动补建物品而不是清成「无」', () => {
         const state = 构建基础状态();
         const result = 执行响应命令处理({

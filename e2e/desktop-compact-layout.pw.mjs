@@ -388,6 +388,53 @@ test('390×844 移动端继续使用横向行动选项且无页面横向溢出',
     expect(layout.tickerDisplay).toBe('none');
 });
 
+test('手机行动输入在窄屏和短视口保留编辑空间', async ({ page }, testInfo) => {
+    await loadCompactGame(page, { width: 390, height: 844 });
+    await page.evaluate(() => document.documentElement.dataset.theme = 'day');
+    const draft = page.locator('.action-input textarea:visible');
+    const tools = page.getByRole('button', { name: '行动工具', exact: true });
+    const send = page.getByTitle('发送', { exact: true });
+    const value = '我走到窗边，推开半扇窗，借着灯光看清纸上的字。';
+    for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 420 }]) {
+        await page.setViewportSize(viewport);
+        await draft.fill(value.repeat(3));
+        const box = await draft.boundingBox();
+        expect(box.width).toBeGreaterThan(viewport.width * 0.60);
+        expect(box.height).toBeGreaterThan(44);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+        const editor = await draft.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            return {
+                fits: rect.height <= el.parentElement.clientHeight + 1,
+                reachable: document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === el,
+                color: getComputedStyle(el).color,
+            };
+        });
+        expect(editor).toEqual({ fits: true, reachable: true, color: 'rgb(31, 41, 55)' });
+        await expect(send).toBeInViewport({ ratio: 1 });
+        await send.click({ trial: true });
+        await expect(draft).toHaveValue(value.repeat(3));
+    }
+    await expect(tools).toHaveAttribute('aria-expanded', 'false');
+    await tools.click();
+    await expect(tools).toHaveAttribute('aria-expanded', 'true');
+    const stream = page.getByRole('button', { name: '流式', exact: true });
+    const pressed = await stream.getAttribute('aria-pressed');
+    await stream.click();
+    await expect(stream).toHaveAttribute('aria-pressed', String(pressed !== 'true'));
+    await tools.click();
+    await expect(stream).toBeHidden();
+    await expect(draft).toHaveValue(value.repeat(3));
+    await draft.focus();
+    const handledByIme = await draft.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', isComposing: true, bubbles: true, cancelable: true,
+    })));
+    expect(handledByIme).toBe(true);
+    await expect(draft).toHaveValue(value.repeat(3));
+    await page.screenshot({ path: testInfo.outputPath('mobile-action-input-day.png') });
+});
+
 test('桌面角色详情、行动草稿和三种主题', async ({ page }, testInfo) => {
     const options = [...compactOptions.slice(0, 3), compactOptions.slice(3, 9).join('，')];
     const sword = '青竹书院旧藏松风细纹长剑';

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { 地点树节点 } from '../../../utils/locationTree';
 import { 构建地图人物标记, type 地图人物标记 as 人物点 } from '../../../utils/mapNpcLocation';
+import { getRoomSlots, layoutRoomGrid, roomDoorPoint } from '../../../utils/roomFloorplan';
+import { getRoomPassages } from '../../../utils/roomConnections';
 
 interface Props {
     /** 当前层子节点（保留兼容；连续地图优先使用 allNodes） */
@@ -35,6 +37,8 @@ interface 布局项 {
     /** 父块顶部给人物预留的轨道高度 */
     track: number;
     子节点: 布局项[];
+    fog?: 区块[];
+    passages?: Array<[地点树节点, 地点树节点]>;
 }
 
 const WORLD: 视野 = { x: 0, y: 0, w: 1000, h: 680 };
@@ -66,12 +70,6 @@ const 目标字号: Record<层级名, number> = {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-const 稳定哈希数 = (input: string): number => {
-    let h = 2166136261;
-    for (let i = 0; i < input.length; i += 1) { h ^= input.charCodeAt(i); h = Math.imul(h, 16777619); }
-    return h >>> 0;
-};
-
 const 名字文本 = (name: string) => (name && name.length > 4 ? `${name.slice(0, 4)}…` : name) || '';
 
 /** 父块顶部留人物轨道，子块从轨道下方开始排；人物另有最上层绘制，不会被压住。 */
@@ -87,6 +85,22 @@ function 排布地图树(roots: 地点树节点[], 人物映射: Map<string, 人
         const item: 布局项 = { node, box, depth, track: 0, 子节点: [] };
         flat.push(item);
         byId.set(node.ID, item);
+        if (node.层级 === '区地点' && kids.every(child => child.层级 === '子地点')) {
+            // 轨道与内框固定，后来进入的人物或新房间不会移动已有格子。
+            item.track = box.h * 0.16;
+            const inner = {
+                x: box.x + box.w * 0.03, y: box.y + item.track,
+                w: box.w * 0.94, h: box.h * 0.80
+            };
+            const slots = getRoomSlots(kids);
+            const used = new Set(slots.values());
+            const roomCount = Array.from(used).reduce((count, index) => Math.max(count, index + 1), 0);
+            const plan = layoutRoomGrid(node.ID, inner, roomCount);
+            item.fog = [...plan.fog, ...plan.rooms.filter((_, index) => !used.has(index))];
+            item.passages = getRoomPassages(kids);
+            kids.forEach(child => item.子节点.push(排布子项(child, plan.rooms[slots.get(child.ID)!], depth + 1)));
+            return;
+        }
         if (kids.length === 0) return;
 
         // 按父块的宽高排网格。若每层两个孩子都左右分栏，五层后的房间就只剩一条竖线。
@@ -188,7 +202,7 @@ const RegionMap: React.FC<Props> = ({
             const span = Math.min(item.box.w, item.box.h);
             if (span > 0 && span < minBoxSpan) minBoxSpan = span;
         });
-        return clamp(minBoxSpan * 1.45, 1.5, 40);
+        return Math.min(minBoxSpan * 1.45, 40);
     }, [flat]);
 
     const 取消飞入动画 = useCallback(() => {
@@ -203,7 +217,7 @@ const RegionMap: React.FC<Props> = ({
         const ratio = from.w / Math.max(1, from.h);
         const effectivePad = pad <= 0
             ? 0
-            : Math.min(pad, Math.max(1.2, Math.max(box.w, box.h) * 0.28));
+            : Math.min(pad, Math.max(box.w, box.h) * 0.28);
         let w = box.w + effectivePad * 2;
         let h = box.h + effectivePad * 2;
         if (w / h < ratio) w = h * ratio; else h = w / ratio;
@@ -379,7 +393,7 @@ const RegionMap: React.FC<Props> = ({
         if (target) 飞入(target.box, 24, true);
     };
 
-    const 画布比例 = Math.min(容器.w / Math.max(1, view.w), 容器.h / Math.max(1, view.h)) || 1;
+    const 画布比例 = Math.min(容器.w / view.w, 容器.h / view.h) || 1;
     const px2world = 1 / 画布比例;
     // 名称是否显示由「框在屏幕上够不够大」决定，不再按整图视野宽度一刀切；
     // 否则全览时明明有空间的城镇也会变成空框，AI 生成的地名看不到。
@@ -387,7 +401,11 @@ const RegionMap: React.FC<Props> = ({
     const 显示人物名 = view.w < 1500;
     const 最小可读 = 8.5;
 
-    const 有建筑 = flat.some(item => item.node.层级 === '区地点' || item.node.层级 === '子地点');
+    const 显示室内细节 = (box: 区块) => box.w * 画布比例 > 40 && box.h * 画布比例 > 32
+        && box.x < view.x + view.w && box.x + box.w > view.x
+        && box.y < view.y + view.h && box.y + box.h > view.y;
+    const 可见场所 = flat.filter(item => item.fog && 显示室内细节(item.box));
+    const 可画人物 = (box: 区块) => Math.min(box.w, box.h) * 画布比例 >= 7;
     // 图例按「实际画出来的标记」显示：区块太小会跳过人物绘制，此时不应显示玩家/NPC 图例。
     const 可见人物 = (() => {
         let player = false;
@@ -395,7 +413,7 @@ const RegionMap: React.FC<Props> = ({
         flat.forEach(item => {
             const markers = 人物映射.get(item.node.ID) || [];
             if (markers.length === 0) return;
-            if (item.box.w * 画布比例 <= 26 || item.box.h * 画布比例 <= 16) return;
+            if (!可画人物(item.box)) return;
             markers.forEach(marker => { if (marker.player) player = true; else npc = true; });
         });
         return { player, npc };
@@ -416,6 +434,11 @@ const RegionMap: React.FC<Props> = ({
                 onDoubleClick={() => 飞入(WORLD, 0, true)}
             >
                 <defs>
+                    <pattern id="map-room-fog" patternUnits="userSpaceOnUse" width={8 * px2world} height={8 * px2world}>
+                        <rect width={8 * px2world} height={8 * px2world} fill="var(--mm-fog)" />
+                        <path d={`M0,${8 * px2world} l${8 * px2world},${-8 * px2world}`}
+                            stroke="var(--mm-fog-line)" strokeWidth={px2world} />
+                    </pattern>
                     <linearGradient id="map-bld-normal" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" style={{ stopColor: 'var(--mm-bld-top)' }} />
                         <stop offset="100%" style={{ stopColor: 'var(--mm-bld-bottom)' }} />
@@ -438,7 +461,7 @@ const RegionMap: React.FC<Props> = ({
                     const isBuilding = node.层级 === '区地点' || node.层级 === '子地点';
                     const isPlayerHere = node.ID === currentNodeId;
                     const isSelected = node.ID === selectedNodeId;
-                    const 有子节点 = item.子节点.length > 0;
+                    const 有子节点 = item.子节点.length > 0 || Boolean(item.fog);
                     const radius = isBuilding
                         ? Math.min(5 * px2world, w * 0.1, h * 0.12)
                         : Math.min(10, Math.max(2 * px2world, Math.min(w, h) * 0.04));
@@ -458,10 +481,6 @@ const RegionMap: React.FC<Props> = ({
                     const 父标签名 = 父标签可容 >= 2
                         ? (node.名称.length > 父标签可容 ? `${node.名称.slice(0, 父标签可容 - 1)}…` : node.名称)
                         : '';
-                    const 门朝向 = 稳定哈希数(node.ID) % 4;
-                    // 门/屋顶按 CSS 像素给尺寸（MapLibre 式标注口径），不要按世界坐标比例放大
-                    const 门宽 = Math.min(14 * px2world, w * 0.34);
-                    const 门高 = Math.min(8 * px2world, h * 0.3);
                     const 屋檐缩进 = Math.min(8 * px2world, w * 0.14);
                     const 屋檐高度 = Math.min(6 * px2world, h * 0.22);
 
@@ -484,14 +503,15 @@ const RegionMap: React.FC<Props> = ({
                                 <g pointerEvents="none">
                                     <line x1={x + 屋檐缩进} y1={y + 屋檐高度} x2={x + w - 屋檐缩进} y2={y + 屋檐高度}
                                         style={{ stroke: 'var(--mm-eave)' }} strokeWidth={0.9 * px2world} />
-                                    {门朝向 === 0 && <rect x={x + w / 2 - 门宽 / 2} y={y + h - 门高} width={门宽} height={门高}
-                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
-                                    {门朝向 === 1 && <rect x={x + w - 门高} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
-                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
-                                    {门朝向 === 2 && <rect x={x + w / 2 - 门宽 / 2} y={y} width={门宽} height={门高}
-                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
-                                    {门朝向 === 3 && <rect x={x} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
-                                        rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
+                                </g>
+                            )}
+
+                            {item.fog && 显示室内细节(box) && (
+                                <g pointerEvents="none" aria-label="未探索房间">
+                                    {item.fog.map((cell, i) => (
+                                        <rect key={i} data-room-fog={node.ID} x={cell.x} y={cell.y} width={cell.w} height={cell.h}
+                                            fill="url(#map-room-fog)" stroke="var(--mm-fog-line)" strokeWidth={0.65 * px2world} />
+                                    ))}
                                 </g>
                             )}
 
@@ -532,6 +552,19 @@ const RegionMap: React.FC<Props> = ({
                     );
                 })}
 
+                {可见场所.flatMap(venue => venue.passages?.map(([from, to]) => {
+                    const a = byId.get(from.ID)!.box, b = byId.get(to.ID)!.box;
+                    const start = roomDoorPoint(a, b), end = roomDoorPoint(b, a);
+                    const key = JSON.stringify([from.ID, to.ID]);
+                    return <g key={key} data-room-passage={key} pointerEvents="none">
+                        <title>{from.名称} ↔ {to.名称}</title>
+                        <line x1={start.x} y1={start.y} x2={end.x} y2={end.y}
+                            stroke="var(--mm-passage)" strokeWidth={1.6 * px2world} strokeDasharray={`${3 * px2world} ${2 * px2world}`} />
+                        {[start, end].map((point, i) => <circle key={i} cx={point.x} cy={point.y} r={2.2 * px2world}
+                            fill="var(--mm-passage)" stroke="var(--mm-halo)" strokeWidth={0.8 * px2world} />)}
+                    </g>;
+                }) || [])}
+
                 {/* 人物统一最后绘制：无论父块还是子块，圆点与姓名都不会被遮挡。 */}
                 {flat.map((item) => {
                     const markers = 人物映射.get(item.node.ID) || [];
@@ -539,8 +572,8 @@ const RegionMap: React.FC<Props> = ({
                     const { x, y, w, h } = item.box;
                     const 框宽px = w * 画布比例;
                     const 框高px = h * 画布比例;
-                    if (框宽px <= 26 || 框高px <= 16) return null;
-                    const rpx = Math.min(4.6, 框宽px * 0.055, 框高px * 0.085);
+                    if (!可画人物(item.box)) return null;
+                    const rpx = Math.max(1.6, Math.min(4.6, 框宽px * 0.055, 框高px * 0.085));
                     const r = rpx * px2world;
                     const 名字px = Math.min(12, 框宽px * 0.22);
                     // 单行容量按「可用宽度 / 圆点外径」算，超出就收成 +N 聚合标记，
@@ -631,7 +664,8 @@ const RegionMap: React.FC<Props> = ({
                                 {层级标签[layer]}
                             </span>
                         ))}
-                    {有建筑 && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-4 rounded-sm border border-amber-600/60 bg-amber-700/40" />场所</span>}
+                    {可见场所.length > 0 && <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-3 rounded-sm" style={{ background: 'repeating-linear-gradient(135deg, var(--mm-fog), var(--mm-fog) 2px, var(--mm-fog-line) 3px)' }} />未探索房间</span>}
+                    {可见场所.some(item => item.passages?.length) && <span className="inline-flex items-center gap-1.5"><i className="w-4 border-t-2 border-dashed" style={{ borderColor: 'var(--mm-passage)' }} />已知通路</span>}
                     {可见人物.player && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: 'var(--mm-marker-player)', boxShadow: '0 0 0 1px var(--mm-marker-stroke)' }} />玩家</span>}
                     {可见人物.npc && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: 'var(--mm-marker-npc)', boxShadow: '0 0 0 1px var(--mm-marker-stroke)' }} />NPC</span>}
                 </div>

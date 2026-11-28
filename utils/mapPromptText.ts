@@ -1,6 +1,7 @@
 import type { 世界数据结构 } from '../types';
 import { 提取NPC地图位置片段 } from './mapNpcLocation';
 import { 地图层级命名自检 } from '../prompts/runtime/mapLayerNaming';
+import { getRoomPassages, readRoomExits } from './roomConnections';
 
 type 地图层级名 = '寰宇' | '大地点' | '中地点' | '小地点' | '区地点' | '子地点';
 
@@ -38,6 +39,7 @@ interface 提示节点 {
     叙事核心: string;
     控制势力: string;
     势力影响: string;
+    连通房间: string[];
     子节点: 提示节点[];
 }
 
@@ -54,6 +56,7 @@ export const 收集地图提示节点 = (world?: 世界数据结构 | null): 提
             叙事核心: 取文本(layer?.叙事核心),
             控制势力: 取文本(layer?.控制势力),
             势力影响: 取文本(layer?.势力影响),
+            连通房间: readRoomExits(layer?.连通房间),
             子节点: [],
         }))
         .filter((node: 提示节点) => Boolean(node.名称));
@@ -129,6 +132,7 @@ export const 构建地图地点树文本 = (world?: 世界数据结构 | null, o
     }
 
     const lines: string[] = [];
+    const knownExits = new Map<string, string[]>();
     let 已列 = 0;
     let 另有 = 0;
     const 统计未列 = (node: 提示节点): number => {
@@ -144,7 +148,15 @@ export const 构建地图地点树文本 = (world?: 世界数据结构 | null, o
         const 势力 = [node.控制势力 && `控制:${node.控制势力}`, node.势力影响 && `影响:${node.势力影响}`].filter(Boolean).join('，');
         const 节点描述 = 截断(node.描述, 描述截断);
         const 备注 = [node.叙事核心 && `叙事核心:${截断(node.叙事核心, 描述截断)}`, 节点描述].filter(Boolean).join('；');
-        const 元信息 = [node.ID, 势力, 备注].filter(Boolean).join('｜');
+        for (const [from, to] of getRoomPassages(node.子节点)) {
+            for (const [room, next] of [[from, to], [to, from]]) {
+                const exits = knownExits.get(room.ID) || [];
+                exits.push(next.名称);
+                knownExits.set(room.ID, exits);
+            }
+        }
+        const exits = knownExits.get(node.ID);
+        const 元信息 = [node.ID, 势力, 备注, exits?.length && '通往:' + exits.join('、')].filter(Boolean).join('｜');
         lines.push(`${prefix}${isLast ? '└' : '├'} [${node.层级}·${层级标签[node.层级]}] ${node.名称}${元信息 ? `（${元信息}）` : ''}`);
         const childPrefix = `${prefix}${isLast ? '  ' : '│ '}`;
         node.子节点.forEach((child, index) => walk(child, childPrefix, index === node.子节点.length - 1));
@@ -202,6 +214,7 @@ export const 构建地图上下文提示词 = (
         人物行,
         '',
         '【地图与剧情结合规则】',
+        '- 房间的「通往」是已探明的直接通路。两个房间同属一处场所不能证明相通；若发现新门或通道，剧情写清两端房间，由地图更新登记。',
         '- 剧情、规划、对白、传闻、追缉、商路引用已收录地点时，必须沿用地点树里的真实名称与层级，不要凭空造一个同名不同层的地点；未收录的新地点按下方新地点规则处理。',
         '- 引用地点时利用该节点的「控制势力 / 影响 / 叙事核心」写具体压力：谁在把守、什么资源紧张、什么传闻正在扩散、上层矛盾如何落到当前城镇。',
         '- 人物跨地点移动时，在社交状态里同步写 `当前位置 / 位置路径 / 具体地点`；同一个人物只能有一个最细落点。',

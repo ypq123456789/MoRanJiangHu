@@ -66,6 +66,7 @@ describe('开局伙伴姓名保护', () => {
             人际渊源: [{ 对象: '陆青', 真实关系与心思: '愿意协助寻回家书，暗地里留意主角行踪。' }]
         })) as any;
         const { initialSocial } = 从圣经初始化世界势力与社交(bible, [], config, { 姓名: '陆青' } as any);
+        expect(initialSocial.map(entry => entry.姓名)).toEqual(['沈青萝', '阿棠']);
         expect(initialSocial.filter((entry: any) => entry.是否队友).map((entry) => entry.姓名)).toEqual(['沈青萝', '阿棠']);
         expect(initialSocial.find((entry) => entry.姓名 === '沈青萝')).toMatchObject({
             来源: '开局伙伴', 是否队友: true, 是否在场: true, 关系: '愿意协助寻回家书，暗地里留意主角行踪。'

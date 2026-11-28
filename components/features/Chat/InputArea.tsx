@@ -1,7 +1,8 @@
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { 获取队列阶段重新生成动作 } from '../../../utils/queueStageActions';
+import { 门派研习标记 } from '../../../utils/sectLibrary';
 
 type QuickRestartMode = 'world_only' | 'opening_only' | 'all';
 
@@ -192,8 +193,10 @@ interface Props {
     canQuickRestart?: boolean;
     options?: unknown[]; // Quick actions from the last turn
     externalDraft?: { text: string; token: number } | null;
+    onExternalDraftApplied?: (token: number) => void;
     mainStoryModelInfo?: { channelName?: string; modelName?: string };
     openingMainStoryProgress?: QueueProgressPayload | null;
+    openingDirectorProgress?: QueueProgressPayload | null;
     openingPolishProgress?: PolishProgress | null;
     openingWorldEvolutionProgress?: WorldEvolutionProgress | null;
     openingPlanningProgress?: PlanningProgress | null;
@@ -230,8 +233,10 @@ const InputArea: React.FC<Props> = ({
     canQuickRestart = false,
     options = [],
     externalDraft = null,
+    onExternalDraftApplied,
     mainStoryModelInfo = undefined,
     openingMainStoryProgress = null,
+    openingDirectorProgress = null,
     openingPolishProgress = null,
     openingWorldEvolutionProgress = null,
     openingPlanningProgress = null,
@@ -243,6 +248,7 @@ const InputArea: React.FC<Props> = ({
     const [content, setContent] = useState('');
     const [isStreaming, setIsStreaming] = useState(isStreamingDefault);
     const [lastSentContent, setLastSentContent] = useState('');
+    const appliedDraftToken = useRef<number | null>(null);
     const [isPreparing, setIsPreparing] = useState(false);
     const [attachedRecallPreview, setAttachedRecallPreview] = useState('');
     const [showAttachedRecall, setShowAttachedRecall] = useState(false);
@@ -296,9 +302,19 @@ const InputArea: React.FC<Props> = ({
             // 忽略存储写入异常
         }
     };
-    const [mobileInputExpanded, setMobileInputExpanded] = useState(false);
-    const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
-    const desktopTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    useLayoutEffect(() => {
+        const field = textareaRef.current;
+        if (!field) return;
+        const resize = () => {
+            field.style.height = 'auto';
+            field.style.height = `${field.scrollHeight}px`;
+        };
+        resize();
+        window.addEventListener('resize', resize);
+        return () => window.removeEventListener('resize', resize);
+    }, [content]);
     const [showQuickRestartMenu, setShowQuickRestartMenu] = useState(false);
     // 重ROLL 一次性引导：玩家反馈过不知道输入栏旁的回档图标（只看到纯图标 tooltip）。
     // 首次出现可回档回合时展示；手动关闭或实际用过一次后写 localStorage，不再显示。
@@ -399,14 +415,17 @@ const InputArea: React.FC<Props> = ({
     }, [parseRepairModal.open, parseRepairModal.detail, parseRepairModal.editedRaw]);
 
     useEffect(() => {
-        if (!externalDraft?.text) return;
+        if (!externalDraft?.text || externalDraft.token === appliedDraftToken.current) return;
+        appliedDraftToken.current = externalDraft.token;
         setContent((current) => {
             const draft = externalDraft.text.trim();
             if (!draft) return current;
             const prefix = current.trim();
+            if (draft.startsWith(门派研习标记) && prefix.includes(draft)) return current;
             return prefix ? `${prefix}\n${draft}` : draft;
         });
-    }, [externalDraft?.token]);
+        onExternalDraftApplied?.(externalDraft.token);
+    }, [externalDraft, onExternalDraftApplied]);
 
     const 记录并设置队列进度 = <T extends QueueProgressPayload>(
         stage: string,
@@ -847,6 +866,7 @@ const InputArea: React.FC<Props> = ({
     const effectivePlanningProgress = planningProgress || openingPlanningProgress;
     const effectiveMapUpdateProgress = mapUpdateProgress || openingMapUpdateProgress;
     const openingProgressItems = [
+        openingDirectorProgress,
         openingPolishProgress,
         openingVariableGenerationProgress,
         openingWorldEvolutionProgress,
@@ -874,6 +894,7 @@ const InputArea: React.FC<Props> = ({
         { id: 'opening-input', label: '玩家建档输入', progress: openingLocalProgress },
         { id: 'opening-story', label: '开局主剧情', progress: openingStoryProgress },
         { id: 'opening-polish', label: '开局文章优化', progress: openingPolishProgress },
+        ...(openingDirectorProgress ? [{ id: 'opening-director', label: '开局导演推演', progress: openingDirectorProgress }] : []),
         { id: 'variable', label: '开局变量生成', progress: openingVariableGenerationProgress },
         { id: 'world', label: '开局动态世界', progress: openingWorldEvolutionProgress },
         { id: 'planning', label: '开局规划分析', progress: openingPlanningProgress },
@@ -1084,10 +1105,11 @@ const InputArea: React.FC<Props> = ({
                                                             <span className={取阶段状态色(phase)}>●</span>
                                                         )}
                                                         <span className="text-sm text-gray-100">{stage.label}</span>
+                                                        {phase === 'skipped' && <span className="text-xs text-gray-400">已跳过</span>}
                                                         {elapsedText && <span className="text-[11px] text-gray-500 font-mono">{elapsedText}</span>}
                                                         {(() => {
                                                             const id = stage.id.replace(/^opening-/, '').replace(/^story$/, 'main');
-                                                            const mode = stageStreamMode[id];
+                                                            const mode = hidesModel ? undefined : stageStreamMode[id];
                                                             return mode ? (
                                                                 <span
                                                                     className={`ml-1 inline-flex items-center rounded px-1 py-[1px] text-[10px] font-mono
@@ -1458,18 +1480,18 @@ const InputArea: React.FC<Props> = ({
                 </div>
             )}
 
-            {rerollHint && <div className="md:hidden">{rerollHint}</div>}
+            {rerollHint && <div className="mobile-reroll-hint md:hidden">{rerollHint}</div>}
 
             {/* Main Control Bar */}
-            <div className="action-controls flex items-center gap-1 sm:gap-1.5 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:gap-x-2 md:gap-y-1.5">
+            <div className="action-controls grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-1 md:grid-cols-[minmax(0,1fr)_auto] md:gap-x-2 md:gap-y-1.5">
                 
                 {/* Left Controls Group */}
-                <div className="action-tools flex shrink-0 items-center gap-0.5 bg-black/40 border border-gray-700/50 rounded-lg p-0.5 h-9 sm:gap-1 sm:rounded-xl sm:p-1 sm:h-11">
+                <div id="action-composer-tools" className={`action-tools col-span-full flex-wrap items-center gap-1 rounded-lg border border-wuxia-gold/25 bg-ink-gray p-1 ${mobileToolsOpen ? 'flex' : 'hidden'} md:flex`}>
                     {/* Role Chat (场外角色对话) */}
                     {onOpenRoleChat && (
                         <button
                             onClick={onOpenRoleChat}
-                            className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-amber-200 hover:text-amber-100 hover:bg-amber-900/20 transition-all disabled:opacity-30"
+                            className="min-h-11 md:min-h-0 gap-1.5 px-2 text-xs rounded-md flex items-center justify-center text-amber-200 hover:text-amber-100 hover:bg-amber-900/20 transition-all disabled:opacity-30"
                             title="角色对话：与在场角色场外私聊（暂存后随下次行动注入）"
                             aria-label="角色对话"
                             disabled={busy}
@@ -1477,14 +1499,14 @@ const InputArea: React.FC<Props> = ({
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
                             </svg>
-                            <span className="hidden md:inline">角色对话</span>
+                            <span>角色对话</span>
                         </button>
                     )}
                     {/* Situational Trade (情境交易可选插件) */}
                     {onOpenTradePlugin && (
                         <button
                             onClick={onOpenTradePlugin}
-                            className="relative w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-emerald-300 hover:text-emerald-100 hover:bg-emerald-900/20 transition-all disabled:opacity-30"
+                            className="relative min-h-11 md:min-h-0 gap-1.5 px-2 text-xs rounded-md flex items-center justify-center text-emerald-300 hover:text-emerald-100 hover:bg-emerald-900/20 transition-all disabled:opacity-30"
                             title="情境交易：仅限与在场非敌对角色或交易场所交易（暂存后随下次行动注入）"
                             aria-label="情境交易"
                             disabled={busy}
@@ -1492,7 +1514,7 @@ const InputArea: React.FC<Props> = ({
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
                             </svg>
-                            <span className="hidden md:inline">情境交易</span>
+                            <span>情境交易</span>
                             {tradePendingCount > 0 && (
                                 <span className="ml-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-emerald-400 text-black text-[9px] font-bold leading-[14px] text-center">
                                     {tradePendingCount}
@@ -1504,7 +1526,7 @@ const InputArea: React.FC<Props> = ({
                     {onOpenTacticalClash && (
                         <button
                             onClick={onOpenTacticalClash}
-                            className="relative w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-rose-300 hover:text-rose-100 hover:bg-rose-900/20 transition-all disabled:opacity-30"
+                            className="relative min-h-11 md:min-h-0 gap-1.5 px-2 text-xs rounded-md flex items-center justify-center text-rose-300 hover:text-rose-100 hover:bg-rose-900/20 transition-all disabled:opacity-30"
                             title="战术交锋：明牌对照攻守机变与变招博弈（战果暂存后随下次行动注入）"
                             aria-label="战术交锋"
                             disabled={busy}
@@ -1512,7 +1534,7 @@ const InputArea: React.FC<Props> = ({
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
                             </svg>
-                            <span className="hidden md:inline">战术交锋</span>
+                            <span>战术交锋</span>
                             {clashPendingCount > 0 && (
                                 <span className="ml-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-400 text-black text-[9px] font-bold leading-[14px] text-center">
                                     {clashPendingCount}
@@ -1524,60 +1546,54 @@ const InputArea: React.FC<Props> = ({
                     <button 
                         onClick={() => setIsStreaming(!isStreaming)}
                         aria-pressed={isStreaming}
-                        className={`w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center transition-all ${isStreaming ? 'text-wuxia-cyan bg-wuxia-cyan/10' : 'text-gray-600 hover:text-gray-400'}`}
+                        className={`min-h-11 md:min-h-0 gap-1.5 px-2 text-xs rounded-md flex items-center justify-center transition-all ${isStreaming ? 'text-wuxia-cyan bg-wuxia-cyan/10' : 'text-gray-600 hover:text-gray-400'}`}
                         title={isStreaming ? "流式传输开启" : "流式传输关闭"}
                         disabled={busy}
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                         </svg>
-                        <span className="hidden md:inline">流式</span>
+                        <span>流式</span>
                     </button>
-
-                    <div className="w-px h-5 sm:h-6 bg-gray-800"></div>
 
                     {/* Quick Restart */}
                     {canQuickRestart && (
-                        <>
-                            <button 
-                                onClick={() => setShowQuickRestartMenu(prev => !prev)}
-                                disabled={busy}
-                                className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-teal-300 hover:text-teal-100 hover:bg-teal-900/20 transition-all disabled:opacity-30"
-                                title="快速重开"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
-                                </svg>
-                                <span className="hidden md:inline">快速重开</span>
-                            </button>
-                            <div className="w-px h-5 sm:h-6 bg-gray-800"></div>
-                        </>
+                        <button
+                            onClick={() => setShowQuickRestartMenu(prev => !prev)}
+                            disabled={busy}
+                            className="min-h-11 md:min-h-0 gap-1.5 px-2 text-xs rounded-md flex items-center justify-center text-teal-300 hover:text-teal-100 hover:bg-teal-900/20 transition-all disabled:opacity-30"
+                            title="快速重开"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
+                            </svg>
+                            <span>快速重开</span>
+                        </button>
                     )}
 
                     {/* Re-roll */}
                     <button
                         onClick={() => { void handleReroll(); }}
                         disabled={busy || !canReroll}
-                        className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-gray-400 hover:text-wuxia-gold hover:bg-white/5 transition-all disabled:opacity-30"
+                        className="min-h-11 md:min-h-0 gap-1.5 px-2 text-xs rounded-md flex items-center justify-center text-gray-400 hover:text-wuxia-gold hover:bg-white/5 transition-all disabled:opacity-30"
                         title={canReroll ? "重ROLL：回档到上一轮并回填输入" : "暂无可重ROLL回合"}
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                         </svg>
-                        <span className="hidden md:inline">回档</span>
+                        <span>回档</span>
                     </button>
-                    <div className="w-px h-5 sm:h-6 bg-gray-800"></div>
                     <button
                         onClick={() => { void handleRetryVariableGeneration(); }}
                         disabled={loading || isPreparing || !canRetryLatestVariableGeneration}
-                        className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-cyan-300 hover:text-cyan-100 hover:bg-cyan-900/20 transition-all disabled:opacity-30"
+                        className="min-h-11 md:min-h-0 gap-1.5 px-2 text-xs rounded-md flex items-center justify-center text-cyan-300 hover:text-cyan-100 hover:bg-cyan-900/20 transition-all disabled:opacity-30"
                         title={canRetryLatestVariableGeneration ? "基于当前正文继续变量生成" : "当前没有可继续变量生成的最新回合"}
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
                             <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-3.22-6.92" />
                         </svg>
-                        <span className="hidden md:inline">变量续跑</span>
+                        <span>变量续跑</span>
                     </button>
                     {normalizedOptions.length > 0 && desktopOptionsCollapsed && (
                         <button
@@ -1600,72 +1616,34 @@ const InputArea: React.FC<Props> = ({
                     )}
                 </div>
 
-                {/* Input Field */}
-                <div className={`action-input flex-1 min-w-0 bg-black/40 border border-gray-700/50 rounded-lg transition-all shadow-inner sm:rounded-xl sm:px-4 sm:flex sm:items-center px-2.5 ${busy ? 'opacity-50 cursor-not-allowed' : 'focus-within:border-wuxia-gold/50 focus-within:bg-black/60'} ${mobileInputExpanded ? 'h-auto' : 'h-9'} sm:h-auto sm:min-h-[44px] sm:max-h-[160px] sm:overflow-hidden`}>
-                    {/* Mobile: textarea with auto-grow */}
+                <div className={`action-input min-w-0 flex items-center overflow-hidden rounded-lg border border-gray-700/50 bg-black/40 shadow-inner md:px-4 ${busy ? 'opacity-50' : 'focus-within:border-wuxia-gold/50'}`}>
                     <textarea
-                        ref={mobileTextareaRef}
-                        className="sm:hidden w-full bg-transparent text-[13px] text-paper-white font-serif placeholder-gray-600 focus:outline-none resize-none py-2 leading-[1.4]"
+                        ref={textareaRef}
+                        className="block min-h-11 max-h-[min(8rem,24dvh)] md:max-h-40 w-full resize-none bg-transparent px-2.5 md:px-0 py-2.5 text-base md:text-[15px] leading-normal text-paper-white font-serif placeholder-gray-600 focus:outline-none"
+                        aria-label="行动草稿"
                         placeholder={busy ? "等待处理中..." : "输入你的行动..."}
                         value={content}
-                        onChange={(e) => {
-                            setContent(e.target.value);
-                            // Auto-grow: reset height then set to scrollHeight
-                            const el = e.target;
-                            el.style.height = 'auto';
-                            const maxH = mobileInputExpanded ? 144 : 72; // max 5 lines expanded, 2.5 lines collapsed
-                            el.style.height = Math.min(el.scrollHeight, maxH) + 'px';
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey && !busy) {
+                        onChange={e => setContent(e.target.value)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey && !busy && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                                 e.preventDefault();
                                 void handleSend();
                             }
                         }}
                         disabled={busy}
                         rows={1}
-                        style={{ height: mobileInputExpanded ? undefined : 36, minHeight: 36, maxHeight: mobileInputExpanded ? 144 : 72 }}
-                        onBlur={() => { if (!content.trim()) setMobileInputExpanded(false); }}
-                    />
-                    {/* Desktop: textarea with auto-grow (Enter sends, Shift+Enter newline) */}
-                    <textarea
-                        ref={desktopTextareaRef}
-                        className="hidden sm:block w-full bg-transparent text-[15px] text-paper-white font-serif placeholder-gray-600 focus:outline-none resize-none py-2.5 leading-[1.5]"
-                        placeholder={busy ? "等待处理中..." : "输入你的行动..."}
-                        value={content}
-                        onChange={(e) => {
-                            setContent(e.target.value);
-                            const el = e.target;
-                            el.style.height = 'auto';
-                            el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey && !busy) {
-                                e.preventDefault();
-                                handleSend();
-                            }
-                        }}
-                        disabled={busy}
-                        rows={1}
-                        style={{ minHeight: 44, maxHeight: 160 }}
                     />
                 </div>
 
-                {/* Mobile: expand/collapse input toggle (hidden on desktop) */}
                 <button
                     type="button"
-                    onClick={() => {
-                        setMobileInputExpanded(!mobileInputExpanded);
-                        if (!mobileInputExpanded) {
-                            setTimeout(() => mobileTextareaRef.current?.focus(), 50);
-                        }
-                    }}
-                    className="sm:hidden w-8 h-9 shrink-0 flex items-center justify-center text-gray-400 hover:text-wuxia-gold transition-colors"
-                    title={mobileInputExpanded ? "折叠输入框" : "展开输入框"}
+                    aria-label="行动工具"
+                    aria-expanded={mobileToolsOpen}
+                    aria-controls="action-composer-tools"
+                    onClick={() => setMobileToolsOpen(open => !open)}
+                    className="md:hidden h-11 min-w-11 rounded-lg border border-wuxia-gold/35 bg-ink-gray px-1.5 text-xs font-semibold text-paper-white"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 transition-transform ${mobileInputExpanded ? 'rotate-180' : ''}`}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                    </svg>
+                    工具
                 </button>
 
                 {/* Send / Stop Button */}
@@ -1681,7 +1659,7 @@ const InputArea: React.FC<Props> = ({
                         )}
                     <button 
                         onClick={postStoryQueueRunning ? handleStop : (variableGenerationRunning && onCancelVariableGeneration ? onCancelVariableGeneration : handleStop)}
-                        className="ml-1 w-10 sm:w-12 sm:ml-0 h-9 sm:h-11 shrink-0 bg-wuxia-red text-white rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(163,24,24,0.3)] hover:bg-red-600 hover:scale-105 active:scale-95 transition-all"
+                        className="w-11 sm:w-12 h-11 shrink-0 bg-wuxia-red text-white rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(163,24,24,0.3)] hover:bg-red-600 hover:scale-105 active:scale-95 transition-all"
                         title={postStoryQueueRunning ? "强制终止AI推演" : (variableGenerationRunning ? "取消变量生成" : (recallRunning ? "取消检索" : "停止生成"))}
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">
@@ -1693,7 +1671,7 @@ const InputArea: React.FC<Props> = ({
                     <button 
                         onClick={() => { void handleSend(); }} 
                         disabled={!content.trim() || busy} 
-                        className="action-send ml-1 w-10 sm:w-12 sm:ml-0 h-9 sm:h-11 shrink-0 bg-wuxia-gold text-ink-black rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(230,200,110,0.3)] hover:bg-white hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
+                        className="action-send w-11 sm:w-12 h-11 shrink-0 bg-wuxia-gold text-ink-black rounded-lg sm:rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(230,200,110,0.3)] hover:bg-white hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
                         title="发送"
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6">

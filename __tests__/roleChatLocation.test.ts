@@ -14,6 +14,12 @@ describe('角色对话位置判定', () => {
         expect(result).toMatchObject({ 可选: true, 需要确认: true, 状态: 'uncertain' });
     });
 
+    it('在场者确实缺少位置时显示记录不足，并要求确认距离', () => {
+        const result = 判断角色对话位置({ 姓名: '同场人物', 是否在场: true }, 环境);
+        expect(result).toMatchObject({ 状态: 'uncertain', 可选: true, 需要确认: true, 地点摘要: '位置未记录' });
+        expect(result.原因).toContain('记录不足');
+    });
+
     it('明确位于另一具体地点时禁止直接聊天', () => {
         const result = 判断角色对话位置({ id: 'a', 姓名: '沈听澜', 是否在场: true, 位置路径: '临安城 > 城北 > 渡口' }, 环境);
         expect(result.可选).toBe(false);

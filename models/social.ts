@@ -5,6 +5,9 @@ import type { CharacterAbilitySystems } from './system';
 
 export type NPC性别 = '男' | '女' | '男娘' | '扶她';
 
+export const 是否仅闻名NPC = (npc?: { 来源?: string; 关系状态?: string; 是否在场?: boolean } | null): boolean =>
+    npc?.来源 === '正文提及' && npc.关系状态 === '已闻其名' && npc.是否在场 !== true;
+
 export interface NPC记忆 {
     内容: string;
     时间: string; // 结构化时间戳字符串

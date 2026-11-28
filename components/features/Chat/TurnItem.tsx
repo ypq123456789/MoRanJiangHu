@@ -4,7 +4,7 @@ import { NarratorRenderer, CharacterRenderer, JudgmentRenderer, RewardRenderer, 
 import type { 酒馆沙箱动作 } from '../../../models/system';
 import GameButton from '../../ui/GameButton';
 import { 构建区域文字样式 } from '../../../utils/visualSettings';
-import { 规范化可渲染对白日志 } from '../../../utils/dialogueLogNormalizer';
+import { 剥离外层引号, 规范化可渲染对白日志 } from '../../../utils/dialogueLogNormalizer';
 import { 提取并清理Judge区块 } from '../../../utils/judgeBlockExtractor';
 import { 拆分判定日志与后续正文, 提取判定日志前缀, 是否判定日志文本 } from '../../../utils/judgmentFormat';
 
@@ -215,13 +215,25 @@ const TurnItem: React.FC<Props> = ({
         () => (使用整回合原始片段映射 ? 提取原始回复正文片段(rawJson) : []),
         [rawJson, 使用整回合原始片段映射]
     );
-    const 当前正文日志带原始片段 = 当前正文日志.map((log, index) => ({
-        ...log,
-        rawText: 格式化日志原始片段({
-            ...log,
-            rawText: (log as any)?.rawText || 原始回复正文片段[index]
-        })
-    }));
+    let 原文游标 = 0;
+    const 当前正文日志带原始片段 = 当前正文日志.map((log, index) => {
+        if (log.rawText) return log;
+        if (当前正文日志.length === 原始回复正文片段.length) {
+            return { ...log, rawText: 原始回复正文片段[index] };
+        }
+        // 一段原文可拆成动作与多句台词，相邻旁白也可能合并。按正文顺序定位，允许复用同一原段。
+        const snippets = new Set<string>();
+        for (const line of String(log.text || '').split('\n')) {
+            const words = 剥离外层引号(line);
+            if (!words) continue;
+            const found = 原始回复正文片段.findIndex((source, i) => i >= 原文游标 && source.includes(words));
+            if (found >= 0) {
+                snippets.add(原始回复正文片段[found]);
+                原文游标 = found;
+            }
+        }
+        return { ...log, rawText: snippets.size ? [...snippets].join('\n') : 格式化日志原始片段(log) };
+    });
     const displayLogs = 规范化可渲染对白日志(当前正文日志带原始片段
         .filter(log => !isDisclaimerLog(log))
         .map((log) => ({

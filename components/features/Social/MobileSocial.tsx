@@ -7,6 +7,8 @@ import { 获取图片展示地址, 获取图片资源文本地址 } from '../../
 import { 格式化月日 } from '../../../utils/characterVitals';
 import { IconBeads, IconHeart, IconMars, IconScroll } from '../../ui/Icons';
 import type { OpeningConfig } from '../../../types';
+import { 是否仅闻名NPC } from '../../../models/social';
+import { OffscreenNpcProfile } from './OffscreenNpcProfile';
 import { 获取题材界面文案 } from '../../../utils/resourceLabels';
 import { NPC是否扶她, NPC是否男性或男娘 } from '../../../utils/npcGenderFlags';
 import { 整理NPC简介文本 } from '../../../utils/npcBioText';
@@ -1085,7 +1087,10 @@ const MobileSocial: React.FC<Props> = ({
 
                         {/* Detail Content Wrapping */}
                         <div className="relative z-10 -mt-1 rounded-t-xl bg-black min-h-full">
-                            {currentNPC ? (
+                            {currentNPC && 是否仅闻名NPC(currentNPC) ? (
+                                <OffscreenNpcProfile npc={currentNPC} onMeet={onTogglePresence ? () => 切换在场状态(currentNPC) : undefined}
+                                    onForget={onDeleteNpc && !currentNPC.是否主要角色 ? () => 删除角色(currentNPC) : undefined} />
+                            ) : currentNPC ? (
                                 /* 详情区主纵向容器：
                                     `p-4` 控整个详情区四周内边距。
                                     `gap-4` 控这一层所有直属子元素之间的默认上下间距。

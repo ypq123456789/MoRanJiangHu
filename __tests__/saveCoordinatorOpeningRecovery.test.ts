@@ -180,6 +180,21 @@ describe('saveCoordinator opening save recovery', () => {
         const saved = 创建存档数据('manual', state as any, createDeps() as any);
         expect(saved.社交?.[0].是否队友).toBe(false);
     });
+    it('从旧档任务和公开原文补录未在场的人，重存保留 ID 与来源，忽略思考中的姓名', async () => {
+        const state = createOpeningState();
+        const save = { ...state, 角色数据: { 姓名: '陆青' }, 社交: [],
+            任务列表: [{ 标题: '纠纷', 描述: '查明周堂主与商会的利益。' }],
+            历史记录: [{ role: 'assistant', rawJson: '<thinking>阮堂主下令灭口。</thinking><正文>【旁白】周堂主下令封锁渡口。</正文>' }] };
+        const deps = createDeps();
+        await 执行读取存档(save as any, deps as any);
+        const recovered = deps.设置社交.mock.calls[0][0];
+        expect(recovered).toEqual([expect.objectContaining({ 姓名: '周堂主', 是否在场: false, 是否队友: false })]);
+        const saved = 创建存档数据('manual', { ...state, 社交: recovered } as any, deps as any);
+        expect(saved.社交?.[0].id).toBe(recovered[0].id);
+        const afterForget = createDeps();
+        await 执行读取存档({ ...save, 元数据: saved.元数据, 社交: [] } as any, afterForget as any);
+        expect(afterForget.设置社交.mock.calls[0][0]).toEqual([]);
+    });
 
     it('保存、导入并重建重 Roll 时保留独立的平静计数与情节记录', async () => {
         const { 清洗导入存档 } = await import('../services/dbService');

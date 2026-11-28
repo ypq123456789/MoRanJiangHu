@@ -18,7 +18,8 @@ describe('variableModel prompts', () => {
         expect(prompt).toContain('【本回合对白候选角色列表】');
         expect(prompt).toContain('候选1：护院1');
         expect(prompt).toContain('候选2：杨青儿');
-        expect(prompt).toContain('以下名字只表示“本回合在对白层出现过或被点名过的人物候选”');
+        expect(prompt).toContain('仅提取了对白发送者');
+        expect(prompt).toContain('正文点名的局外人仍需另外核查');
         expect(prompt).toContain('不是已经确认必须长期建档的正式 NPC');
     });
 

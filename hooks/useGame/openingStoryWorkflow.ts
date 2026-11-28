@@ -1,5 +1,5 @@
 import { naturalProseSettingsService } from '../../services/naturalProseSettingsService';
-import { 补录环境所在房间 } from '../../utils/locationTree';
+import { 补录环境所在房间, 细化环境所在房间 } from '../../utils/locationTree';
 import { buildNpcTemplateNameContext } from '../../services/npcTemplateNameContext';
 import { 校验响应未命中模板姓名黑名单 } from './sendWorkflow';
 import * as textAIService from '../../services/ai/text';
@@ -84,6 +84,7 @@ import { 执行变量模型校准工作流 } from './variableModelWorkflow';
 import { 合并变量校准结果到响应 as 合并变量生成结果到响应 } from './variableCalibrationMerge';
 import { 保护开局生成门派状态 } from './storyState';
 import { 修复开局伙伴社交列表 } from '../../utils/openingCompanion';
+import { 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
 import { 同步在场NPC当前位置 } from './responseCommandProcessor';
 import { 生成地图更新 } from './mapUpdateWorkflow';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
@@ -277,6 +278,7 @@ type 开场剧情生成依赖 = {
     设置约定列表: (value: any[]) => void;
     设置开局文章优化进度: (value: any) => void;
     设置开局主剧情进度: (value: any) => void;
+    设置开局导演进度: (value: any) => void;
     设置开局变量生成进度: (value: any) => void;
     设置开局世界演变进度: (value: any) => void;
     设置开局规划进度: (value: any) => void;
@@ -932,16 +934,12 @@ export const 执行开场剧情生成工作流 = async (
             };
             const v2PlanningApi = 接口配置是否可用(openingPlanningApi) ? openingPlanningApi : apiForOpening;
             const v2StoryInfo = 构建开局阶段模型信息('开局主剧情', apiForOpening, apiForOpening);
-            const v2PlanningInfo = 构建开局阶段模型信息('规划分析', v2PlanningApi, apiForOpening);
-            const v2WorldInfo = 构建开局阶段模型信息('动态世界', v2PlanningApi, apiForOpening);
+            const v2DirectorInfo = 构建开局阶段模型信息('导演推演', v2PlanningApi, apiForOpening);
             const 设置2_0开局主剧情进度 = (progress: any) => {
                 deps.设置开局主剧情进度(附加开局阶段运行信息('story', progress, v2StoryInfo));
             };
-            const 设置2_0开局规划进度 = (progress: any) => {
-                deps.设置开局规划进度(附加开局阶段运行信息('planning', progress, v2PlanningInfo));
-            };
-            const 设置2_0开局动态世界进度 = (progress: any) => {
-                deps.设置开局世界演变进度(附加开局阶段运行信息('world', progress, v2WorldInfo));
+            const 设置开局导演进度 = (progress: any) => {
+                deps.设置开局导演进度(附加开局阶段运行信息('director', progress, v2DirectorInfo));
             };
             const v2Config: StoryV2Config = {
                 gameConfig: openingGameConfig,
@@ -1084,15 +1082,21 @@ export const 执行开场剧情生成工作流 = async (
                 }
             }
 
-            设置2_0开局规划进度({
-                phase: 'start',
-                text: '2.0 导演后台正在更新伏笔台账与离屏局势...'
+            deps.设置开局规划进度({
+                phase: 'skipped',
+                text: '2.0 开局的剧情规划由开局导演推演统一处理。',
+                modelName: '不调用 AI'
             });
-            设置2_0开局动态世界进度({
-                phase: 'start',
-                text: '正在计算离屏人物动向与外溢事件...'
+            deps.设置开局世界演变进度({
+                phase: 'skipped',
+                text: '2.0 开局的离屏人物与世界事件由开局导演推演统一处理。',
+                modelName: '不调用 AI'
             });
             let postState = v2State;
+            let directorRawText = '';
+            const directorStreaming = useStreaming && !开局规划分析非流式输出;
+            const directorStatus = '正在推演离屏人物动向、伏笔与后续剧情。';
+            设置开局导演进度({ phase: 'start', text: directorStatus });
             try {
                 const result = await 执行导演后处理V2({
                     state: v2State,
@@ -1100,18 +1104,29 @@ export const 执行开场剧情生成工作流 = async (
                     storyResponse: displayAiData,
                     playerInput: '(开局初始化)',
                     openingConfig: options?.开局配置,
-                    stream: useStreaming && !开局规划分析非流式输出,
+                    stream: directorStreaming,
+                    onDelta: directorStreaming ? (_delta, accumulated) => {
+                        if (controller.signal.aborted) return;
+                        directorRawText = accumulated;
+                        设置开局导演进度({ phase: 'stream', text: directorStatus, rawText: accumulated });
+                    } : undefined,
                     signal: controller.signal
                 });
                 postState = result.nextState;
-                设置2_0开局规划进度({ phase: 'done', text: result.replanned ? '2.0 导演推演与动态重规划完成' : '2.0 导演后台推演与伏笔落账完成' });
-                设置2_0开局动态世界进度({ phase: 'done', text: result.offscreenSpillovers.length
-                    ? `已推进 ${result.offscreenSpillovers.length} 条离屏局势外溢` : '局势稳定推进' });
+                设置开局导演进度({
+                    phase: 'done',
+                    text: result.replanned ? '开局导演已完成推演并调整剧情规划。' : '开局导演推演完成。',
+                    rawText: result.rawText || directorRawText,
+                    elapsedMs: result.directorMs
+                });
             } catch (error) {
-                if (controller.signal.aborted || (error as Error)?.name === 'AbortError') throw error;
+                if (controller.signal.aborted || (error as Error)?.name === 'AbortError') {
+                    设置开局导演进度({ phase: 'cancelled', text: '开局导演推演已取消。', rawText: directorRawText });
+                    throw error;
+                }
                 const text = `开局正文已保留，导演推演失败：${error instanceof Error ? error.message : String(error)}`;
-                设置2_0开局规划进度({ phase: 'error', text });
-                设置2_0开局动态世界进度({ phase: 'error', text });
+                const rawText = (error as { rawText?: string } | null)?.rawText || directorRawText;
+                设置开局导演进度({ phase: 'error', text, rawText });
                 const config = 规范化记忆配置(deps.memoryConfig);
                 postState = { ...v2State, 记忆系统: 写入四段记忆(v2State.记忆系统,
                     构建即时记忆条目(initialGameTime, '', displayAiData, { 省略玩家输入: true }),
@@ -1435,11 +1450,15 @@ export const 执行开场剧情生成工作流 = async (
             }
 
             // 所有开局阶段落盘后统一同步在场 NPC 的当前位置到最底层子地点/房间
-            finalSocial = 同步在场NPC当前位置(finalSocial, finalEnv);
+            finalEnv = 细化环境所在房间(finalWorld, finalEnv);
+            finalSocial = 同步在场NPC当前位置(finalSocial, finalEnv, finalWorld);
             finalWorld = 补录环境所在房间(finalWorld, finalEnv);
             修补开局角色姓名占位(finalRole, normalizedOpeningRole);
             const finalGameTime = 环境时间转标准串(finalEnv) || initialGameTime;
             finalStory = deps.规范化剧情状态(finalStory, finalEnv);
+
+            finalSocial = deps.规范化社交列表(补录公开局外人物({ social: finalSocial, playerName: finalRole.姓名,
+                logs: displayAiData.logs || [], directorBible: postState.directorBible, tasks: finalTasks }), { 合并同名: false });
 
             deps.设置角色(finalRole);
             deps.设置环境(finalEnv);
@@ -3068,6 +3087,8 @@ const 开局规划请求参数 = {
         // 修复开局伙伴社交列表可能补入 AI 尚未生成的种子伙伴（位置为空），
         // 这里再同步一次：把没有显式位置的在场 NPC 的 当前位置/位置路径 用当前环境地点填充，
         // 确保开局伙伴能正确显示在地图上（地图显示由社交 NPC 位置字段驱动）。
+        openingStateAfterCommands.社交 = 补录公开局外人物({ social: openingStateAfterCommands.社交,
+            playerName: openingStateAfterCommands.角色?.姓名, logs: displayAiData.logs || [], tasks: openingStateAfterCommands.任务列表 });
         openingStateAfterCommands.社交 = 同步在场NPC当前位置(openingStateAfterCommands.社交, openingStateAfterCommands.环境);
         // [玩家反馈三] AI 在开局场景里偶发返回空姓名或回退成「未命名」「未知角色」，
         // 一旦写入会覆盖玩家开局时设定的主角姓名，导致存档与界面都呈现「未命名」；

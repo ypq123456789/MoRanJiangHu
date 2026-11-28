@@ -135,6 +135,7 @@ type 会话生命周期依赖 = {
     设置叙事平静值: (value: 叙事状态结构) => void;
     设置开局文章优化进度: (value: any) => void;
     设置开局主剧情进度: (value: any) => void;
+    设置开局导演进度: (value: any) => void;
     设置开局变量生成进度: (value: any) => void;
     设置开局世界演变进度: (value: any) => void;
     设置开局规划进度: (value: any) => void;
@@ -237,6 +238,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
         deps.设置叙事平静值({ 平静计数: 0, 情节事件记录: [] });
         deps.设置开局文章优化进度(null);
         deps.设置开局变量生成进度(null);
+        deps.设置开局导演进度(null);
         deps.设置开局世界演变进度(null);
         deps.设置开局规划进度(null);
         deps.设置开局地图更新进度(null);
@@ -260,6 +262,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
     ) => {
         deps.设置开局文章优化进度(null);
         deps.设置开局变量生成进度(null);
+        deps.设置开局导演进度(null);
         deps.设置开局世界演变进度(null);
         deps.设置开局规划进度(null);
         deps.设置开局地图更新进度(null);
@@ -344,6 +347,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
                 设置约定列表: deps.设置约定列表,
                 设置开局文章优化进度: deps.设置开局文章优化进度,
                 设置开局主剧情进度: deps.设置开局主剧情进度,
+                设置开局导演进度: deps.设置开局导演进度,
                 设置开局变量生成进度: deps.设置开局变量生成进度,
                 设置开局世界演变进度: deps.设置开局世界演变进度,
                 设置开局规划进度: deps.设置开局规划进度,
@@ -409,6 +413,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
         }
         deps.设置开局文章优化进度(null);
         deps.设置开局变量生成进度(null);
+        deps.设置开局导演进度(null);
         deps.设置开局世界演变进度(null);
         deps.设置开局规划进度(null);
         deps.设置开局地图更新进度(null);

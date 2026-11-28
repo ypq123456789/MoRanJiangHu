@@ -17,6 +17,9 @@ import { 构建同人运行时提示词包 } from '../../prompts/runtime/fandom'
 import { 按功能开关过滤提示词内容, 裁剪修炼体系上下文数据 } from '../../utils/promptFeatureToggles';
 import { 构建变量路径登记提示 } from '../../utils/variableRegistry';
 import { 构建女性姓名候选提示词, 收集女性姓名候选已用名 } from '../../utils/femaleNameCandidatePrompt';
+import { 公开局外人物审计规则 } from '../../prompts/runtime/publicNpcAudit';
+import { 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
+import { 是否仅闻名NPC } from '../../models/social';
 import { 构建模板姓名黑名单提示词 } from '../../utils/templateNameBlacklist';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
 
@@ -256,7 +259,13 @@ export const 构建正文对白人物审计提示 = (
     options?: { xianxiaMode?: boolean }
 ): string => {
     const senders = 提取本回合对白发送者(response, (baseState as any)?.角色?.姓名);
-    if (senders.length <= 0) return '';
+    const social = Array.isArray(baseState.社交) ? baseState.社交 : [];
+    const mentions = 补录公开局外人物({ social, logs: response?.logs || [], playerName: baseState.角色?.姓名, tasks: baseState.任务列表 }).slice(social.length);
+    const publicAudit = [
+        公开局外人物审计规则,
+        ...(mentions.length ? ['【本回合已具公开依据的局外人】', ...mentions.map(npc => `- ${npc.姓名}：${npc.简介}`)] : [])
+    ].join('\n');
+    if (senders.length <= 0) return response?.logs?.length ? publicAudit : '';
     const lines = senders.map((sender) => {
         const index = 查找社交NPC索引(baseState.社交, sender);
         if (index < 0) {
@@ -271,6 +280,7 @@ export const 构建正文对白人物审计提示 = (
     });
     return [
         '【本回合正文对白人物审计】',
+        publicAudit,
         '- 变量生成必须逐个核对本回合 `【角色名】` 对话框人物；凡是非旁白、非判定、非主角的人物，都必须在 `社交[]` 中有长期可承接档案。',
         '- 有对白框的人物一律优先视为持续承接对象；未建档就完整建档，半残档就补齐字段。正文中可用代称，但变量里必须落真实姓名，并把代称优先写入 `身份/简介/记忆`；只有确有旧称、化名、曾用称呼时才写 `曾用名`，不要给每个 NPC 强行生成曾用名。',
         '- NPC 当前装备与背包只记录正文、设定或既有变量明确成立的事实；不得凭身份、性别、门派、境界或“时间过去了”自动补佩剑、制服、内衣、袜鞋、干粮等默认物。',
@@ -351,7 +361,7 @@ const 构建社交档案完整性审计提示 = (
 
     const auditLines: string[] = [];
     socialRaw.forEach((npc: any, index: number) => {
-        if (!npc || typeof npc !== 'object') return;
+        if (!npc || typeof npc !== 'object' || 是否仅闻名NPC(npc)) return;
         const 名称 = 读取文本(npc?.姓名) || `社交[${index}]`;
         const 通用缺口: string[] = [];
         if (文本疑似占位(npc?.身份)) 通用缺口.push('身份');

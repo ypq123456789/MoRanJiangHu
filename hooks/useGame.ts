@@ -652,6 +652,7 @@ export const useGame = () => {
     const [变量生成中, set变量生成中] = useState(false);
     const [后台队列处理中, set后台队列处理中] = useState(false);
     const [开局主剧情进度, set开局主剧情进度] = useState<开局独立阶段进度 | null>(null);
+    const [开局导演进度, set开局导演进度] = useState<开局独立阶段进度 | null>(null);
     const [开局文章优化进度, set开局文章优化进度] = useState<开局独立阶段进度 | null>(null);
     const [开局变量生成进度, set开局变量生成进度] = useState<开局独立阶段进度 | null>(null);
     const [开局世界演变进度, set开局世界演变进度] = useState<开局独立阶段进度 | null>(null);
@@ -4019,6 +4020,7 @@ export const useGame = () => {
         // 主行动优先：先使正在进行的侧聊结果失效，避免迟到回复落入本次主回合快照。
         终止当前角色对话(true);
         set开局主剧情进度(null);
+        set开局导演进度(null);
         set开局文章优化进度(null);
         set开局变量生成进度(null);
         set开局世界演变进度(null);
@@ -4444,6 +4446,7 @@ export const useGame = () => {
         设置开局配置,
         设置叙事平静值,
         设置开局主剧情进度: set开局主剧情进度,
+        设置开局导演进度: set开局导演进度,
         设置开局文章优化进度: set开局文章优化进度,
         设置开局变量生成进度: set开局变量生成进度,
         设置开局世界演变进度: set开局世界演变进度,
@@ -4811,6 +4814,7 @@ export const useGame = () => {
             postStoryQueueRunning: 后台队列处理中,
             pendingPostStoryQueue: 待继续后续步骤,
             openingMainStoryProgress: 开局主剧情进度,
+            openingDirectorProgress: 开局导演进度,
             openingPolishProgress: 开局文章优化进度,
             openingWorldEvolutionProgress: 开局世界演变进度,
             openingPlanningProgress: 开局规划进度,

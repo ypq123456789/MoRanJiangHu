@@ -1,3 +1,5 @@
+import { 细化环境所在房间 } from '../../utils/locationTree';
+import { 同步在场NPC当前位置 } from './responseCommandProcessor';
 import * as dbService from '../../services/dbService';
 import { 后台同步存档到云端 } from '../../services/cloudPlayService';
 import type {
@@ -39,6 +41,8 @@ import { 清理内嵌图片冗余字段 } from '../../utils/imageAssets';
 import { 计算历史游玩回合数 } from '../../utils/saveTurn';
 import { 修复旧姓名库误改NPC姓名列表 } from '../../utils/npcNameRepair';
 import { 修复开局伙伴社交列表, 恢复开局伙伴队伍身份 } from '../../utils/openingCompanion';
+import { 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
+import { parseStoryRawText, 提取首尾思考区段, 提取首个标签内容 } from '../../services/ai/storyResponseParser';
 import { 同步角色与门派状态 } from './storyState';
 import { 规范化场外对话列表 } from './roleChatWorkflow';
 
@@ -702,6 +706,7 @@ export const 创建存档数据 = (
             历史记录条数: historySnapshot.length,
             游戏回合数: 计算历史游玩回合数(historySnapshot),
             历史记录是否裁剪: false,
+            已核对开局局外人物: true,
             自动存档签名: type === 'auto' ? (autoSignature || '') : undefined,
             现实保存时间戳,
             现实保存时间ISO: new Date(现实保存时间戳).toISOString()
@@ -883,7 +888,7 @@ export const 执行读取存档 = async (
     });
 
     const saveGameConfig = save.游戏设置 ? deps.规范化游戏设置(save.游戏设置) : undefined;
-    const normalizedEnv = deps.规范化环境信息(save.环境信息 || deps.创建开场空白环境());
+    const normalizedEnv = 细化环境所在房间(save.世界, deps.规范化环境信息(save.环境信息 || deps.创建开场空白环境()));
     trace('normalize.basic.done', {
         hasGameConfig: Boolean(saveGameConfig),
         envTime: (normalizedEnv as any)?.时间,
@@ -916,9 +921,22 @@ export const 执行读取存档 = async (
     });
     const nameRepairResult = 修复旧姓名库误改NPC姓名列表(Array.isArray(save.社交) ? save.社交 : []);
     const socialWithMembership = 恢复开局伙伴队伍身份(nameRepairResult.列表, save.openingConfig, loadedRole.姓名);
-    const loadedSocial = shouldTrustPersistedHeavyFields
-        ? socialWithMembership
-        : deps.规范化社交列表(socialWithMembership, { 合并同名: false });
+    const loadedDirectorBible = save.导演圣经 ? 规范化导演圣经(save.导演圣经) : undefined;
+    const openingTurn = !save.元数据?.已核对开局局外人物 && Array.isArray(save.历史记录)
+        ? save.历史记录.find(turn => turn?.role === 'assistant') : undefined;
+    let openingLogs = openingTurn?.structuredResponse?.logs;
+    if (!Array.isArray(openingLogs) && openingTurn) {
+        const raw = typeof openingTurn.rawJson === 'string' ? openingTurn.rawJson : openingTurn.content;
+        const body = typeof raw === 'string' && 提取首个标签内容(提取首尾思考区段(raw).textWithoutThinking, '正文');
+        if (body) {
+            try { openingLogs = parseStoryRawText('<正文>' + body + '</正文>').logs; } catch { /* 不完整正文沿用原档。 */ }
+        }
+    }
+    const recoveredSocial = 补录公开局外人物({ social: socialWithMembership, logs: openingLogs || [],
+        playerName: loadedRole.姓名, directorBible: loadedDirectorBible, tasks: save.任务列表 });
+    const loadedSocial = 同步在场NPC当前位置(shouldTrustPersistedHeavyFields
+        ? [...socialWithMembership, ...deps.规范化社交列表(recoveredSocial.slice(socialWithMembership.length), { 合并同名: false })]
+        : deps.规范化社交列表(recoveredSocial, { 合并同名: false }), normalizedEnv, save.世界);
     trace('social.prepare.done', {
         trusted: shouldTrustPersistedHeavyFields,
         socialCount: loadedSocial.length,
@@ -970,7 +988,6 @@ export const 执行读取存档 = async (
     const loadedHeroinePlan = deps.规范化女主剧情规划状态((save as any).女主剧情规划);
     const loadedFandomStoryPlan = deps.规范化同人剧情规划状态((save as any).同人剧情规划);
     const loadedFandomHeroinePlan = deps.规范化同人女主剧情规划状态((save as any).同人女主剧情规划);
-    const loadedDirectorBible = (save as any).导演圣经 ? 规范化导演圣经((save as any).导演圣经) : undefined;
     const loadedLastTurnDirectorBible = (save as any).上一回合导演圣经 ? 规范化导演圣经((save as any).上一回合导演圣经) : undefined;
     const loadedWorldEvents = Array.isArray((save as any).世界大事)
         ? deps.深拷贝((save as any).世界大事).filter((item: any) => typeof item === 'string' && item.trim())

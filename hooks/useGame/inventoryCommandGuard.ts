@@ -64,7 +64,27 @@ export const sanitizeInventoryCommand = (
     const inventoryPrefix = 'gameState.角色.物品列表';
     if (normalizedKey === inventoryPrefix || normalizedKey.startsWith(`${inventoryPrefix}.`) || normalizedKey.startsWith(`${inventoryPrefix}[`)) {
         if (action === 'delete') return null;
-        if (action === 'set' && !isUsableInventoryList(command?.value)) return null;
+        if (action !== 'set') return command;
+        if (normalizedKey === inventoryPrefix) return isUsableInventoryList(command.value) ? command : null;
+
+        // 数组、单件物品与物品字段的值形状不同。开局变量可能按索引写入完整物品，或给已建条目补写说明。
+        const entry = normalizedKey.slice(inventoryPrefix.length).match(/^(?:\[(\d+)\]|\.(\d+))(?:\.([\p{Script=Han}]+))?$/u);
+        if (!entry) return null;
+        const index = Number(entry[1] || entry[2]);
+        if (index > currentItems.length) return null;
+        const existing = currentItems[index];
+        const field = entry[3];
+        const keepsQuantity = (value: unknown): boolean => Number.isFinite(Number(value))
+            && Number(value) >= Number(existing?.堆叠数量 ?? 1);
+        if (!field) {
+            const next = command.value;
+            if (!isObject(next) || !next.名称) return null;
+            if (existing && (next.ID ? next.ID !== existing.ID : next.名称 !== existing.名称)) return null;
+            if (next.堆叠数量 !== undefined && !keepsQuantity(next.堆叠数量)) return null;
+            return existing ? { ...command, value: { ...existing, ...next } } : command;
+        }
+        if (!existing) return null;
+        if (field === '堆叠数量' && !keepsQuantity(command.value)) return null;
     }
 
     return command;
