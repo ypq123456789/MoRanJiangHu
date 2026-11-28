@@ -214,7 +214,7 @@ const RegionMap: React.FC<Props> = ({
 
     const 飞入 = useCallback((box: 区块, pad = 22, animate = true) => {
         const from = viewRef.current;
-        const ratio = from.w / Math.max(1, from.h);
+        const ratio = from.h > 0 ? from.w / from.h : WORLD.w / WORLD.h;
         const effectivePad = pad <= 0
             ? 0
             : Math.min(pad, Math.max(box.w, box.h) * 0.28);

@@ -1508,16 +1508,16 @@ const 是否新增社交对象命令 = (cmd: any, currentSocial?: any[]): boolea
  * 于是新档开局大量代称角色会被当成占位空壳整条丢弃。这里补 ID 后，证据链判定仍然是唯一入口：
  * 真名在本回合正文/对白/变量规划里找不到的新增命令，仍然在上面的校验里被拒绝。
  */
-const 补稳定NPCID = (cmd: any, name: string): any => {
+const 补稳定NPCID = (cmd: any, name: string, social: any[]): any => {
     const value = cmd?.value;
-    if (!value || typeof value !== 'object' || Array.isArray(value) || !name) return cmd;
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !name || !是否新增社交对象命令(cmd, social)) return cmd;
     const 现有小写ID = 规范化命令姓名(value?.id);
     const 现有大写ID = 规范化命令姓名(value?.ID);
     const 已稳定ID = [现有小写ID, 现有大写ID].find((id) => id && !/^npc_\d+$/.test(id)) || '';
     // 标准化只读 `id`：已有一个稳定 ID 时必须回填到 `id`，否则会被兜底成 npc_<下标>。
     // 没有任何稳定 ID 时按姓名派生（同名同 ID），并清掉残留的 npc_<下标>，避免它继续当匹配键。
-    const nextValue: any = { ...value, id: 已稳定ID || 生成NPC稳定ID(name) };
-    if (现有大写ID && /^npc_\d+$/.test(现有大写ID)) delete nextValue.ID;
+    const nextValue: any = { ...value, id: 生成NPC稳定ID(name, social, 已稳定ID) };
+    if (现有大写ID && (/^npc_\d+$/.test(现有大写ID) || 现有大写ID !== nextValue.id)) delete nextValue.ID;
     return { ...cmd, value: nextValue };
 };
 
@@ -1558,11 +1558,11 @@ const 净化新增社交命令 = (
             .includes(nextKey)
     ));
     if (existing) return cmd;
-    if (dialogueSenderKeys.has(nextKey) || textMentionsNpcName(responseFactText, nextName)) return 补稳定NPCID(cmd, nextName);
+    if (dialogueSenderKeys.has(nextKey) || textMentionsNpcName(responseFactText, nextName)) return 补稳定NPCID(cmd, nextName, currentSocial);
     // `<变量规划>` 与变量命令同属本回合 AI 响应：NPC 协议允许"正文用代称叙述、变量层落真实姓名"，
     // 真名落在 `<变量规划>`（开局时它就是前台初始化说明稿）即构成合法新增依据；
     // 变量模型自行发明、规划里也没有的名字仍然会被拦截。
-    if (variablePlanText && textMentionsNpcName(variablePlanText, nextName)) return 补稳定NPCID(cmd, nextName);
+    if (variablePlanText && textMentionsNpcName(variablePlanText, nextName)) return 补稳定NPCID(cmd, nextName, currentSocial);
     return null;
 };
 

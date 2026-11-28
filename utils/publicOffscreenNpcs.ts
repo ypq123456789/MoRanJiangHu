@@ -14,7 +14,24 @@ const 主语行动 = /(?:^|[，,：:“「『、])\s*(?:那位|这位|那|这)?(
 const 遗留作用施加者 = /(?:^|[，,：:“「『]|被|由)\s*([\p{Script=Han}]{2,5}?)(?=(?:先前|早前|此前|当初|曾经|曾)?(?:留在|留下|种下|施下|施加|埋下))/gu;
 const 作用仍存 = /仍|依旧|不断|还在|至今|未愈|尚未消退/u;
 const 有形后果 = /气息|真气|劲力|禁制|咒印|旧伤|伤势|毒素|蛊毒|诅咒|封印/u;
-const 在场动作 = /^(?:当面|就在眼前|在场|站在|坐在|走进|走到|走上前|伸手|推开|开口)/u;
+const 在场动作 = /^(?:正|正在|忽然|缓缓|随即|抬手|亲手|上前)?(?:当面|就在眼前|在场|站在|坐在|走进|走到|走上前|伸手|推开|开口|端着|捧着|递给|递过|接过|扶住|拦住)/u;
+const 否定牵涉 = /(?:没(?:有)?|未(?:曾)?|并非|不(?:曾|会|再|是|肯|愿)?|拒绝|否认)(?:曾经|已经|亲自|直接|继续|再|打算|参与)*(?=派|追|通缉|逼债|讨债|催债|收账|下令|指使|交易|雇佣|想借|种下|留下|勒索|绑架|庇护|债主|仇人|同谋)/u;
+
+export const 旁白有现场行动 = (line: string, name: string): boolean =>
+    line.split(name).slice(1).some(tail => 在场动作.test(tail));
+
+const 有公开证据 = (line: string, name: string, quote?: string): boolean => {
+    if (quote && (quote.length <= name.length + 2 || !line.includes(quote) || !textMentionsNpcName(quote, name))) return false;
+    const fragments = quote?.split(/[，,]/u).filter(fragment => textMentionsNpcName(fragment, name));
+    return line.split(/[，,]/u).some(clause => {
+        if (!textMentionsNpcName(clause, name)) return false;
+        if (fragments && !fragments.some(fragment => clause.includes(fragment))) return false;
+        const at = normalizeNpcNameKey(clause).indexOf(normalizeNpcNameKey(name));
+        if (at < 0 || /(?:已故|亡故|过世|已逝|已死|先父|先母)(?:的)?$/u.test(clause.slice(0, at))
+            || 纯历史线索.test(clause.slice(at, at + name.length + 12)) || 否定牵涉.test(clause)) return false;
+        return !!quote || 持续牵涉.test(clause);
+    });
+};
 
 const 是具名施动者 = (name: string): boolean => {
     if (/(?:并非|并未|并不|没有|不曾|从未|似乎|好像|不|没|未|又|也|才)$/u.test(name)) return false;
@@ -76,29 +93,25 @@ export function 补录公开局外人物(params: {
     }
     for (const update of updates) {
         if (typeof update?.姓名 !== 'string') continue;
-        if (typeof update.依据 === 'string' && update.依据.trim()) candidates.set(update.姓名.trim(), update);
-        else add(update.姓名.trim());
+        const name = update.姓名.trim();
+        const quote = typeof update.依据 === 'string' ? update.依据.trim() : '';
+        if (quote) {
+            if (sources.some(({ line }) => 有公开证据(line, name, quote))) candidates.set(name, update);
+        } else add(name);
     }
     let result = social;
     for (const [name, update] of candidates) {
         const key = normalizeNpcNameKey(name);
         const newIndex = newProfiles.get(key);
         if (!key || participants.has(key) || (existing.has(key) && newIndex === undefined) || !isNpcNameFormatValid(name) || 是否含姓名叙事污染(name) || 是代称式NPC称呼(name) || 匿名群体.test(name)) continue;
-        if (sources.some(({ line, sender }) => sender === '旁白' && line.includes(name) && 在场动作.test(line.slice(line.indexOf(name) + name.length)))) continue;
-        const proof = sources.find(({ line }) => {
-            if (!textMentionsNpcName(line, name)) return false;
-            const at = line.indexOf(name);
-            if (/(?:已故|亡故|过世|已逝|已死|先父|先母)(?:的)?$/u.test(line.slice(0, at))
-                || 纯历史线索.test(line.slice(at, at + name.length + 12))) return false;
-            const quote = update.依据?.trim();
-            return quote ? quote.length > name.length + 2 && line.includes(quote) && textMentionsNpcName(quote, name) : 持续牵涉.test(line);
-        });
+        if (sources.some(({ line, sender }) => sender === '旁白' && 旁白有现场行动(line, name))) continue;
+        const proof = sources.find(({ line }) => 有公开证据(line, name, update.依据?.trim()));
         if (!proof) continue;
         existing.add(key);
         const identity = typeof update.身份 === 'string' && proof.line.includes(update.身份)
             ? update.身份.trim() : NPC代称身份词列表.find(title => name.endsWith(title));
         const profile = {
-            id: (newIndex === undefined ? undefined : social[newIndex]?.id) || cast.get(name) || 生成NPC稳定ID(name), 姓名: name, 来源: '正文提及', 是否在场: false, 是否队友: false,
+            id: 生成NPC稳定ID(name, result, (newIndex === undefined ? undefined : social[newIndex]?.id) || cast.get(name)), 姓名: name, 来源: '正文提及', 是否在场: false, 是否队友: false,
             身份: identity || '已知人物', 关系: '已闻其名', 关系状态: '已闻其名', 好感度: 0, 性别: '未知',
             简介: proof.sender === '旁白' ? proof.line : proof.sender + '提到：' + proof.line.replace(/^[“「『]+|[”」』]+$/gu, '')
         };

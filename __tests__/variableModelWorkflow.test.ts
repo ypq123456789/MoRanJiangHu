@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { 执行变量模型校准工作流 } from '../hooks/useGame/variableModelWorkflow';
+import { 执行变量模型校准工作流, 查找社交NPC索引 } from '../hooks/useGame/variableModelWorkflow';
 import * as textAIService from '../services/ai/text';
 
 vi.mock('../services/ai/text', () => ({
@@ -27,6 +27,12 @@ const 创建变量接口配置 = () => ({
 });
 
 describe('variableModelWorkflow inventory commands', () => {
+    it('仅闻名档案只按自己的姓名或曾用名匹配对话框', () => {
+        const list = [{ 姓名: '周衡', 曾用名: ['周三爷'], 来源: '正文提及', 关系状态: '已闻其名', 简介: '李青提到：周衡正在追踪这批货。' }];
+        expect(查找社交NPC索引(list, '李青')).toBe(-1);
+        expect(查找社交NPC索引(list, '周三爷')).toBe(0);
+        expect(查找社交NPC索引([...list, { 姓名: '李青' }], '李青')).toBe(1);
+    });
     it('keeps sub commands returned by the variable model so inventory quantities can be deducted', async () => {
         vi.mocked(textAIService.generateVariableCalibrationUpdate).mockResolvedValueOnce({
             commands: [

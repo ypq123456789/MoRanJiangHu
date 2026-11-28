@@ -90,4 +90,17 @@ describe('场所中的房间与已探明通路', () => {
         const next = 构建地图层级替换结果([venue, room('a', '前厅'), { ID: 'b', 名称: '药房', 层级: '子地点', 父级ID: 'inn' }], before);
         expect(getRoomPassages(next)).toHaveLength(0);
     });
+    it('新房间采用有效输入格序；同一响应较早修改的出口参与后续整图继承', () => {
+        const first = 构建地图层级替换结果([venue, { ...rooms[1], 房间格序: 5 }]);
+        expect(first.find(n => n.名称 === '药房').房间格序).toBe(5);
+        const old = { 地图层级: [venue, room('a', '前厅'), room('b', '药房')] };
+        const conflicting = 构建地图层级替换结果([venue, { ...room('new', '书房'), 房间格序: 0 }, ...old.地图层级.slice(1)], old);
+        expect(conflicting.find(n => n.ID === 'a').房间格序).toBe(0);
+        expect(conflicting.find(n => n.名称 === '书房').房间格序).toBe(2);
+        const raw = old.地图层级.map(({ ID, 名称, 父级ID, 层级 }) => ({ ID, 名称, 父级ID, 层级 }));
+        for (const command of ['set 世界.地图层级[1].连通房间 = ["药房"]', 'push 世界.地图层级[1].连通房间 = "药房"']) {
+            const result = 解析地图自动更新命令(command + '\nset 世界.地图层级 = ' + JSON.stringify(raw), old);
+            expect(result.at(-1)?.value.find((n: any) => n.ID === 'a').连通房间).toEqual(['药房']);
+        }
+    });
 });

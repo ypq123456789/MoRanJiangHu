@@ -20,7 +20,7 @@ import { parseJsonWithRepair } from '../../utils/jsonRepair';
 import type { StoryV2EngineState } from './types';
 import { 首次登记NPC交易资产 } from '../plugins/tradePlugin';
 import { 获取交易币制 } from '../plugins/tradeCurrency';
-import { 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
+import { 旁白有现场行动, 补录公开局外人物 } from '../../utils/publicOffscreenNpcs';
 import { 公开局外人物审计规则 } from '../../prompts/runtime/publicNpcAudit';
 import { normalizeNpcNameKey, textMentionsNpcName } from '../../utils/npcName';
 
@@ -345,7 +345,9 @@ export const 执行导演后处理V2 = async (params: {
             const name = typeof upd?.姓名 === 'string' ? upd.姓名.trim() : '';
             if (!name || name === nextRole.姓名) continue;
             const idx = nextSocial.findIndex((n) => n?.姓名 === name);
-            const inScene = 判断NPC本回合是否在场({ 姓名: name }, sceneNarration, presentSpeakers) === true;
+            const presence = 判断NPC本回合是否在场({ 姓名: name }, sceneNarration, presentSpeakers);
+            const inScene = presence ?? (旁白有现场行动(sceneNarration, name)
+                || (upd.是否在场 === true && textMentionsNpcName(sceneNarration, name)));
             if (idx < 0 || nextSocial[idx].来源 === '正文提及') {
                 if (!textMentionsNpcName(storyBody, name)) continue;
                 if (upd.是否在场 === false || !inScene) {

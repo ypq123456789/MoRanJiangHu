@@ -136,6 +136,18 @@ const createOpeningState = () => ({
 });
 
 describe('saveCoordinator opening save recovery', () => {
+    it('先从记忆恢复历史，再核对局外人；缺少可核对开局时不写完成标记', async () => {
+        const state = createOpeningState();
+        state.记忆系统.回忆档案[0].原文 += '\n【陆青】张掌柜派人收账。';
+        const deps = createDeps();
+        await 执行读取存档({ ...state, 角色数据: state.角色, 元数据: { 已核对开局局外人物: true } } as any, deps as any);
+        expect(deps.设置社交.mock.calls[0][0]).toContainEqual(expect.objectContaining({ 姓名: '张掌柜', 是否在场: false }));
+        const saved = 创建存档数据('manual', state as any, deps as any);
+        expect(saved.社交).toContainEqual(expect.objectContaining({ 姓名: '张掌柜' }));
+        expect(saved.元数据?.已核对开局局外人物).toBe(true);
+        const incomplete = 创建存档数据('manual', { ...state, 记忆系统: {}, 剧情: {} } as any, deps as any);
+        expect(incomplete.元数据?.已核对开局局外人物).toBe(false);
+    });
     it('旧档迁移尚未提交时切档，较慢的回调不会覆盖当前角色或发送结算通知', async () => {
         const deps = { ...createDeps(), 推送通知: vi.fn() };
         const first = { ...createOpeningState(), id: 1, 角色数据: { 姓名: '甲' } } as any;

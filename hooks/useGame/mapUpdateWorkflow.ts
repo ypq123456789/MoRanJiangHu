@@ -165,7 +165,7 @@ export const 构建地图更新用户提示词 = (params: {
     const env = params.环境 || {};
     const world = params.世界 || {};
     const layers = Array.isArray(world?.地图层级) ? world.地图层级 : [];
-    const isOpeningEmptyMap = params.mode === 'auto_incremental' && layers.length < 6;
+    const isOpeningEmptyMap = params.mode === 'auto_incremental' && layers.length === 0;
     const gaps = 查找地图分支缺口(layers);
     const branchPrompt = gaps.length
         ? '待补的地域分支：' + gaps.join('、') + '。按世界题材和已知版图补到每处至少两个直接下级。只增补地理，不虚构人物经历。'
@@ -266,7 +266,7 @@ export const 构建地图更新用户提示词 = (params: {
         '【自动更新规则】',
         branchPrompt,
         isOpeningEmptyMap
-            ? '0. 当前地图层级为空：这是开局种子地图任务，必须根据当前地点与开局正文生成基础六层路径，至少包含 寰宇 -> 大地点 -> 中地点 -> 小地点 -> 区地点。'
+            ? '0. 开局种子地图任务：寰宇至少有两个大地点，每个大地点至少有两个中地点，每个中地点至少有两个小地点。同一批 push 必须补齐各处分支，沿当前地点继续登记正文明确出现的场所和房间。'
             : '',
         isOpeningEmptyMap
             ? '1. 开局种子地图不得输出“无”；若地点信息不足，也要用当前地点、正文里的仓库/营地/街区/房间线索补齐可用节点。'
@@ -288,7 +288,7 @@ export const 构建地图更新用户提示词 = (params: {
         `13. ${地图层级命名自检}`,
         traditionalChinesePrompt,
         '',
-        '【输出格式】',
+        isOpeningEmptyMap ? '【单条命令格式示例；开局按规则 0 输出完整种子图的全部节点】' : '【输出格式】',
         '<thinking>简短审计是否有新地点</thinking>',
         '<说明>- 写明新增/跳过原因</说明>',
         '<命令>',
@@ -431,8 +431,10 @@ const 定位地图节点 = (rawNodes: any[], existing: any[], mode: 'push' | 're
     for (const [venue, rooms] of byVenue([...kept])) {
         const previous = oldRooms.get(venue) || [];
         const oldSlots = getRoomSlots(previous);
-        const roomCandidates = mode === 'push' ? [...previous, ...rooms] : rooms;
-        const slots = getRoomSlots(roomCandidates.map(room => ({ ID: room.ID, 房间格序: oldSlots.get(room.ID) })));
+        // 全图重排也先占用旧房格，再给新房间分配显式或空闲格。
+        const roomCandidates = mode === 'push' ? [...previous, ...rooms]
+            : [...rooms.filter(room => oldSlots.has(room.ID)), ...rooms.filter(room => !oldSlots.has(room.ID))];
+        const slots = getRoomSlots(roomCandidates.map(room => ({ ID: room.ID, 房间格序: oldSlots.get(room.ID) ?? room.房间格序 })));
         const oldById = new Map(previous.map(room => [room.ID, room]));
         const byRef = new Map(rooms.map(room => [room.名称, room]));
         const explicitExits = new Map(rooms.map(room => [room.ID, room.连通房间]));
@@ -529,7 +531,7 @@ const 解析增量地图结果 = (rawText: string, currentWorld?: any): { comman
             return;
         }
         // 用同一命令执行器模拟改变树结构的索引指令，后续 push 分配 ID 和最终校验都读取更新后的层级。
-        if (/地图层级(?:\[\d+\]|\.\d+)(?:\.(?:ID|名称|层级|父级ID))?$/.test(key)) {
+        if (/地图层级(?:\[\d+\]|\.\d+)(?:\.(?:ID|名称|层级|父级ID|连通房间(?:\[\d+\]|\.\d+)?))?$/.test(key)) {
             const next = applyStateCommand(null, null, [], { 地图层级: existingLayers } as 世界数据结构,
                 null, null, null, undefined, undefined, undefined, null, [], [], key, value, action);
             existingLayers = next.world.地图层级;

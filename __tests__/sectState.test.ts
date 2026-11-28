@@ -11,6 +11,9 @@ import { 创建空门派状态, 创建开场基础状态, 创建开场命令基�
 import { 开局变量生成附加提示词, 构建开局变量生成审计重点 } from '../prompts/runtime/openingVariableGenerationInit';
 
 describe('门派状态规范化', () => {
+    it.each(['未加入', '散人'])('兼容旧档无门派标识 %s', (value) => {
+        expect(是否无门派标识(value)).toBe(true);
+    });
     it('无门派语义不会补默认同门', () => {
         const normalized = 规范化门派状态({
             ID: 'none',

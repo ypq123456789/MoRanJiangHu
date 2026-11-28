@@ -52,6 +52,7 @@ import './services/diagnosticLog';
 import type { 物品生图结果 } from './types';
 import type { 游戏物品, 物品类型, 物品品质 } from './models/item';
 import { 已习得门派藏经, 获取门派所在状态, 构建门派研习行动 } from './utils/sectLibrary';
+import { 查找记录对应NPC } from './utils/npcNarrativeName';
 import type { 门派藏经 } from './models/sect';
 
 const RELEASE_NOTES_SUPPRESS_DATE_KEY = 'moranjianghu.releaseNotesSuppressDate';
@@ -1915,17 +1916,7 @@ const App: React.FC = () => {
             record?.名称,
         ].map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
         if (candidateTexts.length === 0) return;
-        const normalized = (value: string) => value.replace(/\s+/g, '').toLowerCase();
-        const npc = (Array.isArray(state.社交) ? state.社交 : []).find((item: any) => {
-            const npcTexts = [item?.id, item?.ID, item?.姓名, item?.名称]
-                .map((value) => (typeof value === 'string' ? value.trim() : ''))
-                .filter(Boolean);
-            return candidateTexts.some((candidate) => npcTexts.some((npcText) => (
-                normalized(candidate) === normalized(npcText)
-                || normalized(candidate).includes(normalized(npcText))
-                || normalized(npcText).includes(normalized(candidate))
-            )));
-        });
+        const npc = 查找记录对应NPC(candidateTexts, Array.isArray(state.社交) ? state.社交 : []);
         closeAllPanels();
         setSelectedSocialNpcId(npc?.id || null);
         setters.setShowSocial(true);

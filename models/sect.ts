@@ -2,7 +2,7 @@
 
 // 门派任务系统与详细定义
 
-const 无门派文本集合 = new Set(['', 'none', '无', '无门派', '无门无派', '尚未加入任何门派', '江湖散人', '散修', '无所属门派']);
+const 无门派文本集合 = new Set(['', 'none', '无', '无门派', '无门无派', '未加入', '尚未加入任何门派', '散人', '江湖散人', '散修', '无所属门派']);
 
 export const 是否无门派标识 = (value: unknown): boolean => {
     if (value === null || value === undefined) return true;

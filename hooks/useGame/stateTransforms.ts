@@ -2043,10 +2043,8 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
             if (同件装备.length !== 1) return [entry];
             const equipped = 同件装备[0];
             equipped.名称 = entry.名称;
-            if (entry.描述) {
-                equipped.描述 = entry.描述;
-                delete equipped.待补装备引用;
-            }
+            if (entry.描述) equipped.描述 = entry.描述;
+            delete equipped.待补装备引用;
             // 已穿戴的这一件就是背景发放的物品，多件时剩余份数仍进背包。
             const 剩余 = entry.堆叠数量 - 1;
             return 剩余 > 0 ? [{ ...entry, 数量: 剩余, 堆叠数量: 剩余 }] : [];

@@ -223,14 +223,14 @@ export const 查找社交NPC索引 = (socialRaw: unknown, sender: string): numbe
     // 但严禁"发送者包含身份片段"的反向命中（如发送者'丝绸商号掌柜'含女一简介里的'丝绸商号'），否则会误判成女一。
     const 主要角色身份命中 = (candidates: string[]): boolean => candidates.some((item) => item.length > 0 && item.includes(target));
     // 第一优先：主要角色按姓名精确匹配（跨角色类型优先，避免被非主要角色的模糊包含抢先，也避免昵称/片段串到女一）
-    const majorByName = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && 是主要角色(npc) && 主要角色姓名命中(取姓名候选(npc)));
+    const majorByName = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && (是主要角色(npc) || 是否仅闻名NPC(npc)) && 主要角色姓名命中(取姓名候选(npc)));
     if (majorByName >= 0) return majorByName;
     // 第二优先：非主要角色按原名/身份/简介常规双向匹配
-    const nonMajor = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && !是主要角色(npc)
+    const nonMajor = socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && !是主要角色(npc) && !是否仅闻名NPC(npc)
         && (常规姓名命中(取姓名候选(npc)) || 常规命中(取身份候选(npc))));
     if (nonMajor >= 0) return nonMajor;
     // 第三优先：主要角色按身份/简介（仅"身份包含发送者"方向，含精确相等）匹配
-    return socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && 是主要角色(npc) && 主要角色身份命中(取身份候选(npc)));
+    return socialRaw.findIndex((npc: any) => npc && typeof npc === 'object' && 是主要角色(npc) && !是否仅闻名NPC(npc) && 主要角色身份命中(取身份候选(npc)));
 };
 
 const 对白人物基础缺口 = (npc: any, options?: { xianxiaMode?: boolean }): string[] => {

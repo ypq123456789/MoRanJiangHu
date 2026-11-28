@@ -447,6 +447,34 @@ describe('V2 试玩反馈综合修复验证', () => {
         expect(container.querySelector('[data-raw-response-text]')?.textContent).toBe(line);
     });
 
+    it.each(['标签', 'JSON'])('从%s原文找回含引号和反斜线的相同台词，依说话人定位', (format) => {
+        const words = '“先念 "A" 再看 A\\B。”';
+        const records = [
+            { sender: '俞月荷', text: '（低声）' + words },
+            { sender: '杨培强', text: words }
+        ];
+        const snippets = records.map(record => format === 'JSON' ? JSON.stringify(record, null, 2) : '【' + record.sender + '】' + record.text);
+        const raw = format === 'JSON' ? JSON.stringify({ logs: records }) : ['<正文>', ...snippets, '</正文>'].join('\n');
+        const { container } = render(<TurnItem turnNumber={1} onSaveEdit={vi.fn()} rawJson={raw} response={{ logs: [
+            { sender: '旁白', text: '（低声）' },
+            { sender: '俞月荷', text: words },
+            { sender: '杨培强', text: words }
+        ] }} />);
+        const buttons = container.querySelectorAll('.mobile-chat-dialogue-bubble button');
+        for (const [index, snippet] of snippets.entries()) {
+            fireEvent.click(buttons[index]);
+            expect(container.querySelector('[data-raw-response-text]')?.textContent).toBe(snippet);
+        }
+    });
+
+    it('同一人重复说同一句话时，合并的气泡显示两条原始记录', () => {
+        const records = [1, 2].map(sequence => ({ sender: '俞月荷', text: '“好。”', sequence }));
+        const { container } = render(<TurnItem turnNumber={1} onSaveEdit={vi.fn()} rawJson={JSON.stringify({ logs: records })}
+            response={{ logs: [{ sender: '俞月荷', text: '“好。”\n“好。”' }] }} />);
+        fireEvent.click(container.querySelector('.mobile-chat-dialogue-bubble button')!);
+        expect(container.querySelector('[data-raw-response-text]')?.textContent).toBe(records.map(record => JSON.stringify(record, null, 2)).join('\n'));
+    });
+
     it.each([[true, false, false], [false, false, false], [true, true, false], [true, false, true]])('6. 2.0 开局与回合结算，含变量命令 %s，开局导演失败 %s，回合导演失败 %s', async (hasVariableCommands, openingDirectorFails, turnDirectorFails) => {
         vi.clearAllMocks();
         const storyTurnRenderer = await import('../engine/storyV2/storyTurnRenderer');

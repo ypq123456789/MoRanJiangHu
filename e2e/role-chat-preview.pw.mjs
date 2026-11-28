@@ -173,7 +173,10 @@ const loadGame = async (page, save = makeRoleChatSave()) => {
 for (const mobile of [false, true]) {
     test(`旧档从正文补录离场人物（${mobile ? '手机' : '桌面'}）`, async ({ page }) => {
         const save = structuredClone(baseSave);
-        save.社交 = [{ id: 'known', 姓名: '俞月荷', 是否在场: true, 关系网变量: [{ 对象姓名: '俞凌风', 关系: '堂兄' }] }];
+        save.社交 = [
+            { id: 'known', 姓名: '俞月荷', 是否在场: true, 关系网变量: [{ 对象姓名: '俞凌风', 关系: '堂兄' }] },
+            { id: 'old-clue', 姓名: '曲君明', 叙事名称: '戴笠客', 状态: '已故', 来源: '正文提及', 关系状态: '已闻其名', 是否在场: false }
+        ];
         save.任务列表 = [{ 标题: '债务纠纷', 类型: '主线', 描述: '查清沈天彪与钱掌柜的利益关系。' }];
         save.历史记录 = [{ role: 'assistant', content: 'Structured Response', structuredResponse: { logs: [
             { sender: '旁白', text: '俞凌风种下的气息仍在折磨她。巷口三名帮众正在抽烟。' },
@@ -195,6 +198,14 @@ for (const mobile of [false, true]) {
         await expect(details).toContainText('掌柜 · 已闻其名 · 不在场');
         await expect(details).toContainText('俞月荷提到：那钱掌柜想借沈天彪的刀');
         await expect(details).not.toContainText(/岁|出身背景|草木亲和/);
+        await expect(details.getByRole('button', { name: '设为在场' })).toBeVisible();
+        await page.getByText('戴笠客', { exact: true }).first().click();
+        const toggle = details.locator('[data-real-name-toggle]');
+        await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+        await expect(toggle.locator('.npc-real-name-mosaic')).toBeVisible();
+        await toggle.click();
+        await expect(toggle.locator('[data-real-name]')).toHaveText('曲君明');
+        await expect(details.getByRole('button', { name: '设为在场' })).toHaveCount(0);
     });
 }
 

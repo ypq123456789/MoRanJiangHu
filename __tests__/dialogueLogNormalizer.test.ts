@@ -51,6 +51,21 @@ describe.each([规范化对白日志, 规范化可渲染对白日志])('角色�
             { sender: '杨培强', text: '你也听见了吗？' }
         ]);
     });
+
+    it('祈使句里的人称定语和动作词开头的释义仍由角色说出', () => {
+        const logs = [
+            { sender: '俞月荷', text: '看着他的眼睛。\n看着她的目光。' },
+            { sender: '杨培强', text: '“我说的放下（放下仇恨，而非丢掉兵器）不是认输。”' }
+        ];
+        expect(normalize(logs)).toEqual(logs);
+    });
+
+    it('通用动作词在独立的动作提示中可拆开，作为词义补充时留在原句', () => {
+        expect(normalize([{ sender: '杨培强', text: '（放下兽皮）我指的是（放下仇恨）这一层。' }])).toEqual([
+            { sender: '旁白', text: '（放下兽皮）' },
+            { sender: '杨培强', text: '我指的是（放下仇恨）这一层。' }
+        ]);
+    });
 });
 
 describe('dialogueLogNormalizer story readability cleanup', () => {

@@ -121,7 +121,7 @@ const LocationTreeItem: React.FC<{
 };
 
 const LocationBrowser: React.FC<Props> = ({ world, env, onRegenerateMap, compact = false, rawResponse = '', socialList = [], playerName = '', onInsertCommand }) => {
-    const tree = useMemo(() => 构建地点树(world, env), [world, env]);
+    const tree = useMemo(() => 构建地点树(world, env, socialList), [world, env, socialList]);
     const [selection, setSelection] = useState<{ locationId: string; nodeId: string } | null>(null);
     const currentId = tree.当前节点?.ID || '';
     const manualNode = selection?.locationId === currentId ? tree.节点映射.get(selection.nodeId) : undefined;

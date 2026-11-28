@@ -9,6 +9,7 @@ export interface 地点树节点 {
     层级: 地点层级类型;
     父级ID: string;
     描述: string;
+    叙事核心?: string;
     控制势力?: string;
     势力影响?: string;
     势力标签?: string[];
@@ -58,6 +59,7 @@ const 归一化层级 = (raw?: string): 地点层级类型 => 层级映射[raw |
 
 const 合并地点资料 = (keeper: 地点树节点, extra: 地点树节点) => {
     keeper.描述 ||= extra.描述;
+    keeper.叙事核心 ||= extra.叙事核心;
     if (extra.连通房间?.length) keeper.连通房间 = [...new Set([...(keeper.连通房间 || []), ...extra.连通房间])];
     keeper.控制势力 ||= extra.控制势力;
     keeper.势力影响 ||= extra.势力影响;
@@ -66,7 +68,8 @@ const 合并地点资料 = (keeper: 地点树节点, extra: 地点树节点) => 
 
 export const 构建地点树 = (
     world?: 世界数据结构 | null,
-    env?: 环境信息结构 | null
+    env?: 环境信息结构 | null,
+    同伴: readonly 同场位置证据[] = []
 ): 地点树结构 => {
     const layers = Array.isArray(world?.地图层级) ? world.地图层级 : [];
     const 节点映射 = new Map<string, 地点树节点>();
@@ -75,8 +78,15 @@ export const 构建地点树 = (
     // 第一步：层级转节点
     layers.forEach((layer: any) => {
         if (!layer || typeof layer !== 'object') return;
-        const id = 取文本(layer.ID) || `location:${JSON.stringify([取文本(layer.父级ID), 归一化层级(layer.层级), 取文本(layer.名称)])}`;
-        const owners = [layer.归属?.大地点, layer.归属?.中地点, layer.归属?.小地点].map(value => 取文本(value)).filter(Boolean);
+        const name = 取文本(layer.名称);
+        const owners = [layer.归属?.大地点, layer.归属?.中地点, layer.归属?.小地点].map(value => 取文本(value))
+            .filter(value => value && 归一化地图文本(value) !== 归一化地图文本(name));
+        const rawId = 取文本(layer.ID);
+        let id = rawId || `location:${JSON.stringify([取文本(layer.父级ID), 归一化层级(layer.层级), name])}`;
+        // 已补录房间可能直接引用旧算法生成的父 ID，仅在两个无 ID 节点的归属不同时区分。
+        if (!rawId && 节点映射.has(id) && JSON.stringify(归属路径.get(id) || []) !== JSON.stringify(owners)) {
+            id += ':' + JSON.stringify(owners);
+        }
         if (owners.length) 归属路径.set(id, owners);
         const node: 地点树节点 = {
             ID: id,
@@ -84,6 +94,7 @@ export const 构建地点树 = (
             层级: 归一化层级(layer?.层级),
             父级ID: 取文本(layer?.父级ID),
             描述: 取文本(layer?.描述),
+            叙事核心: 取文本(layer?.叙事核心),
             ...(layer?.连通房间 ? { 连通房间: readRoomExits(layer.连通房间) } : {}),
             ...(Number.isSafeInteger(layer.房间格序) ? { 房间格序: layer.房间格序 } : {}),
             控制势力: 取文本(layer?.控制势力),
@@ -103,43 +114,17 @@ export const 构建地点树 = (
         寰宇节点s.slice(1).forEach(dup => {
             dup.层级 = '大地点';
             dup.父级ID = keeper.ID;
-            keeper.子节点.push(dup);
         });
     }
-
-    // 第三步：合并重名（同层+同父）
-    const keyFn = (n: 地点树节点) => `${归一化地图文本(n.名称)}|${n.层级}|${n.父级ID}`;
-    const groups = new Map<string, 地点树节点[]>();
-    节点映射.forEach(n => {
-        const k = keyFn(n);
-        if (!groups.has(k)) groups.set(k, []);
-        groups.get(k)!.push(n);
-    });
-    groups.forEach(g => {
-        if (g.length < 2) return;
-        const keeper = g[0];
-        g.slice(1).forEach(dup => {
-            合并地点资料(keeper, dup);
-            节点映射.forEach(n => { if (n.父级ID === dup.ID) n.父级ID = keeper.ID; });
-            dup.子节点.forEach(c => { if (!keeper.子节点.some(kc => kc.ID === c.ID)) { keeper.子节点.push(c); c.父级ID = keeper.ID; } });
-            节点映射.delete(dup.ID);
-        });
-    });
 
     // 先连上级，再用已有归属消歧旧档中用名称填写的父级。
     const 层级优先级: Record<地点层级类型, number> = { '寰宇': 0, '大地点': 1, '中地点': 2, '小地点': 3, '区地点': 4, '子地点': 5 };
-    const nodes = Array.from(节点映射.values());
     const 同名节点 = new Map<string, 地点树节点[]>();
-    for (const node of nodes) {
-        const key = 归一化地图文本(node.名称);
-        const matches = 同名节点.get(key) || [];
-        matches.push(node);
-        同名节点.set(key, matches);
-    }
-    [...nodes].sort((a, b) => 层级优先级[a.层级] - 层级优先级[b.层级]).forEach(node => {
-        let pid = node.父级ID;
-        if (!pid || pid === node.ID) return;
-        if (!节点映射.has(pid)) {
+    const 同父节点 = new Map<string, 地点树节点>();
+    const 合并ID = new Map<string, string>();
+    for (const node of [...节点映射.values()].sort((a, b) => 层级优先级[a.层级] - 层级优先级[b.层级])) {
+        let pid = 合并ID.get(node.父级ID) || node.父级ID;
+        if (pid && !节点映射.has(pid)) {
             const matches = (同名节点.get(归一化地图文本(pid)) || []).filter(place => 层级优先级[place.层级] < 层级优先级[node.层级]);
             const adjacent = matches.filter(place => 层级优先级[place.层级] + 1 === 层级优先级[node.层级]);
             let candidates = adjacent.length ? adjacent : matches;
@@ -157,13 +142,30 @@ export const 构建地点树 = (
                     return owners.every(owner => 地点路径匹配分支(owner, branch));
                 });
             }
-            if (candidates.length !== 1) return;
-            node.父级ID = pid = candidates[0].ID;
+            if (candidates.length === 1) pid = candidates[0].ID;
         }
-        if (!节点映射.has(pid)) return;
-        const parent = 节点映射.get(pid)!;
-        if (!parent.子节点.some(c => c.ID === node.ID)) parent.子节点.push(node);
-    });
+        node.父级ID = pid;
+        const name = 归一化地图文本(node.名称);
+        const key = JSON.stringify([pid && !节点映射.has(pid) ? node.ID : pid, node.层级, name]);
+        const kept = 同父节点.get(key);
+        if (kept) {
+            合并地点资料(kept, node);
+            合并ID.set(node.ID, kept.ID);
+            节点映射.delete(node.ID);
+            continue;
+        }
+        同父节点.set(key, node);
+        const named = 同名节点.get(name) || [];
+        named.push(node);
+        同名节点.set(name, named);
+    }
+    const nodes = [...节点映射.values()];
+    for (const node of nodes) {
+        node.父级ID = 合并ID.get(node.父级ID) || node.父级ID;
+        if (node.连通房间?.length) node.连通房间 = [...new Set(node.连通房间.map(ref => 合并ID.get(ref) || ref))];
+        const parent = 节点映射.get(node.父级ID);
+        if (parent && parent !== node) parent.子节点.push(node);
+    }
 
     // 第五步：找根节点
     let rootNodes = nodes.filter(n => !n.父级ID || !节点映射.has(n.父级ID))
@@ -213,10 +215,24 @@ export const 构建地点树 = (
             }
         }
     }
-    // 环境明确落在场所且只有一个已知房间时，角色可进一步定位；不替多房间场所选房。
+    // 仅在同场队友明确记录了同一房间且其余位置证据也在这条分支上时细化。
     if (currentNode?.层级 === '区地点' && env?.具体地点 &&
         地点路径匹配分支(currentNode.名称, [env.具体地点.split(/\s*[>＞／/]\s*/u).at(-1) || ''])) {
-        const rooms = currentNode.子节点.filter(node => node.层级 === '子地点');
+        const venuePath: string[] = [];
+        const seen = new Set<string>();
+        let ancestor: 地点树节点 | undefined = currentNode;
+        while (ancestor && !seen.has(ancestor.ID)) {
+            seen.add(ancestor.ID);
+            venuePath.unshift(ancestor.名称);
+            ancestor = 节点映射.get(ancestor.父级ID);
+        }
+        const companions = (Array.isArray(同伴) ? 同伴 : []).filter(npc => npc?.是否队友 === true && npc.是否在场 === true);
+        const rooms = currentNode.子节点.filter(room => room.层级 === '子地点' && companions.some(npc => {
+            const records = [npc.位置路径, npc.当前位置, npc.当前地点, npc.具体地点].map(value => 取文本(value)).filter(Boolean);
+            const branch = [...venuePath, room.名称];
+            return records.some(record => 归一化地图文本(record.split(/[>＞／/\\·•\-—|｜,，、;；→]+/u).at(-1)) === 归一化地图文本(room.名称))
+                && records.every(record => 地点路径匹配分支(record, branch));
+        }));
         if (rooms.length === 1) {
             已定位场所 = currentNode;
             currentNode = rooms[0];
@@ -237,9 +253,11 @@ export const 构建地点树 = (
     return { 根节点: root, 当前节点: currentNode, 节点映射, 面包屑, 待补录房间, 已定位场所 };
 };
 
-export const 细化环境所在房间 = <T extends Partial<环境信息结构>>(world: 世界数据结构 | undefined, env: T): T => {
+type 同场位置证据 = { 是否在场?: boolean; 是否队友?: boolean; 位置路径?: unknown; 当前位置?: unknown; 当前地点?: unknown; 具体地点?: unknown };
+
+export const 细化环境所在房间 = <T extends Partial<环境信息结构>>(world: 世界数据结构 | undefined, env: T, 同伴?: readonly 同场位置证据[]): T => {
     if (!env?.具体地点 || !world?.地图层级?.length) return env;
-    const tree = 构建地点树(world, env as 环境信息结构);
+    const tree = 构建地点树(world, env as 环境信息结构, 同伴);
     if (!tree.已定位场所 || !tree.当前节点) return env;
     return { ...env, 具体地点: env.具体地点.trim() + ' > ' + tree.当前节点.名称 };
 };

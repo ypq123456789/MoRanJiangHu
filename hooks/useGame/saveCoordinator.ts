@@ -518,6 +518,17 @@ const 尝试修复完成开局但缺失历史的存档 = (
     ];
 };
 
+const 读取开局公开正文 = (history: 聊天记录结构[]): GameResponse['logs'] => {
+    const opening = history.find(turn => turn?.role === 'assistant');
+    const logs = opening?.structuredResponse?.logs;
+    if (Array.isArray(logs) && logs.some(log => log?.text?.trim())) return logs;
+    const raw = opening?.rawJson || opening?.content;
+    if (typeof raw !== 'string') return [];
+    const body = 提取首个标签内容(提取首尾思考区段(raw).textWithoutThinking, '正文');
+    if (!body) return [];
+    try { return parseStoryRawText('<正文>' + body + '</正文>').logs; } catch { return []; }
+};
+
 const 构建自动存档签名 = (
     snapshot: {
         history?: 聊天记录结构[];
@@ -657,21 +668,18 @@ export const 创建存档数据 = (
     const memorySource = snapshot?.memory ? snapshot.memory : deps.规范化记忆系统(currentState.记忆系统);
     const normalizedMemorySource = deps.规范化记忆系统(deps.深拷贝(memorySource));
     const storyForSave = deps.规范化剧情状态(deps.深拷贝(storySource));
-    const historySnapshot = (() => {
-        const built = 构建存档历史记录(historySource, deps);
-        return 尝试修复完成开局但缺失历史的存档(
-            {
-                时间戳: Date.now(),
-                环境信息: envSource,
-                游戏初始时间: currentState.游戏初始时间
-            },
-            built,
-            normalizedMemorySource,
-            storyForSave
-        ) || built;
-    })();
+    const builtHistory = 构建存档历史记录(historySource, deps);
+    const repairedHistory = 尝试修复完成开局但缺失历史的存档(
+        { 时间戳: Date.now(), 环境信息: envSource, 游戏初始时间: currentState.游戏初始时间 },
+        builtHistory, normalizedMemorySource, storyForSave
+    );
+    const historySnapshot = repairedHistory || builtHistory;
+    const openingLogs = 读取开局公开正文(historySnapshot);
     const openingConfigSource = snapshot?.openingConfig ?? currentState.openingConfig;
-    const socialSource = 修复开局伙伴社交列表(rawSocialSource, openingConfigSource, roleSource);
+    const directorBibleSource = snapshot?.directorBible ?? currentState.导演圣经;
+    const partners = 修复开局伙伴社交列表(rawSocialSource, openingConfigSource, roleSource);
+    const socialSource = repairedHistory ? 补录公开局外人物({ social: partners, logs: openingLogs,
+        playerName: roleSource.姓名, directorBible: directorBibleSource, tasks: tasksSource }) : partners;
     const visualSource = snapshot?.visualConfig ? snapshot.visualConfig : currentState.visualConfig;
     const sceneImageArchiveSource = snapshot?.sceneImageArchive
         ? snapshot.sceneImageArchive
@@ -679,7 +687,6 @@ export const 创建存档数据 = (
     清理内嵌图片冗余字段(roleSource, { maxNodes: 50000 });
     清理内嵌图片冗余字段(socialSource, { maxNodes: 70000 });
     清理内嵌图片冗余字段(sceneImageArchiveSource, { maxNodes: 20000 });
-    const directorBibleSource = snapshot?.directorBible ?? currentState.导演圣经;
     const filteredSceneImageArchive = 过滤当前存档场景图片档案(sceneImageArchiveSource, historySnapshot, deps);
     const filteredCharacterAnchors = 过滤当前存档角色锚点(
         currentState.角色锚点列表,
@@ -706,7 +713,7 @@ export const 创建存档数据 = (
             历史记录条数: historySnapshot.length,
             游戏回合数: 计算历史游玩回合数(historySnapshot),
             历史记录是否裁剪: false,
-            已核对开局局外人物: true,
+            已核对开局局外人物: openingLogs.length > 0,
             自动存档签名: type === 'auto' ? (autoSignature || '') : undefined,
             现实保存时间戳,
             现实保存时间ISO: new Date(现实保存时间戳).toISOString()
@@ -888,7 +895,7 @@ export const 执行读取存档 = async (
     });
 
     const saveGameConfig = save.游戏设置 ? deps.规范化游戏设置(save.游戏设置) : undefined;
-    const normalizedEnv = 细化环境所在房间(save.世界, deps.规范化环境信息(save.环境信息 || deps.创建开场空白环境()));
+    const normalizedEnv = 细化环境所在房间(save.世界, deps.规范化环境信息(save.环境信息 || deps.创建开场空白环境()), save.社交);
     trace('normalize.basic.done', {
         hasGameConfig: Boolean(saveGameConfig),
         envTime: (normalizedEnv as any)?.时间,
@@ -922,16 +929,25 @@ export const 执行读取存档 = async (
     const nameRepairResult = 修复旧姓名库误改NPC姓名列表(Array.isArray(save.社交) ? save.社交 : []);
     const socialWithMembership = 恢复开局伙伴队伍身份(nameRepairResult.列表, save.openingConfig, loadedRole.姓名);
     const loadedDirectorBible = save.导演圣经 ? 规范化导演圣经(save.导演圣经) : undefined;
-    const openingTurn = !save.元数据?.已核对开局局外人物 && Array.isArray(save.历史记录)
-        ? save.历史记录.find(turn => turn?.role === 'assistant') : undefined;
-    let openingLogs = openingTurn?.structuredResponse?.logs;
-    if (!Array.isArray(openingLogs) && openingTurn) {
-        const raw = typeof openingTurn.rawJson === 'string' ? openingTurn.rawJson : openingTurn.content;
-        const body = typeof raw === 'string' && 提取首个标签内容(提取首尾思考区段(raw).textWithoutThinking, '正文');
-        if (body) {
-            try { openingLogs = parseStoryRawText('<正文>' + body + '</正文>').logs; } catch { /* 不完整正文沿用原档。 */ }
-        }
+    const loadedStory = deps.规范化剧情状态(save.剧情 || deps.创建开场空白剧情());
+    let loadedHistoryForState = 清理历史瞬态滚动标记(
+        Array.isArray(save.历史记录) ? deps.深拷贝(save.历史记录) : []
+    );
+    const loadedMemory = deps.规范化记忆系统(save.记忆系统);
+    const repairedOpeningHistory = 尝试修复完成开局但缺失历史的存档(
+        save,
+        loadedHistoryForState,
+        loadedMemory,
+        loadedStory
+    );
+    if (repairedOpeningHistory) {
+        trace('opening.history.repaired', {
+            originalHistory: buildHistoryDebugSummary(loadedHistoryForState),
+            repairedHistory: buildHistoryDebugSummary(repairedOpeningHistory)
+        });
+        loadedHistoryForState = repairedOpeningHistory;
     }
+    const openingLogs = save.元数据?.已核对开局局外人物 && !repairedOpeningHistory ? [] : 读取开局公开正文(loadedHistoryForState);
     const recoveredSocial = 补录公开局外人物({ social: socialWithMembership, logs: openingLogs || [],
         playerName: loadedRole.姓名, directorBible: loadedDirectorBible, tasks: save.任务列表 });
     const loadedSocial = 同步在场NPC当前位置(shouldTrustPersistedHeavyFields
@@ -983,7 +999,6 @@ export const 执行读取存档 = async (
         taskCount: Array.isArray(save.任务列表) ? save.任务列表.length : 0,
         agreementCount: Array.isArray(save.约定列表) ? save.约定列表.length : 0
     });
-    const loadedStory = deps.规范化剧情状态(save.剧情 || deps.创建开场空白剧情());
     const loadedStoryPlan = deps.规范化剧情规划状态((save as any).剧情规划);
     const loadedHeroinePlan = deps.规范化女主剧情规划状态((save as any).女主剧情规划);
     const loadedFandomStoryPlan = deps.规范化同人剧情规划状态((save as any).同人剧情规划);
@@ -1035,23 +1050,6 @@ export const 执行读取存档 = async (
             if (当前读档请求.get(owner) !== request) return false;
         }
         trace('promptSnapshot.done');
-    }
-    let loadedHistoryForState = 清理历史瞬态滚动标记(
-        Array.isArray(save.历史记录) ? deps.深拷贝(save.历史记录) : []
-    );
-    const loadedMemory = deps.规范化记忆系统(save.记忆系统);
-    const repairedOpeningHistory = 尝试修复完成开局但缺失历史的存档(
-        save,
-        loadedHistoryForState,
-        loadedMemory,
-        loadedStory
-    );
-    if (repairedOpeningHistory) {
-        trace('opening.history.repaired', {
-            originalHistory: buildHistoryDebugSummary(loadedHistoryForState),
-            repairedHistory: buildHistoryDebugSummary(repairedOpeningHistory)
-        });
-        loadedHistoryForState = repairedOpeningHistory;
     }
     const metadataCount = save?.元数据?.历史记录条数;
     if (typeof metadataCount === 'number' && metadataCount >= 10 && loadedHistoryForState.length <= 2) {

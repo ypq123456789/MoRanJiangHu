@@ -502,7 +502,7 @@ const SocialModal: React.FC<Props> = ({
         onToggleMajorRole(String(npc.id || (npc as any).ID || npc.姓名), !Boolean(npc.是否主要角色));
     };
     const 切换在场状态 = (npc: NPC结构) => {
-        if (!onTogglePresence) return;
+        if (!onTogglePresence || NPC是否死亡(npc)) return;
         onTogglePresence(String(npc.id || (npc as any).ID || npc.姓名), !Boolean(npc.是否在场));
     };
     const 删除角色 = (npc: NPC结构) => {
@@ -968,7 +968,8 @@ const SocialModal: React.FC<Props> = ({
                         </div>
 
                         {currentNPC && 是否仅闻名NPC(currentNPC) ? (
-                            <OffscreenNpcProfile npc={currentNPC} onMeet={onTogglePresence ? () => 切换在场状态(currentNPC) : undefined}
+                            <OffscreenNpcProfile npc={currentNPC} revealed={剧透真实名集合.has(取NPC稳定键(currentNPC))} onToggleReveal={切换真实名揭示}
+                                onMeet={onTogglePresence && !当前角色已死亡 ? () => 切换在场状态(currentNPC) : undefined}
                                 onForget={onDeleteNpc && !currentNPC.是否主要角色 ? () => 删除角色(currentNPC) : undefined} />
                         ) : currentNPC ? (
                             <div className={`social-detail-content flex-1 min-h-0 overflow-y-auto custom-scrollbar relative z-10 flex flex-col transition-all duration-500 ${showFullBackground ? 'p-0 gap-0 opacity-0 pointer-events-none' : 'p-6 gap-6 opacity-100'}`}>

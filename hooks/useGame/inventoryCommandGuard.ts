@@ -78,12 +78,13 @@ export const sanitizeInventoryCommand = (
             && Number(value) >= Number(existing?.堆叠数量 ?? 1);
         if (!field) {
             const next = command.value;
-            if (!isObject(next) || !next.名称) return null;
+            if (!isObject(next) || typeof next.名称 !== 'string' || !next.名称.trim()) return null;
             if (existing && (next.ID ? next.ID !== existing.ID : next.名称 !== existing.名称)) return null;
             if (next.堆叠数量 !== undefined && !keepsQuantity(next.堆叠数量)) return null;
             return existing ? { ...command, value: { ...existing, ...next } } : command;
         }
         if (!existing) return null;
+        if (field === '名称' && (typeof command.value !== 'string' || !command.value.trim())) return null;
         if (field === '堆叠数量' && !keepsQuantity(command.value)) return null;
     }
 

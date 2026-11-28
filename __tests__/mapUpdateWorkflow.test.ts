@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { 生成地图更新, 解析地图自动更新命令, 构建地图层级替换结果 } from '../hooks/useGame/mapUpdateWorkflow';
+import { 生成地图更新, 解析地图自动更新命令, 构建地图层级替换结果, 构建地图更新用户提示词 } from '../hooks/useGame/mapUpdateWorkflow';
 
 vi.mock('../services/ai/chatCompletionClient', async () => {
     const actual = await vi.importActual<any>('../services/ai/chatCompletionClient');
@@ -74,6 +74,21 @@ describe('地图自动更新解析', () => {
             expect(invalid.statusText).toContain('西境');
         }
         expect(layers[1]).toEqual(a);
+    });
+
+    it('开局种子指令写明每级下限，完整分支种子可通过', async () => {
+        const prompt = 构建地图更新用户提示词({ mode: 'auto_incremental', 世界: {} } as any);
+        expect(prompt.split('\n').find(line => line.includes('开局种子地图任务'))).toMatch(/寰宇.*两个大地点.*每个大地点.*两个中地点.*每个中地点.*两个小地点/);
+        const nodes = [{ ID: 'w', 名称: '寰宇', 层级: '寰宇', 父级ID: '' }];
+        for (const a of ['东', '西']) {
+            nodes.push({ ID: a, 名称: a, 层级: '大地点', 父级ID: 'w' });
+            for (const b of ['南', '北']) {
+                nodes.push({ ID: a+b, 名称: a+b, 层级: '中地点', 父级ID: a });
+                for (const c of ['甲', '乙']) nodes.push({ ID: a+b+c, 名称: a+b+c, 层级: '小地点', 父级ID: a+b });
+            }
+        }
+        nodes.push({ ID: 'inn', 名称: '回春驿', 层级: '区地点', 父级ID: '东南甲' });
+        expect((await 更新分支([], nodes.map(push).join('\n'))).ok).toBe(true);
     });
 
     it('中间穿插 set 时，后续房间仍通过同一响应的建筑别名绑定父节点', () => {

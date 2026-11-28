@@ -288,7 +288,7 @@ const 取引号闭合符 = (char: string): string => {
 
 // 裸台词可以没有引号。只把有明确叙事证据的动作移出角色行，保留祈使句与普通陈述。
 const 角色动作起句 = /^(?:正|又|轻轻|缓缓|微微)?(?:坐在|站在|靠在|背靠|倚着|撑着|坐下|起身|转身|侧身|俯身|回过头|抬起|低下|抬头|低头|抬手|伸手|皱眉|点头|摇头|放下|拿起|攥紧|望向|看向|看着|推开|盯着|垂下|收回|走到|走近|摩挲|沉默|[把将][^。！？，,]{1,18}(?:摊开|铺开|放下|收起|推开|塞回))/u;
-const 描写标记 = /(?:[他她]的|[他她](?:没|能|将|把|却|仍|正|已)|指尖|目光|视线|眼神|眼底|眼中|呼吸|脚步|眉头|脸色|[，,](?:只见|露出|里面|只有))/u;
+const 描写标记 = /[，,。；;]\s*(?:[他她](?:没|能|将|把|却|仍|正|已)|(?:[他她]的)?(?:指尖|目光|视线|眼神|眼底|眼中|呼吸|脚步|眉头|脸色)|只见|露出|里面|只有)/u;
 const 是角色动作段 = (sender: string, text: string): boolean => {
     if (/[！？?!]|(?:吧|吗|呢|啊|呀|罢)[。…]*$/.test(text) || /^(?:我|你|咱|请|别|快)/.test(text)) return false;
     if (/^(?:风声|雨声|晨雾|夜风|脚步声).{0,8}(?:穿过|掠过|响起|传来|落在)/u.test(text)) return true;
@@ -296,7 +296,8 @@ const 是角色动作段 = (sender: string, text: string): boolean => {
     return 角色动作起句.test(text.slice(subject?.length || 0)) && (Boolean(subject) || 描写标记.test(text));
 };
 
-const 括号动作特征 = /^(?:[他她]|随即|微微|缓缓|轻轻)?(?:低声|轻声|沉声|小声|冷声|压低|放低|轻笑|苦笑|冷笑|叹|笑着|挥手|摇[了摇]*头|点[了点]*头|皱|抬|垂|转身|转过身|推开|攥紧|握紧|沉默|停顿|伸手|摆手|望向|看向|咳|[把将].+(?:放|收|递|握|推|摊))/u;
+const 括号动作特征 = /^(?:[他她]|随即|微微|缓缓|轻轻)?(?:低声|轻声|沉声|小声|冷声|(?:压低|放低)(?:了)?声音|轻笑|苦笑|冷笑|叹息|叹了?口气|笑着|挥手|摇[了摇]*头|点[了点]*头|皱(?:了皱)?眉|抬(?:头|眼|手)|垂(?:头|眼|眸)|转身|转过身|推开|攥紧|握紧|沉默|停顿|伸手|摆手|望向|看向|咳嗽|撑着.+(?:站起|起身|站稳)|[把将].+(?:放|收|递|握|推|摊))/u;
+const 括号释义特征 = /(?:而非|而不是|也就是|亦即|指的是|意为)/u;
 
 const 拆分角色行 = (log: GameLog): GameLog[] => {
     const result: GameLog[] = [];
@@ -321,8 +322,11 @@ const 拆分角色行 = (log: GameLog): GameLog[] => {
         };
         for (const match of value.matchAll(/（([^（）]+)）|\(([^()]+)\)/gu)) {
             const content = (match[1] || match[2]).trim();
-            if (!括号动作特征.test(content) && !角色动作起句.test(content)) continue;
-            appendWords(value.slice(cursor, match.index));
+            if (括号释义特征.test(content)) continue;
+            const before = value.slice(cursor, match.index);
+            const startsClause = !before.trim() || /[。！？!?…]\s*$/u.test(before);
+            if (!(括号动作特征.test(content) || 是角色动作段(log.sender, content) || (startsClause && 角色动作起句.test(content)))) continue;
+            appendWords(before);
             append('旁白', match[0]);
             cursor = match.index + match[0].length;
             const separator = value.slice(cursor).match(/^\s*[：:]\s*/);

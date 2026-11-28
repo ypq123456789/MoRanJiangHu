@@ -697,9 +697,12 @@ export const 执行开场剧情生成工作流 = async (
     let streamMarker = 0;
     const openingRequestStartedAt = Date.now();
     let openingInputTokens = 0;
+    const controller = new AbortController();
+    deps.abortControllerRef.current = controller;
 
     try {
         const naturalProseSnapshot = await naturalProseSettingsService.load();
+        controller.signal.throwIfAborted();
         const 写入或插入提示词 = (
             promptPool: 提示词结构[],
             promptId: string,
@@ -716,9 +719,6 @@ export const 执行开场剧情生成工作流 = async (
                 ? promptPool.map((item) => item.id === promptId ? nextPrompt : item)
                 : [...promptPool, nextPrompt];
         };
-        const controller = new AbortController();
-        deps.abortControllerRef.current = controller;
-
         const openingMem: 记忆系统结构 = { 回忆档案: [], 即时记忆: [], 短期记忆: [], 中期记忆: [], 长期记忆: [] };
         const openingStatePayload = {
             角色: contextData.角色 || deps.角色,
@@ -939,6 +939,7 @@ export const 执行开场剧情生成工作流 = async (
                 deps.设置开局主剧情进度(附加开局阶段运行信息('story', progress, v2StoryInfo));
             };
             const 设置开局导演进度 = (progress: any) => {
+                if (deps.abortControllerRef.current !== controller) return;
                 deps.设置开局导演进度(附加开局阶段运行信息('director', progress, v2DirectorInfo));
             };
             const v2Config: StoryV2Config = {
@@ -962,6 +963,7 @@ export const 执行开场剧情生成工作流 = async (
                 stream: useStreaming,
                 onDelta: useStreaming
                     ? (_delta, accumulated) => {
+                        if (controller.signal.aborted) return;
                         openingAnyDeltaReceived = true;
                         const preview = 提取2_0流式正文预览(accumulated);
                         if (!preview) return;
@@ -974,6 +976,7 @@ export const 执行开场剧情生成工作流 = async (
                     }
                     : undefined
             });
+            controller.signal.throwIfAborted();
             let displayAiData: GameResponse = {
                 ...renderedOpening.response,
                 tavern_commands: Array.isArray(renderedOpening.response?.tavern_commands)
@@ -1112,6 +1115,7 @@ export const 执行开场剧情生成工作流 = async (
                     } : undefined,
                     signal: controller.signal
                 });
+                controller.signal.throwIfAborted();
                 postState = result.nextState;
                 设置开局导演进度({
                     phase: 'done',
@@ -1450,7 +1454,7 @@ export const 执行开场剧情生成工作流 = async (
             }
 
             // 所有开局阶段落盘后统一同步在场 NPC 的当前位置到最底层子地点/房间
-            finalEnv = 细化环境所在房间(finalWorld, finalEnv);
+            finalEnv = 细化环境所在房间(finalWorld, finalEnv, finalSocial);
             finalSocial = 同步在场NPC当前位置(finalSocial, finalEnv, finalWorld);
             finalWorld = 补录环境所在房间(finalWorld, finalEnv);
             修补开局角色姓名占位(finalRole, normalizedOpeningRole);
@@ -3245,6 +3249,7 @@ const 开局规划请求参数 = {
         void 安全触发开局主角自动生图(deps.触发主角自动生图, openingStateAfterCommands.角色, '主角开局最终生图补发');
     } catch (e: any) {
         if (openingStreamHeartbeat) clearInterval(openingStreamHeartbeat);
+        if (deps.abortControllerRef.current !== controller) return;
         deps.设置开局主剧情进度({
             phase: 'error',
             text: e?.message || '主剧情生成失败。',
@@ -3348,6 +3353,6 @@ const 开局规划请求参数 = {
         throw e;
     } finally {
         if (openingStreamHeartbeat) clearInterval(openingStreamHeartbeat);
-        deps.abortControllerRef.current = null;
+        if (deps.abortControllerRef.current === controller) deps.abortControllerRef.current = null;
     }
 };

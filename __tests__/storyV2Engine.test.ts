@@ -408,7 +408,8 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
                     { 势力ID: 'F4', 主角声望: 80, 依据: '漕帮将沈砚列为座上宾' }
                 ],
                 已知局外人物: [{ 姓名: '何掌柜', 依据: '何掌柜派人去巡防营讨债。', 身份: '幕后掌印使' }],
-                社交人物更新: [{ 姓名: '顾斩潮', 是否在场: false, 身份: '未公开的暗卫' }, { 姓名: '藏锋客', 是否在场: true }],
+                社交人物更新: [{ 姓名: '顾斩潮', 是否在场: false, 身份: '未公开的暗卫' }, { 姓名: '藏锋客', 是否在场: true },
+                    { 姓名: '顾霜晚', 是否在场: true, 身份: '持令使者' }, { 姓名: '赵明川', 是否在场: true, 身份: '账房' }],
                 伏笔迁移: [
                     { id: 'FS-1', nextStatus: '已埋设', 落点描述: '试图倒退回已埋设' },
                     { id: 'FS-2', nextStatus: '已回收', 落点描述: '船夫当众露出朱砂印身份' },
@@ -448,7 +449,8 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
             apiConfig: { id: 'dir', 名称: '测试', 供应商: 'openai_compatible', baseUrl: 'https://example.test/v1', apiKey: 'k', model: 'm' } as any,
             storyResponse: { logs: [
                 { sender: '旁白', text: '雨点砸在窗纸上，远处传来锣声。漕帮将沈砚列为座上宾。顾斩潮下令封锁渡口。何掌柜派人去巡防营讨债。' },
-                { sender: '沈砚', text: '张掌柜派人追缴上月的欠款。' }
+                { sender: '沈砚', text: '张掌柜派人追缴上月的欠款。' },
+                { sender: '旁白', text: '顾霜晚递给你一枚铜令。赵明川数着桌上的钱。' }
             ], shortTerm: '沈砚在客栈歇脚。', tavern_commands: [] },
             stream: false,
             playerInput: '推开窗看楼下动静'
@@ -459,9 +461,10 @@ describe('MoRanJiangHu 2.0 Story Engine', () => {
         expect(vi.mocked(chatClient.请求模型文本).mock.lastCall?.[2]?.streamOptions?.stream).toBe(false);
         expect(vi.mocked(chatClient.请求模型文本).mock.lastCall?.[1].map(message => message.content).join('')).toContain('势力声望更新');
         expect(res.nextState.世界.势力列表.map(faction => [faction.ID, faction.主角声望])).toEqual([['F1', 27], ['F2', 0], ['F3', undefined]]);
-        expect(res.nextState.社交.map(npc => npc.姓名).sort()).toEqual(['顾斩潮', '何掌柜', '张掌柜'].sort());
+        expect(res.nextState.社交.map(npc => npc.姓名).sort()).toEqual(['顾斩潮', '何掌柜', '张掌柜', '顾霜晚', '赵明川'].sort());
         expect(res.nextState.社交.find(npc => npc.姓名 === '张掌柜')?.简介).toContain('沈砚提到');
-        expect(res.nextState.社交.every(npc => !npc.是否在场 && !npc.是否队友)).toBe(true);
+        expect(res.nextState.社交.filter(npc => npc.是否在场).map(npc => npc.姓名).sort()).toEqual(['顾霜晚', '赵明川'].sort());
+        expect(res.nextState.社交.every(npc => !npc.是否队友)).toBe(true);
         expect(JSON.stringify(res.nextState.社交)).not.toMatch(/未公开的暗卫|幕后掌印使/);
         expect(res.nextState.directorBible.核心卡司.find(c => c.姓名 === '顾斩潮')?.是否已登场).toBe(false);
         expect(res.nextState.directorBible.当前幕次).toBe(2);

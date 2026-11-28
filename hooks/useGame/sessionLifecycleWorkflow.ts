@@ -130,7 +130,8 @@ type 会话生命周期依赖 = {
     设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
     清空场外交易暂存?: () => void;
     清空场外战果暂存?: () => void;
-    更新会话代次?: () => void;
+    更新会话代次: () => void;
+    读取会话代次: () => number;
     设置开局配置: (value: OpeningConfig | undefined) => void;
     设置叙事平静值: (value: 叙事状态结构) => void;
     设置开局文章优化进度: (value: any) => void;
@@ -209,6 +210,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
     };
 
     const handleStartNewGameWizard = () => {
+        deps.更新会话代次();
         deps.放弃待继续后续步骤?.();
         deps.清空重Roll快照();
         deps.重置自动存档状态();
@@ -233,15 +235,8 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
         deps.设置上一回合导演圣经?.(undefined);
         deps.清空场外交易暂存?.();
         deps.清空场外战果暂存?.();
-        deps.更新会话代次?.();
         deps.设置开局配置(undefined);
         deps.设置叙事平静值({ 平静计数: 0, 情节事件记录: [] });
-        deps.设置开局文章优化进度(null);
-        deps.设置开局变量生成进度(null);
-        deps.设置开局导演进度(null);
-        deps.设置开局世界演变进度(null);
-        deps.设置开局规划进度(null);
-        deps.设置开局地图更新进度(null);
         deps.应用并同步记忆系统({ 回忆档案: [], 即时记忆: [], 短期记忆: [], 中期记忆: [], 长期记忆: [] }, { 静默总结提示: true });
         deps.设置历史记录([]);
         deps.清空变量生成上下文缓存();
@@ -266,9 +261,11 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
         deps.设置开局世界演变进度(null);
         deps.设置开局规划进度(null);
         deps.设置开局地图更新进度(null);
+        const generation = deps.读取会话代次();
         const effectivePromptSnapshot = (Array.isArray(promptSnapshot) && promptSnapshot.length > 0)
             ? promptSnapshot
             : await deps.ensurePromptsLoaded();
+        if (generation !== deps.读取会话代次()) return;
         deps.推入重Roll快照({
             玩家输入: '',
             游戏时间: '',
@@ -494,7 +491,7 @@ export const 创建会话生命周期工作流 = (deps: 会话生命周期依赖
 
     const handleReturnToHome = () => {
         deps.放弃待继续后续步骤?.();
-        deps.更新会话代次?.();
+        deps.更新会话代次();
         deps.清空场外交易暂存?.();
         deps.清空场外战果暂存?.();
         deps.设置上一回合导演圣经?.(undefined);

@@ -19,3 +19,19 @@ export const NPC名称需要打码 = (npc: any): boolean => {
 
 export const 取NPC稳定键 = (npc: any): string =>
     取文本(npc?.id) || 取文本(npc?.ID) || 取NPC真实名(npc);
+
+/** 旧档可能用描述指代人物。先遍历所有精确引用，再尝试兼容这种旧格式。 */
+export const 查找记录对应NPC = <T extends { id?: string; ID?: string; 姓名?: string; 名称?: string; 叙事名称?: string }>(
+    references: string[], social: T[]
+): T | undefined => {
+    const normalize = (value?: string) => 取文本(value).replace(/\s+/g, '').toLowerCase();
+    const keys = references.map(normalize).filter(Boolean);
+    const entries = social.filter(Boolean).map(npc => ({
+        npc, keys: [npc.id, npc.ID, npc.姓名, npc.名称, npc.叙事名称].map(normalize).filter(Boolean)
+    }));
+    for (const key of keys) {
+        const exact = entries.find(entry => entry.keys.includes(key));
+        if (exact) return exact.npc;
+    }
+    return entries.find(entry => keys.some(key => entry.keys.some(value => value.includes(key) || key.includes(value))))?.npc;
+};

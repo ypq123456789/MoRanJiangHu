@@ -17,6 +17,30 @@ const directorBible = { 核心卡司: [
 const tasks = [{ 类型: '主线', 描述: '查清沈天彪逼债和钱掌柜之间的利益关系。' }];
 
 describe('公开局外人物建档', () => {
+    it('不把真实进入现场的人改成离场简档', () => {
+        const present = { id: 'qian', 姓名: '钱掌柜', 是否在场: true, 身份: '掌柜', 年龄: 48 };
+        const result = 补录公开局外人物({ social: [present], previousSocial: [], logs: [
+            { sender: '旁白', text: '钱掌柜端着茶盘走进屋内。' },
+            { sender: '沈青', text: '钱掌柜想借沈天彪的势。' }
+        ] });
+        expect(result).toEqual([present]);
+    });
+
+    it('人际网或模型给出的候选仍须排除否定证据，不能用错误引文覆盖公开证据', () => {
+        const social = [{ 姓名: '李青', 关系网变量: [{ 对象姓名: '王长风' }] }];
+        const updates = [{ 姓名: '王长风', 依据: '王长风受命办差。' }];
+        expect(补录公开局外人物({ social, updates, logs: [{ sender: '李青', text: '王长风并没有派人收账。' }] })).toBe(social);
+        const yes = 补录公开局外人物({ social, updates, logs: [{ sender: '李青', text: '王长风已派人收账。' }] });
+        expect(yes[1]).toMatchObject({ 姓名: '王长风', 简介: '李青提到：王长风已派人收账。' });
+    });
+
+    it('两个不同姓名的旧哈希相撞时保留不同稳定 ID', () => {
+        const opts = { logs: [{ sender: '李青', text: '王娜晧派人收账，王娟昊派人追缴这笔欠款。' }] };
+        const first = 补录公开局外人物({ social: [], ...opts });
+        expect(first.map(npc => npc.姓名)).toEqual(['王娜晧', '王娟昊']);
+        expect(new Set(first.map(npc => npc.id)).size).toBe(2);
+        expect(补录公开局外人物({ social: first, ...opts })).toBe(first);
+    });
     it('即使导演和变量模型漏报，也能结合关系网、任务和已公开正文找回局外人', () => {
         const params = { social: initial, logs, directorBible, tasks, playerName: '杨培强' };
         const written = 补录公开局外人物(params);

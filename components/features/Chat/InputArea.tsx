@@ -104,6 +104,13 @@ type QueueProgressPayload = {
 
 const QUEUE_DEBUG_EVENT_LIMIT = 160;
 
+const 移除已发送草稿 = (current: string, sent: string) => {
+    if (!sent) return current;
+    if (current === sent) return '';
+    const prefix = sent.trim() + '\n';
+    return current.startsWith(prefix) ? current.slice(prefix.length) : current;
+};
+
 const 获取性能时间 = (): number => (
     typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
@@ -345,6 +352,7 @@ const InputArea: React.FC<Props> = ({
         hint: string;
         originalRaw: string;
         editedRaw: string;
+        sentContent?: string;
         error: string;
     }>({
         open: false,
@@ -421,7 +429,7 @@ const InputArea: React.FC<Props> = ({
             const draft = externalDraft.text.trim();
             if (!draft) return current;
             const prefix = current.trim();
-            if (draft.startsWith(门派研习标记) && prefix.includes(draft)) return current;
+            if (draft.startsWith(门派研习标记) && prefix.split(/\r?\n/).some(line => line.trim() === draft)) return current;
             return prefix ? `${prefix}\n${draft}` : draft;
         });
         onExternalDraftApplied?.(externalDraft.token);
@@ -582,6 +590,7 @@ const InputArea: React.FC<Props> = ({
                         hint: result.recoveryHint || '可直接手动补全文本后恢复，或尝试自动修复恢复；如果不想保留这版内容，也可以直接重ROLL。',
                         originalRaw: raw,
                         editedRaw: raw,
+                        sentContent: content,
                         error: ''
                     });
                     return;
@@ -622,7 +631,7 @@ const InputArea: React.FC<Props> = ({
                 return;
             }
             setLastSentContent(content);
-            setContent('');
+            setContent(current => 移除已发送草稿(current, content));
             清空剧情回忆提示();
         } finally {
             setIsPreparing(false);
@@ -631,7 +640,7 @@ const InputArea: React.FC<Props> = ({
 
     const handleStop = () => {
         onStop();
-        setContent(lastSentContent);
+        setContent(current => current || lastSentContent);
     };
 
     const 追加行动选项到输入 = (current: string, option: string): string => {
@@ -763,7 +772,7 @@ const InputArea: React.FC<Props> = ({
                 editedRaw: '',
                 error: ''
             });
-            setContent('');
+            setContent(current => 移除已发送草稿(current, parseRepairModal.sentContent || ''));
             setLastSentContent('');
         } catch (error: any) {
             setParseRepairModal(prev => ({ ...prev, error: error?.message || '恢复失败，请稍后再试。' }));

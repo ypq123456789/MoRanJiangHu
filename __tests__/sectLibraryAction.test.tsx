@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import SectModal from '../components/features/Sect/SectModal';
 import MobileSect from '../components/features/Sect/MobileSect';
 import InputArea from '../components/features/Chat/InputArea';
@@ -25,6 +25,11 @@ describe('门派藏经研习', () => {
         const world = { 地图层级: [{ ID: 'hall', 名称: '凌云殿', 层级: '区地点', 控制势力: '青崖真宫' }] } as any;
         expect(获取门派所在状态(sect, current('凌云殿'), world)).toBe('门内');
         expect(获取门派所在状态(sect, current('外地客栈'), world)).toBe('门外');
+        const renamedFaction = {
+            势力列表: [{ ID: sect.ID, 名称: '青崖剑宗' }],
+            地图层级: [{ ID: 'hall', 名称: '凌云殿', 层级: '区地点', 控制势力: '青崖剑宗' }]
+        } as any;
+        expect(获取门派所在状态(sect, current('凌云殿'), renamedFaction)).toBe('门内');
     });
 
     it('按实际建筑和房间判断到场，势力辖下的整座城镇不能解锁门派研习', () => {
@@ -81,5 +86,24 @@ describe('门派藏经研习', () => {
         expect(onSend).toHaveBeenCalledWith('先问守阁师兄。\n' + draft, expect.any(Boolean), expect.any(Object));
         expect(已习得门派藏经([{ 名称: book.名称 }], book)).toBe(true);
         expect(已习得门派藏经([], book)).toBe(false);
+    });
+
+    it('转述中的研习请求可以独立追加，发送中收到的多条草稿留给下回合', async () => {
+        const draft = 构建门派研习行动(sect, book);
+        const quoted = '转述给师兄：' + draft;
+        let resolveSend!: (value: {}) => void;
+        const onSend = vi.fn(() => new Promise<{}>(resolve => { resolveSend = resolve; }));
+        const props = { onSend, onStop: vi.fn(), onRegenerate: vi.fn(), loading: false };
+        const { rerender } = render(<InputArea {...props} />);
+        const input = screen.getByRole('textbox', { name: '行动草稿' }) as HTMLTextAreaElement;
+        fireEvent.change(input, { target: { value: quoted } });
+        rerender(<InputArea {...props} externalDraft={{ text: draft, token: 1 }} />);
+        expect(input.value).toBe(quoted + '\n' + draft);
+        fireEvent.keyDown(input, { key: 'Enter' });
+        rerender(<InputArea {...props} externalDraft={{ text: '去问师父。', token: 2 }} />);
+        rerender(<InputArea {...props} externalDraft={{ text: '去找师姐。', token: 3 }} />);
+        await act(async () => { resolveSend({}); });
+        expect(onSend).toHaveBeenCalledWith(quoted + '\n' + draft, expect.any(Boolean), expect.any(Object));
+        expect(input.value).toBe('去问师父。\n去找师姐。');
     });
 });

@@ -59,6 +59,8 @@ const 普通回合deps = {
 
 describe('开局装备引用兜底补建', () => {
     it.each([
+        { action: 'set', key: '角色.物品列表[0].名称', value: '' },
+        { action: 'set', key: '角色.物品列表[0].名称', value: '  ' },
         { action: 'set', key: '角色.物品列表', value: [] },
         { action: 'delete', key: '角色.物品列表[0]' },
         { action: 'set', key: '角色.物品列表[0]', value: { ID: 'other', 名称: '油瓶' } },
@@ -67,6 +69,22 @@ describe('开局装备引用兜底补建', () => {
     ])('补写物品时依然保护原背包：$key $action', command => {
         const role = { 物品列表: [{ ID: 'key', 名称: '钥匙', 堆叠数量: 2 }] };
         expect(sanitizeInventoryCommand(command, role)).toBeNull();
+    });
+
+    it.each([1, 2])('没有描述的背景装备在反复读档后仍有 %i 件', 数量 => {
+        const options = { 补建缺失装备引用: true };
+        const first = 规范化角色物品容器映射({
+            姓名: '杨培强',
+            装备: { 主武器: 'bg_item_铁剑' },
+            出身背景: { 名称: '剑门弟子', 初始物品: [{ 名称: '铁剑', 类型: '武器', 数量 }] }
+        } as any, options);
+        const loaded = 规范化角色物品容器映射(first, options);
+        const swords = loaded.物品列表.filter(item => item.名称 === '铁剑');
+        expect(swords.reduce((sum, sword) => sum + sword.堆叠数量, 0)).toBe(数量);
+        const original = swords.find(sword => sword.ID === first.装备.主武器);
+        expect(original?.描述).toBeTruthy();
+        expect(original?.待补装备引用).toBeUndefined();
+        expect(swords.find(sword => sword.ID === loaded.装备.主武器)?.当前装备部位).toBe('主武器');
     });
 
     it('已有物品时，开局变量仍可按索引写入衣物并补写其说明', () => {

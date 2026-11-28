@@ -2516,7 +2516,7 @@ export const 执行主剧情发送工作流 = async (
                         latestRole: deps.获取最新角色Snapshot?.(), preTurnRole: v2State.角色,
                         postTurnRole: finalRoleV2, openingConfig: currentState.开局配置
                     });
-                    finalEnvV2 = 细化环境所在房间(finalWorldV2, finalEnvV2);
+                    finalEnvV2 = 细化环境所在房间(finalWorldV2, finalEnvV2, finalSocialV2);
                     finalSocialV2 = 同步在场NPC当前位置(finalSocialV2, finalEnvV2, finalWorldV2);
                     finalWorldV2 = 补录环境所在房间(finalWorldV2, finalEnvV2);
                     const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;

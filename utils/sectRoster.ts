@@ -5,7 +5,7 @@ import type { 世界数据结构 } from '../models/world';
 import { normalizeNpcNameKey } from './npcName';
 import { 取NPC叙事名 } from './npcNarrativeName';
 
-type 成员 = Partial<Omit<门派成员简报, '性别'>> & {
+type 成员 = Partial<Omit<门派成员简报, '性别'>> & Pick<NPC结构, '头像图片URL' | '图片档案' | '最近生图结果'> & {
     id: string;
     姓名: string;
     性别?: string;
@@ -80,7 +80,8 @@ export const 读取同门名录 = (sect: 详细门派结构, { socialList, world
             : [...orgKeys].some(org => identityKey.startsWith(org) && 职务描述.test(identityKey.slice(org.length)));
         if (inOrg || role) add({
             id: npc.id || npc.ID || key, 姓名: 取NPC叙事名(npc), 性别: npc.性别, 年龄: npc.年龄,
-            境界: npc.境界, 身份: identity || role || '成员', 简介: npc.简介, 有社交档案: true
+            境界: npc.境界, 身份: identity || role || '成员', 简介: npc.简介, 有社交档案: true,
+            头像图片URL: npc.头像图片URL, 图片档案: npc.图片档案, 最近生图结果: npc.最近生图结果
         }, npc.姓名);
     }
     for (const { name, role } of named.values()) {

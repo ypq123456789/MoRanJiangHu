@@ -23,7 +23,7 @@ export const 获取门派所在状态 = (
     const grounds = 面包屑.filter(node => node.层级 === '区地点' || node.层级 === '子地点');
     if (!grounds.some(node => places.includes(node.名称))) return places.some(isNamedGround) ? '门内' : '门外';
     const controlled = [...grounds].reverse().find(node => node.控制势力);
-    if (controlled) return [name, sect.ID, faction?.ID].includes(controlled.控制势力) ? '门内' : '门外';
+    if (controlled) return [name, sect.ID, faction?.ID, faction?.名称].includes(controlled.控制势力) ? '门内' : '门外';
     if (places.some(isNamedGround) || grounds.some(node => isNamedGround(node.名称))) return '门内';
     // 地盘只有精确指向建筑或房间时才证明到场，整座城镇可以同时容纳多个门派。
     if (grounds.some(node => node.名称 === faction?.地盘归属)) return '门内';

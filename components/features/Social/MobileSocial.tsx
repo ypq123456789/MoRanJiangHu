@@ -513,7 +513,7 @@ const MobileSocial: React.FC<Props> = ({
         onToggleMajorRole(npc.id, !Boolean(npc.是否主要角色));
     };
     const 切换在场状态 = (npc: NPC结构) => {
-        if (!onTogglePresence) return;
+        if (!onTogglePresence || NPC是否死亡(npc)) return;
         onTogglePresence(npc.id, !Boolean(npc.是否在场));
     };
     const 删除角色 = (npc: NPC结构) => {
@@ -1088,7 +1088,8 @@ const MobileSocial: React.FC<Props> = ({
                         {/* Detail Content Wrapping */}
                         <div className="relative z-10 -mt-1 rounded-t-xl bg-black min-h-full">
                             {currentNPC && 是否仅闻名NPC(currentNPC) ? (
-                                <OffscreenNpcProfile npc={currentNPC} onMeet={onTogglePresence ? () => 切换在场状态(currentNPC) : undefined}
+                                <OffscreenNpcProfile npc={currentNPC} revealed={剧透真实名集合.has(取NPC稳定键(currentNPC))} onToggleReveal={切换真实名揭示}
+                                    onMeet={onTogglePresence && !当前角色已死亡 ? () => 切换在场状态(currentNPC) : undefined}
                                     onForget={onDeleteNpc && !currentNPC.是否主要角色 ? () => 删除角色(currentNPC) : undefined} />
                             ) : currentNPC ? (
                                 /* 详情区主纵向容器：
