@@ -275,4 +275,143 @@ describe('云端游玩存储模式', () => {
         expect(JSON.stringify(pack)).not.toContain('LOCAL_AVATAR');
         expect(dbService.保存图片资源并返回同步地址).not.toHaveBeenCalled();
     });
+
+    it('读取云端存档清单会走图床下载代理并在 500 时自动重试', async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response('upstream error', { status: 500 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                format: 'moranjianghu-cloud-play',
+                saves: [{ cloudId: 'c1', title: '林远', timestamp: 100 }]
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const service = await import('../services/cloudPlayService');
+        const manifest = await service.读取云端存档清单({
+            userId: 'u1',
+            username: 'test',
+            password: 'pw',
+            clientSalt: 'salt',
+            manifestUrl: 'https://image1.bacon159.pp.ua/file/manifest-abc.json'
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(String(fetchMock.mock.calls[0][0])).toBe('/api/image-host/download?type=file&url=https%3A%2F%2Fimage1.bacon159.pp.ua%2Ffile%2Fmanifest-abc.json');
+        expect(manifest.saves).toHaveLength(1);
+        expect(manifest.saves[0].title).toBe('林远');
+    });
+
+    it('刷新云端游玩会话会从服务端同步最新 manifestUrl 并保留本地回退', async () => {
+        const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+            ok: true,
+            user: {
+                userId: 'u1',
+                username: 'test',
+                clientSalt: 'salt',
+                manifestUrl: 'https://image1.bacon159.pp.ua/file/new-manifest.json',
+                manifestUpdatedAt: '2026-11-28T05:00:00.000Z'
+            }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const service = await import('../services/cloudPlayService');
+        const refreshed = await service.刷新云端游玩会话({
+            userId: 'u1',
+            username: 'test',
+            password: 'pw',
+            clientSalt: 'salt',
+            manifestUrl: ''
+        });
+
+        expect(refreshed.manifestUrl).toBe('https://image1.bacon159.pp.ua/file/new-manifest.json');
+        expect(refreshed.manifestUpdatedAt).toBe('2026-11-28T05:00:00.000Z');
+    });
+
+    it('刷新云端游玩会话期间退出或切换账号时不会覆盖持久会话', async () => {
+        const service = await import('../services/cloudPlayService');
+        const sessionA = { userId: 'uA', username: 'userA', password: 'pwA', clientSalt: 'saltA', manifestUrl: 'https://image.example/old-a.json' };
+        const sessionB = { userId: 'uB', username: 'userB', password: 'pwB', clientSalt: 'saltB', manifestUrl: 'https://image.example/b.json' };
+        localStorage.setItem('moranjianghu.cloudPlay.session.v1', JSON.stringify({
+            expiresAt: Date.now() + 60_000,
+            session: sessionA
+        }));
+
+        let resolveLogin!: (resp: Response) => void;
+        vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { resolveLogin = res; })));
+
+        const pending = service.刷新云端游玩会话(sessionA);
+        await vi.waitFor(() => expect(resolveLogin).toBeTypeOf('function'));
+
+        // 请求飞行途中切换到账号 B
+        localStorage.setItem('moranjianghu.cloudPlay.session.v1', JSON.stringify({
+            expiresAt: Date.now() + 60_000,
+            session: sessionB
+        }));
+        resolveLogin(new Response(JSON.stringify({
+            ok: true,
+            user: { userId: 'uA', username: 'userA', clientSalt: 'saltA', manifestUrl: 'https://image.example/new-a.json' }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+        await pending;
+        expect(service.读取云端游玩会话()?.userId).toBe('uB');
+        expect(service.读取云端游玩会话()?.manifestUrl).toBe('https://image.example/b.json');
+    });
+
+    it('读取云端存档清单在 200 响应体传输中断时会自动重试并成功恢复', async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                text: async () => { throw new TypeError('network body stream aborted'); }
+            } as unknown as Response)
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                format: 'moranjianghu-cloud-play',
+                saves: [{ cloudId: 'c-body-retry', title: '柳浪', timestamp: 200 }]
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const service = await import('../services/cloudPlayService');
+        const manifest = await service.读取云端存档清单({
+            userId: 'u1',
+            username: 'test',
+            password: 'pw',
+            clientSalt: 'salt',
+            manifestUrl: 'https://image1.bacon159.pp.ua/file/manifest-body.json'
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(manifest.saves[0].title).toBe('柳浪');
+    });
+
+    it('后台同步队列执行前如果已切换或退出账号，不会把旧账号存档传给新账号', async () => {
+        const service = await import('../services/cloudPlayService');
+        service.设置云端游玩存储模式('tg');
+        const sessionA = { userId: 'uA', username: 'userA', password: 'pwA', clientSalt: 'saltA', manifestUrl: '' };
+        const sessionB = { userId: 'uB', username: 'userB', password: 'pwB', clientSalt: 'saltB', manifestUrl: '' };
+        localStorage.setItem('moranjianghu.cloudPlay.session.v1', JSON.stringify({
+            expiresAt: Date.now() + 60_000,
+            session: sessionA
+        }));
+
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        service.后台同步存档到云端({
+            id: 1,
+            类型: 'auto',
+            时间戳: 1779000000000,
+            角色数据: { 姓名: '旧账号侠客' },
+            环境信息: { 具体地点: '客栈' },
+            历史记录: [],
+            元数据: { 存档哈希: 'oldhash1234' }
+        } as any);
+
+        // 在微任务执行队列前切换到账号 B
+        localStorage.setItem('moranjianghu.cloudPlay.session.v1', JSON.stringify({
+            expiresAt: Date.now() + 60_000,
+            session: sessionB
+        }));
+
+        await service.等待云端后台同步完成();
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
 });

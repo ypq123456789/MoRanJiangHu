@@ -13,9 +13,10 @@ import NewGameDiyTools from './NewGameDiyTools';
 import GeneratedGenderSelector from './GeneratedGenderSelector';
 import NewGameCurrencySystemSetup from './NewGameCurrencySystemSetup';
 import * as dbService from '../../../services/dbService';
-import { 订阅云端设置回填 } from '../../../services/cloudSettingsSync';
-import { 读取小说拆分数据集列表 } from '../../../services/novelDecompositionStore';
 import { 合并去重开局预设方案, 标准化开局预设方案, 生成自定义开局预设ID, 自定义开局预设存储键, 构建开局运行时快照, 构建预设表单恢复结果, 构建预设直开恢复结果, 获取快速重开运行时恢复参数 } from '../../../utils/customNewGamePresets';
+import { useNewGameAsyncCollections } from './useNewGameAsyncCollections';
+import { StartPresetsSection } from './StartPresetsSection';
+import { SavedCollectionSection, 获取小说数据集加载文案 } from './SavedCollectionSection';
 import {
     获取题材关系侧重选项,
     获取题材开局切入偏好选项,
@@ -67,7 +68,7 @@ import { 构建开局世界观生成提示词预览 } from '../../../utils/world
 import { normalizeWorldMapDraft } from '../../../utils/newGameDiy';
 import { 获取主剧情接口配置, 接口配置是否可用 } from '../../../utils/apiConfig';
 import { 请求模型文本 } from '../../../services/ai/chatCompletionClient';
-import { 下载创意工坊模块, 列出创意工坊模块, 读取本地创意工坊模块 } from '../../../services/creativeWorkshop';
+import { 下载创意工坊模块, 读取本地创意工坊模块 } from '../../../services/creativeWorkshop';
 
 interface Props {
     onComplete: (
@@ -283,14 +284,26 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     const [天赋抽卡名称列表, set天赋抽卡名称列表] = useState<string[]>([]);
     const [天赋抽卡轮次, set天赋抽卡轮次] = useState(1);
     const [天赋已重Roll次数, set天赋已重Roll次数] = useState(0);
-    const [自定义天赋列表, 设置自定义天赋列表] = useState<天赋结构[]>([]);
-    const [自定义背景列表, 设置自定义背景列表] = useState<背景结构[]>([]);
+    const {
+        自定义天赋列表,
+        设置自定义天赋列表,
+        自定义背景列表,
+        设置自定义背景列表,
+        自定义开局预设列表,
+        设置自定义开局预设列表,
+        小说拆分数据集列表,
+        创意工坊模块列表,
+        自定义天赋加载中,
+        自定义背景加载中,
+        开局预设加载中,
+        小说数据集加载中,
+        创意工坊加载中,
+        云端设置同步状态,
+        云端设置拉取中
+    } = useNewGameAsyncCollections();
     const [模式包天赋列表, 设置模式包天赋列表] = useState<天赋结构[]>([]);
     const [模式包背景列表, 设置模式包背景列表] = useState<背景结构[]>([]);
     const [模式包世界书列表, 设置模式包世界书列表] = useState<世界书结构[]>([]);
-    const [自定义开局预设列表, 设置自定义开局预设列表] = useState<开局预设方案结构[]>([]);
-    const [小说拆分数据集列表, 设置小说拆分数据集列表] = useState<小说拆分数据集结构[]>([]);
-    const [创意工坊模块列表, 设置创意工坊模块列表] = useState<创意工坊模块条目[]>([]);
     const [已选创意工坊模式, 设置已选创意工坊模式] = useState<题材模式类型 | ''>('');
     const [已选创意工坊子项, 设置已选创意工坊子项] = useState<Partial<Record<创意工坊模块类型, string>>>({});
     const [创意工坊注入状态, 设置创意工坊注入状态] = useState('');
@@ -794,6 +807,10 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
         setPartnerTalents(过滤玩家可自选天赋((partner.天赋列表 || []) as 天赋结构[]));
     };
     const 应用预设到表单 = (preset: 开局预设方案结构, options?: { 保持当前步骤?: boolean }) => {
+        if (自定义背景加载中 || 自定义天赋加载中) {
+            alert("正在读取自定义身份与天赋，请稍候再试。");
+            return;
+        }
         const presetRestoreCatalog = 构建预设恢复候选池(preset);
         const restored = 构建预设表单恢复结果(preset, {
             ...presetRestoreCatalog,
@@ -1491,61 +1508,6 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     }, []);
 
     useEffect(() => {
-        const 加载自定义建角配置 = async () => {
-            try {
-                const [savedTalents, savedBackgrounds, savedStartPresets, savedNovelDatasets, workshopModules] = await Promise.all([
-                    dbService.读取设置(自定义天赋存储键),
-                    dbService.读取设置(自定义背景存储键),
-                    dbService.读取设置(自定义开局预设存储键),
-                    读取小说拆分数据集列表(),
-                    列出创意工坊模块().catch(() => [] as 创意工坊模块条目[])
-                ]);
-                if (Array.isArray(savedTalents)) {
-                    设置自定义天赋列表(合并去重天赋(savedTalents as 天赋结构[]));
-                }
-                if (Array.isArray(savedBackgrounds)) {
-                    设置自定义背景列表(合并去重背景(savedBackgrounds as 背景结构[]));
-                }
-                if (Array.isArray(savedStartPresets)) {
-                    设置自定义开局预设列表(合并去重开局预设方案(savedStartPresets.map(item => 标准化开局预设方案(item)).filter(Boolean) as 开局预设方案结构[]));
-                }
-                if (Array.isArray(workshopModules)) {
-                    设置创意工坊模块列表(workshopModules.filter((item) => item.type === 'topic'));
-                }
-                设置小说拆分数据集列表(savedNovelDatasets);
-            } catch (error) {
-                console.error('加载自定义身份/天赋/开局方案失败', error);
-            }
-        };
-        加载自定义建角配置();
-        const 取消订阅云端回填 = 订阅云端设置回填((keys) => {
-            const changed = new Set(keys);
-            if (changed.has(自定义天赋存储键)) {
-                void dbService.读取设置(自定义天赋存储键).then((savedTalents) => {
-                    设置自定义天赋列表(Array.isArray(savedTalents) ? 合并去重天赋(savedTalents as 天赋结构[]) : []);
-                }).catch(() => undefined);
-            }
-            if (changed.has(自定义背景存储键)) {
-                void dbService.读取设置(自定义背景存储键).then((savedBackgrounds) => {
-                    设置自定义背景列表(Array.isArray(savedBackgrounds) ? 合并去重背景(savedBackgrounds as 背景结构[]) : []);
-                }).catch(() => undefined);
-            }
-            if (changed.has(自定义开局预设存储键)) {
-                void dbService.读取设置(自定义开局预设存储键).then((savedStartPresets) => {
-                    设置自定义开局预设列表(
-                        Array.isArray(savedStartPresets)
-                            ? 合并去重开局预设方案(savedStartPresets.map((item) => 标准化开局预设方案(item)).filter(Boolean) as 开局预设方案结构[])
-                            : []
-                    );
-                }).catch(() => undefined);
-            }
-        });
-        return () => {
-            取消订阅云端回填();
-        };
-    }, []);
-
-    useEffect(() => {
         if (!openingConfig.同人融合.附加小说数据集ID) return;
         if (小说拆分数据集列表.some((item) => item.id === openingConfig.同人融合.附加小说数据集ID)) return;
         setOpeningConfig((prev) => ({
@@ -1910,6 +1872,10 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
     };
 
     const handleGenerate = async (preset?: 开局预设方案结构) => {
+        if (preset && (自定义背景加载中 || 自定义天赋加载中)) {
+            alert("正在读取自定义身份与天赋，请稍候再试。");
+            return;
+        }
         const presetRestoreCatalog = preset ? 构建预设恢复候选池(preset) : null;
         const presetRuntime = preset
             ? 构建预设直开恢复结果(preset, {
@@ -1917,6 +1883,21 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                 ...(presetRestoreCatalog || {})
             })
             : null;
+        if (preset && presetRuntime && (presetRuntime.missingBackgroundName || presetRuntime.missingTalentNames.length > 0)) {
+            const 缺失明细 = [
+                presetRuntime.missingBackgroundName ? `身份「${presetRuntime.missingBackgroundName}」` : "",
+                presetRuntime.missingTalentNames.length > 0 ? `天赋「${presetRuntime.missingTalentNames.join("、")}」` : ""
+            ].filter(Boolean).join("、");
+            const continueWithFallback = requestConfirm
+                ? await requestConfirm({
+                    title: "预设条目未匹配",
+                    message: `该开局方案引用的${缺失明细}在当前可用目录中未找到，直接开局将使用默认回退项。是否继续？`,
+                    confirmText: "继续开局",
+                    cancelText: "返回检查"
+                })
+                : confirm(`该开局方案引用的${缺失明细}在当前可用目录中未找到，直接开局将使用默认回退项。是否继续？`);
+            if (!continueWithFallback) return;
+        }
         const effectiveWorldConfig = presetRuntime?.worldConfig || worldConfig;
         const effectiveOpeningConfig = presetRuntime?.openingConfig || 构建有效开局配置();
         const effectiveBackground = presetRuntime?.selectedBackground || selectedBackground;
@@ -2123,39 +2104,20 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                 <h3 className="text-xl font-serif font-bold text-wuxia-gold border-b border-wuxia-gold/30 pb-3 mb-6">世界法则设定</h3>
                                 
                                 <div className="space-y-6">
-                                    {自定义开局预设列表.length > 0 && (
-                                        <div className="rounded-2xl border border-wuxia-gold/25 bg-wuxia-gold/5 p-4 space-y-3">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <div className="text-sm text-wuxia-gold font-bold">开局预设方案</div>
-                                                    <div className="text-[11px] text-gray-500 mt-1">保存后的方案会优先出现在世界观页，可直接套用、编辑或跳过表单步骤直接开局。</div>
-                                                </div>
-                                                <span className="text-[10px] text-wuxia-cyan font-mono tracking-[0.18em]">CUSTOM</span>
-                                            </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                {自定义开局预设列表.map((preset) => (
-                                                    <div key={preset.id} className="rounded-xl border border-gray-700/80 bg-black/35 p-4 space-y-3">
-                                                        <div>
-                                                            <div className="text-base font-serif text-wuxia-gold">{preset.名称}</div>
-                                                            <div className="text-xs text-gray-400 mt-1 leading-5 line-clamp-2">{preset.简介 || '自定义开局方案'}</div>
-                                                        </div>
-                                                        <div className="text-[11px] text-gray-500 leading-5">
-                                                            {preset.character.姓名 || '未命名主角'} / {preset.character.性别 || '未设性别'} / {preset.character.背景名称 || '未设背景'}
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            <GameButton onClick={() => 应用预设到表单(preset)} variant="secondary" className="py-2 text-xs">套用查看</GameButton>
-                                                            <GameButton onClick={() => { void handleGenerate(preset); }} variant="primary" className="py-2 text-xs">以此方案开局</GameButton>
-                                                        </div>
-                                                        <div className="grid grid-cols-3 gap-2">
-                                                            <button type="button" onClick={() => 编辑自定义开局方案信息(preset)} className="text-[11px] text-wuxia-cyan hover:text-white">编辑信息</button>
-                                                            <button type="button" onClick={() => { void 用当前配置覆盖开局方案(preset); }} className="text-[11px] text-wuxia-gold hover:text-white">覆盖保存</button>
-                                                            <button type="button" onClick={() => { void 删除自定义开局方案(preset.id); }} className="text-[11px] text-red-400 hover:text-red-200">删除</button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                                    <StartPresetsSection
+                                        variant="desktop"
+                                        presets={自定义开局预设列表}
+                                        loading={开局预设加载中}
+                                        cloudSyncing={云端设置拉取中}
+                                        actionsDisabled={自定义背景加载中 || 自定义天赋加载中}
+                                        actionsDisabledHint="正在读取自定义身份与天赋，请稍候…"
+                                        cloudSyncMessage={云端设置同步状态?.message}
+                                        onApply={(preset) => 应用预设到表单(preset)}
+                                        onStart={(preset) => { void handleGenerate(preset); }}
+                                        onEdit={(preset) => 编辑自定义开局方案信息(preset)}
+                                        onOverwrite={(preset) => { void 用当前配置覆盖开局方案(preset); }}
+                                        onDelete={(presetId) => { void 删除自定义开局方案(presetId); }}
+                                    />
 
                                     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-4">
                                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -2170,12 +2132,23 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                         <InlineSelect
                                             value={已选创意工坊模式}
                                             options={[
-                                                { value: '', label: '不使用工坊模式' },
+                                                {
+                                                    value: '',
+                                                    label: 创意工坊加载中 && 创意工坊模块列表.length <= 0
+                                                        ? '正在加载创意工坊模式…'
+                                                        : '不使用工坊模式'
+                                                },
                                                 ...题材模式顺序.map((mode) => ({ value: mode, label: `${mode}模式` }))
                                             ]}
                                             onChange={选择创意工坊模式}
                                             disabled={创意工坊注入中 || 创意工坊模块列表.length <= 0}
                                         />
+                                        {创意工坊加载中 && 创意工坊模块列表.length <= 0 && (
+                                            <div role="status" className="text-[11px] text-emerald-300/80 flex items-center gap-2">
+                                                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                                                <span>正在加载创意工坊模式列表…</span>
+                                            </div>
+                                        )}
                                         <div className="grid gap-3 md:grid-cols-2">
                                             {(() => {
                                                 const type: 创意工坊模块类型 = 'topic';
@@ -2736,12 +2709,12 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                                         label: dataset.作品名 || dataset.标题 || dataset.id
                                                     }))}
                                                     onChange={选择附加小说数据集}
-                                                    placeholder={小说拆分数据集列表.length > 0 ? '选择附加小说数据集' : '暂无已导入的小说分解数据'}
+                                                    placeholder={获取小说数据集加载文案(小说数据集加载中, 小说拆分数据集列表.length).placeholder}
                                                     disabled={!openingConfig.同人融合.启用附加小说 || 小说拆分数据集列表.length <= 0}
                                                 />
                                                 <div className="text-[11px] text-gray-500">
                                                     {小说拆分数据集列表.length <= 0
-                                                        ? '还没有可选的数据集，请先在首页的小说分解工作台导入 TXT / EPUB 或分解 JSON。'
+                                                        ? 获取小说数据集加载文案(小说数据集加载中, 小说拆分数据集列表.length).emptyHint
                                                         : 当前附加小说数据集
                                                             ? `当前选择：${当前附加小说数据集.作品名 || 当前附加小说数据集.标题}，后续主剧情 / 规划分析 / 世界演变都会优先使用这部小说的分解注入。`
                                                             : '启用后请选择一部小说分解数据集。'}
@@ -3053,26 +3026,29 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                     </div>
                                 )}
 
-                                {自定义背景列表.length > 0 && (
-                                    <div className="mb-5 rounded-2xl border border-gray-800 bg-black/25 p-4">
-                                        <div className="text-[11px] tracking-[0.25em] text-gray-500 font-mono">已保存自定义身份</div>
-                                        <div className="mt-3 space-y-2">
-                                            {自定义背景列表.map((bg) => (
-                                                <div key={bg.名称} className="rounded-xl border border-gray-800 bg-black/30 px-4 py-3 flex items-center justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="text-sm text-gray-200 truncate">{bg.名称}</div>
-                                                        <div className="text-[11px] text-gray-500 truncate">{bg.效果}</div>
-                                                    </div>
-                                                    <div className="flex items-center gap-2 shrink-0">
-                                                        <button type="button" onClick={() => setSelectedBackground(bg)} className="text-[11px] text-wuxia-gold hover:text-white">使用</button>
-                                                        <button type="button" onClick={() => 编辑自定义背景(bg)} className="text-[11px] text-wuxia-cyan hover:text-white">编辑</button>
-                                                        <button type="button" onClick={() => { void 删除自定义背景(bg.名称); }} className="text-[11px] text-red-400 hover:text-red-200">删除</button>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                <SavedCollectionSection
+                                    variant="desktop"
+                                    title="已保存自定义身份"
+                                    itemCount={自定义背景列表.length}
+                                    loading={自定义背景加载中}
+                                    cloudSyncing={云端设置拉取中}
+                                    loadingText="正在加载已保存的自定义身份…"
+                                    cloudSyncText="正在从云端同步已保存的自定义身份…"
+                                >
+                                    {自定义背景列表.map((bg) => (
+                                        <div key={bg.名称} className="rounded-xl border border-gray-800 bg-black/30 px-4 py-3 flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="text-sm text-gray-200 truncate">{bg.名称}</div>
+                                                <div className="text-[11px] text-gray-500 truncate">{bg.效果}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <button type="button" onClick={() => setSelectedBackground(bg)} className="text-[11px] text-wuxia-gold hover:text-white">使用</button>
+                                                <button type="button" onClick={() => 编辑自定义背景(bg)} className="text-[11px] text-wuxia-cyan hover:text-white">编辑</button>
+                                                <button type="button" onClick={() => { void 删除自定义背景(bg.名称); }} className="text-[11px] text-red-400 hover:text-red-200">删除</button>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
+                                    ))}
+                                </SavedCollectionSection>
 
                                 
                                 <div className="mb-5 rounded-2xl border border-gray-800 bg-black/25 p-4">
@@ -3209,39 +3185,42 @@ const NewGameWizard: React.FC<Props> = ({ onComplete, onCancel, loading, apiConf
                                     </OrnateBorder>
                                 )}
 
-                                {自定义天赋列表.length > 0 && (
-                                    <div className="mb-5 rounded-2xl border border-gray-800 bg-black/25 p-4">
-                                        <div className="text-[11px] tracking-[0.25em] text-gray-500 font-mono">已保存自定义天赋</div>
-                                        <div className="mt-3 space-y-2">
-                                            {自定义天赋列表.map((talent) => (
-                                                <div key={talent.名称} className="rounded-xl border border-gray-800 bg-black/30 px-4 py-3 flex items-center justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="text-sm text-gray-200 truncate">
-                                                            {talent.名称}
-                                                            {talent.隐藏 === true ? <span className="ml-2 text-[10px] text-rose-300/80">隐藏</span> : null}
-                                                        </div>
-                                                        <div className="text-[11px] text-gray-500 truncate">{talent.效果}</div>
-                                                    </div>
-                                                    <div className="flex items-center gap-2 shrink-0">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => toggleTalent(talent)}
-                                                            disabled={talent.隐藏 === true && !selectedTalents.some(item => item.名称 === talent.名称)}
-                                                            className="text-[11px] text-wuxia-gold hover:text-white disabled:cursor-not-allowed disabled:text-gray-600"
-                                                            title={talent.隐藏 === true ? '隐藏天赋仅能通过背景自带引用注入' : undefined}
-                                                        >
-                                                            {selectedTalents.some(item => item.名称 === talent.名称)
-                                                                ? '取消使用'
-                                                                : (talent.隐藏 === true ? '仅自带' : '使用')}
-                                                        </button>
-                                                        <button type="button" onClick={() => 编辑自定义天赋(talent)} className="text-[11px] text-wuxia-cyan hover:text-white">编辑</button>
-                                                        <button type="button" onClick={() => { void 删除自定义天赋(talent.名称); }} className="text-[11px] text-red-400 hover:text-red-200">删除</button>
-                                                    </div>
+                                <SavedCollectionSection
+                                    variant="desktop"
+                                    title="已保存自定义天赋"
+                                    itemCount={自定义天赋列表.length}
+                                    loading={自定义天赋加载中}
+                                    cloudSyncing={云端设置拉取中}
+                                    loadingText="正在加载已保存的自定义天赋…"
+                                    cloudSyncText="正在从云端同步已保存的自定义天赋…"
+                                >
+                                    {自定义天赋列表.map((talent) => (
+                                        <div key={talent.名称} className="rounded-xl border border-gray-800 bg-black/30 px-4 py-3 flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="text-sm text-gray-200 truncate">
+                                                    {talent.名称}
+                                                    {talent.隐藏 === true ? <span className="ml-2 text-[10px] text-rose-300/80">隐藏</span> : null}
                                                 </div>
-                                            ))}
+                                                <div className="text-[11px] text-gray-500 truncate">{talent.效果}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleTalent(talent)}
+                                                    disabled={talent.隐藏 === true && !selectedTalents.some(item => item.名称 === talent.名称)}
+                                                    className="text-[11px] text-wuxia-gold hover:text-white disabled:cursor-not-allowed disabled:text-gray-600"
+                                                    title={talent.隐藏 === true ? '隐藏天赋仅能通过背景自带引用注入' : undefined}
+                                                >
+                                                    {selectedTalents.some(item => item.名称 === talent.名称)
+                                                        ? '取消使用'
+                                                        : (talent.隐藏 === true ? '仅自带' : '使用')}
+                                                </button>
+                                                <button type="button" onClick={() => 编辑自定义天赋(talent)} className="text-[11px] text-wuxia-cyan hover:text-white">编辑</button>
+                                                <button type="button" onClick={() => { void 删除自定义天赋(talent.名称); }} className="text-[11px] text-red-400 hover:text-red-200">删除</button>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
+                                    ))}
+                                </SavedCollectionSection>
                             </OrnateBorder>
 
                             <OrnateBorder className="p-6 md:p-7">

@@ -458,12 +458,23 @@ export const 构建预设表单恢复结果 = (
         ...options.fallbackTalents,
         ...已选天赋兜底列表
     ]);
-    const selectedBackground = 全部背景选项.find((item) => item.名称 === 标准化文本(preset.character?.背景名称))
+    const 目标背景名称 = 标准化文本(preset.character?.背景名称);
+    const 匹配背景 = 目标背景名称
+        ? 全部背景选项.find((item) => item.名称 === 目标背景名称)
+        : undefined;
+    const missingBackgroundName = 目标背景名称 && !匹配背景 ? 目标背景名称 : undefined;
+    const selectedBackground = 匹配背景
         || 全部背景选项[0]
         || options.fallbackBackgrounds[0];
+    const 目标天赋名称列表 = Array.isArray(preset.character?.天赋名称列表)
+        ? preset.character.天赋名称列表.map((name) => 标准化文本(name)).filter(Boolean)
+        : [];
+    const missingTalentNames = 目标天赋名称列表.filter(
+        (name) => !全部天赋选项.some((item) => item.名称 === name)
+    );
     const selectedTalents = 过滤玩家可自选天赋(
-        (Array.isArray(preset.character?.天赋名称列表) ? preset.character.天赋名称列表 : [])
-            .map((name) => 全部天赋选项.find((item) => item.名称 === 标准化文本(name)))
+        目标天赋名称列表
+            .map((name) => 全部天赋选项.find((item) => item.名称 === name))
             .filter(Boolean) as 天赋结构[]
     );
     return {
@@ -474,6 +485,8 @@ export const 构建预设表单恢复结果 = (
         全部天赋选项,
         selectedBackground,
         selectedTalents,
+        missingBackgroundName,
+        missingTalentNames,
         modeWorldbooks: runtimeRestore.modeWorldbooks,
         workshopSelection: runtimeRestore.workshopSelection
     };
@@ -556,6 +569,8 @@ export const 构建预设直开恢复结果 = (
         openingConfig,
         selectedBackground: directFormRestore.selectedBackground,
         selectedTalents: directFormRestore.selectedTalents,
+        missingBackgroundName: directFormRestore.missingBackgroundName,
+        missingTalentNames: directFormRestore.missingTalentNames,
         模式包背景列表: directFormRestore.模式包背景列表,
         模式包天赋列表: directFormRestore.模式包天赋列表,
         全部背景选项: directFormRestore.全部背景选项,

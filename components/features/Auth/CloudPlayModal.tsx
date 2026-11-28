@@ -5,6 +5,7 @@ import {
     已确认云端游玩风险,
     设置云端游玩风险确认,
     读取云端游玩会话,
+    刷新云端游玩会话,
     注册云端游玩账号,
     登录云端游玩账号,
     清除云端游玩会话,
@@ -29,7 +30,6 @@ import {
 } from '../../../services/cloudPlayService';
 import {
     读取对象存储同步配置,
-    测试对象存储连接,
     列出对象存储云存档,
     下载对象存储云存档,
     删除对象存储云存档,
@@ -185,7 +185,10 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
     const [manifest, setManifest] = React.useState<云端存档清单 | null>(null);
     const [manifestLoading, setManifestLoading] = React.useState(false);
     const [manifestLoaded, setManifestLoaded] = React.useState(false);
+    const [manifestError, setManifestError] = React.useState('');
     const [objectStorageRefreshing, setObjectStorageRefreshing] = React.useState(false);
+    const [objectStorageLoaded, setObjectStorageLoaded] = React.useState(false);
+    const [objectStorageError, setObjectStorageError] = React.useState('');
     const [busy, setBusy] = React.useState('');
     const [message, setMessage] = React.useState('');
     const [uploadProgress, setUploadProgress] = React.useState<云端上传进度 | null>(null);
@@ -211,41 +214,67 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
 
     const manifestRef = React.useRef<云端存档清单 | null>(null);
     const manifestRequestIdRef = React.useRef(0);
+    const objectRequestIdRef = React.useRef(0);
+    const sessionRef = React.useRef<云端游玩账号 | null>(session);
+    const skipAutoRefreshUserIdRef = React.useRef('');
     React.useEffect(() => {
         manifestRef.current = manifest;
     }, [manifest]);
+    React.useEffect(() => {
+        sessionRef.current = session;
+    }, [session]);
 
-    const refreshManifest = React.useCallback(async (targetSession = session) => {
+    const refreshManifest = React.useCallback(async (
+        targetSession = sessionRef.current,
+        options?: { skipSessionRefresh?: boolean }
+    ) => {
         if (!targetSession) return;
         const requestId = manifestRequestIdRef.current + 1;
         manifestRequestIdRef.current = requestId;
         setManifestLoading(true);
         setManifestLoaded(false);
+        setManifestError('');
         try {
-            const next = await 读取云端存档清单(targetSession);
+            const activeSession = options?.skipSessionRefresh
+                ? targetSession
+                : await 刷新云端游玩会话(targetSession);
+            if (requestId !== manifestRequestIdRef.current) return;
+            if (
+                activeSession.manifestUrl !== targetSession.manifestUrl
+                || activeSession.manifestUpdatedAt !== targetSession.manifestUpdatedAt
+            ) {
+                setSession(activeSession);
+            }
+            const next = await 读取云端存档清单(activeSession);
             if (requestId !== manifestRequestIdRef.current) return;
             setManifest(next);
+            setManifestError('');
             setMessage(next.saves.length > 0 ? `已读取 ${next.saves.length} 个云端存档。` : '当前云端还没有存档。');
         } catch (error: any) {
             if (requestId !== manifestRequestIdRef.current) return;
+            const errorMessage = error?.message || '未知错误';
+            setManifestError(errorMessage);
             const cached = manifestRef.current || 读取缓存云端存档清单(targetSession);
             if (cached) setManifest(cached);
             setMessage(cached
-                ? `读取云端存档失败：${error?.message || '未知错误'}。已保留上次成功读取的 ${cached.saves.length} 个云端存档，稍后可重试刷新。`
-                : `读取云端存档失败：${error?.message || '未知错误'}`);
+                ? `读取云端存档失败：${errorMessage}。已保留上次成功读取的 ${cached.saves.length} 个云端存档，稍后可重试刷新。`
+                : `读取云端存档失败：${errorMessage}`);
         } finally {
             if (requestId === manifestRequestIdRef.current) {
                 setManifestLoading(false);
                 setManifestLoaded(true);
             }
         }
-    }, [session]);
+    }, []);
 
     React.useEffect(() => {
-        if (riskAccepted && session && storageMode === 'tg') {
-            void refreshManifest(session);
+        if (!riskAccepted || !session?.userId || storageMode !== 'tg') return;
+        if (skipAutoRefreshUserIdRef.current === session.userId) {
+            skipAutoRefreshUserIdRef.current = '';
+            return;
         }
-    }, [riskAccepted, session, storageMode, refreshManifest]);
+        void refreshManifest(sessionRef.current || session);
+    }, [riskAccepted, session?.userId, storageMode, refreshManifest]);
 
     React.useEffect(() => {
         if (!riskAccepted || !已启用对象存储云端游玩模式()) return;
@@ -259,42 +288,67 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
 
     const handleUseTgStorage = () => {
         设置云端游玩存储模式('tg');
-        setStorageMode('tg');
+        const savedSession = sessionRef.current || 读取云端游玩会话();
         setObjectStorageConfig(null);
         setObjectStorageSaves([]);
-        const savedSession = session || 读取云端游玩会话();
+        setObjectStorageLoaded(false);
+        setObjectStorageError('');
+        setManifestError('');
         if (savedSession) {
+            setManifestLoaded(false);
+            setManifestLoading(true);
             setSession(savedSession);
+            setStorageMode('tg');
             setMessage('已切换为 TG 图床云端游玩。');
-            void refreshManifest(savedSession);
+            if (storageMode === 'tg') {
+                void refreshManifest(savedSession);
+            }
         } else {
+            setStorageMode('tg');
             setMessage('已切换为 TG 图床模式，请登录账号后继续。');
         }
     };
 
     const handleUseObjectStorage = async (openConfigOnFailure = true) => {
+        const requestId = objectRequestIdRef.current + 1;
+        objectRequestIdRef.current = requestId;
+        setObjectStorageRefreshing(true);
+        setObjectStorageLoaded(false);
+        setObjectStorageError('');
         setBusy('object-storage-check');
-        setMessage('正在检查对象存储配置...');
+        setMessage('正在检查对象存储配置并读取云端存档...');
         try {
             const config = await 读取对象存储同步配置();
+            if (requestId !== objectRequestIdRef.current) return;
             if (!config) {
+                setObjectStorageError('尚未配置对象存储。');
                 setMessage('尚未配置对象存储，正在打开配置页。');
                 if (openConfigOnFailure) onConfigureObjectStorage?.();
                 return;
             }
-            await 测试对象存储连接(config);
             const list = await 列出对象存储云存档(config);
+            if (requestId !== objectRequestIdRef.current) return;
             启用对象存储云端游玩模式();
             setObjectStorageConfig(config);
             setObjectStorageSaves(list);
+            setObjectStorageError('');
             setStorageMode('object');
             setRiskAccepted(true);
             setMessage(list.length > 0 ? `对象存储连接成功，已读取 ${list.length} 个云端存档。` : '对象存储连接成功，当前云端还没有存档。');
         } catch (error: any) {
-            setMessage(`对象存储不可用：${error?.message || '未知错误'}。正在打开配置页。`);
+            if (requestId !== objectRequestIdRef.current) return;
+            const errorMessage = error?.message || '未知错误';
+            setObjectStorageError(errorMessage);
+            setMessage(openConfigOnFailure
+                ? `对象存储不可用：${errorMessage}。正在打开配置页。`
+                : `读取对象存储云端存档失败：${errorMessage}`);
             if (openConfigOnFailure) onConfigureObjectStorage?.();
         } finally {
-            setBusy('');
+            if (requestId === objectRequestIdRef.current) {
+                setObjectStorageRefreshing(false);
+                setObjectStorageLoaded(true);
+                setBusy('');
+            }
         }
     };
 
@@ -306,21 +360,29 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                 ? await 注册云端游玩账号(username, password)
                 : await 登录云端游玩账号(username, password);
             设置云端游玩存储模式('tg');
+            skipAutoRefreshUserIdRef.current = nextSession.userId;
+            setManifest(null);
+            setManifestLoading(true);
+            setManifestLoaded(false);
+            setManifestError('');
             setSession(nextSession);
             setStorageMode('tg');
             setUsername('');
             setPassword('');
-            setMessage(mode === 'register' ? '注册成功，正在同步设置...' : '登录成功，正在同步设置...');
+            setMessage(mode === 'register' ? '注册成功，正在读取云端存档与设置...' : '登录成功，正在读取云端存档与设置...');
+            const manifestPromise = refreshManifest(nextSession, { skipSessionRefresh: true });
             const settingsResult = await 同步云端设置(nextSession, (progress) => {
                 setSettingsSyncProgress(progress);
                 setMessage(`设置同步：${progress.message}`);
             });
             // 退出登录时会停止自动同步；重新登录/注册后必须显式重启，否则后续设置变更不会自动上传。
             启动云端设置自动同步();
-            setMessage(settingsResult.ok
-                ? `${mode === 'register' ? '注册成功' : '登录成功'}，设置已同步（${settingsResult.settingCount ?? 0} 项）。`
-                : `登录成功，但设置同步失败：${settingsResult.error || '未知错误'}，稍后将自动重试。`);
-            await refreshManifest(nextSession);
+            await manifestPromise;
+            if (!settingsResult.ok) {
+                setMessage(`登录成功，但设置同步失败：${settingsResult.error || '未知错误'}，稍后将自动重试。`);
+            } else if (!manifestRef.current || manifestRef.current.saves.length === 0) {
+                setMessage(`${mode === 'register' ? '注册成功' : '登录成功'}，设置已同步（${settingsResult.settingCount ?? 0} 项）。`);
+            }
         } catch (error: any) {
             setMessage(`${mode === 'register' ? '注册' : '登录'}失败：${error?.message || '未知错误'}`);
         } finally {
@@ -332,8 +394,14 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
         停止云端设置自动同步();
         清除云端游玩会话();
         清除对象存储云端游玩模式();
+        manifestRequestIdRef.current += 1;
+        objectRequestIdRef.current += 1;
         setSession(null);
         setManifest(null);
+        setManifestLoading(false);
+        setManifestLoaded(false);
+        setManifestError('');
+        setSelectedCloudSeriesKey(null);
         setSettingsSyncProgress(null);
         setMessage('已退出云端游玩。');
     };
@@ -492,20 +560,34 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
     };
 
     const handleRefreshObjectStorage = async () => {
-        if (!objectStorageConfig) return;
+        if (!objectStorageConfig) {
+            await handleUseObjectStorage(false);
+            return;
+        }
+        const requestId = objectRequestIdRef.current + 1;
+        objectRequestIdRef.current = requestId;
         setObjectStorageRefreshing(true);
+        setObjectStorageLoaded(false);
+        setObjectStorageError('');
         setBusy('object-refresh');
         setMessage('正在刷新对象存储云端存档...');
         try {
-            await 测试对象存储连接(objectStorageConfig);
             const list = await 列出对象存储云存档(objectStorageConfig);
+            if (requestId !== objectRequestIdRef.current) return;
             setObjectStorageSaves(list);
+            setObjectStorageError('');
             setMessage(list.length > 0 ? `已读取 ${list.length} 个对象存储云端存档。` : '对象存储云端暂无存档。');
         } catch (error: any) {
-            setMessage(`刷新对象存储失败：${error?.message || '未知错误'}`);
+            if (requestId !== objectRequestIdRef.current) return;
+            const errorMessage = error?.message || '未知错误';
+            setObjectStorageError(errorMessage);
+            setMessage(`刷新对象存储失败：${errorMessage}`);
         } finally {
-            setObjectStorageRefreshing(false);
-            setBusy('');
+            if (requestId === objectRequestIdRef.current) {
+                setObjectStorageRefreshing(false);
+                setObjectStorageLoaded(true);
+                setBusy('');
+            }
         }
     };
 
@@ -888,9 +970,23 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                         {session && <CloudSettingsSyncPanel />}
 
                         <div className="grid gap-4">
-                            {objectStorageRefreshing && objectStorageSaveTrees.length <= 0 ? (
+                            {(objectStorageRefreshing || (!objectStorageLoaded && !objectStorageError)) && objectStorageSaveTrees.length <= 0 ? (
                                 <div role="status" aria-live="polite" className="border border-dashed border-sky-400/30 bg-sky-950/10 px-4 py-8 text-center text-sm text-sky-100">
                                     正在读取对象存储云端存档…
+                                </div>
+                            ) : objectStorageError && objectStorageSaveTrees.length <= 0 ? (
+                                <div className="border border-dashed border-red-400/30 bg-red-950/10 px-4 py-8 text-center text-sm text-red-100">
+                                    读取对象存储云端存档失败：{objectStorageError}
+                                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                                        <button type="button" onClick={() => { void handleRefreshObjectStorage(); }} className="border border-sky-400/40 bg-sky-500/15 px-4 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/25">
+                                            重试读取
+                                        </button>
+                                        {onConfigureObjectStorage && (
+                                            <button type="button" onClick={() => { 启用对象存储云端游玩模式(); onConfigureObjectStorage(); }} className="border border-gray-500/40 px-4 py-2 text-xs text-gray-200 hover:bg-white/5">
+                                                修改对象存储配置
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             ) : objectStorageSaveTrees.length <= 0 ? (
                                 <div className="border border-dashed border-sky-400/25 px-4 py-8 text-center text-sm text-gray-400">
@@ -1046,9 +1142,16 @@ const CloudPlayModal: React.FC<Props> = ({ onClose, onLoadGame, onStartNewGame, 
                         )}
 
                         <div className="grid gap-4">
-                            {(manifestLoading || (!manifestLoaded && Boolean(session) && riskAccepted && storageMode === 'tg')) && cloudSaveTrees.length <= 0 ? (
+                            {(manifestLoading || (!manifestLoaded && !manifestError && Boolean(session) && riskAccepted && storageMode === 'tg')) && cloudSaveTrees.length <= 0 ? (
                                 <div role="status" aria-live="polite" className="border border-dashed border-sky-400/30 bg-sky-950/10 px-4 py-8 text-center text-sm text-sky-100">
                                     正在读取云端存档…
+                                </div>
+                            ) : manifestError && cloudSaveTrees.length <= 0 ? (
+                                <div className="border border-dashed border-red-400/30 bg-red-950/10 px-4 py-8 text-center text-sm text-red-100">
+                                    读取云端存档失败：{manifestError}
+                                    <button type="button" onClick={() => { void refreshManifest(); }} className="mx-auto mt-4 block border border-sky-400/40 bg-sky-500/15 px-4 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/25">
+                                        重试读取
+                                    </button>
                                 </div>
                             ) : cloudSaveTrees.length <= 0 ? (
                                 <div className="border border-dashed border-wuxia-gold/25 px-4 py-8 text-center text-sm text-gray-400">
