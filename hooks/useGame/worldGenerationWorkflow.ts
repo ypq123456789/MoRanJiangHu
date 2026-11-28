@@ -22,16 +22,20 @@ import { 将导演圣经投影为剧情规划视图, type DirectorWorldBible } f
 import { 合并世界基底到开场状态 } from './storyState';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
 
-const 提取流式世界观预览 = (accumulated: string): string => {
+const 提取流式世界观预览 = (accumulated: string): { text: string; closed: boolean; rawChars: number } | null => {
     const normalized = (accumulated || '').replace(/\r/g, '');
     const openMatch = normalized.match(/<世界观>/i);
-    if (!openMatch || openMatch.index === undefined) return '';
+    if (!openMatch || openMatch.index === undefined) return null;
     const start = openMatch.index + openMatch[0].length;
     const closeIdx = normalized.indexOf('</世界观>', start);
     const body = (closeIdx >= 0 ? normalized.slice(start, closeIdx) : normalized.slice(start)).trim();
-    if (!body) return '';
-    const tail = body.length > 480 ? `...${body.slice(-480)}` : body;
-    return tail.split('\n').slice(-10).join('\n').trim();
+    if (!body) return null;
+    const tail = body.length > 560 ? `...${body.slice(-560)}` : body;
+    return {
+        text: tail.split('\n').slice(-12).join('\n').trim(),
+        closed: closeIdx >= 0,
+        rawChars: body.length
+    };
 };
 
 type 世界生成选项 = {
@@ -661,9 +665,12 @@ export const 执行世界生成工作流 = async (
                                 worldDeltaReceived = true;
                                 const preview = 提取流式世界观预览(normalized);
                                 if (preview) {
-                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（流式预览）\n${preview}\n\n已接收 ${normalized.length} 字符`);
+                                    const footer = preview.closed
+                                        ? `✓ 表层世界观已生成（共 ${preview.rawChars} 字），正在推演六层地图树与 2.0 导演因果圣经（总进度 ${normalized.length} 字符）...`
+                                        : `正在流式生成表层世界观（已接收 ${preview.rawChars} 字 / 总 ${normalized.length} 字符）...`;
+                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（流式预览）\n${preview.text}\n\n${footer}`);
                                 } else {
-                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（正在推演隐线、势力账本与分幕大纲）\n\n已接收 ${normalized.length} 字符`);
+                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（正在构思顶层隐线、势力账本与分幕大纲）\n\n已接收 ${normalized.length} 字符`);
                                 }
                             }
                             : undefined
@@ -838,8 +845,8 @@ export const 执行世界生成工作流 = async (
             deps.setLoading(false);
             deps.追加系统消息(
                 启用修炼体系
-                    ? '[系统] 世界观与境界体系提示词已写入。请在聊天框输入指令开始初始化。'
-                    : '[系统] 世界观提示词已写入。请在聊天框输入指令开始初始化。'
+                    ? '[系统] 世界观与境界体系提示词已写入（可随时在右上角「世界 → 世界总纲」查看完整设定）。请在聊天框输入指令开始初始化。'
+                    : '[系统] 世界观提示词已写入（可随时在右上角「世界 → 世界总纲」查看完整设定）。请在聊天框输入指令开始初始化。'
             );
             return;
         }

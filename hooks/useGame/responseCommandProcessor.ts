@@ -441,7 +441,7 @@ const 判断NPC本回合是否在场 = (
     return undefined;
 };
 
-const 构建环境位置路径 = (env?: Partial<环境信息结构> | null): string => (
+export const 构建环境位置路径 = (env?: Partial<环境信息结构> | null): string => (
     [env?.大地点, env?.中地点, env?.小地点, env?.具体地点]
         .map((item) => typeof item === 'string' ? item.trim() : '')
         .filter(Boolean)

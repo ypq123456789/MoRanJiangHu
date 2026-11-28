@@ -27,7 +27,7 @@ import type {
     世界书结构
 } from '../../types';
 import type { 当前可用接口结构 } from '../../utils/apiConfig';
-import { 获取世界演变接口配置, 获取规划分析接口配置, 获取变量计算接口配置, 获取文章优化接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
+import { 获取世界演变接口配置, 获取规划分析接口配置, 获取变量计算接口配置, 获取文章优化接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 变量校准功能已启用 as 变量生成功能已启用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
 import { 构建省次数附加输出协议, 提取省次数分节, 过滤省次数流式草稿, type 省次数环节 } from '../../utils/singleCallMode';
 import { 核心_开局思维链, 获取开局思维链提示词 } from '../../prompts/core/cotOpening';
 import { 核心_境界体系 } from '../../prompts/core/realm';
@@ -740,6 +740,128 @@ export const 执行开场剧情生成工作流 = async (
         );
 
         const openingGameConfig = 规范化游戏设置(deps.gameConfig);
+        const 启用修炼体系 = openingGameConfig.启用修炼体系 !== false;
+        const openingRoleSetupText = 构建开局角色建档摘要(openingStatePayload?.角色 || deps.角色, {
+            cultivationSystemEnabled: 启用修炼体系
+        });
+        const openingPartnerSetupText = 构建开局伙伴建档摘要(options?.开局配置, {
+            cultivationSystemEnabled: 启用修炼体系
+        });
+        const openingConfigText = 构建开局配置提示词(options?.开局配置, options?.开局额外要求);
+        const 开局功能模型占位 = deps.apiConfig?.功能模型占位;
+        const 开局全局非流式输出 = openingGameConfig.启用非流式输出 === true;
+        // 开局后处理与局内一致：尊重全局/分功能“非流式输出”设置；未开启时走真实流式请求。
+        const 开局变量计算非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.变量计算非流式输出 === true;
+        const 开局世界演变非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.世界演变非流式输出 === true;
+        const 开局规划分析非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.规划分析非流式输出 === true;
+        const 开局地图更新非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.地图自动更新非流式输出 === true;
+        const 开局独立阶段自动重试已启用 = deps.游戏设置启用自动重试(openingGameConfig);
+        const 请求开局阶段失败决策 = async (stageLabel: string, errorText: string): Promise<'retry' | 'skip'> => {
+            const message = [
+                `${stageLabel}请求失败：`,
+                errorText || '未知错误',
+                '',
+                '选择“重试”会重新执行当前阶段；选择“跳过”会继续后续阶段。'
+            ].join('\n');
+            if (typeof window !== 'undefined') {
+                return window.confirm(`${message}\n\n按“确定”重试，按“取消”跳过。`) ? 'retry' : 'skip';
+            }
+            return 'skip';
+        };
+        const 执行可重试开局阶段 = async <T,>(params: {
+            stageLabel: string;
+            run: () => Promise<T>;
+            forceAutoRetry?: boolean;
+            beforeAttempt?: (attempt: number) => void;
+            onAutoRetry?: (attempt: number, maxAttempts: number, reason: string) => void;
+            onError?: (errorText: string) => void;
+            onSkip?: (errorText: string) => void;
+            getErrorText?: (error: any) => string;
+        }): Promise<{ completed: boolean; result?: T }> => {
+            let manualAttempt = 0;
+            while (true) {
+                manualAttempt += 1;
+                params.beforeAttempt?.(manualAttempt);
+                try {
+                    const result = await deps.执行带自动重试的生成请求<T>({
+                        enabled: params.forceAutoRetry === true || 开局独立阶段自动重试已启用,
+                        action: params.run,
+                        onRetry: params.onAutoRetry
+                    });
+                    return { completed: true, result };
+                } catch (error: any) {
+                    if (error?.name === 'AbortError') {
+                        throw error;
+                    }
+                    const errorText = params.getErrorText
+                        ? params.getErrorText(error)
+                        : (
+                            deps.提取解析失败原始信息(error)
+                            || error?.message
+                            || '未知错误'
+                        );
+                    params.onError?.(errorText);
+                    const decision = await 请求开局阶段失败决策(params.stageLabel, errorText);
+                    if (decision === 'retry') {
+                        continue;
+                    }
+                    params.onSkip?.(errorText);
+                    return { completed: false };
+                }
+            }
+        };
+        const openingPolishApi = 获取文章优化接口配置(deps.apiConfig);
+        const openingVariableApi = 获取变量计算接口配置(deps.apiConfig);
+        const openingWorldApi = 获取世界演变接口配置(deps.apiConfig);
+        const openingPlanningApi = 获取规划分析接口配置(deps.apiConfig);
+        const openingMapApi = 获取地图自动更新接口配置(deps.apiConfig);
+        const openingStageTiming: Record<string, { startedAt: number; finishedAt?: number }> = {};
+        const 附加开局阶段运行信息 = <T extends 开局阶段计时进度 & { channelName?: string; modelName?: string }>(
+            stageId: string,
+            progress: T,
+            info: { channelName: string; modelName: string }
+        ): T => {
+            const now = Date.now();
+            const current = openingStageTiming[stageId] || { startedAt: now };
+            if (progress.phase === 'start') {
+                current.startedAt = current.startedAt || now;
+                current.finishedAt = undefined;
+            } else if (开局阶段已结束(progress.phase)) {
+                current.finishedAt = current.finishedAt || now;
+            }
+            openingStageTiming[stageId] = current;
+            const finishedAt = current.finishedAt;
+            const elapsedMs = typeof progress.elapsedMs === 'number'
+                ? progress.elapsedMs
+                : Math.max(0, (finishedAt || now) - current.startedAt);
+            return 附加开局阶段模型信息({
+                ...progress,
+                startedAt: progress.startedAt || current.startedAt,
+                finishedAt: progress.finishedAt || finishedAt,
+                elapsedMs
+            }, info);
+        };
+        const openingPolishInfo = 构建开局阶段模型信息('文章优化', openingPolishApi, apiForOpening);
+        const openingVariableInfo = 构建开局阶段模型信息('变量生成', openingVariableApi, apiForOpening);
+        const openingWorldInfo = 构建开局阶段模型信息('动态世界', openingWorldApi, apiForOpening);
+        const openingPlanningInfo = 构建开局阶段模型信息('规划分析', openingPlanningApi, apiForOpening);
+        const openingMapInfo = 构建开局阶段模型信息('地图更新', openingMapApi, apiForOpening);
+        const 设置开局文章优化进度 = (progress: any) => {
+            deps.设置开局文章优化进度(附加开局阶段运行信息('polish', progress, openingPolishInfo));
+        };
+        const 设置开局变量生成进度 = (progress: any) => {
+            deps.设置开局变量生成进度(附加开局阶段运行信息('variable', progress, openingVariableInfo));
+        };
+        const 设置开局世界演变进度 = (progress: any) => {
+            deps.设置开局世界演变进度(附加开局阶段运行信息('world', progress, openingWorldInfo));
+        };
+        const 设置开局规划进度 = (progress: any) => {
+            deps.设置开局规划进度(附加开局阶段运行信息('planning', progress, openingPlanningInfo));
+        };
+        const 设置开局地图更新进度 = (progress: any) => {
+            deps.设置开局地图更新进度(附加开局阶段运行信息('map', progress, openingMapInfo));
+        };
+
         const openingUseSingleCall = 省次数模式已启用(deps.apiConfig)
             && deps.apiConfig?.功能模型占位?.省次数模式包含开局 !== false
             && 接口配置是否可用(获取省次数模式接口配置(deps.apiConfig));
@@ -807,11 +929,24 @@ export const 执行开场剧情生成工作流 = async (
                 任务列表: Array.isArray(openingStatePayload.任务列表) ? safeDeepCopy(openingStatePayload.任务列表) : [],
                 世界大事: []
             };
-            const planningApi = 获取规划分析接口配置(deps.apiConfig);
+            const v2PlanningApi = 接口配置是否可用(openingPlanningApi) ? openingPlanningApi : apiForOpening;
+            const v2WorldApi = 接口配置是否可用(openingWorldApi) ? openingWorldApi : v2PlanningApi;
+            const v2StoryInfo = 构建开局阶段模型信息('开局主剧情', apiForOpening, apiForOpening);
+            const v2PlanningInfo = 构建开局阶段模型信息('规划分析', v2PlanningApi, apiForOpening);
+            const v2WorldInfo = 构建开局阶段模型信息('动态世界', v2WorldApi, apiForOpening);
+            const 设置2_0开局主剧情进度 = (progress: any) => {
+                deps.设置开局主剧情进度(附加开局阶段运行信息('story', progress, v2StoryInfo));
+            };
+            const 设置2_0开局规划进度 = (progress: any) => {
+                deps.设置开局规划进度(附加开局阶段运行信息('planning', progress, v2PlanningInfo));
+            };
+            const 设置2_0开局动态世界进度 = (progress: any) => {
+                deps.设置开局世界演变进度(附加开局阶段运行信息('world', progress, v2WorldInfo));
+            };
             const v2Config: StoryV2Config = {
                 gameConfig: openingGameConfig,
                 apiConfig: apiForOpening,
-                directorApiConfig: 接口配置是否可用(planningApi) ? planningApi : apiForOpening,
+                directorApiConfig: v2PlanningApi,
                 openingConfig: options?.开局配置 || ({} as OpeningConfig),
                 worldConfig: {
                     worldName: options?.开局配置?.modeRuntimeProfile?.identity?.displayName || options?.开局配置?.题材模式 || '墨色江湖 2.0',
@@ -820,11 +955,9 @@ export const 执行开场剧情生成工作流 = async (
                 promptPool: promptSnapshot,
                 worldbooks: deps.worldbooks
             };
-            deps.设置开局主剧情进度({
+            设置2_0开局主剧情进度({
                 phase: 'start',
-                text: '正在通过 2.0 导演引擎演绎开场剧情...',
-                channelName: apiForOpening?.名称 || '',
-                modelName: apiForOpening?.model || ''
+                text: '正在通过 2.0 导演引擎演绎开场剧情...'
             });
             const renderedOpening = await 渲染开局回合V2(v2State, v2Config, {
                 signal: controller.signal,
@@ -843,27 +976,119 @@ export const 执行开场剧情生成工作流 = async (
                     }
                     : undefined
             });
-            const displayAiData: GameResponse = renderedOpening.response;
-            const newAiMsg: 聊天记录结构 = {
-                role: 'assistant',
-                content: 'Structured Response',
-                structuredResponse: displayAiData,
-                rawJson: renderedOpening.rawText,
-                timestamp: streamMarker || Date.now(),
-                gameTime: initialGameTime,
-                responseDurationSec: deps.计算回复耗时秒(openingRequestStartedAt),
-                outputTokens: deps.估算AI输出Token(renderedOpening.rawText, apiForOpening?.model)
+            let displayAiData: GameResponse = {
+                ...renderedOpening.response,
+                tavern_commands: Array.isArray(renderedOpening.response?.tavern_commands)
+                    ? [...renderedOpening.response.tavern_commands]
+                    : []
             };
-            deps.设置历史记录([...initialHistory, newAiMsg]);
-            deps.设置开局主剧情进度({
-                phase: 'done',
-                text: '2.0 开局正文生成完成，正在推演伏笔与幕后暗线...'
+            const rawOpeningText = renderedOpening.rawText;
+            const buildV2OpeningAiMsg = (gameTimeValue: string): 聊天记录结构 => ({
+                role: 'assistant',
+                content: 'Opening Story',
+                structuredResponse: displayAiData,
+                rawJson: rawOpeningText,
+                timestamp: streamMarker || Date.now(),
+                gameTime: gameTimeValue,
+                responseDurationSec: deps.计算回复耗时秒(openingRequestStartedAt),
+                outputTokens: deps.估算AI输出Token(rawOpeningText, apiForOpening?.model)
             });
-            deps.设置开局规划进度({
+            deps.设置历史记录([...initialHistory, buildV2OpeningAiMsg(initialGameTime)]);
+            设置2_0开局主剧情进度({
+                phase: 'done',
+                text: '2.0 开局正文生成完成，正在执行文章优化与后台初始化阶段...',
+                rawText: rawOpeningText
+            });
+
+            if (!deps.文章优化功能已开启()) {
+                设置开局文章优化进度({
+                    phase: 'skipped',
+                    text: '文章优化功能未开启，已跳过。'
+                });
+            } else if (!接口配置是否可用(openingPolishApi)) {
+                设置开局文章优化进度({
+                    phase: 'skipped',
+                    text: '文章优化独立链路未启用，已跳过。'
+                });
+            } else {
+                const polishStage = await 执行可重试开局阶段({
+                    stageLabel: '开局文章优化',
+                    beforeAttempt: (attempt) => {
+                        设置开局文章优化进度({
+                            phase: 'start',
+                            text: attempt > 1
+                                ? `正在重新优化 2.0 开局正文...（第 ${attempt} 次手动重试）`
+                                : '正在优化 2.0 开局正文...'
+                        });
+                    },
+                    onAutoRetry: (attempt, maxAttempts, reason) => {
+                        设置开局文章优化进度({
+                            phase: 'start',
+                            text: `开局文章优化请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ''}`
+                        });
+                    },
+                    run: () => deps.执行正文润色(
+                        displayAiData,
+                        rawOpeningText,
+                        {
+                            playerInput: '',
+                            signal: controller.signal,
+                            allowExpansionForLength: true,
+                            minLength: openingGameConfig.字数要求,
+                            onDelta: (_delta: string, accumulated: string) => {
+                                if (controller.signal.aborted) return;
+                                设置开局文章优化进度({
+                                    phase: 'start',
+                                    text: '正在流式优化开局正文...',
+                                    rawText: accumulated
+                                });
+                            }
+                        }
+                    ),
+                    onError: (errorText) => {
+                        设置开局文章优化进度({
+                            phase: 'error',
+                            text: `${errorText || '开局文章优化失败'}\n等待选择：重试当前阶段，或跳过继续。`
+                        });
+                    },
+                    onSkip: (errorText) => {
+                        设置开局文章优化进度({
+                            phase: 'skipped',
+                            text: `开局文章优化失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ''}`
+                        });
+                    },
+                    getErrorText: (error: any) => error?.message || '开局文章优化失败'
+                });
+                const polished = polishStage.result;
+                if (polishStage.completed && polished) {
+                    if (polished.applied) {
+                        displayAiData = {
+                            ...polished.response,
+                            tavern_commands: Array.isArray(displayAiData.tavern_commands)
+                                ? [...displayAiData.tavern_commands]
+                                : []
+                        };
+                        deps.设置历史记录([...initialHistory, buildV2OpeningAiMsg(initialGameTime)]);
+                        设置开局文章优化进度({
+                            phase: 'done',
+                            text: `开局正文已优化（模型：${displayAiData.body_optimized_model || '未知'}）。`,
+                            rawText: polished.rawText || ''
+                        });
+                    } else {
+                        设置开局文章优化进度({
+                            phase: 'skipped',
+                            text: polished.error || '开局文章优化未应用，保留原文。',
+                            rawText: polished.rawText || ''
+                        });
+                    }
+                }
+            }
+
+            设置2_0开局规划进度({
                 phase: 'start',
                 text: '2.0 导演后台正在更新伏笔台账与离屏局势...'
             });
-            deps.设置开局世界演变进度({
+            设置2_0开局动态世界进度({
                 phase: 'start',
                 text: '正在计算离屏人物动向与外溢事件...'
             });
@@ -872,29 +1097,342 @@ export const 执行开场剧情生成工作流 = async (
                 apiConfig: v2Config.directorApiConfig || v2Config.apiConfig,
                 storyResponse: displayAiData,
                 playerInput: '(开局初始化)',
+                openingConfig: options?.开局配置,
                 signal: controller.signal
             });
-            const finalEnv = deps.规范化环境信息(postResult.nextState.环境);
-            const finalGameTime = 环境时间转标准串(finalEnv) || initialGameTime;
-            const finalRole = deps.规范化角色物品容器映射(postResult.nextState.角色, {
+            设置2_0开局规划进度({
+                phase: 'done',
+                text: postResult.replanned ? '2.0 导演推演与动态重规划完成' : '2.0 导演后台推演与伏笔落账完成'
+            });
+            设置2_0开局动态世界进度({
+                phase: 'done',
+                text: postResult.offscreenSpillovers.length > 0
+                    ? `已推进 ${postResult.offscreenSpillovers.length} 条离屏局势外溢`
+                    : '局势稳定推进'
+            });
+
+            let finalEnv = deps.规范化环境信息(postResult.nextState.环境);
+            let finalRole = deps.规范化角色物品容器映射(postResult.nextState.角色, {
                 启用饱腹口渴系统: openingGameConfig.启用饱腹口渴系统,
                 题材模式: options?.开局配置?.题材模式
             });
-            const finalSocial = deps.规范化社交列表(postResult.nextState.社交);
-            const finalWorld = deps.规范化世界状态(postResult.nextState.世界);
-            const finalStory = deps.规范化剧情状态(postResult.nextState.剧情, finalEnv);
+            let finalSocial = 修复开局伙伴社交列表(
+                deps.规范化社交列表(postResult.nextState.社交),
+                options?.开局配置,
+                finalRole
+            );
+            let finalWorld = deps.规范化世界状态(postResult.nextState.世界);
+            let finalStory = deps.规范化剧情状态(postResult.nextState.剧情, finalEnv);
             const finalStoryPlan = deps.规范化剧情规划状态(postResult.nextState.剧情规划);
             const finalHeroinePlan = postResult.nextState.女主剧情规划
                 ? deps.规范化女主剧情规划状态(postResult.nextState.女主剧情规划)
                 : openingStatePayload.女主剧情规划;
             const finalMemory = 规范化记忆系统(postResult.nextState.记忆系统);
             const finalWorldEvents = Array.isArray(postResult.nextState.世界大事) ? postResult.nextState.世界大事 : [];
-            const finalTasks = Array.isArray(postResult.nextState.任务列表) ? postResult.nextState.任务列表 : [];
+            let finalTasks = Array.isArray(postResult.nextState.任务列表) ? postResult.nextState.任务列表 : [];
+            let finalSect = deps.规范化门派状态(openingStatePayload.玩家门派);
+            let finalAgreements = Array.isArray(openingStatePayload.约定列表) ? [...openingStatePayload.约定列表] : [];
+            let finalBattle = {
+                ...deps.规范化战斗状态(contextData.战斗 || deps.战斗),
+                是否战斗中: false
+            };
+
+            const 构建2_0开局命令基态 = (): 开场命令基态 => ({
+                角色: finalRole,
+                环境: finalEnv,
+                社交: finalSocial,
+                世界: finalWorld,
+                战斗: finalBattle,
+                玩家门派: finalSect,
+                任务列表: finalTasks,
+                约定列表: finalAgreements,
+                剧情: finalStory,
+                剧情规划: finalStoryPlan,
+                女主剧情规划: finalHeroinePlan,
+                同人剧情规划: openingStatePayload.同人剧情规划,
+                同人女主剧情规划: openingStatePayload.同人女主剧情规划
+            });
+
+            const 应用2_0开局增量命令 = (commands: TavernCommand[]) => {
+                if (!Array.isArray(commands) || commands.length === 0) return;
+                const base = 构建2_0开局命令基态();
+                const nextState = 保护开局生成门派状态(
+                    deps.processResponseCommands({ ...displayAiData, tavern_commands: commands }, base, { applyState: false }),
+                    base,
+                    options?.开局配置
+                );
+                finalRole = deps.规范化角色物品容器映射(nextState.角色, {
+                    启用饱腹口渴系统: openingGameConfig.启用饱腹口渴系统,
+                    题材模式: options?.开局配置?.题材模式
+                });
+                修补开局角色姓名占位(finalRole, normalizedOpeningRole);
+                finalEnv = deps.规范化环境信息(nextState.环境);
+                finalSocial = 修复开局伙伴社交列表(
+                    deps.规范化社交列表(nextState.社交),
+                    options?.开局配置,
+                    finalRole
+                );
+                const nextWorld = deps.规范化世界状态(nextState.世界);
+                if (
+                    (!Array.isArray(nextWorld.地图层级) || nextWorld.地图层级.length === 0)
+                    && Array.isArray(finalWorld.地图层级)
+                    && finalWorld.地图层级.length > 0
+                ) {
+                    nextWorld.地图层级 = finalWorld.地图层级;
+                }
+                finalWorld = nextWorld;
+                finalSect = deps.规范化门派状态(nextState.玩家门派);
+                finalTasks = Array.isArray(nextState.任务列表) ? nextState.任务列表 : finalTasks;
+                finalAgreements = Array.isArray(nextState.约定列表) ? nextState.约定列表 : finalAgreements;
+                finalBattle = {
+                    ...deps.规范化战斗状态(nextState.战斗),
+                    是否战斗中: false
+                };
+            };
+
+            const v2VariableFeatureOn = 变量生成功能已启用(deps.apiConfig);
+            if (!v2VariableFeatureOn) {
+                设置开局变量生成进度({
+                    phase: 'skipped',
+                    text: '变量生成功能未开启（请在 API 设置中启用「启用变量生成」），已跳过。'
+                });
+            } else if (!接口配置是否可用(openingVariableApi)) {
+                设置开局变量生成进度({
+                    phase: 'skipped',
+                    text: '变量生成独立链路接口未配置，已跳过。'
+                });
+            } else {
+                const openingBodyForVar = 提取响应完整正文文本(displayAiData);
+                const openingVarPlanForVar = typeof displayAiData?.t_var_plan === 'string'
+                    ? displayAiData.t_var_plan.trim()
+                    : '';
+                const variableStage = await 执行可重试开局阶段({
+                    stageLabel: '开局变量生成',
+                    beforeAttempt: (attempt) => {
+                        设置开局变量生成进度({
+                            phase: 'start',
+                            text: attempt > 1
+                                ? `正在重新生成 2.0 开局变量...（第 ${attempt} 次手动重试）`
+                                : '正在生成并校准 2.0 开局变量...'
+                        });
+                    },
+                    onAutoRetry: (attempt, maxAttempts, reason) => {
+                        设置开局变量生成进度({
+                            phase: 'start',
+                            text: `开局变量生成请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ''}`
+                        });
+                    },
+                    run: async () => {
+                        const base = 构建2_0开局命令基态();
+                        const openingCurrentGameTime = 环境时间转标准串(base.环境) || initialGameTime;
+                        const openingVariableAudit = 构建开局变量生成审计重点({ fandomEnabled: false });
+                        const variableWorldbookExtra = 按功能开关过滤提示词内容(构建世界书注入文本({
+                            books: deps.worldbooks,
+                            scopes: ['variable_calibration'],
+                            environment: base.环境,
+                            social: base.社交,
+                            history: [],
+                            extraTexts: [openingBodyForVar, openingVarPlanForVar],
+                            gameConfig: openingGameConfig
+                        }).combinedText, openingGameConfig);
+                        const variableExtraPrompt = [
+                            开局变量生成附加提示词,
+                            openingVariableAudit,
+                            variableWorldbookExtra
+                        ]
+                            .filter(Boolean)
+                            .join('\n\n');
+                        return 执行变量模型校准工作流(
+                            {
+                                playerInput: options?.开局额外要求 || '',
+                                parsedResponse: displayAiData,
+                                baseState: {
+                                    角色: base.角色,
+                                    环境: base.环境,
+                                    世界: base.世界,
+                                    社交: base.社交,
+                                    战斗: base.战斗,
+                                    玩家门派: base.玩家门派,
+                                    任务列表: base.任务列表,
+                                    约定列表: base.约定列表
+                                },
+                                promptPool: promptSnapshot,
+                                worldEvolutionEnabled: false,
+                                builtinPromptEntries: deps.builtinPromptEntries,
+                                worldbooks: deps.worldbooks,
+                                signal: controller.signal,
+                                extraPromptAppend: variableExtraPrompt,
+                                openingConfig: options?.开局配置,
+                                isOpeningRound: true,
+                                openingTaskContext: {
+                                    currentGameTime: openingCurrentGameTime,
+                                    openingRoleSetupText,
+                                    openingPartnerSetupText,
+                                    openingConfigText
+                                },
+                                onStreamDelta: 开局变量计算非流式输出
+                                    ? undefined
+                                    : (_delta: string, accumulated: string) => {
+                                        if (controller.signal.aborted) return;
+                                        设置开局变量生成进度({
+                                            phase: 'start',
+                                            text: '正在流式生成开局变量...',
+                                            rawText: accumulated
+                                        });
+                                    }
+                            },
+                            {
+                                apiConfig: deps.apiConfig,
+                                gameConfig: deps.gameConfig
+                            }
+                        );
+                    },
+                    onError: (errorText) => {
+                        设置开局变量生成进度({
+                            phase: 'error',
+                            text: `${errorText || '开局变量生成失败'}\n等待选择：重试当前阶段，或跳过继续。`
+                        });
+                    },
+                    onSkip: (errorText) => {
+                        设置开局变量生成进度({
+                            phase: 'skipped',
+                            text: `开局变量生成失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ''}`
+                        });
+                    },
+                    getErrorText: (error: any) => error?.message || '开局变量生成失败'
+                });
+                const openingVariableResult = variableStage.result;
+                const variableStartIndex = (Array.isArray(displayAiData.tavern_commands) ? displayAiData.tavern_commands.length : 0) + 1;
+                if (variableStage.completed) {
+                    const variableCommands = Array.isArray(openingVariableResult?.commands)
+                        ? openingVariableResult.commands
+                        : [];
+                    if (openingVariableResult && variableCommands.length > 0) {
+                        displayAiData = 合并变量生成结果到响应(displayAiData, openingVariableResult);
+                        应用2_0开局增量命令(variableCommands);
+                        设置开局变量生成进度({
+                            phase: 'done',
+                            text: `开局变量生成完成，应用 ${variableCommands.length} 条变量命令并并入状态。`,
+                            rawText: typeof openingVariableResult.rawText === 'string' ? openingVariableResult.rawText : '',
+                            commandTexts: 构建带索引命令文本(variableCommands, variableStartIndex)
+                        });
+                    } else {
+                        设置开局变量生成进度({
+                            phase: 'skipped',
+                            text: '开局变量生成完成，本次未产生额外变量命令。',
+                            rawText: typeof openingVariableResult?.rawText === 'string' ? openingVariableResult.rawText : ''
+                        });
+                    }
+                }
+            }
+
+            const mapGenerationEnabled = deps.apiConfig?.功能模型占位?.地图生成功能启用 !== false;
+            if (!mapGenerationEnabled) {
+                设置开局地图更新进度({
+                    phase: 'skipped',
+                    text: '地图生成功能未开启，已跳过开局地图更新。'
+                });
+            } else if (!接口配置是否可用(openingMapApi)) {
+                设置开局地图更新进度({
+                    phase: 'skipped',
+                    text: '地图更新接口未配置，已跳过。'
+                });
+            } else {
+                const mapStage = await 执行可重试开局阶段({
+                    stageLabel: '开局地图更新',
+                    beforeAttempt: (attempt) => {
+                        设置开局地图更新进度({
+                            phase: 'start',
+                            text: attempt > 1
+                                ? `正在重新执行 2.0 开局地图更新...（第 ${attempt} 次手动重试）`
+                                : '正在根据开局正文与世界基底校对地图...'
+                        });
+                    },
+                    onAutoRetry: (attempt, maxAttempts, reason) => {
+                        设置开局地图更新进度({
+                            phase: 'start',
+                            text: `开局地图更新请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ''}`
+                        });
+                    },
+                    run: async () => {
+                        const base = 构建2_0开局命令基态();
+                        const result = await 生成地图更新({
+                            mode: 'auto_incremental',
+                            apiSettings: deps.apiConfig,
+                            环境: base.环境,
+                            世界: base.世界,
+                            社交: base.社交,
+                            角色: base.角色,
+                            gameConfig: openingGameConfig,
+                            worldbooks: deps.worldbooks,
+                            currentResponse: displayAiData,
+                            stateBase: base,
+                            signal: controller.signal,
+                            onDelta: 开局地图更新非流式输出
+                                ? undefined
+                                : (_delta: string, accumulated: string) => {
+                                    if (controller.signal.aborted) return;
+                                    设置开局地图更新进度({
+                                        phase: 'start',
+                                        text: '正在流式更新开局地图...',
+                                        rawText: accumulated
+                                    });
+                                }
+                        });
+                        if (result.phase === 'error') {
+                            throw new Error(result.statusText || '开局地图更新失败');
+                        }
+                        return result;
+                    },
+                    onError: (errorText) => {
+                        设置开局地图更新进度({
+                            phase: 'error',
+                            text: `${errorText || '开局地图更新失败'}\n等待选择：重试当前阶段，或跳过继续。`
+                        });
+                    },
+                    onSkip: (errorText) => {
+                        设置开局地图更新进度({
+                            phase: 'skipped',
+                            text: `开局地图更新失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ''}`
+                        });
+                    },
+                    getErrorText: (error: any) => error?.message || '开局地图更新失败'
+                });
+                const mapResult = mapStage.result;
+                if (mapStage.completed && mapResult) {
+                    const mapCommands = Array.isArray(mapResult.commands) ? mapResult.commands : [];
+                    const mapStartIndex = (Array.isArray(displayAiData.tavern_commands) ? displayAiData.tavern_commands.length : 0) + 1;
+                    if (mapCommands.length > 0) {
+                        displayAiData = {
+                            ...displayAiData,
+                            tavern_commands: [
+                                ...(Array.isArray(displayAiData.tavern_commands) ? displayAiData.tavern_commands : []),
+                                ...mapCommands
+                            ]
+                        };
+                        应用2_0开局增量命令(mapCommands);
+                    }
+                    设置开局地图更新进度({
+                        phase: mapResult.phase,
+                        text: mapResult.statusText || (mapCommands.length > 0 ? '开局地图更新完成。' : '世界基底地图已完整，本回合无需追加新地点。'),
+                        rawText: mapResult.rawText,
+                        commandTexts: 构建带索引命令文本(mapCommands, mapStartIndex)
+                    });
+                }
+            }
+
+            // 所有开局阶段落盘后统一同步在场 NPC 的当前位置到最底层子地点/房间
+            finalSocial = 同步在场NPC当前位置(finalSocial, finalEnv);
+            修补开局角色姓名占位(finalRole, normalizedOpeningRole);
+            const finalGameTime = 环境时间转标准串(finalEnv) || initialGameTime;
+            finalStory = deps.规范化剧情状态(finalStory, finalEnv);
 
             deps.设置角色(finalRole);
             deps.设置环境(finalEnv);
             deps.设置社交(finalSocial);
             deps.设置世界(finalWorld);
+            deps.设置战斗(finalBattle);
+            deps.设置玩家门派(finalSect);
             deps.设置剧情(finalStory);
             deps.设置剧情规划(finalStoryPlan);
             if (finalHeroinePlan) deps.设置女主剧情规划(finalHeroinePlan);
@@ -902,25 +1440,13 @@ export const 执行开场剧情生成工作流 = async (
             deps.设置上一回合导演圣经?.(openingDirectorBible);
             deps.setWorldEvents(finalWorldEvents);
             deps.设置任务列表(finalTasks);
+            deps.设置约定列表(finalAgreements);
             deps.设置游戏初始时间(postResult.nextState.gameInitialTime || finalGameTime);
             deps.应用并同步记忆系统(finalMemory);
 
-            const committedAiMsg: 聊天记录结构 = {
-                ...newAiMsg,
-                gameTime: finalGameTime
-            };
+            const committedAiMsg = buildV2OpeningAiMsg(finalGameTime);
             const committedHistory = [...initialHistory, committedAiMsg];
             deps.设置历史记录(committedHistory);
-            deps.设置开局规划进度({
-                phase: 'done',
-                text: postResult.replanned ? '2.0 导演推演与动态重规划完成' : '2.0 导演后台推演与伏笔落账完成'
-            });
-            deps.设置开局世界演变进度({
-                phase: 'done',
-                text: postResult.offscreenSpillovers.length > 0
-                    ? `已推进 ${postResult.offscreenSpillovers.length} 条离屏局势外溢`
-                    : '局势稳定推进'
-            });
             deps.记录变量生成上下文({
                 playerInput: '',
                 response: displayAiData
@@ -953,10 +1479,10 @@ export const 执行开场剧情生成工作流 = async (
                 env: finalEnv,
                 social: finalSocial,
                 world: finalWorld,
-                battle: contextData.战斗 || deps.战斗,
-                sect: contextData.玩家门派 || deps.玩家门派,
+                battle: finalBattle,
+                sect: finalSect,
                 tasks: finalTasks,
-                agreements: contextData.约定列表 || deps.约定列表,
+                agreements: finalAgreements,
                 story: finalStory,
                 storyPlan: finalStoryPlan,
                 heroinePlan: finalHeroinePlan,
@@ -973,69 +1499,6 @@ export const 执行开场剧情生成工作流 = async (
             });
             return;
         }
-        const 开局功能模型占位 = deps.apiConfig?.功能模型占位;
-        const 开局全局非流式输出 = openingGameConfig.启用非流式输出 === true;
-        // 开局后处理与局内一致：尊重全局/分功能“非流式输出”设置；未开启时走真实流式请求。
-        const 开局变量计算非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.变量计算非流式输出 === true;
-        const 开局世界演变非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.世界演变非流式输出 === true;
-        const 开局规划分析非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.规划分析非流式输出 === true;
-        const 开局地图更新非流式输出 = 开局全局非流式输出 || 开局功能模型占位?.地图自动更新非流式输出 === true;
-        const 开局独立阶段自动重试已启用 = deps.游戏设置启用自动重试(openingGameConfig);
-        const 请求开局阶段失败决策 = async (stageLabel: string, errorText: string): Promise<'retry' | 'skip'> => {
-            const message = [
-                `${stageLabel}请求失败：`,
-                errorText || '未知错误',
-                '',
-                '选择“重试”会重新执行当前阶段；选择“跳过”会继续后续阶段。'
-            ].join('\n');
-            if (typeof window !== 'undefined') {
-                return window.confirm(`${message}\n\n按“确定”重试，按“取消”跳过。`) ? 'retry' : 'skip';
-            }
-            return 'skip';
-        };
-        const 执行可重试开局阶段 = async <T,>(params: {
-            stageLabel: string;
-            run: () => Promise<T>;
-            forceAutoRetry?: boolean;
-            beforeAttempt?: (attempt: number) => void;
-            onAutoRetry?: (attempt: number, maxAttempts: number, reason: string) => void;
-            onError?: (errorText: string) => void;
-            onSkip?: (errorText: string) => void;
-            getErrorText?: (error: any) => string;
-        }): Promise<{ completed: boolean; result?: T }> => {
-            let manualAttempt = 0;
-            while (true) {
-                manualAttempt += 1;
-                params.beforeAttempt?.(manualAttempt);
-                try {
-                    const result = await deps.执行带自动重试的生成请求<T>({
-                        enabled: params.forceAutoRetry === true || 开局独立阶段自动重试已启用,
-                        action: params.run,
-                        onRetry: params.onAutoRetry
-                    });
-                    return { completed: true, result };
-                } catch (error: any) {
-                    if (error?.name === 'AbortError') {
-                        throw error;
-                    }
-                    const errorText = params.getErrorText
-                        ? params.getErrorText(error)
-                        : (
-                            deps.提取解析失败原始信息(error)
-                            || error?.message
-                            || '未知错误'
-                        );
-                    params.onError?.(errorText);
-                    const decision = await 请求开局阶段失败决策(params.stageLabel, errorText);
-                    if (decision === 'retry') {
-                        continue;
-                    }
-                    params.onSkip?.(errorText);
-                    return { completed: false };
-                }
-            }
-        };
-        const 启用修炼体系 = openingGameConfig.启用修炼体系 !== false;
         const openingHasNarrativeConstraint = 是否有叙事约束((openingStatePayload?.角色 || deps.角色)?.天赋列表);
         let openingPromptSnapshot = promptSnapshot.map(p => {
             if (p.id === 'core_cot') {
@@ -1267,13 +1730,6 @@ export const 执行开场剧情生成工作流 = async (
             .filter(Boolean)
             .join('\n\n')
             .trim();
-        const openingRoleSetupText = 构建开局角色建档摘要(openingStatePayload?.角色 || deps.角色, {
-            cultivationSystemEnabled: 启用修炼体系
-        });
-        const openingPartnerSetupText = 构建开局伙伴建档摘要(options?.开局配置, {
-            cultivationSystemEnabled: 启用修炼体系
-        });
-        const openingConfigText = 构建开局配置提示词(options?.开局配置, options?.开局额外要求);
         const openingNarrativeConstraintBlock = 提取叙事约束块(
             (openingStatePayload?.角色 || deps.角色)?.天赋列表
         );
@@ -1753,38 +2209,6 @@ export const 执行开场剧情生成工作流 = async (
         };
         let openingWorldInitUpdates: string[] = [];
 
-        const openingPolishApi = 获取文章优化接口配置(deps.apiConfig);
-        const openingVariableApi = 获取变量计算接口配置(deps.apiConfig);
-        const openingStageTiming: Record<string, { startedAt: number; finishedAt?: number }> = {};
-        const 附加开局阶段运行信息 = <T extends 开局阶段计时进度 & { channelName?: string; modelName?: string }>(
-            stageId: string,
-            progress: T,
-            info: { channelName: string; modelName: string }
-        ): T => {
-            const now = Date.now();
-            const current = openingStageTiming[stageId] || { startedAt: now };
-            if (progress.phase === 'start') {
-                current.startedAt = current.startedAt || now;
-                current.finishedAt = undefined;
-            } else if (开局阶段已结束(progress.phase)) {
-                current.finishedAt = current.finishedAt || now;
-            }
-            openingStageTiming[stageId] = current;
-            const finishedAt = current.finishedAt;
-            const elapsedMs = typeof progress.elapsedMs === 'number'
-                ? progress.elapsedMs
-                : Math.max(0, (finishedAt || now) - current.startedAt);
-            return 附加开局阶段模型信息({
-                ...progress,
-                startedAt: progress.startedAt || current.startedAt,
-                finishedAt: progress.finishedAt || finishedAt,
-                elapsedMs
-            }, info);
-        };
-        const openingPolishInfo = 构建开局阶段模型信息('文章优化', openingPolishApi, apiForOpening);
-        const 设置开局文章优化进度 = (progress: any) => {
-            deps.设置开局文章优化进度(附加开局阶段运行信息('polish', progress, openingPolishInfo));
-        };
         const 开局文章优化变量可并行 = deps.文章优化功能已开启()
             && 接口配置是否可用(openingPolishApi)
             && 接口配置是否可用(openingVariableApi)
@@ -1886,10 +2310,6 @@ export const 执行开场剧情生成工作流 = async (
             });
         }
 
-        const openingVariableInfo = 构建开局阶段模型信息('变量生成', openingVariableApi, apiForOpening);
-        const 设置开局变量生成进度 = (progress: any) => {
-            deps.设置开局变量生成进度(附加开局阶段运行信息('variable', progress, openingVariableInfo));
-        };
         if (接口配置是否可用(openingVariableApi)) {
             const variableStage = await 执行可重试开局阶段({
                 stageLabel: '开局变量生成',
@@ -2038,21 +2458,6 @@ export const 执行开场剧情生成工作流 = async (
         const worldEvolutionFeatureEnabled = deps.apiConfig?.功能模型占位?.世界演变功能启用 !== false;
         const planningFeatureEnabled = deps.apiConfig?.功能模型占位?.规划分析功能启用 !== false;
         const mapGenerationEnabled = deps.apiConfig?.功能模型占位?.地图生成功能启用 !== false;
-        const openingWorldApi = 获取世界演变接口配置(deps.apiConfig);
-        const openingPlanningApi = 获取规划分析接口配置(deps.apiConfig);
-        const openingMapApi = 获取地图自动更新接口配置(deps.apiConfig);
-        const openingWorldInfo = 构建开局阶段模型信息('动态世界', openingWorldApi, apiForOpening);
-        const openingPlanningInfo = 构建开局阶段模型信息('规划分析', openingPlanningApi, apiForOpening);
-        const openingMapInfo = 构建开局阶段模型信息('地图更新', openingMapApi, apiForOpening);
-        const 设置开局世界演变进度 = (progress: any) => {
-            deps.设置开局世界演变进度(附加开局阶段运行信息('world', progress, openingWorldInfo));
-        };
-        const 设置开局规划进度 = (progress: any) => {
-            deps.设置开局规划进度(附加开局阶段运行信息('planning', progress, openingPlanningInfo));
-        };
-        const 设置开局地图更新进度 = (progress: any) => {
-            deps.设置开局地图更新进度(附加开局阶段运行信息('map', progress, openingMapInfo));
-        };
         const 开局可用并行阶段 = [
             worldEvolutionFeatureEnabled && 接口配置是否可用(openingWorldApi)
                 ? { id: 'world', channelKey: 获取开局阶段渠道键(openingWorldApi, apiForOpening) }

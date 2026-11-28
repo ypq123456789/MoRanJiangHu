@@ -29,6 +29,7 @@ import { 候选名命中模板黑名单 } from '../../utils/templateNameBlacklis
 import { 获取当前境界配置 } from './stateTransforms';
 import { normalizeCanonicalGameTime } from './timeUtils';
 import { 确保角色金钱BaseAmount } from '../../utils/currencyDisplay';
+import { 提取世界基底初始落点 } from '../../utils/locationTree';
 import type { WorldFoundationResult } from '../../services/ai/storyTasks';
 
 export type 开场命令基态 = {
@@ -154,9 +155,11 @@ const 清洗地图地点名称 = (value: any): string => {
 const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
     const normalized = (Array.isArray(rawLayers) ? rawLayers : [])
         .map((layer) => ({
+            原始ID: 取文本(layer?.ID || layer?.id),
             名称: 清洗地图地点名称(layer?.名称 || layer?.name),
             层级: 规范化地图层级名称(layer?.层级 || layer?.level),
-            父级ID: 清洗地图地点名称(layer?.父级ID || layer?.parentId || layer?.parent || layer?.上级地点),
+            父级ID: 取文本(layer?.父级ID || layer?.parentId || layer?.parent || layer?.上级地点),
+            清洗父级名称: 清洗地图地点名称(layer?.父级ID || layer?.parentId || layer?.parent || layer?.上级地点),
             描述: 取文本(layer?.描述 || layer?.description),
             控制势力: 取文本(layer?.控制势力 || layer?.主导势力 || layer?.所属势力 || layer?.controllingFaction),
             势力影响: 取文本(layer?.势力影响 || layer?.势力分布 || layer?.factionInfluence),
@@ -165,9 +168,11 @@ const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
         .filter((layer) => layer.名称);
     if (!normalized.some((layer) => layer.层级 === '寰宇')) {
         normalized.unshift({
+            原始ID: '',
             名称: '诸天万界',
             层级: '寰宇',
             父级ID: '',
+            清洗父级名称: '',
             描述: '诸天万界交汇之地',
             控制势力: '',
             势力影响: '',
@@ -181,15 +186,20 @@ const 规范化世界基底地图层级 = (rawLayers: any[]): any[] => {
         return `DT-${String(seq).padStart(3, '0')}`;
     };
     const nameToId = new Map<string, string>();
+    const rawIdToNewId = new Map<string, string>();
     normalized.forEach((layer) => {
-        if (!nameToId.has(layer.名称)) nameToId.set(layer.名称, nextId());
+        const assignedId = nameToId.get(layer.名称) || nextId();
+        if (!nameToId.has(layer.名称)) nameToId.set(layer.名称, assignedId);
+        if (layer.原始ID && !rawIdToNewId.has(layer.原始ID)) rawIdToNewId.set(layer.原始ID, assignedId);
     });
 
     return normalized.map((layer) => ({
         ID: nameToId.get(layer.名称) || nextId(),
         名称: layer.名称,
         层级: layer.层级,
-        父级ID: layer.父级ID ? (nameToId.get(layer.父级ID) || layer.父级ID) : '',
+        父级ID: layer.父级ID
+            ? (rawIdToNewId.get(layer.父级ID) || nameToId.get(layer.清洗父级名称) || nameToId.get(layer.父级ID) || layer.父级ID)
+            : '',
         描述: layer.描述,
         控制势力: layer.控制势力,
         势力影响: layer.势力影响,
@@ -310,7 +320,7 @@ const 对齐势力地盘到地图节点 = (factions: any[], layers: any[]): any[
     });
 };
 
-export const 合并世界基底到开场状态 = <T extends { 世界?: 世界数据结构 }>(
+export const 合并世界基底到开场状态 = <T extends { 世界?: 世界数据结构; 环境?: 环境信息结构 }>(
     openingBase: T,
     foundation?: Pick<WorldFoundationResult, 'mapLayers' | 'factions'> | null
 ): T => {
@@ -322,8 +332,20 @@ export const 合并世界基底到开场状态 = <T extends { 世界?: 世界数
     );
     if (mapLayers.length <= 0 && factions.length <= 0) return openingBase;
     const currentWorld = openingBase.世界 || 创建开场空白世界();
+    const initialLoc = mapLayers.length > 0 ? 提取世界基底初始落点(mapLayers) : null;
+    const currentEnv = openingBase.环境;
+    const nextEnv = initialLoc && currentEnv && !取文本(currentEnv.具体地点)
+        ? {
+            ...currentEnv,
+            大地点: 取文本(currentEnv.大地点) || initialLoc.大地点,
+            中地点: 取文本(currentEnv.中地点) || initialLoc.中地点,
+            小地点: 取文本(currentEnv.小地点) || initialLoc.小地点,
+            具体地点: initialLoc.具体地点
+        }
+        : currentEnv;
     return {
         ...openingBase,
+        ...(nextEnv ? { 环境: nextEnv } : {}),
         世界: {
             ...currentWorld,
             地图层级: mapLayers.length > 0 ? mapLayers as any : currentWorld.地图层级,

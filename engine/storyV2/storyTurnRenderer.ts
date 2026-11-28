@@ -287,8 +287,17 @@ export const 渲染开局回合V2 = async (
     const realWorldPrompt = gameConfig.启用真实世界模式 === true ? 构建真实世界模式提示词(gameConfig) : '';
     const wordPrompt = sysCtx.contextPieces.字数要求提示词 || 构建字数要求提示词(gameConfig.字数要求 || 1500);
 
+    const startLocationPath = [
+        state.环境?.大地点,
+        state.环境?.中地点,
+        state.环境?.小地点,
+        state.环境?.具体地点
+    ].filter((seg) => typeof seg === 'string' && seg.trim()).join(' > ');
     const openingTaskInput = [
         '请基于以上【世界观】、【主角与同伴建档】与【2.0 剧情导演开局简报】，生成极具沉浸感与戏剧张力的第 0 回合开场第一幕。',
+        startLocationPath
+            ? `【开局精准落地舞台】${startLocationPath}（请直接让主角与在场人物身处最底层的具体房间/场所「${state.环境?.具体地点 || startLocationPath}」之中展开首幕，不要浮在空泛的城镇或建筑外层）。`
+            : '',
         openingConfigPrompt,
         briefOutput.directorBriefText,
         briefOutput.knowledgeIsolationText,

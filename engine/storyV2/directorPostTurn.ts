@@ -8,6 +8,7 @@ import {
 } from '../../models/directorBible';
 import { 构建即时记忆条目, 构建短期记忆条目, 写入四段记忆, 规范化记忆配置 } from '../../hooks/useGame/memoryUtils';
 import { 规范化环境信息, 规范化社交列表 } from '../../hooks/useGame/stateTransforms';
+import { 构建环境位置路径, 同步在场NPC当前位置 } from '../../hooks/useGame/responseCommandProcessor';
 import { 标准时间串转结构化, 环境时间转标准串, 结构化时间转标准串 } from '../../hooks/useGame/timeUtils';
 import { 规范化文本补全消息链, 请求模型文本, type 通用消息 } from '../../services/ai/chatCompletionClient';
 import { 提取首个标签内容 } from '../../services/ai/storyResponseParser';
@@ -124,10 +125,10 @@ const 构建导演后处理提示词 = (params: {
         '',
         '请只输出 `<thinking>`（可选）与一个合法 `<导演更新JSON>...</导演更新JSON>`（严禁输出额外闲聊）：',
         '{',
-        '  "环境变更": { "推进分钟数": 30, "大地点": "", "中地点": "", "小地点": "", "具体地点": "", "时间叙述": "" },',
+        '  "环境变更": { "推进分钟数": 30, "大地点": "", "中地点": "", "小地点": "", "具体地点": "精确到最底层的房间/子地点名称（若在室内切勿只填外层建筑名）", "时间叙述": "" },',
         '  "主角变化": { "境界": "", "金钱变化BaseAmount": 0, "获得物品": [{ "名称": "...", "数量": 1 }], "失去物品": [{ "名称": "...", "数量": 1 }], "状态或伤势变化": "" },',
         '  "社交人物更新": [',
-        '    { "姓名": "...", "性别": "女|男", "身份": "...", "关系": "...", "好感度变化": 5, "是否在场": true, "核心性格特征": "...", "新增记忆": "一句话客观记录她眼中本回合发生的事（严禁写入幕后剧透）" }',
+        '    { "姓名": "...", "性别": "女|男", "身份": "...", "关系": "...", "好感度变化": 5, "是否在场": true, "当前位置": "精确到所在房间或具体地点（同处一室可与环境具体地点一致）", "核心性格特征": "...", "新增记忆": "一句话客观记录她眼中本回合发生的事（严禁写入幕后剧透）" }',
         '  ],',
         '  "伏笔迁移": [',
         '    { "id": "FS-001", "nextStatus": "已埋设|发酵中|已回收|已改线", "落点描述": "具体在正文中靠什么细节落地" }',
@@ -222,6 +223,7 @@ export const 执行导演后处理V2 = async (params: {
 
     // 1. Environment & Time (support full location hierarchy while keeping unchanged layers)
     const envPatch = parsed.环境变更 || {};
+    const prevSpecificPlace = (nextEnv.具体地点 || '').trim();
     const curCanon = 环境时间转标准串(nextEnv) || state.gameInitialTime || '1:01:01:06:00';
     const rawMins = Number(envPatch.推进分钟数);
     const addMins = Number.isFinite(rawMins) && rawMins >= 0 ? rawMins : 20;
@@ -231,6 +233,8 @@ export const 执行导演后处理V2 = async (params: {
     if (typeof envPatch.中地点 === 'string' && envPatch.中地点.trim()) nextEnv.中地点 = envPatch.中地点.trim();
     if (typeof envPatch.小地点 === 'string' && envPatch.小地点.trim()) nextEnv.小地点 = envPatch.小地点.trim();
     if (typeof envPatch.具体地点 === 'string' && envPatch.具体地点.trim()) nextEnv.具体地点 = envPatch.具体地点.trim();
+    const specificPlaceMoved = Boolean(nextEnv.具体地点 && nextEnv.具体地点 !== prevSpecificPlace);
+    const fullLocationPath = 构建环境位置路径(nextEnv);
 
     // 2. Protagonist factual updates (currency delta + stackable items)
     const rolePatch = parsed.主角变化 || {};
@@ -315,12 +319,22 @@ export const 执行导演后处理V2 = async (params: {
             const idx = nextSocial.findIndex((n) => n?.姓名 === name);
             const deltaFav = Number.isFinite(Number(upd.好感度变化)) ? Number(upd.好感度变化) : 0;
             const newMem = typeof upd.新增记忆 === 'string' && upd.新增记忆.trim() ? upd.新增记忆.trim() : '';
+            const updPos = typeof upd.当前位置 === 'string' && upd.当前位置.trim() ? upd.当前位置.trim() : '';
             if (idx >= 0) {
                 const cur = nextSocial[idx];
                 if (typeof upd.身份 === 'string' && upd.身份.trim()) cur.身份 = upd.身份.trim();
                 if (typeof upd.关系 === 'string' && upd.关系.trim()) cur.关系 = upd.关系.trim();
                 if (typeof upd.是否在场 === 'boolean') cur.是否在场 = upd.是否在场;
                 if (typeof upd.核心性格特征 === 'string' && upd.核心性格特征.trim()) cur.核心性格特征 = upd.核心性格特征.trim();
+                if (updPos) {
+                    cur.当前位置 = updPos;
+                    cur.当前地点 = updPos;
+                    cur.位置路径 = [nextEnv.大地点, nextEnv.中地点, nextEnv.小地点, updPos].filter(Boolean).join(' > ');
+                } else if (cur.是否在场 === true && specificPlaceMoved && nextEnv.具体地点) {
+                    cur.当前位置 = nextEnv.具体地点;
+                    cur.当前地点 = nextEnv.具体地点;
+                    if (fullLocationPath) cur.位置路径 = fullLocationPath;
+                }
                 cur.好感度 = Math.max(-100, Math.min(100, (Number(cur.好感度) || 0) + deltaFav));
                 if (newMem) {
                     cur.记忆 = Array.isArray(cur.记忆) ? cur.记忆 : [];
@@ -328,6 +342,7 @@ export const 执行导演后处理V2 = async (params: {
                     if (cur.记忆.length > 20) cur.记忆 = cur.记忆.slice(-20);
                 }
             } else {
+                const initPos = updPos || (upd.是否在场 !== false ? nextEnv.具体地点 : '');
                 nextSocial.push({
                     id: `NPC-${String(nextSocial.length + 1).padStart(3, '0')}`,
                     姓名: name,
@@ -336,6 +351,11 @@ export const 执行导演后处理V2 = async (params: {
                     关系: upd.关系 || '初识',
                     好感度: Math.max(-100, Math.min(100, 30 + deltaFav)),
                     是否在场: upd.是否在场 !== false,
+                    ...(initPos ? {
+                        当前位置: initPos,
+                        当前地点: initPos,
+                        位置路径: [nextEnv.大地点, nextEnv.中地点, nextEnv.小地点, initPos].filter(Boolean).join(' > ')
+                    } : {}),
                     核心性格特征: upd.核心性格特征 || '深浅莫测',
                     简介: upd.核心性格特征 || upd.身份 || '',
                     记忆: newMem ? [`【${nextCanon}】${newMem}`] : []
@@ -347,7 +367,7 @@ export const 执行导演后处理V2 = async (params: {
             }
         }
     }
-    nextSocial = 规范化社交列表(nextSocial, { 合并同名: false });
+    nextSocial = 同步在场NPC当前位置(规范化社交列表(nextSocial, { 合并同名: false }), nextEnv);
 
     // 4. Foreshadowing Ledger Updates (monotonic progression: 未埋设(0) < 已埋设(1) < 发酵中(2) < 已回收/已改线(3))
     const 伏笔状态阶位: Record<ForeshadowingStatus, number> = {

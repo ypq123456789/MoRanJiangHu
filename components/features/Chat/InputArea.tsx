@@ -1170,6 +1170,11 @@ const InputArea: React.FC<Props> = ({
                                                         {progressText}
                                                     </pre>
                                                 )}
+                                                {!isRunningStage && phase === 'skipped' && typeof progressText === 'string' && progressText.trim().length > 0 && (
+                                                    <div className="mt-1 text-[11px] leading-5 text-gray-500">
+                                                        跳过原因：{progressText}
+                                                    </div>
+                                                )}
                                                 {(phase === 'error' && stage.progress?.text) && (
                                                     <pre className="mt-2 text-sm whitespace-pre-wrap text-red-300 leading-relaxed max-h-24 overflow-y-auto no-scrollbar">
                                                         {stage.progress.text}

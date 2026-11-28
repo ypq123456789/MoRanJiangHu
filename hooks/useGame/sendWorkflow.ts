@@ -40,6 +40,9 @@ import { 检测文章优化协议确认污染 } from './bodyPolish';
 import { 分析世界到期触发 } from './worldEvolutionUtils';
 import { 按世界演变分流净化响应 } from './storyResponseGuards';
 import type { 响应命令处理状态 } from './responseCommandProcessor';
+import { 同步在场NPC当前位置 } from './responseCommandProcessor';
+import { 执行变量模型校准工作流 } from './variableModelWorkflow';
+import { 合并变量校准结果到响应 as 合并变量生成结果到响应 } from './variableCalibrationMerge';
 import type { 自动存档快照结构 } from './saveCoordinator';
 import type { 世界演变触发参数, 世界演变执行结果 } from './worldEvolutionWorkflow';
 import type { 地图更新执行结果 } from './mapUpdateWorkflow';
@@ -2192,20 +2195,19 @@ export const 执行主剧情发送工作流 = async (
                         收束自动存档完成(null);
                         return;
                     }
-                    const finalEnvV2 = deps.规范化环境信息(postRes.nextState.环境);
-                    const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;
+                    let finalEnvV2 = deps.规范化环境信息(postRes.nextState.环境);
                     const rawFinalRoleV2 = 规范化角色物品容器映射(postRes.nextState.角色, {
                         启用饱腹口渴系统: runtimeGameConfigV2.启用饱腹口渴系统,
                         题材模式: currentState.开局配置?.题材模式
                     });
-                    const finalRoleV2 = 合并导演角色变更({
+                    let finalRoleV2 = 合并导演角色变更({
                         latestRole: deps.获取最新角色Snapshot?.(),
                         preTurnRole: v2State.角色,
                         postTurnRole: rawFinalRoleV2,
                         openingConfig: currentState.开局配置
                     });
-                    const finalSocialV2 = 规范化社交列表(postRes.nextState.社交, { 合并同名: false });
-                    const finalWorldV2 = deps.规范化世界状态(postRes.nextState.世界);
+                    let finalSocialV2 = 规范化社交列表(postRes.nextState.社交, { 合并同名: false });
+                    let finalWorldV2 = deps.规范化世界状态(postRes.nextState.世界);
                     const finalStoryV2 = deps.规范化剧情状态(postRes.nextState.剧情, finalEnvV2);
                     const finalStoryPlanV2 = deps.规范化剧情规划状态(postRes.nextState.剧情规划);
                     const finalHeroinePlanV2 = postRes.nextState.女主剧情规划
@@ -2213,7 +2215,309 @@ export const 执行主剧情发送工作流 = async (
                         : currentState.女主剧情规划;
                     const finalMemoryV2 = 规范化记忆系统(postRes.nextState.记忆系统);
                     const finalWorldEventsV2 = Array.isArray(postRes.nextState.世界大事) ? postRes.nextState.世界大事 : [];
-                    const finalTasksV2 = Array.isArray(postRes.nextState.任务列表) ? postRes.nextState.任务列表 : [];
+                    let finalTasksV2 = Array.isArray(postRes.nextState.任务列表) ? postRes.nextState.任务列表 : [];
+                    let finalSectV2 = deps.深拷贝(currentState.玩家门派);
+                    let finalAgreementsV2 = Array.isArray(currentState.约定列表) ? deps.深拷贝(currentState.约定列表) : [];
+                    let finalBattleV2 = {
+                        ...deps.深拷贝(currentState.战斗),
+                        是否战斗中: false
+                    };
+                    let workingDisplayResponseV2: GameResponse = {
+                        ...displayResponse,
+                        tavern_commands: Array.isArray(displayResponse.tavern_commands)
+                            ? [...displayResponse.tavern_commands]
+                            : []
+                    };
+
+                    options?.onPlanningProgress?.({
+                        phase: 'done',
+                        text: postRes.replanned
+                            ? `2.0 导演已完成动态重规划${postRes.replanReason ? `：${postRes.replanReason}` : ''}`
+                            : '2.0 导演推演与伏笔台账更新完成。'
+                    });
+                    options?.onWorldEvolutionProgress?.({
+                        phase: 'done',
+                        text: postRes.offscreenSpillovers.length > 0
+                            ? `已结算 ${postRes.offscreenSpillovers.length} 条离屏局势外溢`
+                            : '离屏局势稳定推进'
+                    });
+
+                    const 构建2_0回合命令基态 = (): Partial<响应命令处理状态> => ({
+                        角色: finalRoleV2,
+                        环境: finalEnvV2,
+                        社交: finalSocialV2,
+                        世界: finalWorldV2,
+                        战斗: finalBattleV2,
+                        玩家门派: finalSectV2,
+                        任务列表: finalTasksV2,
+                        约定列表: finalAgreementsV2,
+                        剧情: finalStoryV2,
+                        剧情规划: finalStoryPlanV2,
+                        女主剧情规划: finalHeroinePlanV2,
+                        同人剧情规划: currentState.同人剧情规划,
+                        同人女主剧情规划: currentState.同人女主剧情规划
+                    });
+                    const 应用2_0回合增量命令 = (commands: any[]) => {
+                        if (!Array.isArray(commands) || commands.length === 0) return;
+                        const roleBeforeCmds = deps.深拷贝(finalRoleV2);
+                        const base = 构建2_0回合命令基态();
+                        const nextCmdState = deps.processResponseCommands(
+                            { ...workingDisplayResponseV2, tavern_commands: commands },
+                            base,
+                            { applyState: false }
+                        );
+                        const rawNextRole = 规范化角色物品容器映射(nextCmdState.角色, {
+                            启用饱腹口渴系统: runtimeGameConfigV2.启用饱腹口渴系统,
+                            题材模式: currentState.开局配置?.题材模式
+                        });
+                        finalRoleV2 = 合并导演角色变更({
+                            latestRole: deps.获取最新角色Snapshot?.(),
+                            preTurnRole: roleBeforeCmds,
+                            postTurnRole: rawNextRole,
+                            openingConfig: currentState.开局配置
+                        });
+                        finalEnvV2 = deps.规范化环境信息(nextCmdState.环境);
+                        finalSocialV2 = 规范化社交列表(nextCmdState.社交, { 合并同名: false });
+                        const nextWorld = deps.规范化世界状态(nextCmdState.世界);
+                        if (
+                            (!Array.isArray(nextWorld.地图层级) || nextWorld.地图层级.length === 0)
+                            && Array.isArray(finalWorldV2.地图层级)
+                            && finalWorldV2.地图层级.length > 0
+                        ) {
+                            nextWorld.地图层级 = finalWorldV2.地图层级;
+                        }
+                        finalWorldV2 = nextWorld;
+                        finalSectV2 = nextCmdState.玩家门派 ?? finalSectV2;
+                        finalTasksV2 = Array.isArray(nextCmdState.任务列表) ? nextCmdState.任务列表 : finalTasksV2;
+                        finalAgreementsV2 = Array.isArray(nextCmdState.约定列表) ? nextCmdState.约定列表 : finalAgreementsV2;
+                        finalBattleV2 = {
+                            ...(nextCmdState.战斗 || finalBattleV2),
+                            是否战斗中: false
+                        };
+                    };
+
+                    const v2VarFeatureOn = 变量生成功能已启用(currentState.apiConfig);
+                    const v2VarConfig = 获取变量计算接口配置(currentState.apiConfig);
+                    const v2VarEnabled = v2VarFeatureOn && 接口配置是否可用(v2VarConfig);
+                    if (!v2VarEnabled) {
+                        options?.onVariableGenerationProgress?.({
+                            phase: 'skipped',
+                            text: v2VarFeatureOn
+                                ? '变量生成接口未配置，已跳过。'
+                                : '变量生成功能已关闭，已跳过。'
+                        });
+                    } else {
+                        const v2VarNonStream = runtimeGameConfigV2.启用非流式输出 === true
+                            || currentState.apiConfig?.功能模型占位?.变量计算非流式输出 === true;
+                        const v2VarStartIndex = (Array.isArray(workingDisplayResponseV2.tavern_commands)
+                            ? workingDisplayResponseV2.tavern_commands.length
+                            : 0) + 1;
+                        const varStage = await 执行可重试独立阶段({
+                            stageId: 'variable',
+                            stageLabel: '变量生成',
+                            beforeAttempt: (attempt) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'start',
+                                    text: attempt > 1
+                                        ? `正在重新执行 2.0 变量生成...（第 ${attempt} 次手动重试）`
+                                        : '正在根据本轮正文核对并生成变量更新...'
+                                });
+                            },
+                            onAutoRetry: (attempt, maxAttempts, reason) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'start',
+                                    text: `变量生成请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ''}`
+                                });
+                            },
+                            run: () => {
+                                const base = 构建2_0回合命令基态();
+                                return 执行变量模型校准工作流({
+                                    playerInput: sendInput,
+                                    parsedResponse: workingDisplayResponseV2,
+                                    baseState: {
+                                        角色: base.角色!,
+                                        环境: base.环境!,
+                                        世界: base.世界!,
+                                        社交: base.社交!,
+                                        战斗: base.战斗!,
+                                        玩家门派: base.玩家门派!,
+                                        任务列表: base.任务列表!,
+                                        约定列表: base.约定列表!
+                                    },
+                                    promptPool: currentState.prompts,
+                                    worldEvolutionEnabled: false,
+                                    builtinPromptEntries: currentState.内置提示词列表,
+                                    worldbooks: currentState.世界书列表,
+                                    signal: controller.signal,
+                                    openingConfig: currentState.开局配置,
+                                    onStreamDelta: v2VarNonStream
+                                        ? undefined
+                                        : (_delta, accumulated) => {
+                                            if (controller.signal.aborted) return;
+                                            options?.onVariableGenerationProgress?.({
+                                                phase: 'start',
+                                                text: '正在流式生成变量命令...',
+                                                rawText: accumulated
+                                            });
+                                        }
+                                }, {
+                                    apiConfig: currentState.apiConfig,
+                                    gameConfig: runtimeGameConfigV2
+                                });
+                            },
+                            onError: (errorText) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'error',
+                                    text: `${errorText || '变量生成失败'}\n等待选择：重试当前阶段，或跳过继续。`
+                                });
+                            },
+                            onSkip: (errorText) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'skipped',
+                                    text: `变量生成失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ''}`
+                                });
+                            },
+                            getErrorText: (error: any) => (
+                                deps.提取原始报错详情(error)
+                                || error?.message
+                                || '变量生成失败'
+                            )
+                        });
+                        if (!是否当前V2会话仍有效()) {
+                            收束自动存档完成(null);
+                            return;
+                        }
+                        const varRes = varStage.result;
+                        if (varStage.completed) {
+                            const varCommands = Array.isArray(varRes?.commands) ? varRes.commands : [];
+                            if (varRes && varCommands.length > 0) {
+                                workingDisplayResponseV2 = 合并变量生成结果到响应(workingDisplayResponseV2, varRes);
+                                应用2_0回合增量命令(varCommands);
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'done',
+                                    text: `变量生成完成，应用 ${varCommands.length} 条变量命令。`,
+                                    rawText: varRes.rawText,
+                                    commandTexts: 构建带索引命令文本(varCommands, v2VarStartIndex)
+                                });
+                            } else {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'skipped',
+                                    text: '变量生成完成，本回合未产生额外变量更新。',
+                                    rawText: varRes?.rawText || ''
+                                });
+                            }
+                        }
+                    }
+
+                    const v2MapEnabled = currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false;
+                    const v2MapConfig = 获取地图自动更新接口配置(currentState.apiConfig);
+                    if (!v2MapEnabled) {
+                        options?.onMapUpdateProgress?.({
+                            phase: 'skipped',
+                            text: '地图生成功能未开启，已跳过本轮地图更新。'
+                        });
+                    } else if (!接口配置是否可用(v2MapConfig)) {
+                        options?.onMapUpdateProgress?.({
+                            phase: 'skipped',
+                            text: '地图更新接口未配置，已跳过。'
+                        });
+                    } else {
+                        const v2MapStartIndex = (Array.isArray(workingDisplayResponseV2.tavern_commands)
+                            ? workingDisplayResponseV2.tavern_commands.length
+                            : 0) + 1;
+                        const mapStage = await 执行可重试独立阶段({
+                            stageId: 'map',
+                            stageLabel: '地图更新',
+                            beforeAttempt: (attempt) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'start',
+                                    text: attempt > 1
+                                        ? `正在重新执行 2.0 地图更新...（第 ${attempt} 次手动重试）`
+                                        : '正在检查并更新世界地图...'
+                                });
+                            },
+                            onAutoRetry: (attempt, maxAttempts, reason) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'start',
+                                    text: `地图更新请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ''}`
+                                });
+                            },
+                            run: async () => {
+                                const base = 构建2_0回合命令基态();
+                                const result = await 生成地图更新({
+                                    mode: 'auto_incremental',
+                                    apiSettings: currentState.apiConfig,
+                                    环境: base.环境,
+                                    世界: base.世界,
+                                    社交: base.社交,
+                                    角色: base.角色,
+                                    gameConfig: runtimeGameConfigV2,
+                                    worldbooks: currentState.世界书列表,
+                                    currentResponse: workingDisplayResponseV2,
+                                    stateBase: {
+                                        环境: base.环境,
+                                        世界: base.世界,
+                                        社交: base.社交,
+                                        角色: base.角色
+                                    },
+                                    signal: controller.signal
+                                });
+                                if (result.phase === 'error') {
+                                    const wrappedError = new Error(result.statusText || '地图更新失败');
+                                    (wrappedError as Error & { stageResult?: 地图更新执行结果 }).stageResult = result;
+                                    throw wrappedError;
+                                }
+                                return result;
+                            },
+                            getErrorText: (error: any) => (
+                                error?.stageResult?.statusText
+                                || deps.提取原始报错详情(error)
+                                || error?.message
+                                || '地图更新失败'
+                            ),
+                            onError: (errorText) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'error',
+                                    text: `${errorText || '地图更新失败'}\n等待选择：重试当前阶段，或跳过继续。`
+                                });
+                            },
+                            onSkip: (errorText) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'skipped',
+                                    text: `地图更新失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ''}`
+                                });
+                            }
+                        });
+                        if (!是否当前V2会话仍有效()) {
+                            收束自动存档完成(null);
+                            return;
+                        }
+                        const mapRes = mapStage.result;
+                        if (mapStage.completed && mapRes) {
+                            const mapCommands = Array.isArray(mapRes.commands) ? mapRes.commands : [];
+                            if (mapCommands.length > 0) {
+                                workingDisplayResponseV2 = {
+                                    ...workingDisplayResponseV2,
+                                    tavern_commands: [
+                                        ...(Array.isArray(workingDisplayResponseV2.tavern_commands)
+                                            ? workingDisplayResponseV2.tavern_commands
+                                            : []),
+                                        ...mapCommands
+                                    ]
+                                };
+                                应用2_0回合增量命令(mapCommands);
+                            }
+                            options?.onMapUpdateProgress?.({
+                                phase: mapRes.phase,
+                                text: mapRes.statusText || (mapCommands.length > 0 ? '地图更新完成。' : '世界地图暂无新增地点。'),
+                                rawText: mapRes.rawText,
+                                commandTexts: 构建带索引命令文本(mapCommands, v2MapStartIndex)
+                            });
+                        }
+                    }
+
+                    finalSocialV2 = 同步在场NPC当前位置(finalSocialV2, finalEnvV2);
+                    const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;
 
                     deps.设置角色?.(finalRoleV2);
                     deps.设置环境?.(finalEnvV2);
@@ -2229,6 +2533,7 @@ export const 执行主剧情发送工作流 = async (
 
                     const finalAiMsgV2: 聊天记录结构 = {
                         ...newAiMsgV2,
+                        structuredResponse: workingDisplayResponseV2,
                         gameTime: finalGameTimeV2
                     };
                     const baseHistoryForCommit = 续跑历史V2 || committedHistoryV2;
@@ -2237,30 +2542,17 @@ export const 执行主剧情发送工作流 = async (
                     ));
                     deps.设置历史记录(finalHistoryV2);
 
-                    options?.onPlanningProgress?.({
-                        phase: 'done',
-                        text: postRes.replanned
-                            ? `2.0 导演已完成动态重规划${postRes.replanReason ? `：${postRes.replanReason}` : ''}`
-                            : '2.0 导演推演与伏笔台账更新完成。'
-                    });
-                    options?.onWorldEvolutionProgress?.({
-                        phase: 'done',
-                        text: postRes.offscreenSpillovers.length > 0
-                            ? `已结算 ${postRes.offscreenSpillovers.length} 条离屏局势外溢`
-                            : '离屏局势稳定推进'
-                    });
-
                     const newNpcsV2 = deps.提取新增NPC列表(currentState.社交, finalSocialV2);
                     if (newNpcsV2.length > 0) deps.触发新增NPC自动生图(newNpcsV2);
                     deps.触发对白NPC头像补全(finalSocialV2);
                     deps.检查主角每回合生图(finalRoleV2);
-                    const bodyTextV2 = (Array.isArray(displayResponse.logs) ? displayResponse.logs : [])
+                    const bodyTextV2 = (Array.isArray(workingDisplayResponseV2.logs) ? workingDisplayResponseV2.logs : [])
                         .map((l: any) => (l?.text || '').trim())
                         .filter(Boolean)
                         .join('\n');
                     if (bodyTextV2) {
                         deps.触发场景自动生图({
-                            response: displayResponse,
+                            response: workingDisplayResponseV2,
                             bodyText: bodyTextV2,
                             env: finalEnvV2,
                             turnNumber: nextRound,
@@ -2276,10 +2568,10 @@ export const 执行主剧情发送工作流 = async (
                             env: finalEnvV2,
                             social: finalSocialV2,
                             world: finalWorldV2,
-                            battle: currentState.战斗,
-                            sect: currentState.玩家门派,
+                            battle: finalBattleV2,
+                            sect: finalSectV2,
                             tasks: finalTasksV2,
-                            agreements: currentState.约定列表,
+                            agreements: finalAgreementsV2,
                             story: finalStoryV2,
                             storyPlan: finalStoryPlanV2,
                             heroinePlan: finalHeroinePlanV2,
@@ -2319,8 +2611,19 @@ export const 执行主剧情发送工作流 = async (
             };
 
             if (runtimeGameConfigV2.启用正文后暂停后续步骤 === true && deps.注册待继续后续步骤) {
+                const v2PauseStages = [
+                    '2.0 导演推演与伏笔核销',
+                    '2.0 离屏人物与势力演化',
+                    ...(变量生成功能已启用(currentState.apiConfig) && 接口配置是否可用(获取变量计算接口配置(currentState.apiConfig))
+                        ? ['变量生成']
+                        : []),
+                    ...(currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false
+                        && 接口配置是否可用(获取地图自动更新接口配置(currentState.apiConfig))
+                        ? ['地图更新']
+                        : [])
+                ];
                 deps.注册待继续后续步骤({
-                    阶段摘要: ['2.0 导演推演与伏笔核销', '2.0 离屏人物与势力演化'],
+                    阶段摘要: v2PauseStages,
                     回合标识: aiTimestamp,
                     执行: async () => {
                         const 续跑快照 = deps.获取续跑状态快照?.() || null;

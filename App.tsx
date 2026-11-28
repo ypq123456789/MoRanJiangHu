@@ -47,6 +47,7 @@ import { 获取本地图片图床迁移状态, 启动旧存档谱系迁移, 读�
 import { startOnlinePresenceHeartbeat } from './services/onlinePresence';
 import { 等待云端后台同步完成, 确保本地存档已同步到云端, 确保最新本地存档已同步到云端, 读取云端游玩存储模式 } from './services/cloudPlayService';
 import { 启动云端设置自动同步 } from './services/cloudSettingsSync';
+import { 提取玩家可见世界圣经概览 } from './engine/storyV2/legacySaveBridge';
 import './services/diagnosticLog';
 import type { 物品生图结果 } from './types';
 import type { 游戏物品, 物品类型, 物品品质 } from './models/item';
@@ -540,9 +541,15 @@ const App: React.FC = () => {
     const 最近运行报错提示时间Ref = React.useRef(0);
     const legacyImageMigrationNoticeStageRef = React.useRef(legacyImageMigrationStatus.stage);
     const legacySaveLineageMigrationNoticeStageRef = React.useRef(legacySaveLineageMigrationStatus.stage);
+    const currentWorldPrompt = React.useMemo(() => (
+        (state.prompts || []).find((prompt) => prompt?.id === 'core_world')?.内容 || ''
+    ), [state.prompts]);
     const currentRealmPrompt = React.useMemo(() => (
         (state.prompts || []).find((prompt) => prompt?.id === 'core_realm')?.内容 || ''
     ), [state.prompts]);
+    const currentWorldOverview = React.useMemo(() => (
+        提取玩家可见世界圣经概览(state.导演圣经)
+    ), [state.导演圣经]);
     const 唤醒物品自动生图扫描 = React.useCallback((delayMs = 0) => {
         if (typeof window === 'undefined') return;
         if (autoItemImageWakeTimerRef.current !== null) {
@@ -4300,6 +4307,9 @@ const App: React.FC = () => {
                             {isMobile ? (
                                 <MobileWorldModal
                                     world={state.世界}
+                                    worldPrompt={currentWorldPrompt}
+                                    realmPrompt={启用修炼体系 ? currentRealmPrompt : ''}
+                                    worldOverview={currentWorldOverview}
                                     worldEvolutionEnabled={meta.worldEvolutionEnabled}
                                     worldEvolutionUpdating={meta.worldEvolutionUpdating}
                                     worldEvolutionStatus={meta.worldEvolutionStatus}
@@ -4312,6 +4322,9 @@ const App: React.FC = () => {
                             ) : (
                                 <WorldModal
                                     world={state.世界}
+                                    worldPrompt={currentWorldPrompt}
+                                    realmPrompt={启用修炼体系 ? currentRealmPrompt : ''}
+                                    worldOverview={currentWorldOverview}
                                     worldEvolutionEnabled={meta.worldEvolutionEnabled}
                                     worldEvolutionUpdating={meta.worldEvolutionUpdating}
                                     worldEvolutionStatus={meta.worldEvolutionStatus}

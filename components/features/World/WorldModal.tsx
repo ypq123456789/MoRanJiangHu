@@ -4,8 +4,13 @@ import { normalizeCanonicalGameTime, 结构化时间转标准串 } from '../../.
 import { IconBolt, IconEye, IconScroll, IconSwords, IconMapPin } from '../../ui/Icons';
 import { 势力关系图边, 势力关系图节点, 归类势力关系色调, 构建世界显示名解析器, 构建势力关系图数据, 构建势力名称索引, 解析势力关系条目 } from '../../../utils/worldFactionRelations';
 
+import type { 玩家可见世界圣经概览 } from '../../../engine/storyV2/legacySaveBridge';
+
 interface Props {
     world: 世界数据结构;
+    worldPrompt?: string;
+    realmPrompt?: string;
+    worldOverview?: 玩家可见世界圣经概览 | null;
     worldEvolutionEnabled?: boolean;
     worldEvolutionUpdating?: boolean;
     worldEvolutionStatus?: string;
@@ -16,7 +21,7 @@ interface Props {
     onClose: () => void;
 }
 
-type TabType = 'events' | 'npcs' | 'overview';
+type TabType = 'worldview' | 'events' | 'npcs' | 'overview';
 
 const 转标准时间串 = (value: unknown): string | null => {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -135,6 +140,9 @@ const 势力关系图: React.FC<{ nodes: 势力关系图节点[]; edges: 势力�
 
 const WorldModal: React.FC<Props> = ({
     world,
+    worldPrompt = '',
+    realmPrompt = '',
+    worldOverview = null,
     worldEvolutionEnabled = false,
     worldEvolutionUpdating = false,
     worldEvolutionStatus = '',
@@ -226,6 +234,7 @@ const WorldModal: React.FC<Props> = ({
 
                         <div className="mt-6 px-4 space-y-2">
                             {[
+                                { id: 'worldview' as const, label: '世界总纲', desc: '开局世界观、空间阶梯与分幕格局', icon: <IconEye size={18} /> },
                                 { id: 'events' as const, label: '风云变幻', desc: '待执行与进行中事件', icon: <IconBolt size={18} /> },
                                 { id: 'npcs' as const, label: '势力群英', desc: '江湖势力与 NPC 行迹', icon: <IconSwords size={18} /> },
                                 { id: 'overview' as const, label: '史册留痕', desc: '已结算与沉淀归档', icon: <IconScroll size={18} /> }
@@ -270,6 +279,78 @@ const WorldModal: React.FC<Props> = ({
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'worldview' && (
+                            <div className="space-y-6">
+                                <section className="rounded-2xl border border-wuxia-gold/25 bg-black/35 p-6">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <div className="text-sm font-serif font-bold text-wuxia-gold tracking-[0.25em]">世界观总纲</div>
+                                        {worldPrompt.trim() && (
+                                            <div className="text-[11px] text-gray-500">共 {worldPrompt.trim().length} 字</div>
+                                        )}
+                                    </div>
+                                    {worldPrompt.trim() ? (
+                                        <div className="space-y-3 text-sm leading-7 text-gray-200 whitespace-pre-wrap">
+                                            {worldPrompt.trim()}
+                                        </div>
+                                    ) : worldOverview?.世界观表层摘要 ? (
+                                        <div className="space-y-3 text-sm leading-7 text-gray-200 whitespace-pre-wrap">
+                                            {worldOverview.世界观表层摘要}
+                                        </div>
+                                    ) : (
+                                        <div className="text-xs text-gray-500 italic">当前尚未写入开局世界观正文。</div>
+                                    )}
+                                </section>
+
+                                {worldOverview && (worldOverview.公开分幕大纲.length > 0 || worldOverview.空间阶梯.length > 0) && (
+                                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                                        {worldOverview.公开分幕大纲.length > 0 && (
+                                            <section className="rounded-2xl border border-cyan-500/20 bg-black/35 p-5">
+                                                <div className="text-sm font-serif font-bold text-wuxia-cyan tracking-[0.22em] mb-4">
+                                                    当前局势分幕（第 {worldOverview.当前幕次} 幕）
+                                                </div>
+                                                <div className="space-y-3">
+                                                    {worldOverview.公开分幕大纲.map((act) => (
+                                                        <div key={`act-${act.幕次}`} className="rounded-xl border border-gray-800 bg-black/35 p-4">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="font-serif font-bold text-wuxia-gold">第 {act.幕次} 幕 · {act.标题}</div>
+                                                                <span className="rounded-full border border-wuxia-cyan/30 px-2 py-0.5 text-[10px] text-wuxia-cyan">{act.当前状态}</span>
+                                                            </div>
+                                                            {act.核心矛盾 && <div className="mt-2 text-xs leading-6 text-gray-300"><span className="text-gray-500">核心局势：</span>{act.核心矛盾}</div>}
+                                                            {act.主角目标与破局路径 && <div className="mt-1 text-xs leading-6 text-gray-300"><span className="text-gray-500">破局方向：</span>{act.主角目标与破局路径}</div>}
+                                                            {act.关键势力与人物.length > 0 && <div className="mt-2 text-[11px] text-gray-400">牵涉势力/人物：{act.关键势力与人物.join('、')}</div>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </section>
+                                        )}
+
+                                        {worldOverview.空间阶梯.length > 0 && (
+                                            <section className="rounded-2xl border border-amber-500/20 bg-black/35 p-5">
+                                                <div className="text-sm font-serif font-bold text-amber-300 tracking-[0.22em] mb-4">天地空间阶梯</div>
+                                                <div className="space-y-3">
+                                                    {worldOverview.空间阶梯.map((tier) => (
+                                                        <div key={`tier-${tier.层级序号}`} className="rounded-xl border border-gray-800 bg-black/35 p-4 text-xs leading-6">
+                                                            <div className="font-bold text-amber-200">L{tier.层级序号} · {tier.层级名称}</div>
+                                                            {tier.典型区域.length > 0 && <div className="mt-1 text-gray-400">代表地域：{tier.典型区域.join('、')}</div>}
+                                                            {tier.准入壁垒 && <div className="text-gray-400">准入壁垒：{tier.准入壁垒}</div>}
+                                                            {tier.主要压迫冲突 && <div className="text-gray-300">主导冲突：{tier.主要压迫冲突}</div>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </section>
+                                        )}
+                                    </div>
+                                )}
+
+                                {realmPrompt.trim() && (
+                                    <section className="rounded-2xl border border-gray-800 bg-black/35 p-5">
+                                        <div className="text-sm font-serif font-bold text-gray-200 tracking-[0.22em] mb-3">力量 / 境界体系参考</div>
+                                        <pre className="whitespace-pre-wrap break-words text-xs leading-6 text-gray-400 font-sans">{realmPrompt.trim()}</pre>
+                                    </section>
+                                )}
                             </div>
                         )}
 

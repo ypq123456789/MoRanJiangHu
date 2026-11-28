@@ -162,12 +162,33 @@ const persistLogs = () => {
     }
 };
 
+const 格式化控制台参数 = (values: unknown[]): string[] => {
+    if (values.length <= 1 || typeof values[0] !== 'string') {
+        return values.map(stringifyValue).filter(Boolean);
+    }
+    const template = values[0];
+    if (!/%[sdifooO]/i.test(template)) {
+        return values.map(stringifyValue).filter(Boolean);
+    }
+    let argIndex = 1;
+    const formatted = template.replace(/%([sdifoOc%])/g, (full, spec) => {
+        if (spec === '%') return '%';
+        if (argIndex >= values.length) return full;
+        const val = values[argIndex++];
+        if (spec === 'c') return '';
+        if (typeof val === 'string') return val;
+        return stringifyValue(val);
+    });
+    const trailing = values.slice(argIndex).map(stringifyValue).filter(Boolean);
+    return [truncateString(formatted, MAX_RENDERED_VALUE_CHARS), ...trailing].filter(Boolean);
+};
+
 export const recordDiagnosticLog = (level: DiagnosticLogLevel, valuesOrFirst: unknown[] | unknown, ...restValues: unknown[]) => {
     restorePersistedLogs();
     const values = Array.isArray(valuesOrFirst) && restValues.length === 0
         ? valuesOrFirst
         : [valuesOrFirst, ...restValues];
-    const rendered = values.map(stringifyValue).filter(Boolean);
+    const rendered = 格式化控制台参数(values);
     const message = truncateString(rendered[0] || '(empty log)', MAX_MESSAGE_CHARS);
     const detail = rendered.length > 1
         ? truncateString(rendered.slice(1).join('\n'), MAX_DETAIL_CHARS)

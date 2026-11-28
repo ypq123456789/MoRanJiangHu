@@ -159,3 +159,50 @@ export const 从状态构建2_0导演圣经 = (params: {
         })
     });
 };
+
+export interface 玩家可见世界圣经概览 {
+    世界观表层摘要: string;
+    当前幕次: number;
+    空间阶梯: Array<{
+        层级序号: number;
+        层级名称: string;
+        典型区域: string[];
+        准入壁垒: string;
+        核心资源与垄断者: string;
+        主要压迫冲突: string;
+    }>;
+    公开分幕大纲: Array<{
+        幕次: number;
+        标题: string;
+        核心矛盾: string;
+        主角目标与破局路径: string;
+        关键势力与人物: string[];
+        当前状态: string;
+    }>;
+}
+
+/**
+ * 提取 strictly 非剧透的 2.0 世界观公共概览，供玩家在「世界 → 世界总纲」随时查阅世界格局、空间阶梯与当前可见分幕脉络。
+ */
+export const 提取玩家可见世界圣经概览 = (
+    bible?: DirectorWorldBible | null
+): 玩家可见世界圣经概览 | null => {
+    if (!bible) return null;
+    const currentAct = Number(bible.当前幕次) || 1;
+    const acts = (Array.isArray(bible.宏观分幕大纲) ? bible.宏观分幕大纲 : [])
+        .filter((act) => act && (act.幕次 <= currentAct || act.当前状态 === '推进中' || act.当前状态 === '已完成' || act.当前状态 === '已重规划'))
+        .map((act) => ({
+            幕次: act.幕次,
+            标题: act.标题 || `第 ${act.幕次} 幕`,
+            核心矛盾: act.核心矛盾 || '',
+            主角目标与破局路径: act.主角目标与破局路径 || '',
+            关键势力与人物: Array.isArray(act.关键势力与人物) ? act.关键势力与人物 : [],
+            当前状态: act.当前状态 || '推进中'
+        }));
+    return {
+        世界观表层摘要: (bible.世界观表层摘要 || '').trim(),
+        当前幕次: currentAct,
+        空间阶梯: Array.isArray(bible.空间阶梯) ? bible.空间阶梯 : [],
+        公开分幕大纲: acts
+    };
+};

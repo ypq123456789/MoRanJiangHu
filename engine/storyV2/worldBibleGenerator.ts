@@ -303,7 +303,7 @@ export const 生成世界与导演圣经V2 = async (params: {
         '</thinking>',
         '',
         '<世界观>',
-        '写一份 1000~1800 字的【表层世界共识】（纯中文散文分段，不使用 Markdown 标题/符号）。涵盖：世界格局、四级空间与阶层生态、修行/力量境界与代价、当前山雨欲来的社会潜流。只写“世人常识层面的认知”，不剧透底层幕后真相。',
+        '写一份 800~1400 字的【表层世界共识】（纯中文散文分段，不使用 Markdown 标题/符号）。涵盖：世界格局、四级空间与阶层生态、修行/力量境界与代价、当前山雨欲来的社会潜流。只写“世人常识层面的认知”，不剧透底层幕后真相。',
         '</世界观>',
         '',
         '<世界基底>',
@@ -397,7 +397,7 @@ export const 生成世界与导演圣经V2 = async (params: {
 
     const enabledPartnerNames = enabledPartners.map((item) => item.name);
     const countIssues = (candidate: WorldBibleGenerationResult) => [
-        ...(!candidate.worldPrompt || candidate.worldPrompt.length < 300 ? ['<世界观>内容过短或缺失'] : []),
+        ...(!candidate.worldPrompt || candidate.worldPrompt.length < 220 ? ['<世界观>内容过短或缺失'] : []),
         ...校验地图树结构(candidate.mapLayers),
         ...评估圣经完整度(candidate.directorBible, enabledPartnerNames)
     ];
@@ -410,13 +410,17 @@ export const 生成世界与导演圣经V2 = async (params: {
     for (let repairAttempt = 1; repairAttempt <= 2 && issues.length > 0; repairAttempt += 1) {
         try {
             const needMapRepair = 校验地图树结构(res.mapLayers).length > 0;
+            const needWorldPromptRepair = !res.worldPrompt || res.worldPrompt.length < 220;
+            const repairOnlyBible = !needMapRepair && !needWorldPromptRepair;
             const repairPrompt = [
                 `你的上一版输出未通过第 ${repairAttempt} 次结构完整性验收，存在以下硬性数量/字段缺失：`,
                 ...issues.map((i) => `- ${i}`),
                 '',
-                needMapRepair
-                    ? `请补全并输出完整的 \`<世界基底>\`（至少 ${地图节点下限} 个合规六层树状 \`地图层级\` 节点）以及 \`<导演圣经>\`（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲，严禁只写 1~2 条示例敷衍！）。`
-                    : `请在保留既有合理核心设定的基础上，补全并输出完整的 \`<导演圣经>\` JSON（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲）。`,
+                repairOnlyBible
+                    ? `表层<世界观>与六层<世界基底>均已合格，本次【切勿重写】<thinking>、<世界观> 或 <世界基底>，只需直接输出完整的 <导演圣经>...</导演圣经> JSON（必须补齐 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲）！`
+                    : needMapRepair
+                        ? `请补全并输出完整的 \`<世界基底>\`（至少 ${地图节点下限} 个合规六层树状 \`地图层级\` 节点）以及 \`<导演圣经>\`（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲，严禁只写 1~2 条示例敷衍！）。`
+                        : `请在保留既有合理核心设定的基础上，补全并输出完整的 \`<导演圣经>\` JSON（必须真正写出 ${势力数量下限}+ 势力暗账且每个势力至少 ${跨势力账目下限} 条跨势力账目、${核心卡司下限}+ 跨层级 NPC 核心卡司、${伏笔数量下限}+ 伏笔台账、${宏观分幕下限} 幕大纲）。`,
                 '',
                 '可延续的核心设定草稿如下（请扩展写全，不要缩水）：',
                 JSON.stringify(res.directorBible)
@@ -425,7 +429,7 @@ export const 生成世界与导演圣经V2 = async (params: {
                 apiConfig,
                 规范化文本补全消息链([
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
+                    ...(repairOnlyBible ? [] : [{ role: 'user' as const, content: userPrompt }]),
                     { role: 'user', content: repairPrompt }
                 ], { 保留System: true, 合并同角色: false }),
                 {

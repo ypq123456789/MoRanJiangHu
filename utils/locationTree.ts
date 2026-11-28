@@ -124,12 +124,23 @@ export const 构建地点树 = (
     }
     const root = rootNodes[0] || null;
 
-    // 第六步：定位当前节点
+    // 第六步：定位当前节点（优先精确匹配，再归一化/分段尾部匹配，确保能落到最底层的「房间/子地点」）
     let currentNode: 地点树节点 | null = null;
     if (env) {
-        for (const name of [env.具体地点, env.小地点, env.中地点, env.大地点].map(n => 取文本(n)).filter(Boolean)) {
-            const found = nodes.find(n => n.名称 === name);
-            if (found) { currentNode = found; break; }
+        const rawCandidates = [env.具体地点, env.小地点, env.中地点, env.大地点]
+            .map(n => 取文本(n))
+            .filter(Boolean);
+        for (const name of rawCandidates) {
+            const exact = nodes.find(n => n.名称 === name);
+            if (exact) { currentNode = exact; break; }
+            const splitSegments = name.split(/[>／/·•\-—|｜]+/).map(s => s.trim()).filter(Boolean).reverse();
+            for (const seg of [name, ...splitSegments]) {
+                const segNorm = 归一化地图文本(seg);
+                if (!segNorm) continue;
+                const matched = nodes.find(n => 归一化地图文本(n.名称) === segNorm);
+                if (matched) { currentNode = matched; break; }
+            }
+            if (currentNode) break;
         }
     }
     if (!currentNode) currentNode = root;
@@ -145,6 +156,45 @@ export const 构建地点树 = (
     }
 
     return { 根节点: root, 当前节点: currentNode, 节点映射, 面包屑 };
+};
+
+/**
+ * 从六层地图节点中提取开局默认最深落点（优先落到第一个有「子地点/房间」的分支最底层）。
+ */
+export const 提取世界基底初始落点 = (
+    layers: any[]
+): { 大地点: string; 中地点: string; 小地点: string; 具体地点: string } | null => {
+    if (!Array.isArray(layers) || layers.length === 0) return null;
+    const tree = 构建地点树({ 地图层级: layers } as any, null);
+    const nodes = Array.from(tree.节点映射.values());
+    if (nodes.length === 0) return null;
+
+    const getAncestorChain = (node: 地点树节点): 地点树节点[] => {
+        const chain: 地点树节点[] = [];
+        let cursor: 地点树节点 | null = node;
+        const seen = new Set<string>();
+        while (cursor && !seen.has(cursor.ID)) {
+            chain.unshift(cursor);
+            seen.add(cursor.ID);
+            cursor = cursor.父级ID ? (tree.节点映射.get(cursor.父级ID) || null) : null;
+        }
+        return chain;
+    };
+
+    const leafRoom = nodes.find(n => n.层级 === '子地点')
+        || nodes.find(n => n.层级 === '区地点')
+        || nodes.find(n => n.层级 === '小地点')
+        || nodes.find(n => n.层级 === '中地点')
+        || nodes.find(n => n.层级 === '大地点');
+    if (!leafRoom) return null;
+
+    const chain = getAncestorChain(leafRoom);
+    const pick = (level: 地点层级类型) => chain.find(c => c.层级 === level)?.名称 || '';
+    const big = pick('大地点');
+    const mid = pick('中地点') || big;
+    const small = pick('小地点') || mid;
+    const specific = pick('子地点') || pick('区地点') || small;
+    return { 大地点: big, 中地点: mid, 小地点: small, 具体地点: specific };
 };
 
 export const 获取兄弟节点 = (node: 地点树节点 | null, tree: 地点树结构): 地点树节点[] => {

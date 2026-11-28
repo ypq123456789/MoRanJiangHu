@@ -92,19 +92,21 @@ function 排布地图树(roots: 地点树节点[], 人物映射: Map<string, 人
 
         const cols = Math.max(1, Math.ceil(Math.sqrt(kids.length)));
         const rows = Math.ceil(kids.length / cols);
-        const pad = Math.max(2, Math.min(box.w / (cols + 1), box.h / (rows + 1)) * 0.22);
+        const minSide = Math.min(box.w, box.h);
+        const pad = clamp(Math.min(box.w / (cols + 1), box.h / (rows + 1)) * 0.16, Math.min(0.2, minSide * 0.08), 14);
         const 人数 = 人物映射.get(node.ID)?.length || 0;
-        const track = 人数 > 0 ? Math.min(box.h * 0.24, 16 + (人数 > 3 ? 26 : 14)) : Math.min(box.h * 0.06, 8);
+        const track = 人数 > 0 ? Math.min(box.h * 0.20, 16 + (人数 > 3 ? 26 : 14)) : Math.min(box.h * 0.04, 6);
         item.track = track;
         const inner: 区块 = {
             x: box.x + pad,
             y: box.y + pad + track,
-            w: Math.max(2, box.w - pad * 2),
-            h: Math.max(2, box.h - pad * 2 - track),
+            w: Math.max(1, box.w - pad * 2),
+            h: Math.max(1, box.h - pad * 2 - track),
         };
-        const gap = Math.max(2, Math.min(inner.w / (cols + 1), inner.h / (rows + 1)) * 0.22);
-        const cw = Math.max(1.5, (inner.w - gap * (cols + 1)) / cols);
-        const ch = Math.max(1.5, (inner.h - gap * (rows + 1)) / rows);
+        const minInner = Math.min(inner.w, inner.h);
+        const gap = clamp(Math.min(inner.w / (cols + 1), inner.h / (rows + 1)) * 0.18, Math.min(0.15, minInner * 0.08), 12);
+        const cw = Math.max(0.6, (inner.w - gap * (cols + 1)) / cols);
+        const ch = Math.max(0.6, (inner.h - gap * (rows + 1)) / rows);
         kids.forEach((kid, index) => {
             const col = index % cols;
             const row = Math.floor(index / cols);
@@ -243,6 +245,16 @@ const RegionMap: React.FC<Props> = ({
         return 排布地图树(roots, 人物映射);
     }, [allNodes, nodes, 人物映射]);
 
+    // 根据最深层节点（房间/子地点）尺寸动态计算最小视野宽度，解除原先固定 70 (14.3x) 的放大上限
+    const minViewW = useMemo(() => {
+        let minBoxSpan = WORLD.w;
+        flat.forEach((item) => {
+            const span = Math.min(item.box.w, item.box.h);
+            if (span > 0 && span < minBoxSpan) minBoxSpan = span;
+        });
+        return clamp(minBoxSpan * 1.45, 1.5, 40);
+    }, [flat]);
+
     const 取消飞入动画 = useCallback(() => {
         if (tweenRef.current !== null) {
             cancelAnimationFrame(tweenRef.current);
@@ -253,8 +265,11 @@ const RegionMap: React.FC<Props> = ({
     const 飞入 = useCallback((box: 区块, pad = 22, animate = true) => {
         const from = viewRef.current;
         const ratio = from.w / Math.max(1, from.h);
-        let w = box.w + pad * 2;
-        let h = box.h + pad * 2;
+        const effectivePad = pad <= 0
+            ? 0
+            : Math.min(pad, Math.max(1.2, Math.max(box.w, box.h) * 0.28));
+        let w = box.w + effectivePad * 2;
+        let h = box.h + effectivePad * 2;
         if (w / h < ratio) w = h * ratio; else h = w / ratio;
         const to: 视野 = {
             x: box.x + box.w / 2 - w / 2,
@@ -317,7 +332,7 @@ const RegionMap: React.FC<Props> = ({
     const 缩放 = useCallback((factor: number) => {
         取消飞入动画();
         const cur = viewRef.current;
-        const nw = clamp(cur.w * factor, 70, 1500);
+        const nw = clamp(cur.w * factor, minViewW, 1500);
         const nh = nw * (cur.h / cur.w);
         setView({
             x: cur.x - (nw - cur.w) / 2,
@@ -325,7 +340,7 @@ const RegionMap: React.FC<Props> = ({
             w: nw,
             h: nh,
         });
-    }, [取消飞入动画]);
+    }, [取消飞入动画, minViewW]);
 
     // 原生 wheel 监听，避免 React 的 passive 监听无法 preventDefault。
     useEffect(() => {
@@ -350,7 +365,7 @@ const RegionMap: React.FC<Props> = ({
             const worldX = cur.x + (event.clientX - rect.left - offsetX) / scale;
             const worldY = cur.y + (event.clientY - rect.top - offsetY) / scale;
             const factor = event.deltaY > 0 ? 1.12 : 1 / 1.12;
-            const nw = clamp(cur.w * factor, 70, 1500);
+            const nw = clamp(cur.w * factor, minViewW, 1500);
             const nh = nw * (cur.h / cur.w);
             const next: 视野 = {
                 x: worldX - (worldX - cur.x) * (nw / cur.w),
@@ -363,7 +378,7 @@ const RegionMap: React.FC<Props> = ({
         };
         svg.addEventListener('wheel', onWheel, { passive: false });
         return () => svg.removeEventListener('wheel', onWheel);
-    }, [取消飞入动画]);
+    }, [取消飞入动画, minViewW]);
 
     const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
         if (e.button !== 0) return;
@@ -434,7 +449,7 @@ const RegionMap: React.FC<Props> = ({
     // 否则全览时明明有空间的城镇也会变成空框，AI 生成的地名看不到。
     const 显示名 = view.w < 2400;
     const 显示人物名 = view.w < 1500;
-    const 最小可读 = 9.5;
+    const 最小可读 = 8.5;
 
     const 有建筑 = flat.some(item => item.node.层级 === '区地点' || item.node.层级 === '子地点');
     // 图例按「实际画出来的标记」显示：区块太小会跳过人物绘制，此时不应显示玩家/NPC 图例。
@@ -488,10 +503,12 @@ const RegionMap: React.FC<Props> = ({
                     const isPlayerHere = node.ID === currentNodeId;
                     const isSelected = node.ID === selectedNodeId;
                     const 有子节点 = item.子节点.length > 0;
-                    const radius = isBuilding ? Math.min(4, w * 0.05) : Math.min(10, Math.max(3, w * 0.02));
+                    const radius = isBuilding
+                        ? Math.min(5 * px2world, w * 0.1, h * 0.12)
+                        : Math.min(10, Math.max(2 * px2world, Math.min(w, h) * 0.04));
                     const 框宽px = w * 画布比例;
                     const 框高px = h * 画布比例;
-                    const 字px = Math.min(目标字号[node.层级] || 11, 框宽px * 0.24, 框高px * 0.34);
+                    const 字px = Math.min(目标字号[node.层级] || 11, 框宽px * 0.26, 框高px * 0.42);
                     const nameSize = 字px * px2world;
                     // 旧实现副标题上限 9px、可读阈值 9.5px，导致控制势力永远不显示。
                     const 副标题字px = Math.min(10.5, 字px * 0.78, 框高px * 0.2);
@@ -515,7 +532,7 @@ const RegionMap: React.FC<Props> = ({
                     return (
                         <g key={node.ID}>
                             <rect data-node={node.ID} x={x} y={y} width={w} height={h} rx={radius}
-                                strokeWidth={(isPlayerHere || isSelected ? 1.6 : Math.max(0.8, Math.min(2, w * 0.012)))}
+                                strokeWidth={(isPlayerHere || isSelected ? 2.2 : 1.15) * px2world}
                                 filter={isBuilding ? 'url(#map-bld-shadow)' : undefined}
                                 style={{
                                     cursor: 'pointer',
@@ -530,7 +547,7 @@ const RegionMap: React.FC<Props> = ({
                             {isBuilding && 框高px > 10 && (
                                 <g pointerEvents="none">
                                     <line x1={x + 屋檐缩进} y1={y + 屋檐高度} x2={x + w - 屋檐缩进} y2={y + 屋檐高度}
-                                        style={{ stroke: 'var(--mm-eave)' }} strokeWidth={Math.max(0.6 * px2world, 0.6)} />
+                                        style={{ stroke: 'var(--mm-eave)' }} strokeWidth={0.9 * px2world} />
                                     {门朝向 === 0 && <rect x={x + w / 2 - 门宽 / 2} y={y + h - 门高} width={门宽} height={门高}
                                         rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
                                     {门朝向 === 1 && <rect x={x + w - 门高} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
@@ -605,7 +622,7 @@ const RegionMap: React.FC<Props> = ({
                         && gapPx >= (item.子节点.length > 0 ? 22 : 18)
                         && 框高px > (item.子节点.length > 0 ? 60 : 26);
                     const cy = item.子节点.length > 0
-                        ? y + Math.max(4, item.track * 0.42)
+                        ? y + Math.min(item.track * 0.55, Math.max(r * 1.25, item.track * 0.42))
                         : y + h - Math.max(r * 2.4, 7 * px2world);
                     return (
                         <g key={`people-${item.node.ID}`} data-people-node={item.node.ID} pointerEvents="none">
