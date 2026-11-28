@@ -5,6 +5,8 @@ import type {
     战斗状态结构,
     环境信息结构,
     场外对话消息结构,
+    场外交易记录结构,
+    场外战果暂存结构,
     游戏设置结构,
     记忆系统结构,
     视觉设置结构,
@@ -18,7 +20,8 @@ import type {
     剧情系统结构,
     世界数据结构,
     提示词结构,
-    叙事状态结构
+    叙事状态结构,
+    DirectorWorldBible
 } from '../../../types';
 import { 执行手动存档, 执行自动存档, 执行读取存档 } from '../saveCoordinator';
 import type { 自动存档快照结构 } from '../saveCoordinator';
@@ -44,6 +47,9 @@ type 存档编排工作流依赖 = {
     女主剧情规划?: 女主剧情规划结构;
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
+    导演圣经?: DirectorWorldBible;
+    上一回合导演圣经?: DirectorWorldBible;
+    worldEvents?: string[];
     记忆系统: 记忆系统结构;
     叙事平静值?: 叙事状态结构;
     openingConfig?: OpeningConfig;
@@ -104,12 +110,20 @@ type 存档编排工作流依赖 = {
     设置女主剧情规划: (value: 女主剧情规划结构 | undefined) => void;
     设置同人剧情规划: (value: 同人剧情规划结构 | undefined) => void;
     设置同人女主剧情规划: (value: 同人女主剧情规划结构 | undefined) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    setWorldEvents?: (value: string[]) => void;
     设置开局配置: (value: OpeningConfig | undefined) => void;
     设置提示词池: (value: 提示词结构[]) => void;
     设置历史记录: (value: 聊天记录结构[]) => void;
     设置叙事平静值: (value: 叙事状态结构) => void;
     场外对话?: 场外对话消息结构[];
     设置场外对话: (value: 场外对话消息结构[]) => void;
+    场外交易暂存?: 场外交易记录结构[];
+    设置场外交易暂存?: (value: 场外交易记录结构[]) => void;
+    场外战果暂存?: 场外战果暂存结构[];
+    设置场外战果暂存?: (value: 场外战果暂存结构[]) => void;
+    推送通知?: (payload: { title: string; message: string; tone?: 'info' | 'success' | 'error' }) => void;
     清空重Roll快照: () => void;
     推入重Roll快照: NonNullable<存档读取协调依赖['推入重Roll快照']>;
     重置自动存档状态: () => void;
@@ -126,6 +140,9 @@ export const 创建存读档工作流 = (deps: 存档编排工作流依赖) => {
     const 构建当前状态 = () => ({
         历史记录: deps.历史记录,
         场外对话: deps.场外对话,
+        场外交易暂存: deps.场外交易暂存,
+        场外战果暂存: deps.场外战果暂存,
+        worldEvents: deps.worldEvents,
         角色: deps.角色,
         环境: deps.环境,
         社交: deps.社交,
@@ -139,6 +156,8 @@ export const 创建存读档工作流 = (deps: 存档编排工作流依赖) => {
         女主剧情规划: deps.女主剧情规划,
         同人剧情规划: deps.同人剧情规划,
         同人女主剧情规划: deps.同人女主剧情规划,
+        导演圣经: deps.导演圣经,
+        上一回合导演圣经: deps.上一回合导演圣经,
         记忆系统: deps.记忆系统,
         叙事平静值: deps.叙事平静值,
         openingConfig: deps.openingConfig,
@@ -206,11 +225,17 @@ export const 创建存读档工作流 = (deps: 存档编排工作流依赖) => {
         设置女主剧情规划: deps.设置女主剧情规划,
         设置同人剧情规划: deps.设置同人剧情规划,
         设置同人女主剧情规划: deps.设置同人女主剧情规划,
+        设置导演圣经: deps.设置导演圣经,
+        设置上一回合导演圣经: deps.设置上一回合导演圣经,
+        setWorldEvents: deps.setWorldEvents,
         设置开局配置: deps.设置开局配置,
         设置提示词池: deps.设置提示词池,
         设置历史记录: deps.设置历史记录,
         设置叙事平静值: deps.设置叙事平静值,
         设置场外对话: deps.设置场外对话,
+        设置场外交易暂存: deps.设置场外交易暂存,
+        设置场外战果暂存: deps.设置场外战果暂存,
+        推送通知: deps.推送通知,
         清空重Roll快照: deps.清空重Roll快照,
         推入重Roll快照: deps.推入重Roll快照,
         重置自动存档状态: deps.重置自动存档状态,
@@ -242,10 +267,11 @@ export const 创建存读档工作流 = (deps: 存档编排工作流依赖) => {
             id: save?.id,
             elapsedMs: Date.now() - startAt
         });
-        await 执行读取存档(
+        const applied = await 执行读取存档(
             save,
             构建协调依赖()
         );
+        if (!applied) return;
         recordSaveLoadTrace('workflow.loadGame.afterCoordinator', {
             id: save?.id,
             elapsedMs: Date.now() - startAt

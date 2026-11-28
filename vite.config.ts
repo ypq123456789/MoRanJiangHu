@@ -728,11 +728,8 @@ export default defineConfig(({ mode }) => {
         '.worktrees/**',
         '.tmp*/**',
         'test-results/**',
-        'tests/e2e-*.spec.mjs',
-        'tests/bugfix-*.spec.mjs',
-        'tests/battle-*.spec.mjs',
-        'tests/dialogue-*.spec.mjs',
-        'tests/save-*.spec.mjs'
+        'tests/**/*.spec.mjs',
+        'e2e/**/*.pw.mjs'
       ]
     }
   };

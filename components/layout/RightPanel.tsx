@@ -9,7 +9,7 @@ interface Props {
     onOpenSettings: () => void;
     onOpenInventory: () => void;
     onOpenEquipment: () => void;
-    onOpenBattle: () => void;
+    onOpenBattle?: () => void;
     onOpenTeam: () => void;
     onOpenSocial: () => void;
     onOpenKungfu: () => void;
@@ -202,15 +202,15 @@ const RightPanel: React.FC<Props> = ({
     ];
 
     const groups: AccordionGroupDef[] = [
-        {
+        ...(onOpenBattle || enableKungfu || onOpenAuctionHouse ? [{
             id: 'combat',
-            title: '身手市集',
+            title: (!onOpenBattle && !onOpenAuctionHouse) ? '武学修行' : '身手市集',
             items: [
-                { key: 'battle', label: menuLabel?.battle || '战斗', action: onOpenBattle, changeKeys: ['战斗'] },
+                ...(onOpenBattle ? [{ key: 'battle', label: menuLabel?.battle || '战斗', action: onOpenBattle, changeKeys: ['战斗'] }] : []),
                 ...(enableKungfu ? [{ key: 'kungfu', label: kungfuLabel, action: onOpenKungfu, changeKeys: ['功法'] }] : []),
                 ...(onOpenAuctionHouse ? [{ key: 'auction_house', label: auctionHouseLabel, action: onOpenAuctionHouse, wide: auctionHouseLabel.length >= 4 }] : []),
             ],
-        },
+        }] : []),
         {
             id: 'world',
             title: '江湖舆图',

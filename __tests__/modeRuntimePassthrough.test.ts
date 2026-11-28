@@ -8,7 +8,6 @@ import { 是否自定义模式运行时配置, 解析生效题材配置 } from '
 import { 获取题材界面文案, 获取题材资源文案, 获取题材档案文案 } from '../utils/resourceLabels';
 import { 格式化能力类别 } from '../utils/abilityCategoryLabels';
 import { 获取题材关系侧重选项, 获取题材开局配置文案 } from '../utils/openingConfig';
-import { 创建事件拍卖品, 获取题材行情模板, 生成行情列表 } from '../services/auctionHouse';
 import { 构建题材模式提示词 } from '../prompts/runtime/openingConfig';
 import { buildRealmExtraPromptForDiy, buildWorldContextForDiy } from '../components/features/NewGame/NewGameDiyTools';
 
@@ -91,13 +90,6 @@ describe('官方模式零回归', () => {
         } as ModeRuntimeProfile;
         expect(是否自定义模式运行时配置(runtime, '武侠')).toBe(false);
         expect(获取题材资源文案('武侠', runtime)).toEqual(获取题材资源文案('武侠', null));
-    });
-
-    it('官方武侠行情模板保持不变', () => {
-        const templates = 获取题材行情模板('武侠', null);
-        expect(templates.some((t) => t.标题.includes('镖道'))).toBe(true);
-        const withOfficialRuntime = 获取题材行情模板('武侠', 构建官方模式运行时配置('武侠'));
-        expect(withOfficialRuntime).toEqual(templates);
     });
 });
 
@@ -235,47 +227,6 @@ describe('uiLabels 深覆盖', () => {
         expect(effective.worldSizeLabel).toBe('红楼版图');
         expect(effective.dynastyLabel).toBe('本朝家国局势');
         expect(effective.densityLabel).toBe(获取题材模式配置('武侠').densityLabel);
-    });
-});
-
-describe('拍卖行情贯通', () => {
-    it('自定义包未填行情模板时回落题材中性模板', () => {
-        const runtime = 构建红楼运行时配置();
-        const templates = 获取题材行情模板('武侠', runtime);
-        expect(templates.length).toBeGreaterThan(0);
-        const joined = templates.map((t) => `${t.标题}${t.描述}`).join('');
-        expect(joined).not.toMatch(/镖|宗门|门派|江湖|灵石/);
-    });
-
-    it('自定义包填写 marketEventTemplates 时优先使用', () => {
-        const runtime = 构建红楼运行时配置({
-            economy: {
-                marketEventTemplates: [
-                    { 标题: '节礼采买', 描述: '年节将近，衣料首饰与吃食礼盒行情看涨。', 影响类型: '杂物', 价格倍率: 1.2, 热点标签: '节礼采买' }
-                ]
-            }
-        });
-        const templates = 获取题材行情模板('武侠', runtime);
-        expect(templates.length).toBe(1);
-        expect(templates[0].标题).toBe('节礼采买');
-        expect(templates[0].价格倍率).toBeCloseTo(1.2);
-        expect(runtime.economy.marketVerb).toBe('典当或转卖');
-        expect(runtime.economy.primaryCurrency).toContain('制钱');
-    });
-
-    it('重新生成行情时过滤命中 bannedKeywords 的模板', () => {
-        const runtime = 构建红楼运行时配置({
-            economy: {
-                bannedKeywords: ['灵石'],
-                marketEventTemplates: [
-                    { 标题: '灵石涨价', 描述: '灵石突然紧俏。', 影响类型: '全部', 价格倍率: 1.2, 热点标签: '灵石' },
-                    { 标题: '衣料采买', 描述: '府中衣料需求上涨。', 影响类型: '杂物', 价格倍率: 1.1, 热点标签: '衣料' }
-                ]
-            }
-        });
-
-        const generated = 生成行情列表(true, [], 0, '武侠', runtime).行情列表;
-        expect(generated.map((item) => item.标题)).toEqual(['衣料采买']);
     });
 });
 
@@ -417,16 +368,6 @@ describe('审计加固回归', () => {
             }
         }, '武侠');
         expect(runtime.economy.marketEventTemplates?.map((item) => item.影响类型)).toEqual(['装备', '任务道具', '杂项']);
-    });
-
-    it('事件拍卖品未显式标记时不默认变成限时热点', () => {
-        const auction = 创建事件拍卖品({
-            事件名称: '府中清点',
-            主线类型: '市面',
-            物品: { 名称: '旧账册', 类型: '杂物', 品质: '凡品', 价值: 100 } as any,
-            题材模式: '武侠'
-        });
-        expect(auction.是否限时热点).toBe(false);
     });
 
     it('自定义包 promptBoundary 与开局提示词不再泄漏官方组织词', () => {

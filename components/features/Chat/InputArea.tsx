@@ -174,6 +174,10 @@ interface Props {
     onRecoverParseErrorRaw?: (rawText: string, forceRepair?: boolean) => Promise<string | null> | string | null;
     onQuickRestart?: (mode: QuickRestartMode) => void | Promise<void>;
     onOpenRoleChat?: () => void;
+    onOpenTradePlugin?: () => void;
+    onOpenTacticalClash?: () => void;
+    tradePendingCount?: number;
+    clashPendingCount?: number;
     requestConfirm?: (options: { title?: string; message: string; confirmText?: string; cancelText?: string; danger?: boolean }) => Promise<boolean>;
     loading: boolean;
     variableGenerationRunning?: boolean;
@@ -209,6 +213,10 @@ const InputArea: React.FC<Props> = ({
     onRecoverParseErrorRaw,
     onQuickRestart,
     onOpenRoleChat,
+    onOpenTradePlugin,
+    onOpenTacticalClash,
+    tradePendingCount = 0,
+    clashPendingCount = 0,
     requestConfirm,
     loading,
     variableGenerationRunning = false,
@@ -1162,6 +1170,11 @@ const InputArea: React.FC<Props> = ({
                                                         {progressText}
                                                     </pre>
                                                 )}
+                                                {!isRunningStage && phase === 'skipped' && typeof progressText === 'string' && progressText.trim().length > 0 && (
+                                                    <div className="mt-1 text-[11px] leading-5 text-gray-500">
+                                                        跳过原因：{progressText}
+                                                    </div>
+                                                )}
                                                 {(phase === 'error' && stage.progress?.text) && (
                                                     <pre className="mt-2 text-sm whitespace-pre-wrap text-red-300 leading-relaxed max-h-24 overflow-y-auto no-scrollbar">
                                                         {stage.progress.text}
@@ -1458,12 +1471,53 @@ const InputArea: React.FC<Props> = ({
                             onClick={onOpenRoleChat}
                             className="w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-amber-200 hover:text-amber-100 hover:bg-amber-900/20 transition-all disabled:opacity-30"
                             title="角色对话：与在场角色场外私聊（暂存后随下次行动注入）"
+                            aria-label="角色对话"
                             disabled={busy}
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
                             </svg>
                             <span className="hidden md:inline">角色对话</span>
+                        </button>
+                    )}
+                    {/* Situational Trade (情境交易可选插件) */}
+                    {onOpenTradePlugin && (
+                        <button
+                            onClick={onOpenTradePlugin}
+                            className="relative w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-emerald-300 hover:text-emerald-100 hover:bg-emerald-900/20 transition-all disabled:opacity-30"
+                            title="情境交易：仅限与在场非敌对角色或交易场所交易（暂存后随下次行动注入）"
+                            aria-label="情境交易"
+                            disabled={busy}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                            </svg>
+                            <span className="hidden md:inline">情境交易</span>
+                            {tradePendingCount > 0 && (
+                                <span className="ml-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-emerald-400 text-black text-[9px] font-bold leading-[14px] text-center">
+                                    {tradePendingCount}
+                                </span>
+                            )}
+                        </button>
+                    )}
+                    {/* Tactical Clash (直观战术交锋可选插件) */}
+                    {onOpenTacticalClash && (
+                        <button
+                            onClick={onOpenTacticalClash}
+                            className="relative w-7 sm:w-9 h-full rounded-md sm:rounded-lg flex items-center justify-center text-rose-300 hover:text-rose-100 hover:bg-rose-900/20 transition-all disabled:opacity-30"
+                            title="战术交锋：明牌对照攻守机变与变招博弈（战果暂存后随下次行动注入）"
+                            aria-label="战术交锋"
+                            disabled={busy}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
+                            </svg>
+                            <span className="hidden md:inline">战术交锋</span>
+                            {clashPendingCount > 0 && (
+                                <span className="ml-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-rose-400 text-black text-[9px] font-bold leading-[14px] text-center">
+                                    {clashPendingCount}
+                                </span>
+                            )}
                         </button>
                     )}
                     {/* Stream Toggle */}

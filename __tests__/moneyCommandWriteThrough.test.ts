@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { 执行响应命令处理, 响应命令处理状态 } from '../hooks/useGame/responseCommandProcessor';
 import { 规范化社交列表, 提取金钱命令字段, 同步金钱命令写入 } from '../hooks/useGame/stateTransforms';
-import { 计算金钱BaseAmount总值 } from '../services/auctionHouse';
+import { 计算金钱BaseAmount总值 } from '../utils/currencyDisplay';
 
 /**
  * 金钱命令写穿透回归（玩家反馈：AI set 角色.金钱.银子 被吞、只有 baseAmount 生效）：

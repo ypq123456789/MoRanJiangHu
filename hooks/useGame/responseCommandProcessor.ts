@@ -32,7 +32,7 @@ import { 提取NPC境界回退风险命令索引 } from '../../utils/npcRealmReg
 import type { 境界配置 } from '../../utils/realmConfig';
 import { 提取NPC死亡风险命令索引, 状态效果是死亡判定 } from '../../utils/npcDeathGuard';
 import { 构建体内射精记录, 推进社交孕产状态, 规范化孕产时间 } from '../../utils/reproduction';
-import { 自动增加BaseAmount } from '../../services/auctionHouse';
+import { 自动增加BaseAmount } from '../../utils/currencyDisplay';
 import { consumeScriptedMoneyDelta, peekScriptedMoneyDelta } from '../../utils/scriptedMoneyReconciler';
 import { 提取金钱命令字段, 同步金钱命令写入 } from './stateTransforms';
 import { 收集在档人物名集合, 校准规划关联人物一致性 } from '../../utils/planningConsistency';
@@ -441,7 +441,7 @@ const 判断NPC本回合是否在场 = (
     return undefined;
 };
 
-const 构建环境位置路径 = (env?: Partial<环境信息结构> | null): string => (
+export const 构建环境位置路径 = (env?: Partial<环境信息结构> | null): string => (
     [env?.大地点, env?.中地点, env?.小地点, env?.具体地点]
         .map((item) => typeof item === 'string' ? item.trim() : '')
         .filter(Boolean)

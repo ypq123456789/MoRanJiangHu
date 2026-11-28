@@ -16,8 +16,27 @@ import { 构建题材默认境界体系提示词, 题材是否使用默认现代
 import { 构建开局运行时快照 } from '../../utils/customNewGamePresets';
 import { 是否官方题材世界观口径提示词, 是否官方题材境界口径提示词 } from '../../data/workshopThemes/topicModeThemeData';
 import { recordDiagnosticLog } from '../../services/diagnosticLog';
+import { 生成世界与导演圣经V2, 从圣经初始化世界势力与社交 } from '../../engine/storyV2/worldBibleGenerator';
+import { 从状态构建2_0导演圣经 } from '../../engine/storyV2/legacySaveBridge';
+import { 将导演圣经投影为剧情规划视图, type DirectorWorldBible } from '../../models/directorBible';
 import { 合并世界基底到开场状态 } from './storyState';
 import { 执行带完整性校验的请求 } from './streamIntegrity';
+
+const 提取流式世界观预览 = (accumulated: string): { text: string; closed: boolean; rawChars: number } | null => {
+    const normalized = (accumulated || '').replace(/\r/g, '');
+    const openMatch = normalized.match(/<世界观>/i);
+    if (!openMatch || openMatch.index === undefined) return null;
+    const start = openMatch.index + openMatch[0].length;
+    const closeIdx = normalized.indexOf('</世界观>', start);
+    const body = (closeIdx >= 0 ? normalized.slice(start, closeIdx) : normalized.slice(start)).trim();
+    if (!body) return null;
+    const tail = body.length > 560 ? `...${body.slice(-560)}` : body;
+    return {
+        text: tail.split('\n').slice(-12).join('\n').trim(),
+        closed: closeIdx >= 0,
+        rawChars: body.length
+    };
+};
 
 type 世界生成选项 = {
     清空前端变量?: boolean;
@@ -34,6 +53,7 @@ type 世界生成工作流依赖 = {
     setPrompts: (value: 提示词结构[]) => void;
     setLoading: (value: boolean) => void;
     setShowSettings: (value: boolean) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
     设置历史记录: (value: 聊天记录结构[] | ((prev: 聊天记录结构[]) => 聊天记录结构[])) => void;
     设置开局配置: (value: OpeningConfig | undefined) => void;
     设置最近开局配置: (value: any) => void;
@@ -595,6 +615,11 @@ export const 执行世界生成工作流 = async (
             }
         }
 
+        const useStoryV2WorldGen = Boolean(deps.设置导演圣经)
+            && !fandomEnabled
+            && normalizedGameConfig.启用2_0剧情引擎 !== false;
+        let generatedDirectorBible: DirectorWorldBible | undefined = undefined;
+        let generatedV2InitialSocial: any[] = [];
         const generatedWorldResult = useManualWorldPrompt
             ? {
                 worldPrompt: textAIService.解析世界观提示词内容(normalizedManualWorldPrompt),
@@ -602,7 +627,85 @@ export const 执行世界生成工作流 = async (
                 factions: [],
                 rawText: normalizedManualWorldPrompt
             }
-            : await 执行带超时(useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观', 世界观阶段超时毫秒, async (signal, 标记活动, 重置为完整预算) => {
+            : useStoryV2WorldGen
+                ? await 执行带超时(useWorldRefinement ? 'AI 细化2.0导演世界圣经' : 'AI 构建2.0导演世界圣经', 世界观阶段超时毫秒, async (signal, 标记活动, 重置为完整预算) => {
+                    const extraPromptParts = [
+                        fandomPromptBundle.世界观创建补丁,
+                        modeNarrativeWorldConstraint,
+                        enabledDifficultyPrompts,
+                        启用修炼体系 && realmPromptContent
+                            ? `【当前境界体系参考】\n${realmPromptContent.slice(0, 1200)}`
+                            : '',
+                        normalizedOpeningExtraPrompt ? `【开局额外要求】\n${normalizedOpeningExtraPrompt}` : '',
+                        worldPromptSeed ? `【世界种子底稿】\n${worldPromptSeed.slice(0, 1400)}` : ''
+                    ].filter(Boolean).join('\n\n');
+                    let repairLabel = '';
+                    const bibleRes = await 生成世界与导演圣经V2({
+                        worldConfig: {
+                            worldName: worldConfig.worldName,
+                            worldSize: worldConfig.worldSize,
+                            dynastySetting: worldConfig.dynastySetting,
+                            sectDensity: worldConfig.sectDensity,
+                            tianjiaoSetting: worldConfig.tianjiaoSetting,
+                            difficulty,
+                            factionCount: worldConfig.factionCount,
+                            worldExtraRequirement: normalizedWorldExtraRequirement
+                        },
+                        charData,
+                        openingConfig: effectiveOpeningConfig || ({} as OpeningConfig),
+                        apiConfig: currentApi,
+                        extraPrompt: extraPromptParts || undefined,
+                        stream: openingRequestStreaming,
+                        signal,
+                        onRepair: (attempt, sections) => {
+                            repairLabel = `第 ${attempt} 次补写${sections.join('、')}`;
+                            worldDeltaReceived = true;
+                            if (openingRequestStreaming) 标记活动();
+                            else 重置为完整预算();
+                            开局流式历史更新器?.更新(`【生成中】${repairLabel}，已通过校验的内容已保留。`, { immediate: true });
+                        },
+                        onDelta: openingRequestStreaming
+                            ? (_delta, accumulated) => {
+                                标记活动();
+                                const normalized = (accumulated || '').replace(/\r/g, '');
+                                if (!normalized) {
+                                    worldThinkingReceived = true;
+                                    return;
+                                }
+                                worldDeltaReceived = true;
+                                if (repairLabel) {
+                                    开局流式历史更新器?.更新(`【生成中】${repairLabel}，本次补写已接收 ${normalized.length} 字符。`);
+                                    return;
+                                }
+                                const preview = 提取流式世界观预览(normalized);
+                                if (preview) {
+                                    const footer = preview.closed
+                                        ? `✓ 表层世界观已生成（共 ${preview.rawChars} 字），正在推演六层地图树与 2.0 导演因果圣经（总进度 ${normalized.length} 字符）...`
+                                        : `正在流式生成表层世界观（已接收 ${preview.rawChars} 字 / 总 ${normalized.length} 字符）...`;
+                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（流式预览）\n${preview.text}\n\n${footer}`);
+                                } else {
+                                    开局流式历史更新器?.更新(`【生成中】2.0 导演世界圣经构建（正在构思顶层隐线、势力账本与分幕大纲）\n\n已接收 ${normalized.length} 字符`);
+                                }
+                            }
+                            : undefined
+                    });
+                    generatedDirectorBible = bibleRes.directorBible;
+                    const { factions, initialSocial } = 从圣经初始化世界势力与社交(
+                        bibleRes.directorBible,
+                        bibleRes.mapLayers,
+                        effectiveOpeningConfig || ({} as OpeningConfig),
+                        charData,
+                        normalizedGameConfig
+                    );
+                    generatedV2InitialSocial = initialSocial;
+                    return {
+                        worldPrompt: bibleRes.worldPrompt,
+                        mapLayers: bibleRes.mapLayers,
+                        factions,
+                        rawText: bibleRes.rawText
+                    };
+                }, { idleTimeout: openingRequestStreaming })
+                : await 执行带超时(useWorldRefinement ? 'AI 细化世界观' : 'AI 生成世界观', 世界观阶段超时毫秒, async (signal, 标记活动, 重置为完整预算) => {
                 // 同上：残缺的世界观会被写进提示词池并参与后续所有回合，必须拦住半截结果。
                 const 发起世界观请求 = (streamOptions?: { stream?: boolean; onStreamEnd?: (info: any) => void }) => {
                     const enableStream = openingRequestStreaming && streamOptions?.stream !== false;
@@ -671,6 +774,62 @@ export const 执行世界生成工作流 = async (
                 deps.应用开场基态(clearedOpeningBase);
             }
         }
+        if (useStoryV2WorldGen) {
+            const effectiveBible = generatedDirectorBible || 从状态构建2_0导演圣经({
+                worldPrompt: worldPromptContent,
+                role: openingBase.角色,
+                social: openingBase.社交,
+                world: openingBase.世界,
+                story: openingBase.剧情,
+                storyPlan: openingBase.剧情规划
+            });
+            const mergeSocial = (existing: any[] = []) => {
+                const seen = new Set<string>();
+                const result: any[] = [];
+                for (const npc of [...existing, ...generatedV2InitialSocial]) {
+                    const name = String(npc?.姓名 || '').trim();
+                    if (!name || seen.has(name)) continue;
+                    seen.add(name);
+                    result.push(npc);
+                }
+                return result;
+            };
+            const projected = 将导演圣经投影为剧情规划视图(
+                effectiveBible,
+                openingBase.剧情,
+                openingBase.剧情规划,
+                openingBase.女主剧情规划,
+                openingBase.世界?.进行中事件 || [],
+                [],
+                (typeof openingBase.环境?.时间 === 'string' && openingBase.环境.时间) || '1:01:01:06:00'
+            );
+            openingBase = {
+                ...openingBase,
+                社交: mergeSocial(openingBase.社交),
+                世界: {
+                    ...openingBase.世界,
+                    进行中事件: projected.worldOngoingEvents
+                },
+                剧情: projected.story,
+                剧情规划: projected.storyPlan,
+                导演圣经: effectiveBible
+            };
+            if (clearedOpeningBase) {
+                clearedOpeningBase = {
+                    ...clearedOpeningBase,
+                    社交: mergeSocial(clearedOpeningBase.社交),
+                    世界: {
+                        ...clearedOpeningBase.世界,
+                        进行中事件: projected.worldOngoingEvents
+                    },
+                    剧情: projected.story,
+                    剧情规划: projected.storyPlan,
+                    导演圣经: effectiveBible
+                };
+                deps.应用开场基态(clearedOpeningBase);
+            }
+            deps.设置导演圣经?.(effectiveBible);
+        }
 
         let finalPrompts = 写入或插入提示词(
             updatedPrompts,
@@ -700,8 +859,8 @@ export const 执行世界生成工作流 = async (
             deps.setLoading(false);
             deps.追加系统消息(
                 启用修炼体系
-                    ? '[系统] 世界观与境界体系提示词已写入。请在聊天框输入指令开始初始化。'
-                    : '[系统] 世界观提示词已写入。请在聊天框输入指令开始初始化。'
+                    ? '[系统] 世界观与境界体系提示词已写入（可随时在右上角「世界 → 世界总纲」查看完整设定）。请在聊天框输入指令开始初始化。'
+                    : '[系统] 世界观提示词已写入（可随时在右上角「世界 → 世界总纲」查看完整设定）。请在聊天框输入指令开始初始化。'
             );
             return;
         }

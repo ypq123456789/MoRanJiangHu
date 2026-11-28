@@ -46,7 +46,7 @@ const 世界锚点难度说明表 = {
     }
 } as const;
 
-const 获取世界锚点难度说明 = (difficulty?: string) => (
+export const 获取世界锚点难度说明 = (difficulty?: string) => (
     世界锚点难度说明表[(difficulty || 'normal') as keyof typeof 世界锚点难度说明表] || 世界锚点难度说明表.normal
 );
 

@@ -990,6 +990,42 @@ const GameSettings: React.FC<Props> = ({ settings, onSave, gameInitialTime, curr
             <div className="space-y-3 rounded-md border border-wuxia-gold/20 bg-black/30 p-4">
                 <div className="flex items-center justify-between gap-4">
                     <div>
+                        <div className="text-sm text-wuxia-gold font-bold">2.0 导演剧情引擎（主线架构）</div>
+                        <div className="text-xs text-gray-400 mt-1">默认开启。采用大纲推演、伏笔台账与势力账本驱动主线；关闭后兼容切回 1.x 经典生成与规划流（读取旧版存档同样可平滑游玩）。</div>
+                    </div>
+                    <ToggleSwitch
+                        checked={form.启用2_0剧情引擎 !== false}
+                        onChange={(next) => 实时应用更新({ 启用2_0剧情引擎: next })}
+                        ariaLabel="切换 2.0 导演剧情引擎"
+                    />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <div className="text-sm text-wuxia-cyan font-bold">情境交易插件（左下角可选）</div>
+                        <div className="text-xs text-gray-400 mt-1">开启后，左下角显示「情境交易」按钮：仅限在场非敌对角色或交易场所，用真实库存与货币交易，并在下回合顺滑融入剧情。</div>
+                    </div>
+                    <ToggleSwitch
+                        checked={form.启用情境交易插件 !== false}
+                        onChange={(next) => 实时应用更新({ 启用情境交易插件: next })}
+                        ariaLabel="切换情境交易插件"
+                    />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <div className="text-sm text-wuxia-cyan font-bold">直观战术交锋插件（左下角可选）</div>
+                        <div className="text-xs text-gray-400 mt-1">开启后，左下角显示「战术交锋」按钮：明牌展示攻势/守势/机变/气力来源与变招克制，不再黑箱算数值，战果随下回合注入正文。</div>
+                    </div>
+                    <ToggleSwitch
+                        checked={form.启用战术交锋插件 !== false}
+                        onChange={(next) => 实时应用更新({ 启用战术交锋插件: next })}
+                        ariaLabel="切换直观战术交锋插件"
+                    />
+                </div>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-wuxia-gold/20 bg-black/30 p-4">
+                <div className="flex items-center justify-between gap-4">
+                    <div>
                         <div className="text-sm text-wuxia-cyan font-bold">繁体模式</div>
                         <div className="text-xs text-gray-400 mt-1">开启后，会向各个 AI 生成功能注入繁体中文输出指令，要求新生成的正文、回忆、规划、地图等游戏内容使用繁体中文；不会强制转换界面按钮或已有存档旧文本。</div>
                     </div>

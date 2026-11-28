@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { 地点树节点 } from '../../../utils/locationTree';
-import { 提取NPC精确地图位置片段 } from '../../../utils/mapNpcLocation';
+import { 构建地图人物标记, type 地图人物标记 as 人物点 } from '../../../utils/mapNpcLocation';
 
 interface Props {
     /** 当前层子节点（保留兼容；连续地图优先使用 allNodes） */
@@ -13,6 +13,7 @@ interface Props {
     onLocateCurrent: () => void;
     level?: 地点树节点['层级'];
     socialList?: any[];
+    peopleByNode?: Map<string, 人物点[]>;
     env?: { 大地点?: string; 中地点?: string; 小地点?: string; 具体地点?: string };
     viewLocationName?: string;
     viewPathNames?: string[];
@@ -35,8 +36,6 @@ interface 布局项 {
     track: number;
     子节点: 布局项[];
 }
-
-interface 人物点 { name: string; player: boolean }
 
 const WORLD: 视野 = { x: 0, y: 0, w: 1000, h: 680 };
 const ORDER: Record<string, number> = { 寰宇: 0, 大地点: 1, 中地点: 2, 小地点: 3, 区地点: 4, 子地点: 5 };
@@ -90,21 +89,24 @@ function 排布地图树(roots: 地点树节点[], 人物映射: Map<string, 人
         byId.set(node.ID, item);
         if (kids.length === 0) return;
 
-        const cols = Math.max(1, Math.ceil(Math.sqrt(kids.length)));
+        // 按父块的宽高排网格。若每层两个孩子都左右分栏，五层后的房间就只剩一条竖线。
+        const cols = clamp(Math.round(Math.sqrt(kids.length * box.w / box.h)), 1, kids.length);
         const rows = Math.ceil(kids.length / cols);
-        const pad = Math.max(2, Math.min(box.w / (cols + 1), box.h / (rows + 1)) * 0.22);
+        const minSide = Math.min(box.w, box.h);
+        const pad = clamp(Math.min(box.w / (cols + 1), box.h / (rows + 1)) * 0.16, Math.min(0.2, minSide * 0.08), 14);
         const 人数 = 人物映射.get(node.ID)?.length || 0;
-        const track = 人数 > 0 ? Math.min(box.h * 0.24, 16 + (人数 > 3 ? 26 : 14)) : Math.min(box.h * 0.06, 8);
+        const track = 人数 > 0 ? Math.min(box.h * 0.20, 16 + (人数 > 3 ? 26 : 14)) : Math.min(box.h * 0.04, 6);
         item.track = track;
         const inner: 区块 = {
             x: box.x + pad,
             y: box.y + pad + track,
-            w: Math.max(2, box.w - pad * 2),
-            h: Math.max(2, box.h - pad * 2 - track),
+            w: Math.max(1, box.w - pad * 2),
+            h: Math.max(1, box.h - pad * 2 - track),
         };
-        const gap = Math.max(2, Math.min(inner.w / (cols + 1), inner.h / (rows + 1)) * 0.22);
-        const cw = Math.max(1.5, (inner.w - gap * (cols + 1)) / cols);
-        const ch = Math.max(1.5, (inner.h - gap * (rows + 1)) / rows);
+        const minInner = Math.min(inner.w, inner.h);
+        const gap = clamp(Math.min(inner.w / (cols + 1), inner.h / (rows + 1)) * 0.18, Math.min(0.15, minInner * 0.08), 12);
+        const cw = Math.max(0.6, (inner.w - gap * (cols + 1)) / cols);
+        const ch = Math.max(0.6, (inner.h - gap * (rows + 1)) / rows);
         kids.forEach((kid, index) => {
             const col = index % cols;
             const row = Math.floor(index / cols);
@@ -138,7 +140,7 @@ const RegionMap: React.FC<Props> = ({
     onLocateCurrent,
     level,
     socialList = [],
-    env,
+    peopleByNode,
     viewLocationName,
     viewPathNames,
     viewDescription,
@@ -169,79 +171,25 @@ const RegionMap: React.FC<Props> = ({
         return () => observer.disconnect();
     }, []);
 
-    // NPC 落点：同名只保留一次，只认位置路径里真实出现的节点，多个命中取最深。
-    const 人物映射 = useMemo(() => {
-        const result = new Map<string, 人物点[]>();
-        const add = (id: string, person: 人物点) => {
-            if (!id) return;
-            const list = result.get(id) || [];
-            if (list.some(item => item.name === person.name)) return;
-            list.push(person);
-            result.set(id, list);
-        };
-        const 源节点 = allNodes?.length ? allNodes : nodes;
-        const 全部 = 源节点.flatMap(root => [root, ...(function collect(node: 地点树节点): 地点树节点[] {
-            return (node.子节点 || []).flatMap(child => [child, ...collect(child)]);
-        })(root)]);
-        const 归一化 = (value: unknown): string => String(value || '').replace(/\s+/g, '').toLowerCase();
-        // 父级ID 可能是内部 ID，也可能是老存档里的父节点名称，两种都要能回溯祖先链。
-        const 节点索引 = new Map<string, 地点树节点>();
-        全部.forEach(node => { 节点索引.set(node.ID, node); });
-        全部.forEach(node => {
-            const key = 归一化(node.名称);
-            if (key && !节点索引.has(key)) 节点索引.set(key, node);
-        });
-        const 取父节点 = (node: 地点树节点): 地点树节点 | undefined => {
-            const ref = String(node.父级ID || '').trim();
-            if (!ref) return undefined;
-            return 节点索引.get(ref) || 节点索引.get(归一化(ref));
-        };
-        const 取祖先名称 = (node: 地点树节点): string[] => {
-            const names: string[] = [];
-            let cursor = 取父节点(node);
-            const seen = new Set<string>([node.ID]);
-            while (cursor && !seen.has(cursor.ID) && seen.size < 30) {
-                seen.add(cursor.ID);
-                const label = 归一化(cursor.名称);
-                if (label) names.push(label);
-                cursor = 取父节点(cursor);
-            }
-            return names;
-        };
-        const 片段命中 = (list: string[], label: string): boolean => list.some(part => (
-            part === label || (part.length >= 2 && part.includes(label))
-        ));
-        const 深到浅 = [...全部].sort((a, b) => 取祖先名称(b).length - 取祖先名称(a).length);
-        const 已见 = new Set<string>();
-        (Array.isArray(socialList) ? socialList : []).forEach((npc: any) => {
-            const name = String(npc?.姓名 || npc?.名称 || '').trim();
-            if (!name || 已见.has(name)) return;
-            已见.add(name);
-            const parts = 提取NPC精确地图位置片段(npc);
-            // 同名叶节点可能挂在不同分支下：只用叶名会选错分支，必须让祖先链
-            // 与位置路径里出现的祖先片段吻合（如「平江府 > 水狼帮大营 > 库房」）。
-            let target: 地点树节点 | null = null;
-            let bestScore = -1;
-            for (const node of 深到浅) {
-                const nodeName = 归一化(node.名称);
-                if (!nodeName || !片段命中(parts, nodeName)) continue;
-                const score = 取祖先名称(node).reduce((sum, label) => sum + (片段命中(parts, label) ? 1 : 0), 0);
-                // 严格大于才替换：同分保留遍历顺序里更深的节点（深到浅）。
-                if (score > bestScore) { bestScore = score; target = node; }
-            }
-            if (!target && npc?.是否在场 === true) target = 全部.find(node => node.ID === currentNodeId) || null;
-            if (target) add(target.ID, { name, player: false });
-        });
-        const me = playerName.trim();
-        if (me && currentNodeId) add(currentNodeId, { name: me, player: true });
-        return result;
-    }, [allNodes, nodes, socialList, currentNodeId, playerName]);
+    const 人物映射 = useMemo(() => peopleByNode || 构建地图人物标记(
+        allNodes?.length ? allNodes : nodes, currentNodeId, socialList, playerName
+    ), [peopleByNode, allNodes, nodes, currentNodeId, socialList, playerName]);
 
     const { flat, byId } = useMemo(() => {
         const 全部节点 = allNodes?.length ? allNodes : nodes;
         const roots = 全部节点.filter(root => root && (!root.父级ID || !全部节点.some(node => node.ID === root.父级ID)));
         return 排布地图树(roots, 人物映射);
     }, [allNodes, nodes, 人物映射]);
+
+    // 根据最深层节点（房间/子地点）尺寸动态计算最小视野宽度，解除原先固定 70 (14.3x) 的放大上限
+    const minViewW = useMemo(() => {
+        let minBoxSpan = WORLD.w;
+        flat.forEach((item) => {
+            const span = Math.min(item.box.w, item.box.h);
+            if (span > 0 && span < minBoxSpan) minBoxSpan = span;
+        });
+        return clamp(minBoxSpan * 1.45, 1.5, 40);
+    }, [flat]);
 
     const 取消飞入动画 = useCallback(() => {
         if (tweenRef.current !== null) {
@@ -253,8 +201,11 @@ const RegionMap: React.FC<Props> = ({
     const 飞入 = useCallback((box: 区块, pad = 22, animate = true) => {
         const from = viewRef.current;
         const ratio = from.w / Math.max(1, from.h);
-        let w = box.w + pad * 2;
-        let h = box.h + pad * 2;
+        const effectivePad = pad <= 0
+            ? 0
+            : Math.min(pad, Math.max(1.2, Math.max(box.w, box.h) * 0.28));
+        let w = box.w + effectivePad * 2;
+        let h = box.h + effectivePad * 2;
         if (w / h < ratio) w = h * ratio; else h = w / ratio;
         const to: 视野 = {
             x: box.x + box.w / 2 - w / 2,
@@ -317,7 +268,7 @@ const RegionMap: React.FC<Props> = ({
     const 缩放 = useCallback((factor: number) => {
         取消飞入动画();
         const cur = viewRef.current;
-        const nw = clamp(cur.w * factor, 70, 1500);
+        const nw = clamp(cur.w * factor, minViewW, 1500);
         const nh = nw * (cur.h / cur.w);
         setView({
             x: cur.x - (nw - cur.w) / 2,
@@ -325,7 +276,7 @@ const RegionMap: React.FC<Props> = ({
             w: nw,
             h: nh,
         });
-    }, [取消飞入动画]);
+    }, [取消飞入动画, minViewW]);
 
     // 原生 wheel 监听，避免 React 的 passive 监听无法 preventDefault。
     useEffect(() => {
@@ -350,7 +301,7 @@ const RegionMap: React.FC<Props> = ({
             const worldX = cur.x + (event.clientX - rect.left - offsetX) / scale;
             const worldY = cur.y + (event.clientY - rect.top - offsetY) / scale;
             const factor = event.deltaY > 0 ? 1.12 : 1 / 1.12;
-            const nw = clamp(cur.w * factor, 70, 1500);
+            const nw = clamp(cur.w * factor, minViewW, 1500);
             const nh = nw * (cur.h / cur.w);
             const next: 视野 = {
                 x: worldX - (worldX - cur.x) * (nw / cur.w),
@@ -363,7 +314,7 @@ const RegionMap: React.FC<Props> = ({
         };
         svg.addEventListener('wheel', onWheel, { passive: false });
         return () => svg.removeEventListener('wheel', onWheel);
-    }, [取消飞入动画]);
+    }, [取消飞入动画, minViewW]);
 
     const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
         if (e.button !== 0) return;
@@ -434,7 +385,7 @@ const RegionMap: React.FC<Props> = ({
     // 否则全览时明明有空间的城镇也会变成空框，AI 生成的地名看不到。
     const 显示名 = view.w < 2400;
     const 显示人物名 = view.w < 1500;
-    const 最小可读 = 9.5;
+    const 最小可读 = 8.5;
 
     const 有建筑 = flat.some(item => item.node.层级 === '区地点' || item.node.层级 === '子地点');
     // 图例按「实际画出来的标记」显示：区块太小会跳过人物绘制，此时不应显示玩家/NPC 图例。
@@ -452,7 +403,7 @@ const RegionMap: React.FC<Props> = ({
     const isSpace = level === '寰宇';
 
     return (
-        <div ref={wrapRef} className="relative h-full min-h-[400px] w-full overflow-hidden rounded-xl moran-map-surface"
+        <div ref={wrapRef} className="relative h-full min-h-0 w-full overflow-hidden rounded-xl moran-map-surface"
             style={{ background: 'var(--mm-bg)', border: '1px solid var(--mm-border)' }}>
             <svg ref={svgRef}
                 className="absolute inset-0 h-full w-full touch-none cursor-grab active:cursor-grabbing"
@@ -488,10 +439,12 @@ const RegionMap: React.FC<Props> = ({
                     const isPlayerHere = node.ID === currentNodeId;
                     const isSelected = node.ID === selectedNodeId;
                     const 有子节点 = item.子节点.length > 0;
-                    const radius = isBuilding ? Math.min(4, w * 0.05) : Math.min(10, Math.max(3, w * 0.02));
+                    const radius = isBuilding
+                        ? Math.min(5 * px2world, w * 0.1, h * 0.12)
+                        : Math.min(10, Math.max(2 * px2world, Math.min(w, h) * 0.04));
                     const 框宽px = w * 画布比例;
                     const 框高px = h * 画布比例;
-                    const 字px = Math.min(目标字号[node.层级] || 11, 框宽px * 0.24, 框高px * 0.34);
+                    const 字px = Math.min(目标字号[node.层级] || 11, 框宽px * 0.26, 框高px * 0.42);
                     const nameSize = 字px * px2world;
                     // 旧实现副标题上限 9px、可读阈值 9.5px，导致控制势力永远不显示。
                     const 副标题字px = Math.min(10.5, 字px * 0.78, 框高px * 0.2);
@@ -515,7 +468,7 @@ const RegionMap: React.FC<Props> = ({
                     return (
                         <g key={node.ID}>
                             <rect data-node={node.ID} x={x} y={y} width={w} height={h} rx={radius}
-                                strokeWidth={(isPlayerHere || isSelected ? 1.6 : Math.max(0.8, Math.min(2, w * 0.012)))}
+                                strokeWidth={(isPlayerHere || isSelected ? 2.2 : 1.15) * px2world}
                                 filter={isBuilding ? 'url(#map-bld-shadow)' : undefined}
                                 style={{
                                     cursor: 'pointer',
@@ -530,7 +483,7 @@ const RegionMap: React.FC<Props> = ({
                             {isBuilding && 框高px > 10 && (
                                 <g pointerEvents="none">
                                     <line x1={x + 屋檐缩进} y1={y + 屋檐高度} x2={x + w - 屋檐缩进} y2={y + 屋檐高度}
-                                        style={{ stroke: 'var(--mm-eave)' }} strokeWidth={Math.max(0.6 * px2world, 0.6)} />
+                                        style={{ stroke: 'var(--mm-eave)' }} strokeWidth={0.9 * px2world} />
                                     {门朝向 === 0 && <rect x={x + w / 2 - 门宽 / 2} y={y + h - 门高} width={门宽} height={门高}
                                         rx={0.4 * px2world} style={{ fill: 'var(--mm-door)' }} />}
                                     {门朝向 === 1 && <rect x={x + w - 门高} y={y + h / 2 - 门宽 / 2} width={门高} height={门宽}
@@ -588,7 +541,7 @@ const RegionMap: React.FC<Props> = ({
                     const 框高px = h * 画布比例;
                     if (框宽px <= 26 || 框高px <= 16) return null;
                     const rpx = Math.min(4.6, 框宽px * 0.055, 框高px * 0.085);
-                    const r = Math.max(0.8, rpx * px2world);
+                    const r = rpx * px2world;
                     const 名字px = Math.min(12, 框宽px * 0.22);
                     // 单行容量按「可用宽度 / 圆点外径」算，超出就收成 +N 聚合标记，
                     // 避免密集人物把圆点甩到相邻区块上。
@@ -603,10 +556,11 @@ const RegionMap: React.FC<Props> = ({
                     const gapPx = Math.min(46, 可用宽px / Math.max(1, 绘制标记.length));
                     const 画名字 = 显示人物名 && 名字px >= 8
                         && gapPx >= (item.子节点.length > 0 ? 22 : 18)
-                        && 框高px > (item.子节点.length > 0 ? 60 : 26);
+                        && 框高px > (item.子节点.length > 0 ? 60 : 50);
+                    const 房内下边距 = Math.max(h * 0.18, (rpx + (画名字 ? 名字px + 8 : 3)) * px2world);
                     const cy = item.子节点.length > 0
-                        ? y + Math.max(4, item.track * 0.42)
-                        : y + h - Math.max(r * 2.4, 7 * px2world);
+                        ? y + Math.min(item.track * 0.55, Math.max(r * 1.25, item.track * 0.42))
+                        : y + h - 房内下边距;
                     return (
                         <g key={`people-${item.node.ID}`} data-people-node={item.node.ID} pointerEvents="none">
                             {绘制标记.map((marker, index) => {
@@ -614,6 +568,7 @@ const RegionMap: React.FC<Props> = ({
                                 const 名宽px = Math.max(1, 名字文本(marker.name).length) * 名字px * 0.95;
                                 return (
                                     <g key={`${item.node.ID}-${marker.name}`}>
+                                        <title>{marker.name}</title>
                                         <circle cx={cx} cy={cy} r={r + 1.1 * px2world} style={{ fill: 'var(--mm-halo)' }} />
                                         <circle cx={cx} cy={cy} r={r}
                                             style={{
@@ -622,7 +577,7 @@ const RegionMap: React.FC<Props> = ({
                                             }}
                                             strokeWidth={1 * px2world} />
                                         {画名字 && !marker.aggregate && gapPx >= 名宽px * 1.05 && (
-                                            <text x={cx} y={cy + r + 4 * px2world}
+                                            <text x={cx} y={cy + r + (3 + 名字px / 2) * px2world}
                                                 textAnchor="middle" dominantBaseline="middle"
                                                 style={{
                                                     fill: marker.player ? 'var(--mm-marker-name-player)' : 'var(--mm-marker-name-npc)',
@@ -651,7 +606,7 @@ const RegionMap: React.FC<Props> = ({
                         action: () => {
                             const target = byId.get(currentNodeId);
                             if (target) 飞入(target.box, 24, true);
-                            else onLocateCurrent();
+                            onLocateCurrent();
                         },
                     },
                     { label: '⌂', title: '全览（双击地图同效）', action: () => 飞入(WORLD, 0, true) },

@@ -134,10 +134,8 @@ const MobileQuickMenu: React.FC<Props> = ({
 
     const visibleMenus = useMemo<MenuMeta[]>(() => ([
         metaFor(MENU_META.character),
-        metaFor(MENU_META.battle),
         metaFor(MENU_META.equipment),
         metaFor(MENU_META.inventory),
-        { ...MENU_META.auction_house, label: auctionHouseLabel },
         metaFor(MENU_META.social),
         ...(enableKungfu ? [metaFor(MENU_META.kungfu)] : []),
         metaFor(MENU_META.map),
@@ -149,14 +147,12 @@ const MobileQuickMenu: React.FC<Props> = ({
         metaFor(MENU_META.save),
         ...(enabled ? [MENU_META.music] : []),
         metaFor(MENU_META.settings),
-    ]), [auctionHouseLabel, enableKungfu, enableWorldPanel, enabled, sectLabel, uiLabels]);
+    ]), [enableKungfu, enableWorldPanel, enabled, sectLabel, uiLabels]);
 
     const allMenus = useMemo<MenuMeta[]>(() => ([
         metaFor(MENU_META.character),
-        metaFor(MENU_META.battle),
         metaFor(MENU_META.equipment),
         metaFor(MENU_META.inventory),
-        { ...MENU_META.auction_house, label: auctionHouseLabel },
         metaFor(MENU_META.social),
         ...(enableKungfu ? [metaFor(MENU_META.kungfu)] : []),
         metaFor(MENU_META.map),
@@ -174,7 +170,7 @@ const MobileQuickMenu: React.FC<Props> = ({
         metaFor(MENU_META.save),
         metaFor(MENU_META.load),
         metaFor(MENU_META.settings),
-    ]), [auctionHouseLabel, enableHeroinePlan, enableImageManager, enableKungfu, enableNovelDecomposition, enablePlanningPanel, enableWorldPanel, sectLabel, uiLabels]);
+    ]), [enableHeroinePlan, enableImageManager, enableKungfu, enableNovelDecomposition, enablePlanningPanel, enableWorldPanel, sectLabel, uiLabels]);
 
     const handleMenuClick = (menu: MenuId) => {
         onMenuClick(menu);

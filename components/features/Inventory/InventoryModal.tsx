@@ -633,15 +633,17 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                             >
                                 自动穿戴最佳
                             </button>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleSellAllMisc}
-                                    disabled={!onSellAllMisc || getCategoryCount(items, '杂物') <= 0}
-                                    className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-2 text-xs font-semibold text-emerald-100 transition hover:border-emerald-300/60 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-                                >
-                                    杂物全售
-                                </button>
+                            <div className="grid grid-cols-1 gap-2">
+                                {onSellAllMisc ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleSellAllMisc}
+                                        disabled={getCategoryCount(items, '杂物') <= 0}
+                                        className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-2 text-xs font-semibold text-emerald-100 transition hover:border-emerald-300/60 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                        杂物全售
+                                    </button>
+                                ) : null}
                                 <button
                                     type="button"
                                     onClick={handleDiscardAllMisc}
@@ -828,7 +830,7 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                                     <div className="col-start-1 row-start-2 rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-3">
                                         <div className="mb-2 flex items-center justify-between gap-3">
                                             <span className="text-sm font-bold tracking-[0.12em] text-emerald-100">图标操作</span>
-                                            <span className="truncate text-xs text-gray-300">可重生图或进入拍卖行</span>
+                                            <span className="truncate text-xs text-gray-300">{onSellItem ? '可重生图或进入拍卖行' : '可重生图或存入个人图库'}</span>
                                         </div>
                                         <textarea
                                             value={customPrompt}
@@ -836,7 +838,7 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                                             placeholder="可选：输入额外提示词，例如“更古朴、木纹更明显、背景更淡”"
                                             className="mb-2 h-16 w-full resize-none rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs leading-5 text-gray-100 outline-none placeholder:text-gray-500 focus:border-cyan-400/50"
                                         />
-                                        <div className="grid grid-cols-3 gap-2">
+                                        <div className={`grid ${onSellItem ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
                                             <button
                                                 type="button"
                                                 onClick={handleRegenerateSelectedImage}
@@ -845,14 +847,15 @@ const DetailMetricCard: React.FC<{ groupTitle: string; entry: any }> = ({ groupT
                                             >
                                                 重生图
                                             </button>
-                                            <button
-                                                type="button"
-                                                onClick={handleSellSelected}
-                                                disabled={!onSellItem}
-                                                className="rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-3 py-2.5 text-sm font-semibold text-emerald-50 transition hover:border-emerald-300/60 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-                                            >
-                                                出售
-                                            </button>
+                                            {onSellItem ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSellSelected}
+                                                    className="rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-3 py-2.5 text-sm font-semibold text-emerald-50 transition hover:border-emerald-300/60 hover:bg-emerald-500/20"
+                                                >
+                                                    出售
+                                                </button>
+                                            ) : null}
                                             <button
                                                 type="button"
                                                 onClick={handleSaveToGallery}

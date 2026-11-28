@@ -8,7 +8,18 @@ import * as textAIService from '../../services/ai/text';
 import { 是否流式连接中断错误消息 } from '../../services/ai/chatCompletionClient';
 import { recordAiParseFailureDiagnostic } from '../../services/diagnosticContext';
 import { recordDiagnosticLog } from '../../services/diagnosticLog';
-import type { GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
+import type { 战斗状态结构, 详细门派结构, GameResponse, OpeningConfig, 聊天记录结构, 场外对话消息结构, 场外交易记录结构, 场外战果暂存结构, 记忆系统结构, 角色数据结构, 剧情系统结构, 剧情规划结构, 女主剧情规划结构, 同人剧情规划结构, 同人女主剧情规划结构, DirectorWorldBible, 世界书结构, 内置提示词条目结构, 叙事状态结构, 叙事平静值配置结构 } from '../../types';
+import { 渲染主剧情回合V2 } from '../../engine/storyV2/storyTurnRenderer';
+import { 执行导演后处理V2 } from '../../engine/storyV2/directorPostTurn';
+import { 提取2_0流式正文预览, 从状态构建2_0导演圣经 } from '../../engine/storyV2/legacySaveBridge';
+import { 构建场外交易注入块 } from '../../engine/plugins/tradePlugin';
+import { 构建场外战果注入块 } from '../../engine/plugins/clashPlugin';
+import { 构建同人运行时提示词包 } from '../../prompts/runtime/fandom';
+import { 变更角色货币BaseAmount, 获取货币显示模式, 计算角色货币底层总值 } from '../../utils/currencyDisplay';
+import { 推断单位仙侠 } from '../../utils/realmDisplay';
+import { 同步角色储物负重上限 } from '../../utils/storageCarry';
+import type { StoryV2Config, StoryV2EngineState } from '../../engine/storyV2/types';
+import { 规范化角色物品容器映射, 规范化社交列表 } from './stateTransforms';
 import { 获取主剧情接口配置, 获取剧情回忆接口配置, 获取文章优化接口配置, 获取变量计算接口配置, 获取世界演变接口配置, 获取规划分析接口配置, 获取地图自动更新接口配置, 接口配置是否可用, 变量校准功能已启用 as 变量生成功能已启用, 省次数模式已启用, 获取省次数模式接口配置 } from '../../utils/apiConfig';
 import { 构建省次数附加输出协议, 提取省次数分节, 过滤省次数流式草稿, type 省次数环节 } from '../../utils/singleCallMode';
 import { 获取繁体输出指令 } from '../../utils/traditionalChinese';
@@ -29,11 +40,113 @@ import { 检测文章优化协议确认污染 } from './bodyPolish';
 import { 分析世界到期触发 } from './worldEvolutionUtils';
 import { 按世界演变分流净化响应 } from './storyResponseGuards';
 import type { 响应命令处理状态 } from './responseCommandProcessor';
+import { 同步在场NPC当前位置 } from './responseCommandProcessor';
+import { 补录环境所在房间 } from '../../utils/locationTree';
+import { 执行变量模型校准工作流 } from './variableModelWorkflow';
+import { 合并变量校准结果到响应 as 合并变量生成结果到响应 } from './variableCalibrationMerge';
 import type { 自动存档快照结构 } from './saveCoordinator';
 import type { 世界演变触发参数, 世界演变执行结果 } from './worldEvolutionWorkflow';
 import type { 地图更新执行结果 } from './mapUpdateWorkflow';
 import { 生成地图更新 } from './mapUpdateWorkflow';
 import { 获取激活小说拆分注入文本 } from '../../services/novelDecompositionInjection';
+
+const 合并导演角色变更 = (params: {
+    latestRole?: 角色数据结构;
+    preTurnRole: 角色数据结构;
+    postTurnRole: 角色数据结构;
+    openingConfig?: OpeningConfig;
+}): 角色数据结构 => {
+    const { latestRole, preTurnRole, postTurnRole, openingConfig } = params;
+    if (!latestRole) return postTurnRole;
+
+    const preItems = Array.isArray(preTurnRole?.物品列表) ? preTurnRole.物品列表 : [];
+    const displayMode = 获取货币显示模式(openingConfig, latestRole);
+    const isXianxia = 推断单位仙侠(latestRole) || /仙侠|玄幻/.test(String(openingConfig?.题材模式 || ''));
+    const currencyOptions = {
+        runtimeProfile: openingConfig?.modeRuntimeProfile,
+        货币模式: displayMode,
+        仙侠模式: isXianxia
+    };
+    if (JSON.stringify(preTurnRole) === JSON.stringify(latestRole)) {
+        return postTurnRole;
+    }
+
+    let merged = JSON.parse(JSON.stringify(latestRole)) as 角色数据结构;
+    // 玩家在后台生成期间可以换装或使用物品。只覆盖仍等于回合基线的字段。
+    for (const key of Object.keys(postTurnRole) as Array<keyof 角色数据结构>) {
+        if (key === '物品列表' || key === '金钱') continue;
+        if (JSON.stringify(preTurnRole[key]) === JSON.stringify(latestRole[key])) {
+            Object.assign(merged, { [key]: postTurnRole[key] });
+        }
+    }
+
+    const moneyDelta = 计算角色货币底层总值(postTurnRole?.金钱, openingConfig?.modeRuntimeProfile, displayMode)
+        - 计算角色货币底层总值(preTurnRole?.金钱, openingConfig?.modeRuntimeProfile, displayMode);
+    if (JSON.stringify(preTurnRole.金钱) === JSON.stringify(latestRole.金钱)) {
+        merged.金钱 = postTurnRole.金钱;
+    } else if (moneyDelta !== 0) {
+        merged = 变更角色货币BaseAmount(merged, moneyDelta, currencyOptions);
+    }
+
+    if (JSON.stringify(preTurnRole.物品列表) === JSON.stringify(latestRole.物品列表)) {
+        merged.物品列表 = postTurnRole.物品列表;
+        return 同步角色储物负重上限(merged) as 角色数据结构;
+    }
+    const itemKey = (item: any) => typeof item === 'string' ? item.trim()
+        : String(item?.ID || item?.id || item?.名称 || '').trim();
+    const countItems = (items: any[]): Map<string, { qty: number; template?: any }> => {
+        const map = new Map<string, { qty: number; template?: any }>();
+        for (const entry of (Array.isArray(items) ? items : [])) {
+            const name = typeof entry === 'string' ? entry.trim() : String(entry?.名称 || '').trim();
+            if (!name) continue;
+            const qty = typeof entry === 'object' && entry !== null
+                ? Math.max(1, Math.floor(Number(entry.堆叠数量 ?? entry.数量 ?? 1) || 1))
+                : 1;
+            const key = itemKey(entry);
+            const prev = map.get(key);
+            map.set(key, { qty: (prev?.qty || 0) + qty, template: prev?.template || entry });
+        }
+        return map;
+    };
+
+    const preMap = countItems(preItems);
+    const postMap = countItems(postTurnRole?.物品列表 || []);
+    const mergedItems: any[] = Array.isArray(merged.物品列表) ? [...merged.物品列表] : [];
+    const allNames = new Set<string>([...preMap.keys(), ...postMap.keys()]);
+
+    for (const name of allNames) {
+        const diff = (postMap.get(name)?.qty || 0) - (preMap.get(name)?.qty || 0);
+        if (diff > 0) {
+            const tpl = postMap.get(name)?.template;
+            const idx = mergedItems.findIndex((it: any) => itemKey(it) === name && !it?.已装备 && !it?.当前装备部位);
+            if (idx >= 0 && typeof mergedItems[idx] === 'object') {
+                const cur = Math.max(1, Math.floor(Number(mergedItems[idx].堆叠数量 ?? mergedItems[idx].数量 ?? 1) || 1));
+                mergedItems[idx] = { ...mergedItems[idx], 数量: cur + diff, 堆叠数量: cur + diff };
+            } else if (tpl && typeof tpl === 'object') {
+                mergedItems.push({ ...JSON.parse(JSON.stringify(tpl)), 数量: diff, 堆叠数量: diff });
+            } else {
+                mergedItems.push({ 名称: name, 类型: '剧情物品', 数量: diff, 堆叠数量: diff });
+            }
+        } else if (diff < 0) {
+            let toRemove = Math.abs(diff);
+            for (let i = mergedItems.length - 1; i >= 0 && toRemove > 0; i -= 1) {
+                const it = mergedItems[i];
+                const itName = itemKey(it);
+                if (itName !== name || it?.已装备 || it?.当前装备部位) continue;
+                const cur = typeof it === 'object' ? Math.max(1, Math.floor(Number(it.堆叠数量 ?? it.数量 ?? 1) || 1)) : 1;
+                if (cur <= toRemove) {
+                    toRemove -= cur;
+                    mergedItems.splice(i, 1);
+                } else {
+                    mergedItems[i] = { ...it, 数量: cur - toRemove, 堆叠数量: cur - toRemove };
+                    toRemove = 0;
+                }
+            }
+        }
+    }
+    merged.物品列表 = mergedItems;
+    return 同步角色储物负重上限(merged) as 角色数据结构;
+};
 import { 同步剧情小说分解时间校准 } from '../../services/novelDecompositionCalibration';
 import { 提取命中新女性角色姓名黑名单 } from '../../utils/femaleNameSelector';
 import { 检测NPC姓名改写风险命令, 检测社交删除风险命令 } from '../../utils/npcRetentionGuard';
@@ -42,10 +155,7 @@ import { 获取境界配置, type 境界配置 } from '../../utils/realmConfig';
 import { 构建标签缺失补充提示 } from '../../utils/parseErrorHints';
 import { resetScriptedMoneyDelta } from '../../utils/scriptedMoneyReconciler';
 import { 构建待执行阶段摘要, 需要展示后续步骤入口 } from '../../utils/postStoryQueue';
-import { 对AI输出执行酒馆正则 } from '../../utils/tavernRegexEngine';
-import { 提取酒馆选项 } from '../../utils/tavernOptionRenderer';
-import { 获取预设已分类正则脚本 } from '../../utils/tavernPreset';
-import { 从文本解析推理块 } from '../../utils/tavernTemplateEngine';
+import { 应用酒馆显示规则 } from './tavernDisplayResponse';
 import type { 回合快照结构 } from './turnSnapshot';
 
 type 回忆检索进度 = {
@@ -538,7 +648,7 @@ const 构建名器句子级审查提示 = (params: {
     hit: 名器档案名称正文命中;
     bodyText: string;
 }) => [
-    `你是《墨色江湖》的正文局部审查器，只判断一句正文里的“名器名称”是否自然。`,
+    `你是《墨色江湖 2.0》的正文局部审查器，只判断一句正文里的“名器名称”是否自然。`,
     '任务：不要重写全文，只处理用户给出的一句话。',
     '判断标准：如果该名称在当前上下文里像角色自然说出的称呼、江湖传闻、玩家可理解的外号，且不破坏行文，就保留；如果它像内部档案字段、设定标签、生图/判定用名，或突然暴露私密档案导致违和，就只改写这一句。',
     '改写要求：保持原句事实、语气、人物关系、地点、动作和前后承接，不新增事件，不输出命令、记忆或解释。',
@@ -870,7 +980,8 @@ const 执行主剧情流式请求带空闲超时 = async <T,>(
 
     const requestController = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let rejectTimeout: ((reason?: any) => void) | null = null;
+    let acceptDraft: ((draft: T) => void) | undefined;
+    let rejectTimeout: ((reason: Error) => void) | undefined;
     let hasStreamActivity = false;
     const streamTrace = {
         requestStartAt: Date.now(),
@@ -918,7 +1029,7 @@ const 执行主剧情流式请求带空闲超时 = async <T,>(
                     totalElapsedMs: Date.now() - streamTrace.requestStartAt
                 });
                 recordDiagnosticLog('warn', ['主剧情流式超时-接受完整草稿', diagnosticInfo]);
-                rejectTimeout?.(completedResult);
+                acceptDraft?.(completedResult);
                 try {
                     requestController.abort(new DOMException('Completed stream draft accepted', 'AbortError'));
                 } catch {
@@ -968,13 +1079,8 @@ const 执行主剧情流式请求带空闲超时 = async <T,>(
         return await Promise.race([
             task(requestController.signal, markStreamActivity),
             new Promise<T>((resolve, reject) => {
-                rejectTimeout = (reason?: any) => {
-                    if (reason && typeof reason === 'object' && 'response' in reason && 'rawText' in reason) {
-                        resolve(reason as T);
-                        return;
-                    }
-                    reject(reason);
-                };
+                acceptDraft = resolve;
+                rejectTimeout = reject;
             })
         ]);
     } catch (error) {
@@ -1198,6 +1304,11 @@ type 主剧情发送当前状态 = {
     女主剧情规划?: 女主剧情规划结构;
     同人剧情规划?: 同人剧情规划结构;
     同人女主剧情规划?: 同人女主剧情规划结构;
+    导演圣经?: DirectorWorldBible;
+    上一回合导演圣经?: DirectorWorldBible;
+    worldEvents?: string[];
+    场外交易暂存?: 场外交易记录结构[];
+    场外战果暂存?: 场外战果暂存结构[];
     开局配置?: OpeningConfig;
     游戏初始时间?: string;
     loading: boolean;
@@ -1216,7 +1327,7 @@ type 主剧情发送当前状态 = {
 type 主剧情发送依赖 = {
     abortControllerRef: { current: AbortController | null };
     /** 注册「正文后暂停」的续跑入口；未提供时退回自动执行全部后续阶段 */
-    注册待继续后续步骤?: (payload: { 阶段摘要: string[]; 回合标识?: number; 执行: () => Promise<void> }) => void;
+    注册待继续后续步骤?: (payload: { 阶段摘要: string[]; 回合标识?: number; 放弃?: () => void; 执行: () => Promise<void> }) => void;
     /** 暂停续跑前读取最新状态：玩家可能在暂停期间改过背包/装备/功法/社交，也可能追加过系统消息或场外对话 */
     获取续跑状态快照?: () => {
         命令基线?: Partial<{
@@ -1233,17 +1344,36 @@ type 主剧情发送依赖 = {
         }>;
         历史?: 聊天记录结构[];
         场外对话?: 场外对话消息结构[];
+        场外交易暂存?: 场外交易记录结构[];
+        场外战果暂存?: 场外战果暂存结构[];
     } | null;
     recallAbortControllerRef: { current: AbortController | null };
     前台发送序号Ref?: { current: number };
+    获取会话代次?: () => number;
+    获取最新角色Snapshot?: () => 角色数据结构 | undefined;
     setLoading: (value: boolean) => void;
     set后台队列处理中: (value: boolean) => void;
     setShowSettings: (value: boolean) => void;
+    设置角色?: (value: 角色数据结构) => void;
+    设置环境?: (value: any) => void;
+    设置社交?: (value: any[]) => void;
+    设置世界?: (value: any) => void;
     设置剧情: (value: 剧情系统结构) => void;
+    设置剧情规划?: (value: 剧情规划结构) => void;
+    设置女主剧情规划?: (value: 女主剧情规划结构 | undefined) => void;
+    设置任务列表?: (value: any[]) => void;
+    设置约定列表?: (value: any[]) => void;
+    设置玩家门派?: (value: 详细门派结构) => void;
+    设置战斗?: (value: 战斗状态结构) => void;
+    设置导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    设置上一回合导演圣经?: (value: DirectorWorldBible | undefined) => void;
+    setWorldEvents?: (value: string[]) => void;
     设置历史记录: (value: 聊天记录结构[] | ((prev: 聊天记录结构[]) => 聊天记录结构[])) => void;
     设置叙事平静值: (value: 叙事状态结构) => void;
     应用并同步记忆系统: (memory: 记忆系统结构, options?: { 静默总结提示?: boolean }) => void;
     清空场外对话暂存?: () => void;
+    清空场外交易暂存?: () => void;
+    清空场外战果暂存?: () => void;
     构建系统提示词: (promptPool: any[], memoryData: 记忆系统结构, socialData: any[], statePayload: any, options?: any) => Promise<主剧情系统上下文 & {
         runtimePromptStates: Record<string, any>;
     }> | (主剧情系统上下文 & {
@@ -1400,6 +1530,7 @@ export const 执行主剧情发送工作流 = async (
     deps: 主剧情发送依赖,
     options?: 发送选项
 ): Promise<发送结果> => {
+    const sendGeneration = deps.获取会话代次?.();
     let historyBeforeSend = [...currentState.历史记录];
     const lastMessage = historyBeforeSend.length > 0 ? historyBeforeSend[historyBeforeSend.length - 1] : null;
 
@@ -1682,6 +1813,7 @@ export const 执行主剧情发送工作流 = async (
         deps.recallAbortControllerRef.current = null;
         return { cancelled: true };
     }
+    if (deps.获取会话代次?.() !== sendGeneration) return { cancelled: true };
     const 本次发送序号 = deps.前台发送序号Ref ? (deps.前台发送序号Ref.current += 1) : 0;
     const 本次仍是最新前台回合 = () => !deps.前台发送序号Ref || deps.前台发送序号Ref.current === 本次发送序号;
 
@@ -1699,6 +1831,7 @@ export const 执行主剧情发送工作流 = async (
         resolve自动存档完成(id);
     };
     const 本回合重Roll快照: 回合快照结构 = {
+        剧情回合序号: nextRound,
         审查基准来源: '真实回合前',
         玩家输入: sendInput,
         游戏时间: currentGameTime,
@@ -1717,9 +1850,13 @@ export const 执行主剧情发送工作流 = async (
             女主剧情规划: deps.深拷贝(currentState.女主剧情规划),
             同人剧情规划: deps.深拷贝(currentState.同人剧情规划),
             同人女主剧情规划: deps.深拷贝(currentState.同人女主剧情规划),
+            导演圣经: deps.深拷贝(currentState.导演圣经),
             记忆系统: deps.深拷贝(memBeforeSend),
             叙事平静值: deps.深拷贝(currentState.叙事平静值 || { 平静计数: 0, 情节事件记录: [] }),
-            场外对话: deps.深拷贝(currentState.场外对话 || [])
+            场外对话: deps.深拷贝(currentState.场外对话 || []),
+            场外交易暂存: deps.深拷贝(currentState.场外交易暂存 || []),
+            场外战果暂存: deps.深拷贝(currentState.场外战果暂存 || []),
+            世界大事: Array.isArray(currentState.worldEvents) ? deps.深拷贝(currentState.worldEvents) : []
         },
         回档前持久态: {
             视觉设置: deps.深拷贝(currentState.visualConfig),
@@ -1840,6 +1977,7 @@ export const 执行主剧情发送工作流 = async (
     };
 
     let 后台队列已启动 = false;
+    let 已注册暂停续跑 = false;
     let streamMarker = 0;
     let latestStreamDraftText = '';
     // 流式输出被上游意外终止（如内容审核掐断、代理断流、流式空闲超时）后置为 true，
@@ -1850,9 +1988,680 @@ export const 执行主剧情发送工作流 = async (
         const naturalProseLoaded = await naturalProseSnapshotPending;
         if (naturalProseLoaded.error) throw naturalProseLoaded.error;
         const naturalProseSnapshot = naturalProseLoaded.value;
+        const runtimeGameConfigV2 = 规范化游戏设置(currentState.gameConfig);
+        const useStoryV2Turn = Boolean(
+            !使用省次数模式
+            && !构建同人运行时提示词包({ openingConfig: currentState.开局配置 }).enabled
+            && runtimeGameConfigV2.启用2_0剧情引擎 !== false
+            && (currentState.导演圣经 || deps.设置导演圣经)
+        );
+        if (useStoryV2Turn) {
+            const 是否当前V2会话仍有效 = () => 本次仍是最新前台回合()
+                && deps.获取会话代次?.() === sendGeneration && !controller.signal.aborted;
+            if (!是否当前V2会话仍有效()) return { cancelled: true };
+            if (isStreaming) {
+                streamMarker = Date.now();
+                deps.设置历史记录([
+                    ...updatedDisplayHistory,
+                    {
+                        role: 'assistant',
+                        content: '',
+                        timestamp: streamMarker,
+                        gameTime: currentGameTime
+                    }
+                ]);
+            }
+            const worldPromptContent = (Array.isArray(currentState.prompts)
+                ? currentState.prompts.find((p: any) => p?.id === 'core_world')?.内容
+                : '') || '';
+            const currentDirectorBible = deps.深拷贝(currentState.导演圣经)
+                || 从状态构建2_0导演圣经({
+                    worldPrompt: worldPromptContent,
+                    role: currentState.角色,
+                    social: currentState.社交,
+                    world: currentState.世界,
+                    story: currentState.剧情,
+                    storyPlan: currentState.剧情规划
+                });
+            const preTurnDirectorBible = deps.深拷贝(currentDirectorBible);
+            deps.设置导演圣经?.(currentDirectorBible);
+            const 场外对话提示块V2 = 构建场外对话记录块(currentState.场外对话);
+            const 场外交易提示块V2 = 构建场外交易注入块(currentState.场外交易暂存);
+            const 场外战果提示块V2 = 构建场外战果注入块(currentState.场外战果暂存);
+            const effectiveV2Input = [
+                sendInput,
+                recallTag ? `【历史回忆检索参考】\n${recallTag}` : '',
+                场外对话提示块V2 ? `【场外交流摘要】\n${场外对话提示块V2}` : '',
+                场外交易提示块V2,
+                场外战果提示块V2
+            ].filter(Boolean).join('\n\n');
+            const v2State: StoryV2EngineState = {
+                turnIndex: nextRound,
+                gameInitialTime: currentState.游戏初始时间 || currentGameTime || '1:01:01:06:00',
+                worldPrompt: worldPromptContent,
+                directorBible: currentDirectorBible,
+                角色: deps.深拷贝(currentState.角色),
+                环境: deps.规范化环境信息(deps.深拷贝(currentState.环境)),
+                社交: deps.深拷贝(Array.isArray(currentState.社交) ? currentState.社交 : []),
+                世界: deps.规范化世界状态(deps.深拷贝(currentState.世界)),
+                剧情: deps.规范化剧情状态(deps.深拷贝(currentState.剧情), currentState.环境),
+                剧情规划: deps.规范化剧情规划状态(deps.深拷贝(currentState.剧情规划)),
+                女主剧情规划: deps.规范化女主剧情规划状态(deps.深拷贝(currentState.女主剧情规划)),
+                记忆系统: deps.深拷贝(updatedMemSys),
+                历史记录: deps.按回合窗口裁剪历史(contextHistory, Math.max(1, Number(normalizedMemoryConfig.即时消息上传条数N) || 6)),
+                任务列表: Array.isArray(currentState.任务列表) ? deps.深拷贝(currentState.任务列表) : [],
+                世界大事: Array.isArray(currentState.worldEvents) ? [...currentState.worldEvents] : []
+            };
+            const planningApiV2 = 获取规划分析接口配置(currentState.apiConfig);
+            const v2Config: StoryV2Config = {
+                gameConfig: runtimeGameConfigV2,
+                apiConfig: activeApi,
+                directorApiConfig: 接口配置是否可用(planningApiV2) ? planningApiV2 : activeApi,
+                openingConfig: currentState.开局配置 || ({} as OpeningConfig),
+                worldConfig: {
+                    worldName: currentState.开局配置?.modeRuntimeProfile?.identity?.displayName || currentState.开局配置?.题材模式 || '墨色江湖 2.0'
+                },
+                promptPool: currentState.prompts,
+                worldbooks: currentState.世界书列表
+            };
+            let latestRawDraftForV2Timeout = '';
+            const renderedTurn = await deps.执行带自动重试的生成请求({
+                enabled: deps.游戏设置启用自动重试(runtimeGameConfigV2),
+                action: async (_attempt, lastError) => {
+                    latestRawDraftForV2Timeout = '';
+                    if (isStreaming && lastError && 是否流式意外终止错误(lastError)) {
+                        流式意外终止需降级非流式 = true;
+                    }
+                    const turnUseStreaming = isStreaming && !流式意外终止需降级非流式;
+                    return 渲染主剧情回合V2(v2State, v2Config, effectiveV2Input, {
+                        signal: controller.signal,
+                        stream: turnUseStreaming,
+                        minBodyLength: runtimeGameConfigV2.字数要求,
+                        shortBodyMode: runtimeGameConfigV2.字数不足处理方式,
+                        executeStreamWithTimeout: (reqSignal, runFn) => 执行主剧情流式请求带空闲超时(
+                            reqSignal || controller.signal,
+                            (timeoutSignal, markActivity) => runFn(timeoutSignal, markActivity),
+                            () => {
+                                const draft = (latestRawDraftForV2Timeout || '').trim();
+                                if (!draft || !draft.includes('</正文>')) return null;
+                                if (runtimeGameConfigV2.启用行动选项 !== false && !draft.includes('</行动选项>')) return null;
+                                return draft;
+                            },
+                            获取游玩请求超时毫秒(runtimeGameConfigV2.游玩请求超时设置)
+                        ),
+                        onDelta: turnUseStreaming
+                            ? (_delta, accumulated) => {
+                                latestRawDraftForV2Timeout = accumulated;
+                                const preview = 提取2_0流式正文预览(accumulated);
+                                if (!preview) return;
+                                latestStreamDraftText = preview;
+                                if (streamMarker) {
+                                    deps.设置历史记录((prev) => prev.map((item) => (
+                                        item.timestamp === streamMarker && item.role === 'assistant' && !item.structuredResponse
+                                            ? { ...item, content: preview }
+                                            : item
+                                    )));
+                                }
+                            }
+                            : undefined
+                    });
+                },
+                onRetry: (attempt, maxAttempts, reason) => {
+                    const 重试原因 = 流式意外终止需降级非流式 && isStreaming
+                        ? 流式意外终止降级提示
+                        : reason;
+                    if (isStreaming) {
+                        deps.设置历史记录((prev) => deps.更新流式草稿为自动重试提示(prev, attempt, maxAttempts, 重试原因));
+                    }
+                }
+            });
+            if (controller.signal.aborted) {
+                throw controller.signal.reason || new DOMException('Aborted', 'AbortError');
+            }
+            let displayResponse: GameResponse = renderedTurn.response;
+            if (deps.文章优化功能已开启()) {
+                try {
+                    options?.onPolishProgress?.({ phase: 'start', text: '正在润色 2.0 本回合正文...' });
+                    const polished = await deps.执行正文润色(displayResponse, renderedTurn.rawText, {
+                        playerInput: sendInput,
+                        signal: controller.signal,
+                        minLength: runtimeGameConfigV2.字数要求
+                    });
+                    if (polished.applied) {
+                        displayResponse = polished.response;
+                        options?.onPolishProgress?.({ phase: 'done', text: '正文润色完成。' });
+                    } else {
+                        options?.onPolishProgress?.({ phase: 'skipped', text: polished.error || '保持原稿。' });
+                    }
+                } catch (polishErr: any) {
+                    if (polishErr?.name === 'AbortError') throw polishErr;
+                    options?.onPolishProgress?.({ phase: 'skipped', text: '正文润色失败，已保留原稿。' });
+                }
+            } else {
+                options?.onPolishProgress?.({ phase: 'skipped', text: '正文优化功能未开启，已跳过。' });
+            }
+            if (!是否当前V2会话仍有效()) return { cancelled: true };
+            const aiTimestamp = streamMarker || Date.now();
+            const newAiMsgV2: 聊天记录结构 = {
+                role: 'assistant',
+                content: 'Structured Response',
+                structuredResponse: displayResponse,
+                rawJson: renderedTurn.rawText,
+                timestamp: aiTimestamp,
+                gameTime: currentGameTime,
+                outputTokens: deps.估算AI输出Token(renderedTurn.rawText, activeApi?.model)
+            };
+            const committedHistoryV2 = [...updatedDisplayHistory, newAiMsgV2];
+            const provisionalMemoryV2 = 写入四段记忆(
+                updatedMemSys,
+                构建即时记忆条目(currentGameTime, sendInput, displayResponse),
+                构建短期记忆条目(currentGameTime, displayResponse),
+                {
+                    immediateLimit: normalizedMemoryConfig.即时消息上传条数N,
+                    shortLimit: normalizedMemoryConfig.短期记忆阈值,
+                    midLimit: normalizedMemoryConfig.中期记忆阈值,
+                    recordTime: currentGameTime,
+                    timestamp: currentGameTime
+                }
+            );
+            deps.设置历史记录(committedHistoryV2);
+            deps.应用并同步记忆系统(provisionalMemoryV2);
+            deps.设置上一回合导演圣经?.(preTurnDirectorBible);
+            deps.清空场外对话暂存?.();
+            deps.清空场外交易暂存?.();
+            deps.清空场外战果暂存?.();
+
+            let 续跑历史V2: 聊天记录结构[] | null = null;
+            let 续跑场外对话V2: 场外对话消息结构[] | null = null;
+            let 续跑交易暂存V2: 场外交易记录结构[] | null = null;
+            let 续跑战果暂存V2: 场外战果暂存结构[] | null = null;
+
+
+            const runV2PostTurn = async () => {
+                let directorCompleted = false;
+                try {
+                    options?.onPlanningProgress?.({ phase: 'start', text: '2.0 导演正在核销伏笔、推进暗线与检测重规划...' });
+                    options?.onWorldEvolutionProgress?.({ phase: 'start', text: '正在结算离屏人物倒计时与势力暗账...' });
+                    const postRes = await 执行导演后处理V2({
+                        state: v2State,
+                        apiConfig: v2Config.directorApiConfig || v2Config.apiConfig,
+                        storyResponse: displayResponse,
+                        playerInput: sendInput,
+                        openingConfig: currentState.开局配置,
+                        stream: runtimeGameConfigV2.启用非流式输出 !== true && currentState.apiConfig?.功能模型占位?.规划分析非流式输出 !== true,
+                        signal: controller.signal
+                    });
+                    if (!是否当前V2会话仍有效()) {
+                        收束自动存档完成(null);
+                        return;
+                    }
+                    let finalEnvV2 = deps.规范化环境信息(postRes.nextState.环境);
+                    const rawFinalRoleV2 = 规范化角色物品容器映射(postRes.nextState.角色, {
+                        启用饱腹口渴系统: runtimeGameConfigV2.启用饱腹口渴系统,
+                        题材模式: currentState.开局配置?.题材模式
+                    });
+                    let finalRoleV2 = rawFinalRoleV2;
+                    let finalSocialV2 = 规范化社交列表(postRes.nextState.社交, { 合并同名: false });
+                    let finalWorldV2 = deps.规范化世界状态(postRes.nextState.世界);
+                    let finalStoryV2 = deps.规范化剧情状态(postRes.nextState.剧情, finalEnvV2);
+                    let finalStoryPlanV2 = deps.规范化剧情规划状态(postRes.nextState.剧情规划);
+                    let finalHeroinePlanV2 = postRes.nextState.女主剧情规划
+                        ? deps.规范化女主剧情规划状态(postRes.nextState.女主剧情规划)
+                        : currentState.女主剧情规划;
+                    const finalMemoryV2 = 规范化记忆系统(postRes.nextState.记忆系统);
+                    const finalWorldEventsV2 = Array.isArray(postRes.nextState.世界大事) ? postRes.nextState.世界大事 : [];
+                    let finalTasksV2 = Array.isArray(postRes.nextState.任务列表) ? postRes.nextState.任务列表 : [];
+                    let finalSectV2 = deps.深拷贝(currentState.玩家门派);
+                    let finalAgreementsV2 = Array.isArray(currentState.约定列表) ? deps.深拷贝(currentState.约定列表) : [];
+                    let finalBattleV2 = {
+                        ...deps.深拷贝(currentState.战斗),
+                        是否战斗中: false
+                    };
+                    let workingDisplayResponseV2: GameResponse = {
+                        ...displayResponse,
+                        tavern_commands: Array.isArray(displayResponse.tavern_commands)
+                            ? [...displayResponse.tavern_commands]
+                            : []
+                    };
+
+                    options?.onPlanningProgress?.({
+                        phase: 'done',
+                        text: postRes.replanned
+                            ? `2.0 导演已完成动态重规划${postRes.replanReason ? `：${postRes.replanReason}` : ''}`
+                            : '2.0 导演推演与伏笔台账更新完成。'
+                    });
+                    options?.onWorldEvolutionProgress?.({
+                        phase: 'done',
+                        text: postRes.offscreenSpillovers.length > 0
+                            ? `已结算 ${postRes.offscreenSpillovers.length} 条离屏局势外溢`
+                            : '离屏局势稳定推进'
+                    });
+
+                    directorCompleted = true;
+                    const 构建2_0回合命令基态 = (): Partial<响应命令处理状态> => ({
+                        角色: finalRoleV2,
+                        环境: finalEnvV2,
+                        社交: finalSocialV2,
+                        世界: finalWorldV2,
+                        战斗: finalBattleV2,
+                        玩家门派: finalSectV2,
+                        任务列表: finalTasksV2,
+                        约定列表: finalAgreementsV2,
+                        剧情: finalStoryV2,
+                        剧情规划: finalStoryPlanV2,
+                        女主剧情规划: finalHeroinePlanV2,
+                        同人剧情规划: currentState.同人剧情规划,
+                        同人女主剧情规划: currentState.同人女主剧情规划
+                    });
+                    const 应用2_0回合增量命令 = (commands: any[]) => {
+                        if (!Array.isArray(commands) || commands.length === 0) return;
+                        const base = 构建2_0回合命令基态();
+                        const nextCmdState = deps.processResponseCommands(
+                            { ...workingDisplayResponseV2, tavern_commands: commands },
+                            base,
+                            { applyState: false }
+                        );
+                        const rawNextRole = 规范化角色物品容器映射(nextCmdState.角色, {
+                            启用饱腹口渴系统: runtimeGameConfigV2.启用饱腹口渴系统,
+                            题材模式: currentState.开局配置?.题材模式
+                        });
+                        finalRoleV2 = rawNextRole;
+                        finalEnvV2 = deps.规范化环境信息(nextCmdState.环境);
+                        finalSocialV2 = 规范化社交列表(nextCmdState.社交, { 合并同名: false });
+                        const nextWorld = deps.规范化世界状态(nextCmdState.世界);
+                        if (
+                            (!Array.isArray(nextWorld.地图层级) || nextWorld.地图层级.length === 0)
+                            && Array.isArray(finalWorldV2.地图层级)
+                            && finalWorldV2.地图层级.length > 0
+                        ) {
+                            nextWorld.地图层级 = finalWorldV2.地图层级;
+                        }
+                        finalWorldV2 = nextWorld;
+                        finalStoryV2 = nextCmdState.剧情 ?? finalStoryV2;
+                        finalStoryPlanV2 = nextCmdState.剧情规划 ?? finalStoryPlanV2;
+                        finalHeroinePlanV2 = nextCmdState.女主剧情规划 ?? finalHeroinePlanV2;
+                        finalSectV2 = nextCmdState.玩家门派 ?? finalSectV2;
+                        finalTasksV2 = Array.isArray(nextCmdState.任务列表) ? nextCmdState.任务列表 : finalTasksV2;
+                        finalAgreementsV2 = Array.isArray(nextCmdState.约定列表) ? nextCmdState.约定列表 : finalAgreementsV2;
+                        finalBattleV2 = {
+                            ...(nextCmdState.战斗 || finalBattleV2),
+                            是否战斗中: false
+                        };
+                    };
+
+                    应用2_0回合增量命令(workingDisplayResponseV2.tavern_commands || []);
+                    const v2VarFeatureOn = 变量生成功能已启用(currentState.apiConfig);
+                    const v2VarConfig = 获取变量计算接口配置(currentState.apiConfig);
+                    const v2VarEnabled = v2VarFeatureOn && 接口配置是否可用(v2VarConfig);
+                    if (!v2VarEnabled) {
+                        options?.onVariableGenerationProgress?.({
+                            phase: 'skipped',
+                            text: v2VarFeatureOn
+                                ? '变量生成接口未配置，已跳过。'
+                                : '变量生成功能已关闭，已跳过。'
+                        });
+                    } else {
+                        const v2VarNonStream = runtimeGameConfigV2.启用非流式输出 === true
+                            || currentState.apiConfig?.功能模型占位?.变量计算非流式输出 === true;
+                        const v2VarStartIndex = (Array.isArray(workingDisplayResponseV2.tavern_commands)
+                            ? workingDisplayResponseV2.tavern_commands.length
+                            : 0) + 1;
+                        const varStage = await 执行可重试独立阶段({
+                            stageId: 'variable',
+                            stageLabel: '变量生成',
+                            beforeAttempt: (attempt) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'start',
+                                    text: attempt > 1
+                                        ? `正在重新执行 2.0 变量生成...（第 ${attempt} 次手动重试）`
+                                        : '正在根据本轮正文核对并生成变量更新...'
+                                });
+                            },
+                            onAutoRetry: (attempt, maxAttempts, reason) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'start',
+                                    text: `变量生成请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ''}`
+                                });
+                            },
+                            run: () => {
+                                const base = 构建2_0回合命令基态();
+                                return 执行变量模型校准工作流({
+                                    playerInput: sendInput,
+                                    parsedResponse: workingDisplayResponseV2,
+                                    baseState: {
+                                        角色: base.角色!,
+                                        环境: base.环境!,
+                                        世界: base.世界!,
+                                        社交: base.社交!,
+                                        战斗: base.战斗!,
+                                        玩家门派: base.玩家门派!,
+                                        任务列表: base.任务列表!,
+                                        约定列表: base.约定列表!
+                                    },
+                                    promptPool: currentState.prompts,
+                                    worldEvolutionEnabled: false,
+                                    builtinPromptEntries: currentState.内置提示词列表,
+                                    worldbooks: currentState.世界书列表,
+                                    signal: controller.signal,
+                                    openingConfig: currentState.开局配置,
+                                    onStreamDelta: v2VarNonStream
+                                        ? undefined
+                                        : (_delta, accumulated) => {
+                                            if (controller.signal.aborted) return;
+                                            options?.onVariableGenerationProgress?.({
+                                                phase: 'start',
+                                                text: '正在流式生成变量命令...',
+                                                rawText: accumulated
+                                            });
+                                        }
+                                }, {
+                                    apiConfig: currentState.apiConfig,
+                                    gameConfig: runtimeGameConfigV2
+                                });
+                            },
+                            onError: (errorText) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'error',
+                                    text: `${errorText || '变量生成失败'}\n等待选择：重试当前阶段，或跳过继续。`
+                                });
+                            },
+                            onSkip: (errorText) => {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'skipped',
+                                    text: `变量生成失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ''}`
+                                });
+                            },
+                            getErrorText: (error: any) => (
+                                deps.提取原始报错详情(error)
+                                || error?.message
+                                || '变量生成失败'
+                            )
+                        });
+                        if (!是否当前V2会话仍有效()) {
+                            收束自动存档完成(null);
+                            return;
+                        }
+                        const varRes = varStage.result;
+                        if (varStage.completed) {
+                            const varCommands = Array.isArray(varRes?.commands) ? varRes.commands : [];
+                            if (varRes && varCommands.length > 0) {
+                                workingDisplayResponseV2 = 合并变量生成结果到响应(workingDisplayResponseV2, varRes);
+                                应用2_0回合增量命令(varCommands);
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'done',
+                                    text: `变量生成完成，应用 ${varCommands.length} 条变量命令。`,
+                                    rawText: varRes.rawText,
+                                    commandTexts: 构建带索引命令文本(varCommands, v2VarStartIndex)
+                                });
+                            } else {
+                                options?.onVariableGenerationProgress?.({
+                                    phase: 'done',
+                                    text: '变量生成完成，本回合未产生额外变量更新。',
+                                    rawText: varRes?.rawText || ''
+                                });
+                            }
+                        }
+                    }
+
+                    const v2MapEnabled = currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false;
+                    const v2MapConfig = 获取地图自动更新接口配置(currentState.apiConfig);
+                    if (!v2MapEnabled) {
+                        options?.onMapUpdateProgress?.({
+                            phase: 'skipped',
+                            text: '地图生成功能未开启，已跳过本轮地图更新。'
+                        });
+                    } else if (!接口配置是否可用(v2MapConfig)) {
+                        options?.onMapUpdateProgress?.({
+                            phase: 'skipped',
+                            text: '地图更新接口未配置，已跳过。'
+                        });
+                    } else {
+                        const v2MapStartIndex = (Array.isArray(workingDisplayResponseV2.tavern_commands)
+                            ? workingDisplayResponseV2.tavern_commands.length
+                            : 0) + 1;
+                        const mapStage = await 执行可重试独立阶段({
+                            stageId: 'map',
+                            stageLabel: '地图更新',
+                            beforeAttempt: (attempt) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'start',
+                                    text: attempt > 1
+                                        ? `正在重新执行 2.0 地图更新...（第 ${attempt} 次手动重试）`
+                                        : '正在检查并更新世界地图...'
+                                });
+                            },
+                            onAutoRetry: (attempt, maxAttempts, reason) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'start',
+                                    text: `地图更新请求失败，正在自动重试（${attempt}/${maxAttempts}）${reason ? `：${reason}` : ''}`
+                                });
+                            },
+                            run: async () => {
+                                const base = 构建2_0回合命令基态();
+                                const result = await 生成地图更新({
+                                    mode: 'auto_incremental',
+                                    apiSettings: currentState.apiConfig,
+                                    环境: base.环境,
+                                    世界: base.世界,
+                                    社交: base.社交,
+                                    角色: base.角色,
+                                    gameConfig: runtimeGameConfigV2,
+                                    worldbooks: currentState.世界书列表,
+                                    currentResponse: workingDisplayResponseV2,
+                                    stateBase: {
+                                        环境: base.环境,
+                                        世界: base.世界,
+                                        社交: base.社交,
+                                        角色: base.角色
+                                    },
+                                    signal: controller.signal
+                                });
+                                if (result.phase === 'error') {
+                                    const wrappedError = new Error(result.statusText || '地图更新失败');
+                                    (wrappedError as Error & { stageResult?: 地图更新执行结果 }).stageResult = result;
+                                    throw wrappedError;
+                                }
+                                return result;
+                            },
+                            getErrorText: (error: any) => (
+                                error?.stageResult?.statusText
+                                || deps.提取原始报错详情(error)
+                                || error?.message
+                                || '地图更新失败'
+                            ),
+                            onError: (errorText) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'error',
+                                    text: `${errorText || '地图更新失败'}\n等待选择：重试当前阶段，或跳过继续。`
+                                });
+                            },
+                            onSkip: (errorText) => {
+                                options?.onMapUpdateProgress?.({
+                                    phase: 'skipped',
+                                    text: `地图更新失败，已按用户选择跳过。${errorText ? `\n${errorText}` : ''}`
+                                });
+                            }
+                        });
+                        if (!是否当前V2会话仍有效()) {
+                            收束自动存档完成(null);
+                            return;
+                        }
+                        const mapRes = mapStage.result;
+                        if (mapStage.completed && mapRes) {
+                            const mapCommands = Array.isArray(mapRes.commands) ? mapRes.commands : [];
+                            if (mapCommands.length > 0) {
+                                workingDisplayResponseV2 = {
+                                    ...workingDisplayResponseV2,
+                                    tavern_commands: [
+                                        ...(Array.isArray(workingDisplayResponseV2.tavern_commands)
+                                            ? workingDisplayResponseV2.tavern_commands
+                                            : []),
+                                        ...mapCommands
+                                    ]
+                                };
+                                应用2_0回合增量命令(mapCommands);
+                            }
+                            options?.onMapUpdateProgress?.({
+                                phase: mapRes.phase,
+                                text: mapRes.statusText || (mapCommands.length > 0 ? '地图更新完成。' : '世界地图暂无新增地点。'),
+                                rawText: mapRes.rawText,
+                                commandTexts: 构建带索引命令文本(mapCommands, v2MapStartIndex)
+                            });
+                        }
+                    }
+
+                    if (!是否当前V2会话仍有效()) { 收束自动存档完成(null); return; }
+                    finalRoleV2 = 合并导演角色变更({
+                        latestRole: deps.获取最新角色Snapshot?.(), preTurnRole: v2State.角色,
+                        postTurnRole: finalRoleV2, openingConfig: currentState.开局配置
+                    });
+                    finalSocialV2 = 同步在场NPC当前位置(finalSocialV2, finalEnvV2);
+                    finalWorldV2 = 补录环境所在房间(finalWorldV2, finalEnvV2);
+                    const finalGameTimeV2 = 环境时间转标准串(finalEnvV2) || currentGameTime;
+
+                    deps.设置角色?.(finalRoleV2);
+                    deps.设置环境?.(finalEnvV2);
+                    deps.设置社交?.(finalSocialV2);
+                    deps.设置世界?.(finalWorldV2);
+                    deps.设置剧情(finalStoryV2);
+                    deps.设置剧情规划?.(finalStoryPlanV2);
+                    if (finalHeroinePlanV2) deps.设置女主剧情规划?.(finalHeroinePlanV2);
+                    deps.设置任务列表?.(finalTasksV2);
+                    deps.设置约定列表?.(finalAgreementsV2);
+                    deps.设置战斗?.(finalBattleV2);
+                    deps.设置玩家门派?.(finalSectV2);
+                    deps.设置导演圣经?.(postRes.nextState.directorBible);
+                    deps.setWorldEvents?.(finalWorldEventsV2);
+                    deps.应用并同步记忆系统(finalMemoryV2);
+
+                    const finalAiMsgV2: 聊天记录结构 = {
+                        ...newAiMsgV2,
+                        structuredResponse: workingDisplayResponseV2,
+                        gameTime: finalGameTimeV2
+                    };
+                    const latestHistory = deps.获取续跑状态快照?.()?.历史;
+                    const baseHistoryForCommit = latestHistory?.some(m => m.role === 'assistant' && m.timestamp === aiTimestamp)
+                        ? latestHistory : 续跑历史V2 || committedHistoryV2;
+                    const finalHistoryV2 = baseHistoryForCommit.map((m) => (
+                        m.role === 'assistant' && m.timestamp === aiTimestamp ? finalAiMsgV2 : m
+                    ));
+                    deps.设置历史记录(finalHistoryV2);
+
+                    const newNpcsV2 = deps.提取新增NPC列表(currentState.社交, finalSocialV2);
+                    if (newNpcsV2.length > 0) deps.触发新增NPC自动生图(newNpcsV2);
+                    deps.触发对白NPC头像补全(finalSocialV2);
+                    deps.检查主角每回合生图(finalRoleV2);
+                    const bodyTextV2 = (Array.isArray(workingDisplayResponseV2.logs) ? workingDisplayResponseV2.logs : [])
+                        .map((l: any) => (l?.text || '').trim())
+                        .filter(Boolean)
+                        .join('\n');
+                    if (bodyTextV2) {
+                        deps.触发场景自动生图({
+                            response: workingDisplayResponseV2,
+                            bodyText: bodyTextV2,
+                            env: finalEnvV2,
+                            turnNumber: nextRound,
+                            playerInput: sendInput,
+                            source: 'auto',
+                            autoApply: true
+                        });
+                    }
+                    if (runtimeGameConfigV2.启用回合结束自动存档 !== false) {
+                        const savedV2 = await deps.performAutoSave({
+                            history: finalHistoryV2,
+                            role: finalRoleV2,
+                            env: finalEnvV2,
+                            social: finalSocialV2,
+                            world: finalWorldV2,
+                            battle: finalBattleV2,
+                            sect: finalSectV2,
+                            tasks: finalTasksV2,
+                            agreements: finalAgreementsV2,
+                            story: finalStoryV2,
+                            storyPlan: finalStoryPlanV2,
+                            heroinePlan: finalHeroinePlanV2,
+                            fandomStoryPlan: currentState.同人剧情规划,
+                            fandomHeroinePlan: currentState.同人女主剧情规划,
+                            directorBible: postRes.nextState.directorBible,
+                            lastTurnDirectorBible: preTurnDirectorBible,
+                            worldEvents: finalWorldEventsV2,
+                            memory: finalMemoryV2,
+                            场外对话: 续跑场外对话V2 ?? [],
+                            场外交易暂存: 续跑交易暂存V2 ?? [],
+                            场外战果暂存: 续跑战果暂存V2 ?? []
+                        });
+                        const validId = typeof savedV2?.id === 'number' && Number.isFinite(savedV2.id) ? savedV2.id : null;
+                        if (validId !== null) {
+                            本回合重Roll快照.关联自动存档ID = validId;
+                        }
+                        收束自动存档完成(validId);
+                    } else {
+                        收束自动存档完成(null);
+                    }
+                } catch (postErr: any) {
+                    收束自动存档完成(null);
+                    if (postErr?.name === 'AbortError' || !是否当前V2会话仍有效()) {
+                        options?.onPlanningProgress?.({ phase: 'cancelled', text: '2.0 后台导演推演已取消，当前正文已保留。' });
+                        options?.onWorldEvolutionProgress?.({ phase: 'cancelled', text: '2.0 离屏演化已取消。' });
+                        return;
+                    }
+                    console.warn('2.0 导演后处理失败，已保留正文并跳过本轮后台记账', postErr);
+                    if (!directorCompleted) {
+                        options?.onPlanningProgress?.({ phase: 'error', text: postErr?.message || '2.0 导演推演失败' });
+                        options?.onWorldEvolutionProgress?.({ phase: 'error', text: '导演推演失败，本回合离屏演化未完成。' });
+                    }
+                } finally {
+                    if (deps.abortControllerRef.current === controller) {
+                        deps.set后台队列处理中(false);
+                        deps.abortControllerRef.current = null;
+                    }
+                }
+            };
+
+            if (runtimeGameConfigV2.启用正文后暂停后续步骤 === true && deps.注册待继续后续步骤) {
+                const v2PauseStages = [
+                    '2.0 导演推演与伏笔核销',
+                    '2.0 离屏人物与势力演化',
+                    ...(变量生成功能已启用(currentState.apiConfig) && 接口配置是否可用(获取变量计算接口配置(currentState.apiConfig))
+                        ? ['变量生成']
+                        : []),
+                    ...(currentState.apiConfig?.功能模型占位?.地图生成功能启用 !== false
+                        && 接口配置是否可用(获取地图自动更新接口配置(currentState.apiConfig))
+                        ? ['地图更新']
+                        : [])
+                ];
+                已注册暂停续跑 = true;
+                deps.注册待继续后续步骤({
+                    阶段摘要: v2PauseStages,
+                    放弃: () => 收束自动存档完成(null),
+                    回合标识: aiTimestamp,
+                    执行: async () => {
+                        const 续跑快照 = deps.获取续跑状态快照?.() || null;
+                        续跑历史V2 = Array.isArray(续跑快照?.历史) && 续跑快照.历史.length > 0 ? 续跑快照.历史 : null;
+                        续跑场外对话V2 = Array.isArray(续跑快照?.场外对话) ? 续跑快照.场外对话 : null;
+                        续跑交易暂存V2 = Array.isArray(续跑快照?.场外交易暂存) ? 续跑快照.场外交易暂存 : null;
+                        续跑战果暂存V2 = Array.isArray(续跑快照?.场外战果暂存) ? 续跑快照.场外战果暂存 : null;
+                        controller = new AbortController();
+                        deps.abortControllerRef.current = controller;
+                        deps.set后台队列处理中(true);
+                        await runV2PostTurn();
+                    }
+                });
+                return { attachedRecallPreview, pausedAfterStory: true };
+            }
+
+            deps.set后台队列处理中(true);
+            后台队列已启动 = true;
+            void runV2PostTurn();
+            return { attachedRecallPreview };
+        }
         const recallContextActiveForMain = recallFeatureEnabled && Boolean(recallTag);
-        // 场外对话（侧聊）暂存原文：主回合成功吸收后由 deps.清空场外对话暂存 清空。
-        const 场外对话提示块 = 构建场外对话记录块(currentState.场外对话);
+        // 场外对话（侧聊/交易/交锋暂存）原文：主回合成功吸收后由清空回调清空。
+        const 场外对话提示块 = [
+            构建场外对话记录块(currentState.场外对话),
+            构建场外交易注入块(currentState.场外交易暂存),
+            构建场外战果注入块(currentState.场外战果暂存)
+        ].filter(Boolean).join('\n\n');
         const builtContext = await deps.构建系统提示词(
             currentState.prompts,
             updatedMemSys,
@@ -2251,7 +3060,7 @@ export const 执行主剧情发送工作流 = async (
             });
             const sourceBody = 构建正文文本(aiData);
             const expandPrompt = [
-                '你是《墨色江湖》的正文补足器。',
+                '你是《墨色江湖 2.0》的正文补足器。',
                 '任务不是重新生成整回合，而是在不改变事实、不新增命令含义的前提下，只扩写用户给出的 <正文>。',
                 '必须保留原正文里的判定结果、人物关系、地点、物品、台词含义和事件顺序。',
                 `本次 <正文> 可见字数目标至少 ${runtimeGameConfig.字数要求} 字；可以补充动作过程、感官反馈、环境承接、NPC反应和结果余波。`,
@@ -2344,6 +3153,7 @@ export const 执行主剧情发送工作流 = async (
                 女主剧情规划: deps.深拷贝(currentState.女主剧情规划),
                 同人剧情规划: deps.深拷贝(currentState.同人剧情规划),
                 同人女主剧情规划: deps.深拷贝(currentState.同人女主剧情规划),
+                导演圣经: deps.深拷贝(currentState.导演圣经),
                 记忆系统: deps.深拷贝(memBeforeSend),
                 叙事平静值: deps.深拷贝(currentState.叙事平静值 || { 平静计数: 0, 情节事件记录: [] })
             },
@@ -2399,98 +3209,7 @@ export const 执行主剧情发送工作流 = async (
             logs: Array.isArray(finalParsedResponse.logs) ? [...finalParsedResponse.logs] : finalDisplayResponse.logs
         };
 
-        // ─── 酒馆正则引擎：对 AI 输出执行安全清理 + 提取选项栏 + 标记 HTML 产出 ───
-        const tavernPreset = runtimeGameConfig?.酒馆预设;
-        const tavernPresetMode = runtimeGameConfig?.启用酒馆预设模式 === true && tavernPreset;
-        if (tavernPresetMode && tavernPreset?.extensions) {
-            // 对 AI 输出的 logs 文本执行正则替换（安全清理+HTML美化+JS交互都执行）
-            const regexScripts = 获取预设已分类正则脚本(tavernPreset);
-            if (regexScripts.length > 0) {
-                // 动态导入沙箱桥接检测函数（避免非酒馆模式的整包开销）
-                const { 需要iframe沙箱渲染, 需要HTML美化渲染, 包含HTML代码块, 提取HTML代码块内容, 清洗HTML美化产出 } = await import('../../utils/tavernSandboxBridge');
-
-                const processedLogs = (Array.isArray(finalDisplayResponse.logs) ? finalDisplayResponse.logs : [])
-                    .map((log: any) => {
-                        if (!log || typeof log?.text !== 'string' || !log.text.trim()) return log;
-                        const originalText = log.text;
-                        const cleanedText = 对AI输出执行酒馆正则(
-                            log.text,
-                            tavernPreset.extensions as Record<string, unknown>,
-                            { isMarkdown: true }
-                        );
-                        if (cleanedText === originalText) return log;
-
-                        // 检测正则替换后的产出是否包含 HTML/JS 内容
-                        // 1. 含 ````html` 代码块 → 提取 HTML 内容
-                        if (包含HTML代码块(cleanedText)) {
-                            const htmlBlocks = 提取HTML代码块内容(cleanedText);
-                            if (htmlBlocks.length > 0) {
-                                const combinedHtml = htmlBlocks.join('\n');
-                                // 非文本部分（代码块外的纯文本）
-                                const remainingText = cleanedText.replace(/```html\s*\n?[\s\S]*?```/gi, '').trim();
-                                if (需要iframe沙箱渲染(combinedHtml)) {
-                                    return { ...log, text: remainingText || log.text, htmlContent: combinedHtml, htmlRenderMode: 'sandbox' as const };
-                                }
-                                // HTML 美化（含标签但无 <script>）
-                                const purifiedHtml = 清洗HTML美化产出(combinedHtml);
-                                return { ...log, text: remainingText || log.text, htmlContent: purifiedHtml, htmlRenderMode: 'purify' as const };
-                            }
-                        }
-
-                        // 2. 不在代码块中但直接包含 HTML/JS
-                        if (需要iframe沙箱渲染(cleanedText)) {
-                            return { ...log, text: originalText, htmlContent: cleanedText, htmlRenderMode: 'sandbox' as const };
-                        }
-                        if (需要HTML美化渲染(cleanedText)) {
-                            const purifiedHtml = 清洗HTML美化产出(cleanedText);
-                            return { ...log, htmlContent: purifiedHtml, htmlRenderMode: 'purify' as const };
-                        }
-
-                        // 3. 纯文本替换（安全清理脚本）
-                        return cleanedText !== originalText ? { ...log, text: cleanedText } : log;
-                    });
-                finalDisplayResponse = { ...finalDisplayResponse, logs: processedLogs };
-
-                // 从选项渲染脚本提取选项（如果当前 action_options 为空）
-                if (!Array.isArray(finalDisplayResponse.action_options) || finalDisplayResponse.action_options.length === 0) {
-                    const allBodyText = processedLogs
-                        .map((log: any) => log?.text || '')
-                        .filter((t: string) => t.trim())
-                        .join('\n');
-                    const extractedOptions = 提取酒馆选项(allBodyText, tavernPreset.extensions as Record<string, unknown>);
-                    if (extractedOptions.length > 0) {
-                        finalDisplayResponse = {
-                            ...finalDisplayResponse,
-                            action_options: extractedOptions
-                        };
-                    }
-                }
-            }
-
-            // ─── Reasoning 模板：从 AI 输出中解析推理/思维块 ───
-            const reasoningTemplate = tavernPreset.reasoning;
-            if (reasoningTemplate?.prefix && reasoningTemplate.suffix) {
-                const bodyLogs = Array.isArray(finalDisplayResponse.logs) ? finalDisplayResponse.logs : [];
-                if (bodyLogs.length > 0) {
-                    const parsedLogs = bodyLogs.map((log: any) => {
-                        if (!log || typeof log?.text !== 'string' || !log.text.trim()) return log;
-                        const parsed = 从文本解析推理块({
-                            text: log.text,
-                            template: reasoningTemplate,
-                            strict: false,
-                        });
-                        if (!parsed || !parsed.reasoning.trim()) return log;
-                        // 将推理内容移至 log.reasoning，正文保留 content
-                        return {
-                            ...log,
-                            text: parsed.content,
-                            reasoning: parsed.reasoning,
-                        };
-                    });
-                    finalDisplayResponse = { ...finalDisplayResponse, logs: parsedLogs };
-                }
-            }
-        }
+        finalDisplayResponse = await 应用酒馆显示规则(finalDisplayResponse, runtimeGameConfig);
         const nextGameTime = 环境时间转标准串(immediateState.环境) || "未知时间";
         const immediateEntry = 构建即时记忆条目(nextGameTime, sendInput, finalDisplayResponse);
         const shortEntry = 构建短期记忆条目(nextGameTime, finalDisplayResponse);
@@ -2509,8 +3228,10 @@ export const 执行主剧情发送工作流 = async (
             }
         );
         deps.应用并同步记忆系统(nextMemory);
-        // 主回合已成功落地（记忆已写入）：暂存的场外对话由本回合正文吸收，至此清空。
+        // 主回合已成功落地（记忆已写入）：暂存的场外对话与插件事件由本回合正文吸收，至此清空。
         deps.清空场外对话暂存?.();
+        deps.清空场外交易暂存?.();
+        deps.清空场外战果暂存?.();
 
         const newAiMsg: 聊天记录结构 = {
             role: "assistant",
@@ -2614,9 +3335,11 @@ export const 执行主剧情发送工作流 = async (
             && 获取队列阶段渠道键(文章优化配置, activeApi) !== 获取队列阶段渠道键(变量生成配置, activeApi);
         // 暂停模式下文章优化已经在「正文写完」时跑过，继续时不能再跑一次，否则等于白花一次调用。
         let 文章优化已由暂停前执行 = false;
-        // 暂停期间玩家可能追加系统消息 / 新开侧聊，续跑时抓一份最新快照，存档以它为准。
+        // 暂停期间玩家可能追加系统消息 / 新开侧聊与插件暂存，续跑时抓一份最新快照，存档以它为准。
         let 续跑存档历史: 聊天记录结构[] | null = null;
         let 续跑场外对话: 场外对话消息结构[] | null = null;
+        let 续跑交易暂存: 场外交易记录结构[] | null = null;
+        let 续跑战果暂存: 场外战果暂存结构[] | null = null;
 
         const 执行文章优化阶段 = async (启用并行文案: boolean = 文章优化变量可并行) => {
             if (!文章优化开启) return null;
@@ -3366,6 +4089,8 @@ export const 执行主剧情发送工作流 = async (
                             // 否则存档会写回旧的暂存（currentState 仍是发起回合时的闭包快照），读档后重复注入一次。
                             // 暂停模式例外：暂停期间新开的场外对话属于下一轮，不能被本回合存档清掉。
                             场外对话: 续跑场外对话 ?? [],
+                            场外交易暂存: 续跑交易暂存 ?? [],
+                            场外战果暂存: 续跑战果暂存 ?? [],
                             force: true
                         });
                         const autoSaveId = Number(saved?.id);
@@ -3460,8 +4185,10 @@ export const 执行主剧情发送工作流 = async (
             续跑跳过命令数 = Array.isArray(responseForExecution.tavern_commands)
                 ? responseForExecution.tavern_commands.length
                 : 0;
+            已注册暂停续跑 = true;
             deps.注册待继续后续步骤({
                 阶段摘要: 暂停阶段摘要,
+                放弃: () => 收束自动存档完成(null),
                 回合标识: aiTurnTimestamp,
                 执行: async () => {
                     // 省次数分节是暂停前基于旧状态生成的；玩家可能已经改过变量，
@@ -3477,6 +4204,8 @@ export const 执行主剧情发送工作流 = async (
                         ? 续跑快照!.历史!
                         : null;
                     续跑场外对话 = Array.isArray(续跑快照?.场外对话) ? 续跑快照!.场外对话! : null;
+                    续跑交易暂存 = Array.isArray(续跑快照?.场外交易暂存) ? 续跑快照!.场外交易暂存! : null;
+                    续跑战果暂存 = Array.isArray(续跑快照?.场外战果暂存) ? 续跑快照!.场外战果暂存! : null;
                     // 不检查旧 signal：暂停前它只在「文章优化被玩家中止」时才会 abort，
                     // 那种场景正文仍然保留、也应该允许继续；真正的过期回合已由发送/重ROLL/读档主动清空 + 回合标识校验拦掉。
                     controller = new AbortController();
@@ -3638,10 +4367,10 @@ export const 执行主剧情发送工作流 = async (
             errorTitle: '请求失败'
         };
     } finally {
-        if (!后台队列已启动) {
+        if (!后台队列已启动 && !已注册暂停续跑) {
             收束自动存档完成(null);
         }
-        deps.setLoading(false);
+        if (本次仍是最新前台回合() && deps.获取会话代次?.() === sendGeneration) deps.setLoading(false);
         if (!后台队列已启动 && deps.abortControllerRef.current === controller) {
             deps.abortControllerRef.current = null;
         }

@@ -232,6 +232,13 @@ describe('正文后暂停后续步骤（省额度模式）', () => {
         expect(payload.阶段摘要).toEqual(['地图更新']);
         expect(typeof payload.执行).toBe('function');
         expect(payload.回合标识).toBeGreaterThan(0);
+        const saved = 夹具.deps.推入重Roll快照.mock.calls[0][0].自动存档完成;
+        const onSave = vi.fn();
+        saved.then(onSave);
+        await Promise.resolve();
+        expect(onSave).not.toHaveBeenCalled();
+        payload.放弃();
+        await expect(saved).resolves.toBeNull();
     });
 
     it('点击继续后才跑后续阶段并落自动存档', async () => {
@@ -240,7 +247,7 @@ describe('正文后暂停后续步骤（省额度模式）', () => {
         const payload = 夹具.注册待继续后续步骤.mock.calls[0][0];
 
         await payload.执行();
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await expect(夹具.deps.推入重Roll快照.mock.calls[0][0].自动存档完成).resolves.toBe(42);
 
         expect(夹具.deps.set后台队列处理中.mock.calls.map((call: any[]) => call[0])).toEqual([true, false]);
         expect(地图更新桩).toHaveBeenCalledTimes(1);

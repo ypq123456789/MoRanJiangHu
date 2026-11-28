@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { 创建开场基础状态 } from '../hooks/useGame/storyState';
 import { 修复开局伙伴社交列表 } from '../utils/openingCompanion';
 import { 构建开局变量生成承接提示 } from '../prompts/runtime/openingVariableGenerationInit';
+import { 从圣经初始化世界势力与社交 } from '../engine/storyV2/worldBibleGenerator';
+import { 创建空白导演圣经 } from '../models/directorBible';
 
 const 创建开局配置 = (name = '沈青萝') => ({
     题材模式: '武侠',
@@ -52,6 +54,23 @@ const 创建开局配置 = (name = '沈青萝') => ({
 } as any);
 
 describe('开局伙伴姓名保护', () => {
+    it('V2 世界注册只将已启用的具名伙伴编入队伍，保留导演的叙事关系', () => {
+        const config = 创建开局配置('沈青萝');
+        config.初始伙伴列表 = [
+            config.初始伙伴, { ...config.初始伙伴, 姓名: '阿棠' },
+            { ...config.初始伙伴, 姓名: '有名的看客', enabled: false }
+        ];
+        const bible = 创建空白导演圣经();
+        bible.核心卡司 = ['有名的看客', '沈青萝', '阿棠', '已登场掌柜'].map((name, index) => ({
+            id: 'CAST-' + index, 姓名: name, 是否已登场: true,
+            人际渊源: [{ 对象: '陆青', 真实关系与心思: '愿意协助寻回家书，暗地里留意主角行踪。' }]
+        })) as any;
+        const { initialSocial } = 从圣经初始化世界势力与社交(bible, [], config, { 姓名: '陆青' } as any);
+        expect(initialSocial.filter((entry: any) => entry.是否队友).map((entry) => entry.姓名)).toEqual(['沈青萝', '阿棠']);
+        expect(initialSocial.find((entry) => entry.姓名 === '沈青萝')).toMatchObject({
+            来源: '开局伙伴', 是否队友: true, 是否在场: true, 关系: '愿意协助寻回家书，暗地里留意主角行踪。'
+        });
+    });
     it('开场基态不会将主角撇号变体作为伙伴，且不会删除正常空格差异', () => {
         const same = 创建开场基础状态({ 姓名: "O'Connor" } as any, {} as any, 创建开局配置('O’Connor'));
         expect(same.社交).toEqual([]);

@@ -430,69 +430,31 @@ export const 同步金钱命令写入 = (role: any, touchedFields: Set<string>):
 };
 
 export const 从物品列表汇总角色货币 = (items: any[], fallbackMoney: Record<string, number>) => {
-    const hasCurrencyItems = items.some((item: any) => {
+    const tierLabels = 获取当前货币层级名称();
+    const totals = new Map<string, number>();
+    const tiers = Object.keys(题材货币字段别名) as 货币层级键[];
+    for (const item of items) {
         const name = 规范化文本(item?.名称);
-        const typeCurrencyKey = 解析货币类型信息(item?.类型)?.货币键;
-        const isCurrencyItem = 是否货币类型物品(item?.类型) || 规范化文本(item?.类型) === '货币';
-        const 货币层级名 = 获取当前货币层级名称();
-        return Boolean(
-            typeCurrencyKey
-            || isCurrencyItem
-            || name === 货币层级名.上层货币
-            || name === 货币层级名.中层货币
-            || name === 货币层级名.底层货币
-            || Object.prototype.hasOwnProperty.call(fallbackMoney || {}, name)
-        );
-    });
-    const fallbackCompat = 规范化角色金钱(fallbackMoney);
-    const next: Record<string, number> = {
-        ...(hasCurrencyItems ? 构建零值货币模板(fallbackMoney || {}) : fallbackMoney),
-        上层货币: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.上层货币),
-        中层货币: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.中层货币),
-        底层货币: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.底层货币),
-        金元宝: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.金元宝 ?? fallbackCompat.上层货币),
-        银子: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.银子 ?? fallbackCompat.中层货币),
-        铜钱: hasCurrencyItems ? 0 : 规范化货币数值(fallbackCompat.铜钱 ?? fallbackCompat.底层货币)
-    };
-    const 货币层级名 = 获取当前货币层级名称();
-    const 累加 = (key: keyof typeof next, amount: number) => {
-        next[key] = 规范化货币数值(next[key]) + 规范化货币数值(amount);
-    };
-    items.forEach((item: any) => {
-        const name = 规范化文本(item?.名称);
-        const typeCurrencyKey = 解析货币类型信息(item?.类型)?.货币键;
-        const isCurrencyItem = 是否货币类型物品(item?.类型) || 规范化文本(item?.类型) === '货币';
-        const count = Math.max(1, 规范化整数(item?.堆叠数量 ?? item?.数量, 1));
-        if (typeCurrencyKey === '中层货币' || name === 货币层级名.中层货币) {
-            累加('中层货币', count);
-            累加('银子', count);
-        } else if (typeCurrencyKey === '底层货币' || name === 货币层级名.底层货币) {
-            累加('底层货币', count);
-            累加('铜钱', count);
-        } else if (typeCurrencyKey === '上层货币' || name === 货币层级名.上层货币) {
-            累加('上层货币', count);
-            累加('金元宝', count);
-        } else if (name === '金元宝') {
-            累加('上层货币', count);
-            累加('金元宝', count);
-        } else if (name === '银子') {
-            累加('中层货币', count);
-            累加('银子', count);
-        } else if (name === '铜钱') {
-            累加('底层货币', count);
-            累加('铜钱', count);
-        } else if (name && Object.prototype.hasOwnProperty.call(next, name)) {
-            累加(name as keyof typeof next, count);
-        } else if (isCurrencyItem && name) {
-            next[name] = 规范化货币数值(next[name]) + count;
+        const type = 解析货币类型信息(item?.类型);
+        const tier = type?.货币键 || tiers.find((key) => name === key || name === tierLabels[key] || 题材货币字段别名[key].includes(name));
+        const key = tier || (type || item?.类型 === '货币' || Object.hasOwn(fallbackMoney || {}, name) ? name : '');
+        if (!key || key === 'baseAmount' || key === '货币桶') continue;
+        const count = Math.max(0, 规范化整数(item?.堆叠数量 ?? item?.数量, 1));
+        totals.set(key, (totals.get(key) || 0) + count);
+        // 同一题材可并列使用灵石、铜钱等名字；只回填物品真实使用的币名。
+        if (tier && name !== tier && Object.hasOwn(fallbackMoney || {}, name)) {
+            totals.set(name, (totals.get(name) || 0) + count);
         }
-    });
-    const nextForBaseAmount = hasCurrencyItems ? { ...next, baseAmount: undefined } : next;
-    return 确保角色金钱BaseAmount(
-        nextForBaseAmount,
-        _当前运行时配置,
-        _当前运行时配置?.economy?.currencyDisplayMode as any
-    );
+    }
+    const next: Record<string, number> = { ...fallbackMoney, ...规范化角色金钱(fallbackMoney) };
+    for (const [key, count] of totals) {
+        next[key] = count;
+        if (!tiers.includes(key as 货币层级键)) continue;
+        const tier = key as 货币层级键;
+        next[货币层级旧别名[tier]] = count;
+        delete next.baseAmount;
+    }
+    return 确保角色金钱BaseAmount(next, _当前运行时配置, _当前运行时配置?.economy?.currencyDisplayMode as any);
 };
 const 规范化数值 = (value: unknown, fallback = 0): number => {
     const n = Number(value);
@@ -1038,7 +1000,8 @@ const 合并同名可堆叠物品 = (items: any[]): any[] => {
     const buildKey = (item: any): string => [
         规范化文本(item?.名称).replace(/\s+/g, '').toLowerCase(),
         规范化文本(item?.类型),
-        规范化文本(item?.品质)
+        规范化文本(item?.品质),
+        规范化文本(item?.旧寄售原物ID)
     ].join('|');
     items.forEach((item) => {
         if (!item) return;
@@ -1734,12 +1697,16 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
     const rawMoney = (role as any).金钱 && typeof (role as any).金钱 === 'object' ? (role as any).金钱 : {};
     const 默认货币 = 当前题材默认值().currency;
     (role as any).金钱 = { ...默认货币 };
-    const 兼容货币字段 = new Set(['上层货币', '中层货币', '底层货币', '金元宝', '银子', '铜钱', 'baseAmount', '灵石', '灵玉', '金币', '银币', '铜币', '信用点', '奖励点']);
     Object.entries(rawMoney).forEach(([key, value]) => {
-        if (key in 默认货币 || 兼容货币字段.has(key)) {
+        if ((typeof value === 'number' || (typeof value === 'string' && value.trim())) && Number.isFinite(Number(value))) {
             (role as any).金钱[key] = 规范化货币数值(value);
         }
     });
+    // 先读取存档自身的题材别名，避免补入的默认「铜钱: 0」遮住「下品灵石」等旧档字段。
+    const savedTiers = 规范化角色金钱(rawMoney);
+    for (const [tier, aliases] of Object.entries(题材货币字段别名)) {
+        if ([tier, ...aliases].some((key) => Object.hasOwn(rawMoney, key))) (role as any).金钱[tier] = savedTiers[tier];
+    }
     (role as any).玩家BUFF = 标准化玩家BUFF列表((role as any).玩家BUFF, options);
     const rawBreakthroughs = Array.isArray((role as any).突破条件) ? (role as any).突破条件 : [];
     (role as any).突破条件 = rawBreakthroughs
@@ -2049,6 +2016,10 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
         role.物品列表,
         本轮背景资产已落地 ? 构建零值货币模板(默认货币) : ((role as any).金钱 || {})
     );
+    // 多体系钱袋是独立的单位余额，旧版三层货币汇总仅处理数值字段。
+    if (rawMoney.货币桶 && typeof rawMoney.货币桶 === 'object' && !Array.isArray(rawMoney.货币桶)) {
+        (role as any).金钱.货币桶 = rawMoney.货币桶;
+    }
     role.当前负重 = 清理旧储物字段并重算负重(role.物品列表);
     同步角色储物负重上限(role);
     // 多货币汇率系统：迁移旧单位名到新 ID
@@ -2060,14 +2031,15 @@ const 规范化角色物品容器映射 = (rawRole?: any, options?: 玩家BUFF�
 const 迁移货币桶旧单位名 = (货币桶: any, expandedSystem: ExpandedCurrencySystem | undefined): void => {
     if (!expandedSystem || !货币桶 || typeof 货币桶 !== 'object') return;
     for (const [systemId, units] of Object.entries(货币桶)) {
-        if (!expandedSystem.systems[systemId]) continue;
+        if (!expandedSystem.systems[systemId] || !units || typeof units !== 'object' || Array.isArray(units)) continue;
         for (const unitId of Object.keys(units as any)) {
             if (expandedSystem.systems[systemId].units[unitId]) continue;
             const matched = Object.entries(expandedSystem.systems[systemId].units)
-                .find(([_, u]) => u.aliases?.includes(unitId));
+                .find(([_, u]) => u.displayName === unitId || u.aliases?.includes(unitId));
             if (matched) {
                 console.warn(`[货币桶] 迁移: ${systemId}.${unitId} → ${matched[0]}`);
-                (units as any)[matched[0]] = (units as any)[unitId];
+                // 规范 ID 是交易使用的账本键；只有旧档中不存在规范键时才从别名迁入。
+                if (!Object.hasOwn(units, matched[0])) (units as any)[matched[0]] = (units as any)[unitId];
                 delete (units as any)[unitId];
             }
         }
@@ -3011,10 +2983,14 @@ const 标准化NPC背包 = (raw: any): Array<{ 名称: string; 类型?: string; 
                 if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
                 const 名称 = 规范化文本(item?.名称);
                 if (!名称) return null;
+                const 数量 = Math.max(0, 规范化整数(item.数量 ?? item.堆叠数量, 1));
+                if (数量 === 0) return null;
                 return {
+                    ...item,
                     名称,
                     类型: 规范化文本(item?.类型, '杂物'),
-                    数量: Math.max(1, 规范化整数(item?.数量 ?? item?.堆叠数量, 1)),
+                    数量,
+                    ...(item.堆叠数量 !== undefined ? { 堆叠数量: 数量 } : {}),
                     描述: 规范化文本(item?.描述)
                 };
             })

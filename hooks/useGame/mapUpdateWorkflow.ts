@@ -257,7 +257,7 @@ export const 构建地图更新用户提示词 = (params: {
         isOpeningEmptyMap
             ? '1. 开局种子地图不得输出“无”；若地点信息不足，也要用当前地点、正文里的仓库/营地/街区/房间线索补齐可用节点。'
             : '1. 正文里明确出现的可长期抵达地点（客栈、店铺、码头、府邸、山寨、房间、密室、山门、街道集市等）只要还没收录，就必须 push 对应层级的新节点；只有正文完全没有出现任何未收录地点时才允许输出“无”。',
-        '2. 若已有地图层级中已经存在同名地点，不要重复 push。',
+        '2. 同一父地点下同层级、同名的地点只收录一次。不同客栈的同名房间各自建点；父地点重名时必须写父级 ID。',
         '3. 地图层级只能是：寰宇、大地点、中地点、小地点、区地点、子地点；名称必须与层级严格对应（见下方契约）。',
         '4. 区地点=建筑/据点/地标；子地点=建筑内房间。环境.具体地点不是层级名。',
         '5. 父级ID优先填写已有节点 ID；若只能确定父级名称，也可以填写父级名称，系统会自动解析。',
@@ -309,68 +309,102 @@ export const 解析地图重生成节点 = (rawText: string): any[] => {
     return Array.isArray(parsed?.地点树) ? parsed.地点树 : [];
 };
 
-export const 构建地图层级替换结果 = (
-    rawNodes: any[],
-    currentWorld?: any
-): any[] => {
-    const normalizedNodes = (Array.isArray(rawNodes) ? rawNodes : [])
-        .map((node) => ({
-            名称: 取文本(node?.名称),
-            层级: 规范化层级(node?.层级),
-            父级ID: 取文本(node?.父级ID),
-            描述: 取文本(node?.描述),
-            控制势力: 取文本(node?.控制势力),
-            势力影响: 取文本(node?.势力影响),
-            势力标签: Array.isArray(node?.势力标签) ? node.势力标签.map(取文本).filter(Boolean) : []
-        }))
-        .filter((node) => node.名称);
-    if (!normalizedNodes.some((node) => node.层级 === '寰宇')) {
-        normalizedNodes.unshift({ 名称: '诸天万界', 层级: '寰宇', 父级ID: '', 描述: '诸天万界交汇之地', 控制势力: '', 势力影响: '', 势力标签: [] });
+const 规范地图节点 = (node: any) => ({
+    ID: 取文本(node?.ID || node?.id),
+    名称: 取文本(node?.名称),
+    层级: 规范化层级(node?.层级),
+    父级ID: 取文本(node?.父级ID),
+    描述: 取文本(node?.描述),
+    控制势力: 取文本(node?.控制势力),
+    势力影响: 取文本(node?.势力影响),
+    势力标签: Array.isArray(node?.势力标签) ? node.势力标签.map(取文本).filter(Boolean) : [],
+    归属: { 大地点: '', 中地点: '', 小地点: '' }
+});
+
+type 地点节点 = ReturnType<typeof 规范地图节点>;
+
+const 定位地图节点 = (rawNodes: any[], existing: any[], mode: 'push' | 'rebuild' | 'set', aliases = new Map<string, string>()) => {
+    const incoming: 地点节点[] = rawNodes.map(raw => {
+        const node = 规范地图节点(raw);
+        if (mode !== 'set' || !raw) return node;
+        const { 在场人物, ...fields } = raw;
+        return { ...fields, ...node, 归属: raw.归属 || node.归属 };
+    }).filter(node => node.名称);
+    if (!incoming.length) return [];
+    if (mode === 'rebuild' && !incoming.some(node => node.层级 === '寰宇')) {
+        incoming.unshift(规范地图节点({ 名称: '诸天万界', 层级: '寰宇', 描述: '诸天万界交汇之地' }));
     }
 
-    const existingLayers = Array.isArray(currentWorld?.地图层级) ? currentWorld.地图层级 : [];
-    const oldNameToId = new Map<string, string>();
-    const usedIds = new Set<string>();
-    existingLayers.forEach((layer: any) => {
-        const name = 取文本(layer?.名称);
-        const id = 取文本(layer?.ID);
-        if (name && id) oldNameToId.set(name, id);
-        if (id) usedIds.add(id);
-    });
-    let seq = existingLayers
-        .map((layer: any) => {
-            const match = 取文本(layer?.ID).match(/^DT-(\d+)$/i);
-            return match ? Number(match[1]) : 0;
-        })
-        .reduce((max, value) => Math.max(max, value), 0);
-    const nextId = (): string => {
-        let id = '';
-        do {
-            seq += 1;
-            id = `DT-${String(seq).padStart(3, '0')}`;
-        } while (usedIds.has(id));
-        usedIds.add(id);
+    const oldNodes = existing.map(规范地图节点);
+    const knownNodes = [...oldNodes];
+    const existingIds = new Set(knownNodes.map(node => node.ID).filter(Boolean));
+    const reservedIds = new Set([...existingIds, ...incoming.flatMap(node => [node.ID, node.父级ID])]);
+    let sequence = 0;
+    for (const id of existingIds) {
+        const number = /^DT-(\d+)$/i.exec(id);
+        if (number && Number.isSafeInteger(Number(number[1]))) sequence = Math.max(sequence, Number(number[1]));
+    }
+    const allocateId = () => {
+        let id: string;
+        do { id = `DT-${String(++sequence).padStart(3, '0')}`; } while (reservedIds.has(id));
+        reservedIds.add(id);
         return id;
     };
-    const nameToId = new Map<string, string>();
-    normalizedNodes.forEach((node) => {
-        if (!nameToId.has(node.名称)) nameToId.set(node.名称, oldNameToId.get(node.名称) || nextId());
-    });
 
-    return normalizedNodes.map((node) => ({
-        ID: nameToId.get(node.名称) || nextId(),
-        名称: node.名称,
-        层级: node.层级,
-        父级ID: node.父级ID ? (nameToId.get(node.父级ID) || oldNameToId.get(node.父级ID) || node.父级ID) : '',
-        描述: node.描述,
-        控制势力: node.控制势力,
-        势力影响: node.势力影响,
-        势力标签: node.势力标签,
-        归属: { 大地点: '', 中地点: '', 小地点: '' }
-    }));
+    const resolveParent = (parent: string, level: string, oldData = false) => {
+        if (!parent) return '';
+        if (aliases.has(parent)) return aliases.get(parent)!;
+        if (existingIds.has(parent)) return parent;
+        const matches = knownNodes.filter(node => node.名称 === parent && node.ID);
+        const parentLevel = 地图层级顺序[地图层级顺序.indexOf(level as typeof 地图层级顺序[number]) - 1];
+        const adjacent = matches.filter(node => node.层级 === parentLevel);
+        const ids = new Set((adjacent.length ? adjacent : matches).map(node => node.ID));
+        if (ids.size > 1) {
+            if (oldData) return parent;
+            throw new Error(`地图父地点「${parent}」有多个同名地点，请指定父级ID。`);
+        }
+        return ids.values().next().value || parent;
+    };
+    const keyOf = (node: 地点节点) => JSON.stringify([node.父级ID, node.层级, node.名称]);
+    const oldByKey = new Map(oldNodes.map(node => [keyOf({ ...node, 父级ID: resolveParent(node.父级ID, node.层级, true) }), node]));
+    const assigned = new Map<string, 地点节点>();
+    const claimedIds = new Set<string>();
+    const kept = new Set<地点节点>();
+    // 先给父层分配 ID，以便接受房间排在建筑前、父级用原始 ID 或地名表示的响应。
+    for (const level of 地图层级顺序) {
+        for (const node of incoming.filter(node => node.层级 === level)) {
+            const rawId = node.ID;
+            node.父级ID = resolveParent(node.父级ID, level);
+            const key = keyOf(node);
+            const sibling = assigned.get(key);
+            let old = oldByKey.get(key);
+            if (!old && mode !== 'push') {
+                // 旧档地点可能没有父级。同层地名在新旧两张图都唯一时，沿用原 ID。
+                const sameName = (candidate: 地点节点) => candidate.层级 === level && candidate.名称 === node.名称;
+                const matches = oldNodes.filter(sameName);
+                if (matches.length === 1 && incoming.filter(sameName).length === 1) old = matches[0];
+            }
+            if (sibling || (mode === 'push' && old)) {
+                const id = sibling?.ID || old?.ID;
+                if (rawId && id) aliases.set(rawId, id);
+                continue;
+            }
+            const oldId = old?.ID;
+            const suppliedId = /^DT-\d+$/i.test(rawId) && !existingIds.has(rawId) ? rawId : '';
+            const preferred = oldId || suppliedId;
+            node.ID = preferred && !claimedIds.has(preferred) ? preferred : allocateId();
+            claimedIds.add(node.ID);
+            if (rawId) aliases.set(rawId, node.ID);
+            assigned.set(key, node);
+            knownNodes.push(node);
+            kept.add(node);
+        }
+    }
+    return incoming.filter(node => kept.has(node));
 };
 
-const 地图层级顺序表 = ['寰宇', '大地点', '中地点', '小地点', '区地点', '子地点'] as const;
+export const 构建地图层级替换结果 = (rawNodes: any[], currentWorld?: any): any[] =>
+    定位地图节点(Array.isArray(rawNodes) ? rawNodes : [], Array.isArray(currentWorld?.地图层级) ? currentWorld.地图层级 : [], 'rebuild');
 
 const 提取命令块 = (rawText: string): string => {
     const source = (rawText || '').trim();
@@ -397,13 +431,22 @@ const 解析命令值 = (text: string): any => {
     }
 };
 
-export const 解析地图自动更新命令 = (rawText: string, currentWorld?: any): TavernCommand[] => {
+const 解析增量地图结果 = (rawText: string, currentWorld?: any): { commands: TavernCommand[]; recognized: boolean } => {
     const block = 提取命令块(rawText);
-    if (!block || /^无$/i.test(block.trim())) return [];
-    const existingLayers = Array.isArray(currentWorld?.地图层级) ? currentWorld.地图层级 : [];
-    const existingNames = new Set(existingLayers.map((layer: any) => 取文本(layer?.名称)).filter(Boolean));
-    const idByName = new Map(existingLayers.map((layer: any) => [取文本(layer?.名称), 取文本(layer?.ID)] as const).filter(([name]) => Boolean(name)));
+    if (!block || /^无$/i.test(block.trim())) return { commands: [], recognized: block.trim() === '无' };
+    let existingLayers = Array.isArray(currentWorld?.地图层级) ? [...currentWorld.地图层级] : [];
     const result: TavernCommand[] = [];
+    const aliases = new Map<string, string>();
+    let hadDuplicate = false;
+    let pendingPushes: any[] = [];
+    const flushPushes = () => {
+        if (!pendingPushes.length) return;
+        const nodes = 定位地图节点(pendingPushes, existingLayers, 'push', aliases);
+        hadDuplicate ||= nodes.length < pendingPushes.length;
+        result.push(...nodes.map(value => ({ action: 'push' as const, key: '世界.地图层级', value })));
+        existingLayers.push(...nodes);
+        pendingPushes = [];
+    };
     block.split(/\n+/).forEach((line) => {
         const trimmed = line.trim().replace(/^[\-*]\s*/, '');
         if (!trimmed || /^无$/i.test(trimmed)) return;
@@ -416,40 +459,41 @@ export const 解析地图自动更新命令 = (rawText: string, currentWorld?: a
         const value = action === 'delete' ? undefined : 解析命令值(match[3] || '');
         if (action === 'push') {
             if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-            const name = 取文本((value as any).名称);
-            if (!name || existingNames.has(name)) return;
-            const parent = 取文本((value as any).父级ID);
-            result.push({
-                action,
-                key: '世界.地图层级',
-                value: {
-                    名称: name,
-                    层级: 规范化层级((value as any).层级),
-                    父级ID: parent ? (idByName.get(parent) || parent) : '',
-                    描述: 取文本((value as any).描述)
-                }
-            });
+            if (取文本(value.名称)) pendingPushes.push(value);
+            return;
+        }
+        flushPushes();
+        if (/^(?:gameState\.)?世界\.地图层级$/.test(key)) {
+            if (action === 'delete' || !Array.isArray(value) || !value.length || !value.every((node) => 取文本(node?.名称))) return;
+            existingLayers = 定位地图节点(value, existingLayers, 'set', aliases);
+            const retainedIds = new Set(existingLayers.map(node => node.ID));
+            for (const [alias, id] of aliases) if (!retainedIds.has(id)) aliases.delete(alias);
+            result.push({ action, key, value: existingLayers.slice() });
             return;
         }
         result.push({ action, key, value } as TavernCommand);
     });
-    if (result.length === 0) {
+    flushPushes();
+    if (result.length === 0 && !hadDuplicate) {
         try {
             const rawNodes = 解析地图重生成节点(rawText);
             const newLayers = 构建地图层级替换结果(rawNodes, currentWorld);
             if (newLayers.length > 0) {
-                return [{
+                return { commands: [{
                     action: 'set',
                     key: '世界.地图层级',
                     value: newLayers
-                }];
+                }], recognized: true };
             }
         } catch {
             // 非 JSON 地点树时保持命令解析结果为空。
         }
     }
-    return result;
+    return { commands: result, recognized: result.length > 0 || hadDuplicate };
 };
+
+export const 解析地图自动更新命令 = (rawText: string, currentWorld?: any): TavernCommand[] =>
+    解析增量地图结果(rawText, currentWorld).commands;
 
 export const 生成地图更新 = async (
     params: 地图更新请求参数
@@ -667,7 +711,10 @@ export const 生成地图更新 = async (
         };
     }
 
-    const commands = 解析地图自动更新命令(rawText, world);
+    const { commands, recognized } = 解析增量地图结果(rawText, world);
+    if (!recognized && !(使用预取地图 && !rawText)) {
+        return { ok: false, phase: 'error', commands: [], rawText, statusText: '地图更新响应没有有效地点树、地图命令或“无”标记，已保留原地图。' };
+    }
     const fullTreeSyncCount = commands.length === 1
         && commands[0]?.action === 'set'
         && commands[0]?.key === '世界.地图层级'
@@ -683,7 +730,7 @@ export const 生成地图更新 = async (
     });
     return {
         ok: true,
-        phase: commands.length > 0 ? 'done' : 'skipped',
+        phase: 'done',
         commands,
         rawText,
         statusText: commands.length > 0

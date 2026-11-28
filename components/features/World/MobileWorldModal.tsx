@@ -4,8 +4,13 @@ import { normalizeCanonicalGameTime, 结构化时间转标准串 } from '../../.
 import { IconMapPin } from '../../ui/Icons';
 import { 势力关系图边, 势力关系图节点, 构建世界显示名解析器, 构建势力关系图数据 } from '../../../utils/worldFactionRelations';
 
+import type { 玩家可见世界圣经概览 } from '../../../engine/storyV2/legacySaveBridge';
+
 interface Props {
     world: 世界数据结构;
+    worldPrompt?: string;
+    realmPrompt?: string;
+    worldOverview?: 玩家可见世界圣经概览 | null;
     worldEvolutionEnabled?: boolean;
     worldEvolutionUpdating?: boolean;
     worldEvolutionStatus?: string;
@@ -16,7 +21,7 @@ interface Props {
     onClose: () => void;
 }
 
-type TabType = 'events' | 'npcs' | 'overview';
+type TabType = 'worldview' | 'events' | 'npcs' | 'overview';
 
 const 转标准时间串 = (value: unknown): string | null => {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -131,6 +136,9 @@ const 移动势力关系图: React.FC<{ nodes: 势力关系图节点[]; edges: �
 
 const MobileWorldModal: React.FC<Props> = ({
     world,
+    worldPrompt = '',
+    realmPrompt = '',
+    worldOverview = null,
     worldEvolutionEnabled = false,
     worldEvolutionUpdating = false,
     worldEvolutionStatus = '',
@@ -152,7 +160,6 @@ const MobileWorldModal: React.FC<Props> = ({
     const 江湖史册 = useMemo(() => Array.isArray(world?.江湖史册) ? world.江湖史册 : [], [world]);
     const 势力列表 = useMemo(() => Array.isArray(world?.势力列表) ? world.势力列表 : [], [world]);
     const 势力互动历史 = useMemo(() => Array.isArray(world?.势力互动历史) ? world.势力互动历史 : [], [world]);
-    const 拍卖行待投放物品 = useMemo(() => Array.isArray(world?.拍卖行待投放物品) ? world.拍卖行待投放物品 : [], [world]);
     const 势力关系图数据 = useMemo(() => 构建势力关系图数据(势力列表), [势力列表]);
     const 解析世界显示名 = useMemo(() => 构建世界显示名解析器(势力列表), [势力列表]);
     const 显示关联列表 = (values: unknown): string[] => 清洗数组显示名(values, 解析世界显示名);
@@ -183,7 +190,7 @@ const MobileWorldModal: React.FC<Props> = ({
                                 </div>
                             )}
                         </div>
-                        <button type="button" onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-700 bg-black/60 text-gray-300">×</button>
+                        <button type="button" aria-label="关闭世界" onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-700 bg-black/60 text-gray-300">×</button>
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-2">
@@ -223,8 +230,9 @@ const MobileWorldModal: React.FC<Props> = ({
                 </div>
 
                 <div className="shrink-0 border-b border-gray-800/80 bg-black/50 px-3 py-2">
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-1.5">
                         {[
+                            { id: 'worldview' as const, label: '总纲' },
                             { id: 'events' as const, label: '风云' },
                             { id: 'npcs' as const, label: '群英' },
                             { id: 'overview' as const, label: '史册' }
@@ -263,6 +271,57 @@ const MobileWorldModal: React.FC<Props> = ({
                                 ))}
                             </div>
                         </button>
+                    )}
+
+                    {activeTab === 'worldview' && (
+                        <div className="space-y-3">
+                            <section className="rounded-3xl border border-wuxia-gold/20 bg-black/50 p-4">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                    <div className="text-xs font-bold tracking-[0.2em] text-wuxia-gold">世界观总纲</div>
+                                    {worldPrompt.trim() && <span className="text-[10px] text-gray-500">共 {worldPrompt.trim().length} 字</span>}
+                                </div>
+                                {worldPrompt.trim() ? (
+                                    <div className="whitespace-pre-wrap text-xs leading-6 text-gray-200">{worldPrompt.trim()}</div>
+                                ) : worldOverview?.世界观表层摘要 ? (
+                                    <div className="whitespace-pre-wrap text-xs leading-6 text-gray-200">{worldOverview.世界观表层摘要}</div>
+                                ) : (
+                                    <div className="text-xs text-gray-500 italic">当前尚未写入开局世界观正文。</div>
+                                )}
+                            </section>
+
+                            {worldOverview && worldOverview.公开分幕大纲.length > 0 && (
+                                <section className="rounded-3xl border border-cyan-500/20 bg-black/50 p-4 space-y-2.5">
+                                    <div className="text-xs font-bold tracking-[0.18em] text-wuxia-cyan">当前局势分幕（第 {worldOverview.当前幕次} 幕）</div>
+                                    {worldOverview.公开分幕大纲.map((act) => (
+                                        <div key={`m-act-${act.幕次}`} className="rounded-2xl border border-gray-800 bg-black/40 p-3 text-xs leading-5">
+                                            <div className="font-bold text-wuxia-gold">第 {act.幕次} 幕 · {act.标题}（{act.当前状态}）</div>
+                                            {act.核心矛盾 && <div className="mt-1 text-gray-300">{act.核心矛盾}</div>}
+                                            {act.主角目标与破局路径 && <div className="mt-1 text-gray-400">破局：{act.主角目标与破局路径}</div>}
+                                        </div>
+                                    ))}
+                                </section>
+                            )}
+
+                            {worldOverview && worldOverview.空间阶梯.length > 0 && (
+                                <section className="rounded-3xl border border-amber-500/20 bg-black/50 p-4 space-y-2.5">
+                                    <div className="text-xs font-bold tracking-[0.18em] text-amber-300">天地空间阶梯</div>
+                                    {worldOverview.空间阶梯.map((tier) => (
+                                        <div key={`m-tier-${tier.层级序号}`} className="rounded-2xl border border-gray-800 bg-black/40 p-3 text-xs leading-5">
+                                            <div className="font-bold text-amber-200">L{tier.层级序号} · {tier.层级名称}</div>
+                                            {tier.典型区域.length > 0 && <div className="text-gray-400">地域：{tier.典型区域.join('、')}</div>}
+                                            {tier.主要压迫冲突 && <div className="text-gray-300">冲突：{tier.主要压迫冲突}</div>}
+                                        </div>
+                                    ))}
+                                </section>
+                            )}
+
+                            {realmPrompt.trim() && (
+                                <section className="rounded-3xl border border-gray-800 bg-black/50 p-4">
+                                    <div className="mb-2 text-xs font-bold tracking-[0.18em] text-gray-300">力量 / 境界体系参考</div>
+                                    <pre className="whitespace-pre-wrap break-words text-[11px] leading-5 text-gray-400 font-sans">{realmPrompt.trim()}</pre>
+                                </section>
+                            )}
+                        </div>
                     )}
 
                     {activeTab === 'events' && (
@@ -372,22 +431,6 @@ const MobileWorldModal: React.FC<Props> = ({
                                                 <div className="rounded-full border border-gray-700 px-2 py-0.5 text-[10px] text-gray-400">{event.类型 || '互动'}</div>
                                             </div>
                                             <div className="mt-2 text-sm leading-6 text-gray-300">{event.事件摘要 || '暂无摘要。'}</div>
-                                        </div>
-                                    ))}
-                                </>
-                            )}
-
-                            {拍卖行待投放物品.length > 0 && (
-                                <>
-                                    <div className="px-2 pt-4 pb-1 text-[11px] font-bold text-purple-300 tracking-widest">市面风声</div>
-                                    {拍卖行待投放物品.slice(0, 6).map((item, idx) => (
-                                        <div key={`market-item-${item.名称 || idx}`} className="rounded-3xl border border-purple-900/25 bg-purple-950/10 p-4">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="text-sm font-semibold text-purple-100">{item.名称 || `未知物品 ${idx + 1}`}</div>
-                                                <div className="rounded-full border border-purple-900/40 px-2 py-0.5 text-[10px] text-purple-300">{item.品质 || '未知品质'}</div>
-                                            </div>
-                                            <div className="mt-2 text-xs text-gray-400">{item.类型 || '物品'}</div>
-                                            {取文本(item.描述) && <div className="mt-2 text-sm leading-6 text-gray-300">{item.描述}</div>}
                                         </div>
                                     ))}
                                 </>

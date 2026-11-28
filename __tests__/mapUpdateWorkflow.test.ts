@@ -33,6 +33,88 @@ afterEach(() => {
 });
 
 describe('地图自动更新解析', () => {
+    const 客栈地图 = [
+        { ID: 'DT-001', 名称: '江湖', 层级: '寰宇', 父级ID: '' },
+        { ID: 'DT-012', 名称: '龙门客栈', 层级: '区地点', 父级ID: 'DT-001' },
+        { ID: 'DT-018', 名称: '悦来客栈', 层级: '区地点', 父级ID: 'DT-001' },
+        { ID: 'DT-025', 名称: '客房', 层级: '子地点', 父级ID: 'DT-012' }
+    ];
+    const push = (node: object) => 'push 世界.地图层级 = ' + JSON.stringify(node);
+
+    it('中间穿插 set 时，后续房间仍通过同一响应的建筑别名绑定父节点', () => {
+        const input = [
+            push({ ID: 'inn-C', 名称: '云来客栈', 层级: '区地点', 父级ID: 'DT-001' }),
+            'set 世界.地图层级[0].描述 = "旧地图修订"',
+            push({ 名称: '云来药房', 层级: '子地点', 父级ID: 'inn-C' })
+        ];
+        const commands = 解析地图自动更新命令(input.join('\n'), { 地图层级: 客栈地图 });
+        expect(commands.map(c => c.action)).toEqual(['push', 'set', 'push']);
+        expect(commands[2].value.父级ID).toBe(commands[0].value.ID);
+    });
+
+    it('全图重建保留旧 ID，区分异父同名房间，并解析本批父节点的原 ID 或名称', () => {
+        const input = [
+            { ID: 'room-B', 名称: '客房', 层级: '子地点', 父级ID: 'inn-B' },
+            { 名称: '客房', 层级: '子地点', 父级ID: '悦来客栈' },
+            { 名称: '客房', 层级: '子地点', 父级ID: 'DT-012' },
+            { ID: 'inn-B', 名称: '悦来客栈', 层级: '区地点', 父级ID: '江湖' },
+            { 名称: '龙门客栈', 层级: '区地点', 父级ID: 'DT-001' },
+            { 名称: '江湖', 层级: '寰宇', 父级ID: '' }
+        ];
+        const nodes = 构建地图层级替换结果(input, { 地图层级: 客栈地图 });
+        expect(nodes).toHaveLength(5);
+        expect(new Set(nodes.map(n => n.ID)).size).toBe(5);
+        expect(nodes).toEqual(expect.arrayContaining(客栈地图.map(n => expect.objectContaining(n))));
+        const second = nodes.find(n => n.名称 === '客房' && n.父级ID === 'DT-018');
+        expect(second?.ID).toMatch(/^DT-\d+$/);
+        expect(构建地图层级替换结果(input, { 地图层级: nodes })).toEqual(nodes);
+    });
+
+    it('增量更新仅去重同父同层地点；新地点可立即通过原 ID 引用，并能整批重放', () => {
+        const raw = [
+            push({ 名称: '客房', 层级: '子地点', 父级ID: 'DT-012' }),
+            push({ 名称: '客房', 层级: '子地点', 父级ID: '悦来客栈' }),
+            push({ 名称: '客房', 层级: '子地点', 父级ID: 'DT-018' }),
+            push({ 名称: '客房', 层级: '子地点', 父级ID: 'inn-C' }),
+            push({ ID: 'inn-C', 名称: '云来客栈', 层级: '区地点', 父级ID: '江湖' })
+        ].join('\n');
+        const commands = 解析地图自动更新命令(raw, { 地图层级: 客栈地图 });
+        expect(commands).toHaveLength(3);
+        const added = commands.map(command => command.value);
+        const inn = added.find(n => n.名称 === '云来客栈');
+        expect(inn?.ID).toMatch(/^DT-\d+$/);
+        expect(added.filter(n => n.名称 === '客房').map(n => n.父级ID)).toEqual(['DT-018', inn.ID]);
+        expect(new Set([...客栈地图, ...added].map(n => n.ID)).size).toBe(7);
+        expect(解析地图自动更新命令(raw, { 地图层级: [...客栈地图, ...added] })).toEqual([]);
+    });
+
+    it('旧档孤立的唯一地点补回父级后保留 ID，显式全图 set 保留位置数据', () => {
+        const world = { 地图层级: [{ ID: 'DT-107', 名称: '旧渡口', 层级: '区地点', 父级ID: '' }] };
+        const input = [
+            { ID: 'DT-002', 名称: '青河镇', 层级: '小地点', 父级ID: '' },
+            { 名称: '旧渡口', 层级: '区地点', 父级ID: '青河镇', 锚点坐标: { x: 41, y: 53 }, 归属: { 小地点: '青河镇' } }
+        ];
+        const [command] = 解析地图自动更新命令('set 世界.地图层级 = ' + JSON.stringify(input), world);
+        expect(command.value.find((n: any) => n.名称 === '旧渡口')).toMatchObject({
+            ID: 'DT-107', 父级ID: 'DT-002', 锚点坐标: { x: 41, y: 53 }, 归属: { 小地点: '青河镇' }
+        });
+    });
+
+    it.each([
+        ['{"地点树":[]}', 'error'],
+        ['{"地点树":[{"描述":"没有有效地名"}]}', 'error'],
+        ['{"错误":"响应不符合地图协议"}', 'error'],
+        ['<命令>push 世界.地图层级 = {"名称":"青河镇","层级":"小地点"}</命令>', 'done']
+    ])('保留已有地图，并区分损坏输出与已收录地点 %s', async (rawText, phase) => {
+        const world = { 地图层级: [{ ID: 'DT-006', 名称: '青河镇', 层级: '小地点' }] };
+        expect(解析地图自动更新命令(rawText, world)).toEqual([]);
+        const result = await 生成地图更新({
+            mode: 'auto_incremental', apiSettings: { 功能模型占位: {} } as any,
+            世界: world as any, 环境: {} as any, worldbooks: [], prefetchedRawText: rawText
+        });
+        expect(result).toMatchObject({ phase, commands: [], ok: phase === 'done' });
+    });
+
     it('兼容模型返回思考块加地点树 JSON 的全量同步格式', () => {
         const currentWorld = {
             地图层级: [
@@ -147,7 +229,8 @@ describe('地图更新请求兜底超时', () => {
             currentResponse: { logs: [{ sender: '旁白', text: '清晨醒来。' }], tavern_commands: [] } as any
         });
 
-        expect(result.phase).toBe('skipped');
+        expect(result.phase).toBe('done');
+        expect(result.statusText).toContain('无需更新');
         const logText = vi.mocked(recordDiagnosticLog).mock.calls
             .map((call) => JSON.stringify(call))
             .join('\n');

@@ -16,6 +16,7 @@ export * from './models/fandomPlanning/heroinePlan';
 export * from './models/battle';
 export * from './models/worldbook';
 export * from './models/novelDecomposition';
+export * from './models/directorBible';
 
 // New types for the advanced chat system
 

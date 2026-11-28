@@ -78,18 +78,33 @@ const TeamModal: React.FC<Props> = ({ character, teammates, openingConfig, onClo
         const portraitRecord = history.find((item) => item?.构图 === '立绘' && item?.图片用途 !== '背景' && item?.状态 === 'success' && 获取图片展示地址(item));
         return 获取图片展示地址(avatarRecord) || 获取图片展示地址(portraitRecord) || 获取图片资源文本地址(person?.头像图片URL) || 获取图片资源文本地址(person?.立绘图片URL);
     };
-    const AvatarBox: React.FC<{ person: any; title: string; className?: string; fallbackClassName?: string }> = ({ person, title, className = 'h-20 w-20 rounded-2xl', fallbackClassName = 'text-3xl' }) => {
+    const AvatarBox: React.FC<{ person: any; title: string; className?: string; fallbackClassName?: string; interactive?: boolean }> = ({
+        person,
+        title,
+        className = 'h-20 w-20 rounded-2xl',
+        fallbackClassName = 'text-3xl',
+        interactive = true
+    }) => {
         const imageSrc = 提取人物头像(person);
         const firstChar = String(person?.姓名 || title || '人').trim().slice(0, 1) || '人';
+        const boxClassName = `${className} flex shrink-0 items-center justify-center overflow-hidden border-2 border-wuxia-gold/40 bg-wuxia-gold/10 font-bold text-wuxia-gold shadow-[0_0_20px_rgba(0,0,0,0.5)] transition hover:border-wuxia-gold/70 disabled:cursor-default disabled:hover:border-wuxia-gold/40`;
+        const content = imageSrc ? <img src={imageSrc} alt="头像" className="h-full w-full object-cover object-top" /> : <span className={fallbackClassName}>{firstChar}</span>;
+        if (!interactive) {
+            return (
+                <div className={boxClassName} aria-hidden="true">
+                    {content}
+                </div>
+            );
+        }
         return (
             <button
                 type="button"
                 disabled={!imageSrc}
                 onClick={() => imageSrc && setImageViewer({ src: imageSrc, title })}
-                className={`${className} flex shrink-0 items-center justify-center overflow-hidden border-2 border-wuxia-gold/40 bg-wuxia-gold/10 font-bold text-wuxia-gold shadow-[0_0_20px_rgba(0,0,0,0.5)] transition hover:border-wuxia-gold/70 disabled:cursor-default disabled:hover:border-wuxia-gold/40`}
+                className={boxClassName}
                 title={imageSrc ? '查看头像' : '头像占位'}
             >
-                {imageSrc ? <img src={imageSrc} alt="头像" className="h-full w-full object-cover object-top" /> : <span className={fallbackClassName}>{firstChar}</span>}
+                {content}
             </button>
         );
     };
@@ -484,7 +499,7 @@ const TeamModal: React.FC<Props> = ({ character, teammates, openingConfig, onClo
                                 }`}
                             >
                                 {selectedTab === playerTabId && <div className="absolute left-0 top-0 bottom-0 w-1 bg-wuxia-gold shadow-[0_0_10px_rgba(212,175,55,0.8)]"></div>}
-                                <AvatarBox person={character} title={`${character.姓名 || '主角'}头像`} className="h-10 w-10 rounded-full" fallbackClassName="text-sm" />
+                                <AvatarBox person={character} title={`${character.姓名 || '主角'}头像`} className="h-10 w-10 rounded-full" fallbackClassName="text-sm" interactive={false} />
                                 <div className="min-w-0 flex-1 text-left">
                                     <div className={`truncate font-bold ${selectedTab === playerTabId ? 'text-wuxia-gold' : 'text-gray-200'}`}>{character.姓名 || '主角'}</div>
                                     <div className="mt-0.5 truncate text-[10px] tracking-widest text-gray-500">队长 · {character.境界 || '境界不明'}</div>
@@ -503,7 +518,7 @@ const TeamModal: React.FC<Props> = ({ character, teammates, openingConfig, onClo
                                     }`}
                                 >
                                     {selectedTab === npc.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-wuxia-gold shadow-[0_0_10px_rgba(212,175,55,0.8)]"></div>}
-                                    <AvatarBox person={npc} title={`${npc.姓名}头像`} className={`h-10 w-10 rounded-full ${npc.性别 === '女' ? 'border-pink-900/50 text-pink-400' : 'border-blue-900/50 text-blue-400'}`} fallbackClassName="text-sm" />
+                                    <AvatarBox person={npc} title={`${npc.姓名}头像`} className={`h-10 w-10 rounded-full ${npc.性别 === '女' ? 'border-pink-900/50 text-pink-400' : 'border-blue-900/50 text-blue-400'}`} fallbackClassName="text-sm" interactive={false} />
                                     <div className="text-left flex-1 min-w-0">
                                         <div className={`font-serif font-bold truncate ${selectedTab === npc.id ? 'text-wuxia-gold' : 'text-gray-200'}`}>{npc.姓名}</div>
                                         <div className="text-[10px] text-gray-500 mt-0.5 truncate tracking-widest">{npc.身份 || '追随者'}</div>
