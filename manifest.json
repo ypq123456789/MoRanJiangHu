@@ -1,10 +1,10 @@
 {
-  "versionName": "2.0.0",
-  "versionCode": 719,
-  "fileName": "MoRanJiangHu-v2.0.0.apk",
-  "apkSha256": "83dad3fd643957af8e1ba90d04f750700a2a74dae36e83cdf334c157613e2cb5",
-  "apkSize": 6112535,
-  "rawDirectUrl": "https://raw.githubusercontent.com/ypq123456789/MoRanJiangHu/apk-dist/releases/MoRanJiangHu-v2.0.0.apk",
-  "rawAcceleratedUrl": "https://cloudflare-proxy-6rw.pages.dev/https://raw.githubusercontent.com/ypq123456789/MoRanJiangHu/apk-dist/releases/MoRanJiangHu-v2.0.0.apk",
-  "publishedAt": "2026-11-28T22:10:43+08:00"
+  "versionName": "2.0.1",
+  "versionCode": 720,
+  "fileName": "MoRanJiangHu-v2.0.1.apk",
+  "apkSha256": "ca54fa6f03514ef8a504e522a6968f2c53c663e8758856d406f639e1d36fa8da",
+  "apkSize": 6140227,
+  "rawDirectUrl": "https://raw.githubusercontent.com/ypq123456789/MoRanJiangHu/apk-dist/releases/MoRanJiangHu-v2.0.1.apk",
+  "rawAcceleratedUrl": "https://cloudflare-proxy-6rw.pages.dev/https://raw.githubusercontent.com/ypq123456789/MoRanJiangHu/apk-dist/releases/MoRanJiangHu-v2.0.1.apk",
+  "publishedAt": "2026-11-29T01:48:39+08:00"
 }
